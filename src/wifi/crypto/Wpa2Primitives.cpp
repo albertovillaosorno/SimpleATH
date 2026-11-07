@@ -448,7 +448,11 @@ namespace simpleath
                 if (!kck || !eapol || !outputMic || frameBytes < 99u ||
                     frameBytes > 2048u)
                     return Error::InvalidArgument;
-                if (!disjoint(outputMic, 16, eapol, frameBytes))
+                // The output must not overwrite the KCK or signed input.
+                // In particular, returning a MIC in the key buffer would
+                // silently destroy the caller's live session secret.
+                if (!disjoint(outputMic, 16, kck, 16) ||
+                    !disjoint(outputMic, 16, eapol, frameBytes))
                     return Error::InvalidArgument;
                 const Slice input {eapol, frameBytes};
                 uint8_t digest[kShaDigest] {};
@@ -462,6 +466,19 @@ namespace simpleath
                             size_t wrappedBytes, uint8_t *output,
                             size_t outputCapacity, size_t &outputBytes)
             {
+                // outputBytes is a writable reference and could be forged to
+                // refer into the KEK, wrapped ciphertext or plaintext output.
+                // Reject such aliases BEFORE clearing it, so invalid calls
+                // cannot mutate the key or the packet being authenticated.
+                const auto *countBytes =
+                    reinterpret_cast<const uint8_t *>(&outputBytes);
+                if ((kek &&
+                     !disjoint(countBytes, sizeof(outputBytes), kek, 16)) ||
+                    (wrapped && !disjoint(countBytes, sizeof(outputBytes),
+                                          wrapped, wrappedBytes)) ||
+                    (output && !disjoint(countBytes, sizeof(outputBytes),
+                                         output, outputCapacity)))
+                    return Error::InvalidArgument;
                 outputBytes = 0;
                 if (!kek || !wrapped || !output)
                     return Error::InvalidArgument;

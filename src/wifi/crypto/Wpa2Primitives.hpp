@@ -45,14 +45,16 @@ namespace simpleath
 
             // HMAC-SHA1-128 for WPA2 EAPOL-Key descriptor version 2.
             // Caller must supply the whole EAPOL frame with its MIC field
-            // zeroed.
+            // zeroed. The output must not overlap the KCK or signed bytes.
             Error calculateMic(const uint8_t kck[16], const uint8_t *eapol,
                                size_t frameBytes, uint8_t outputMic[16]);
 
             // RFC3394 AES-128-Key-Unwrap. Bounds fixed to WPA2 EAPOL key-data
             // maximum of 512 bytes. Rejects integrity-check failure without
             // publishing plaintext. Wrapped data must be 24..512 bytes,
-            // multiple of 8, and disjoint from out.
+            // multiple of 8, and disjoint from out. The outputBytes
+            // reference must not alias the KEK, ciphertext or output storage;
+            // invalid aliases are rejected without modifying those bytes.
             Error unwrapKey(const uint8_t kek[16], const uint8_t *wrapped,
                             size_t wrappedBytes, uint8_t *output,
                             size_t outputCapacity, size_t &outputBytes);
