@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// New bounded parser adapted from the permissively licensed Linux ath9k
+// ar9003_eeprom.c/.h. Preserve their upstream permission and copyright:
+// Local reference SHA-256:
+// ar9003_eeprom.c: 9af461f68c73fdbe553619534f0474dca637a7c5191729251fa479af2ad75dc6
+// ar9003_eeprom.h: 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd
+// eeprom.h: b6bc5f1bffd56f5b8828d14635eac4846487ff6f2ef06344d474ac4c1c11b7b0
+/*
+ * Copyright (c) 2010-2011 Atheros Communications Inc.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#include "Ar9565Eeprom.hpp"
+
+namespace simpleath {
+namespace {
+uint16_t le16(const uint8_t *p) {
+    return static_cast<uint16_t>(p[0] | (static_cast<uint16_t>(p[1]) << 8));
+}
+uint32_t le32(const uint8_t *p) {
+    return static_cast<uint32_t>(le16(p)) |
+        (static_cast<uint32_t>(le16(p + 2)) << 16);
+}
+void copyBytes(uint8_t *destination, const uint8_t *source, size_t length) {
+    for (size_t i = 0; i < length; ++i) destination[i] = source[i];
+}
+bool overlapsImage(const uint8_t *source, size_t length, const EepromImage &image) {
+    const auto src = reinterpret_cast<uintptr_t>(source);
+    const auto dst = reinterpret_cast<uintptr_t>(&image);
+    return src >= dst ? src - dst < sizeof(image) : dst - src < length;
+}
+
+// Unlike upstream's permissive restoration, reject truncated records and
+// propagate every bounds failure. Validate the ENTIRE delta before applying.
+bool validDelta(const uint8_t *payload, size_t length) {
+    size_t cursor = 0, spot = 0;
+    while (cursor < length) {
+        if (length - cursor < 2) return false;
+        const size_t skip = payload[cursor++];
+        const size_t count = payload[cursor++];
+        if (skip > kAr9300EepromImageBytes - spot) return false;
+        spot += skip;
+        if (count > length - cursor || count > kAr9300EepromImageBytes - spot)
+            return false;
+        cursor += count;
+        spot += count;
+    }
+    return true;
+}
+}
+
+void discardEepromImage(EepromImage &image) {
+    for (size_t i = 0; i < sizeof(image.bytes); ++i) image.bytes[i] = 0;
+    image.restored = false;
+    image.appliedBlocks = 0;
+}
+
+EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
+                              const EepromTemplates &templates,
+                              EepromImage &image, EepromBlockInfo &info) {
+    info = {};
+    if (!frame) return EepromResult::InvalidArgument;
+    if (overlapsImage(frame, frameBytes, image)) return EepromResult::InvalidArgument;
+    if (frameBytes < 4) return EepromResult::TruncatedBlock;
+    if (le32(frame) == 0 || le32(frame) == 0xffffffffu)
+        return EepromResult::EmptyHeader;
+    info.compression = (frame[0] >> 5) & 7u;
+    info.reference = (frame[0] & 0x1fu) | ((frame[1] >> 2) & 0x20u);
+    info.payloadBytes = static_cast<uint16_t>(
+        ((static_cast<uint16_t>(frame[1]) << 4) & 0x7f0u) | (frame[2] >> 4));
+    info.major = frame[2] & 0x0fu;
+    info.minor = frame[3];
+    const size_t length = info.payloadBytes;
+    if (frameBytes != length + 6) return EepromResult::TruncatedBlock;
+    if (image.appliedBlocks >= 100) return EepromResult::InvalidArgument;
+    uint16_t checksum = 0;
+    for (size_t i = 0; i < length; ++i)
+        checksum = static_cast<uint16_t>(checksum + frame[4 + i]);
+    if (checksum != le16(frame + 4 + length)) return EepromResult::BadChecksum;
+    const uint8_t *payload = frame + 4;
+    if (info.compression == 0) {
+        if (length != sizeof(image.bytes)) return EepromResult::WrongImageSize;
+        copyBytes(image.bytes, payload, length);
+    } else if (info.compression == 3) {
+        if (!validDelta(payload, length)) return EepromResult::InvalidDelta;
+        const uint8_t *base = nullptr;
+        if (info.reference) {
+            size_t baseLength = 0;
+            if (templates.find)
+                base = templates.find(templates.context, info.reference, &baseLength);
+            if (!base || baseLength != sizeof(image.bytes) ||
+                base[1] != info.reference)
+                return EepromResult::MissingTemplate;
+            if (overlapsImage(base, baseLength, image))
+                return EepromResult::InvalidArgument;
+        } else if (!image.restored) {
+            return EepromResult::MissingBaseImage;
+        }
+        if (base) copyBytes(image.bytes, base, sizeof(image.bytes));
+        size_t cursor = 0, spot = 0;
+        while (cursor < length) {
+            spot += payload[cursor++];
+            const size_t count = payload[cursor++];
+            copyBytes(image.bytes + spot, payload + cursor, count);
+            spot += count;
+            cursor += count;
+        }
+    } else {
+        return EepromResult::UnsupportedCompression;
+    }
+    ++image.appliedBlocks;
+    image.restored = true;
+    return EepromResult::Ok;
+}
+
+EepromResult summarizeBoardData(const EepromImage &image, BoardDataSummary &out) {
+    out = {};
+    if (!image.restored || image.appliedBlocks == 0)
+        return EepromResult::MissingBaseImage;
+    const auto bytes = image.bytes;
+    // ar9300_eeprom packed layout: prefix 28, base header 25, 2G modal 71,
+    // base extension 14, 2G pier frequencies at 138. Never cast packed data.
+    if (bytes[0] != 2 || (bytes[34] & 1u))
+        return EepromResult::UnsupportedFormat;
+    // AR9565 has one TX/RX chain. Generic 0x77 template masks are not a
+    // recovered AR9565 board identity. This is still only a structural check.
+    if (!validatePermanentMac(bytes + 2) || bytes[32] != 0x11 ||
+        !(bytes[33] & 0x02u))
+        return EepromResult::InvalidBoardIdentity;
+    out.eepromVersion = bytes[0];
+    out.templateVersion = bytes[1];
+    copyBytes(out.mac, bytes + 2, sizeof(out.mac));
+    out.regulatoryDomains[0] = le16(bytes + 28);
+    out.regulatoryDomains[1] = le16(bytes + 30);
+    out.txChainMask = bytes[32] >> 4;
+    out.rxChainMask = bytes[32] & 0x0fu;
+    out.operationFlags = bytes[33];
+    out.rfSilent = bytes[35];
+    out.rfKillConfigured = (out.rfSilent & 1u) != 0;
+    out.rfKillPolarity = (out.rfSilent & 2u) != 0;
+    out.rfKillGpio = (out.rfSilent & 0xfcu) >> 2;
+    out.bluetoothOptions = bytes[36];
+    out.wlanDisableGpio = bytes[45];
+    out.txGainIndex = bytes[48] >> 4;
+    out.rxGainIndex = bytes[48] & 0x0fu;
+    out.antennaControlCommon = le32(bytes + 53);
+    out.antennaControlCommon2 = le32(bytes + 57);
+    out.antennaControlChain0 = le16(bytes + 61);
+    // Explicit sign extension avoids implementation-defined uint8_t->int8_t.
+    out.antennaGainDb = static_cast<int8_t>(bytes[99] < 128
+        ? static_cast<int>(bytes[99]) : static_cast<int>(bytes[99]) - 256);
+    out.storedAntennaDiversity = bytes[124];
+    // ath9k EEP_ANT_DIV_CTL1 overrides the EEPROM value for AR9565.
+    out.ar9565AntennaDiversity = 0xc9;
+    copyBytes(out.calibrationFrequencyBins2G, bytes + 138,
+              sizeof(out.calibrationFrequencyBins2G));
+    // No calibration, regulatory authority, power limit, RF-kill GPIO sample,
+    // antenna routing or coexistence programming follows from parsing bytes.
+    out.calibrationValidated = false;
+    out.regulatoryAuthorized = false;
+    return EepromResult::Ok;
+}
+
+} // namespace simpleath
