@@ -50,6 +50,55 @@ namespace
         out[33] = 0x84;
     }
 
+    bool rejectStaleElementCursorViews()
+    {
+        uint8_t valid[] {0, 1, 'A'};
+        Elements cursor(valid, sizeof(valid));
+        Element item {};
+        if (cursor.next(item) != CursorStatus::Element || item.id != 0 ||
+            item.length != 1 || item.data != valid + 2)
+            return false;
+        // End must revoke the last borrowed payload pointer; the owner may
+        // release DMA-backed bytes after parsing finishes.
+        if (cursor.next(item) != CursorStatus::End || item.data != nullptr ||
+            item.length != 0 || item.id != 0)
+            return false;
+
+        uint8_t truncated[] {0, 1, 'B', 2, 3, 'C'};
+        Elements malformed(truncated, sizeof(truncated));
+        if (malformed.next(item) != CursorStatus::Element ||
+            item.data != truncated + 2)
+            return false;
+        // A truncated next element must not retain a previously accepted
+        // borrowed pointer, or advance past the malformed element.
+        if (malformed.next(item) != CursorStatus::Truncated ||
+            item.data != nullptr || item.length != 0 || item.id != 0 ||
+            malformed.next(item) != CursorStatus::Truncated)
+            return false;
+
+        // An output that points into the input frame must not erase its
+        // bytes, or cause the cursor to advance on a rejected attempt.
+        struct Storage
+        {
+                Element output;
+                uint8_t tail[16];
+        } storage {};
+
+        auto *frame = reinterpret_cast<uint8_t *>(&storage);
+        frame[0] = 0;
+        frame[1] = 0;
+        uint8_t original[sizeof(storage)] {};
+        std::memcpy(original, frame, sizeof(storage));
+        Elements aliased(frame, sizeof(storage));
+        if (aliased.next(storage.output) != CursorStatus::Truncated ||
+            std::memcmp(original, frame, sizeof(storage)) != 0)
+            return false;
+        if (aliased.next(item) != CursorStatus::Element || item.id != 0 ||
+            item.length != 0 || item.data != frame + 2)
+            return false;
+        return true;
+    }
+
     bool validBeacon()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -389,5 +438,7 @@ int main()
         return 8;
     if (!rejectNonInfrastructureAssociation())
         return 9;
+    if (!rejectStaleElementCursorViews())
+        return 10;
     return 0;
 }

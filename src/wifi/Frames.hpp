@@ -136,6 +136,9 @@ namespace simpleath
         {
             public:
                 Elements(const uint8_t *data, size_t length);
+                // On End/Truncated, revoke earlier borrowed Element::data.
+                // An output overlapping this cursor or source frame returns
+                // Truncated untouched, without advancing the cursor.
                 CursorStatus next(Element &out);
 
             private:

@@ -191,6 +191,15 @@ namespace simpleath
 
         CursorStatus Elements::next(Element &out)
         {
+            // Reject forged aliases before clearing a previously borrowed
+            // element. An output inside the cursor or RX frame would corrupt
+            // parser state or the bytes still needed by a later iteration.
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), data_, length_))
+                return CursorStatus::Truncated;
+            // End and malformed elements revoke pointers to earlier RX bytes.
+            // Never expose a previously accepted element after failed advance.
+            out = {};
             if (offset_ == length_)
                 return CursorStatus::End;
             if (!data_ || length_ - offset_ < 2)
