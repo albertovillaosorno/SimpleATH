@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from build import PROJECT
 from build import copy_package_sources
 from build import native_addresses
+from build import vtable_rows
 
 LICENSE_TEXT = "LICENSE"
 README_TEXT = "README.md"
@@ -54,6 +55,26 @@ class BuildSourceLayoutTests(TestCase):
             "_public": 0x1000,
             "_wifi": 0x3000,
         }
+
+    @staticmethod
+    def test_vtable_guards_refuse_malformed_manifest_rows() -> None:
+        """Reject incomplete, oversized and incorrectly typed ABI guards."""
+        assert vtable_rows([["_class", 24, "_method"]]) == [
+            ("_class", 24, "_method")
+        ]
+        for malformed in (
+            [["_class", 24]],
+            [["_class", 24, "_method", "surplus"]],
+            [["_class", "24", "_method"]],
+            [["_class", True, "_method"]],
+            [[0, 24, "_method"]],
+        ):
+            rejected = False
+            try:
+                _ = vtable_rows(malformed)
+            except TypeError, ValueError:
+                rejected = True
+            assert rejected
 
     @staticmethod
     def test_bundle_sources_use_current_repo_paths() -> None:

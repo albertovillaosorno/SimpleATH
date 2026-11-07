@@ -20,9 +20,16 @@ import shutil
 import struct
 import subprocess
 import tempfile
-import zipfile
 from typing import TYPE_CHECKING
+from typing import TypeIs
+import zipfile
 
+from abi_types import integer
+from abi_types import json_object
+from abi_types import mapping
+from abi_types import plist_object
+from abi_types import sequence
+from abi_types import string
 from bootstrap import ROOT
 from bootstrap import validate_payloads
 from embed import ALIASES
@@ -33,6 +40,7 @@ from embed_macho_parser import parse
 from kernel_collection import KernelCollection
 from macho import Image
 from native_references import ReferenceCollection
+from native_references import ReferenceImage
 from native_references import reference_paths
 from profiles import IMAGES
 from source_fingerprint import source_fingerprint
@@ -42,6 +50,11 @@ from verification_runtime import require_assertions_active
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from collections.abc import Mapping
+
+type PackageFragment = dict[str, dict[str, list[dict[str, str | bool]]]]
+
+VTABLE_GUARD_FIELDS = 3
 
 CONFIGURATIONS = ("Debug", "Release")
 PROJECT = ROOT / "src/platform/SimpleATH.xcodeproj"
@@ -283,7 +296,13 @@ int main(int argc, char **argv) {
 """
 
 
-def digest(path):
+def digest(path: Path | str) -> str:
+    """Hash the contents of one source or verified artifact path.
+
+    Returns:
+        The lowercase SHA-256 hex digest.
+
+    """
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
@@ -297,8 +316,14 @@ def fingerprint() -> str:
     return source_fingerprint(ROOT)
 
 
-def fragment(optional=False):
-    entries = [("SimpleATH.kext", "SimpleATH")]
+def fragment(optional: bool = False) -> PackageFragment:
+    """Describe the OpenCore entries for a verified package.
+
+    Returns:
+        A fresh plist-compatible fragment without filesystem activity.
+
+    """
+    entries: list[tuple[str, str]] = [("SimpleATH.kext", "SimpleATH")]
     if optional:
         entries = (
             [
@@ -331,13 +356,14 @@ def fragment(optional=False):
     return {"Kernel": {"Add": add, "Block": []}}
 
 
-def save_plist(path, value):
+def save_plist(path: Path, value: PackageFragment) -> None:
+    """Write a plist with its original package attribution header."""
     data = plistlib.dumps(value, sort_keys=False).decode()
     header = (
         f"<!--\n  {path.name}\n  SimpleATH\n\n  Created by laobamac on 2026/11/1.\n"
         "  Copyright © 2026 laobamac. All rights reserved.\n-->\n"
     )
-    path.write_text(data.replace("<!DOCTYPE", header + "<!DOCTYPE", 1))
+    _ = path.write_text(data.replace("<!DOCTYPE", header + "<!DOCTYPE", 1))
 
 
 def native_addresses(
@@ -358,8 +384,20 @@ def native_addresses(
     return available
 
 
-def check_reference(folder, addresses, compatibility, far, labels):
-    exports = []
+def check_reference(
+    folder: Path,
+    addresses: Mapping[str, int],
+    compatibility: Mapping[str, int],
+    far: bool,
+    labels: list[str],
+) -> int:
+    """Check a synthetic linked image against independently decoded imports.
+
+    Returns:
+        Number of relocation values checked in the offline test fixtures.
+
+    """
+    exports: list[dict[str, int]] = []
     images = [Image(IMAGES[name]) for name in labels]
     for image in images:
         _, symbols = parse(image)
@@ -436,17 +474,58 @@ def check_reference(folder, addresses, compatibility, far, labels):
     return checked
 
 
-def verify(configuration, references):
+def _strings(value: object) -> list[str]:
+    """Return a checked array of strings from a JSON reference.
+
+    Returns:
+        String elements with malformed values rejected.
+
+    """
+    return [string(item) for item in sequence(value)]
+
+
+def vtable_rows(value: object) -> list[tuple[str, int, str]]:
+    """Decode checked class, slot and method references.
+
+    Returns:
+        Ordered triples of symbol names and offsets.
+
+    Raises:
+        ValueError: A row lacks the required three fields.
+
+    """
+    rows: list[tuple[str, int, str]] = []
+    for raw in sequence(value):
+        parts = sequence(raw)
+        if len(parts) != VTABLE_GUARD_FIELDS:
+            message = "Native vtable guard must have exactly three fields"
+            raise ValueError(message)
+        rows.append((string(parts[0]), integer(parts[1]), string(parts[2])))
+    return rows
+
+
+def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
+    """Validate offline artifacts against the complete pinned reference set.
+
+    Returns:
+        A report of source-only checks, not evidence of device operation.
+
+    """
     require_assertions_active()
     validate_payloads()
     source_fingerprint = fingerprint()
-    manifest = json.loads((OUTPUT / "manifest.json").read_text())
+    manifest = json_object((OUTPUT / "manifest.json").read_text())
+    payloads = [mapping(p) for p in sequence(manifest["payloads"])]
+    system_profiles = [mapping(p) for p in sequence(manifest["systemProfiles"])]
+    runtime_guards = mapping(manifest["nativeRuntimeGuards"])
+    native_vtables = vtable_rows(manifest["nativeVtableGuards"])
+    native_imports = _strings(manifest["nativeImports"])
     product = (
         ROOT
         / f"build/DerivedData/Build/Products/{configuration}/SimpleATH.kext"
     )
     binary = product / "Contents/MacOS/SimpleATH"
-    evidence = json.loads(
+    evidence = json_object(
         (ROOT / f"build/Build-{configuration}.json").read_text()
     )
     assert evidence["sourceFingerprint"] == source_fingerprint
@@ -459,10 +538,11 @@ def verify(configuration, references):
         / "SimpleATH.kext.dSYM/Contents/Resources/DWARF/SimpleATH"
     )
     assert Image(symbols).uuid == image.uuid
-    info = plistlib.loads((product / "Contents/Info.plist").read_bytes())
+    info = plist_object((product / "Contents/Info.plist").read_bytes())
+    libraries = mapping(info["OSBundleLibraries"])
     assert info["CFBundleVersion"] == VERSION
     assert info["CFBundleIdentifier"] == "dev.alberto.SimpleATH"
-    assert not any("Lilu" in n for n in info["OSBundleLibraries"])
+    assert not any("Lilu" in n for n in libraries)
     undefined = set(
         subprocess.check_output(
             ["nm", "-u", "-j", str(binary)], text=True
@@ -472,19 +552,21 @@ def verify(configuration, references):
         "Lilu" in n or n in ["_lilu", "_lilu_os_log"] for n in undefined
     )
     assert "__ZN6OSKext8copyUUIDEv" not in undefined
-    for payload in manifest["payloads"]:
-        storage = payload["storage"]
-        stored = (OUTPUT / storage["file"]).read_bytes()
-        assert len(stored) == storage["storedSize"]
-        assert hashlib.sha256(stored).hexdigest() == storage["storedSHA256"]
+    for payload in payloads:
+        storage = mapping(payload["storage"])
+        stored = (OUTPUT / string(storage["file"])).read_bytes()
+        assert len(stored) == integer(storage["storedSize"])
+        assert hashlib.sha256(stored).hexdigest() == string(
+            storage["storedSHA256"]
+        )
         assert image.data.count(stored) == 1
     assert (OUTPUT / "AirPort.bin").read_bytes() not in image.data
     assert len(image.data) < 14 * 1024 * 1024, (
         "Unexpected growth in the universal kext"
     )
-    targets = []
-    addresses = {}
-    verified_references = {}
+    targets: list[dict[str, object]] = []
+    addresses: dict[str, dict[str, int]] = {}
+    verified_references: dict[str, Path] = {}
     for reference in references:
         c = KernelCollection(reference)
         if not isinstance(c, (KernelCollection, ReferenceCollection)):
@@ -492,26 +574,27 @@ def verify(configuration, references):
             raise TypeError(message)
         kernel = int(c.version().split(".")[0])
         profiles = [
-            p for p in manifest["systemProfiles"] if p["kernel"] == kernel
+            p for p in system_profiles if integer(p["kernel"]) == kernel
         ]
         assert len(profiles) == 1, ("Unsupported reference kernel", c.version())
         profile = profiles[0]
         assert (
             c.images["com.apple.iokit.IOSkywalkFamily"].uuid
-            == profile["nativeUUID"].replace("-", "").lower()
+            == string(profile["nativeUUID"]).replace("-", "").lower()
         )
         assert (
             c.images["com.apple.iokit.IO80211Family"].uuid
-            == profile["wirelessUUID"].replace("-", "").lower()
+            == string(profile["wirelessUUID"]).replace("-", "").lower()
         )
-        available = native_addresses(c, info["OSBundleLibraries"])
+        available = native_addresses(c, libraries)
         missing = sorted(undefined - available.keys())
         assert not missing, (str(reference), missing)
-        for parent, offset, method in manifest["nativeRuntimeGuards"][
-            profile["system"]
-        ]["vtables"]:
+        profile_name = string(profile["system"])
+        system_guard = mapping(runtime_guards[profile_name])
+        runtime_vtables = vtable_rows(system_guard["vtables"])
+        for parent, offset, method in runtime_vtables:
             assert c.pointer(available[parent] + offset) == available[method]
-        for parent, offset, method in manifest["nativeVtableGuards"]:
+        for parent, offset, method in native_vtables:
             observed = c.pointer(available[parent] + offset)
             assert observed == available[method], (
                 str(reference),
@@ -520,7 +603,7 @@ def verify(configuration, references):
                 method,
             )
         targets.append({
-            "system": profile["system"],
+            "system": profile_name,
             "build": profile["build"],
             "reference": str(reference),
             "referenceKind": "snapshot"
@@ -530,37 +613,34 @@ def verify(configuration, references):
             "uuid": c.root.uuid,
             "imports": len(undefined),
             "unmatchedImports": [],
-            "nativeVtableGuards": len(manifest["nativeVtableGuards"]),
-            "runtimeVtableGuards": len(
-                manifest["nativeRuntimeGuards"][profile["system"]]["vtables"]
-            ),
-            "runtimeClassGuards": len(
-                manifest["nativeRuntimeGuards"][profile["system"]]["classes"]
-            ),
+            "nativeVtableGuards": len(native_vtables),
+            "runtimeVtableGuards": len(runtime_vtables),
+            "runtimeClassGuards": len(sequence(system_guard["classes"])),
         })
-        addresses[profile["system"]] = available
-        verified_references[profile["system"]] = reference
+        addresses[profile_name] = available
+        verified_references[profile_name] = reference
         c.close()
     assert addresses
-    adapter = manifest["nativeAdapter"]
+    adapter = mapping(manifest["nativeAdapter"])
+    compatibility_imports = _strings(adapter["compatibilityImports"])
+    compatibility_targets = _strings(adapter["compatibilityTargets"])
     assert manifest["skywalkBackend"] == "native"
     assert LABELS == ["Legacy", "AirPortOriginal", "AirPort"]
-    assert "com.apple.iokit.IOSkywalkFamily" in info["OSBundleLibraries"]
+    assert "com.apple.iokit.IOSkywalkFamily" in libraries
     assert not any(
-        p["identifier"] == "com.apple.iokit.IOSkywalkFamily"
-        for p in manifest["payloads"]
+        p["identifier"] == "com.apple.iokit.IOSkywalkFamily" for p in payloads
     )
     with tempfile.TemporaryDirectory(prefix="simpleath-verify-") as temporary:
         temp = Path(temporary)
-        (temp / "main.cpp").write_text(HOST)
+        _ = (temp / "main.cpp").write_text(HOST)
         assembly = (
             (OUTPUT / "Payloads.S")
             .read_text()
             .split(".section __DATA_CONST")[0]
         )
-        (temp / "Payloads.S").write_text(assembly)
+        _ = (temp / "Payloads.S").write_text(assembly)
         executable = temp / "verify"
-        subprocess.run(
+        _ = subprocess.run(
             [
                 "xcrun",
                 "clang++",
@@ -583,8 +663,8 @@ def verify(configuration, references):
             ],
             check=True,
         )
-        runs = []
-        native_abi = {}
+        runs: list[Mapping[str, object]] = []
+        native_abi: dict[str, object] = {}
         from verify_native import verify_native
 
         for system, current in addresses.items():
@@ -595,18 +675,18 @@ def verify(configuration, references):
                 verified_references[system], "com.apple.iokit.IOSkywalkFamily"
             )
             symbol = next(
-                p["ethernetLinkSymbol"]
-                for p in manifest["systemProfiles"]
-                if p["system"] == system
+                string(p["ethernetLinkSymbol"])
+                for p in system_profiles
+                if string(p["system"]) == system
             )
-            if verified_references[system].suffix == ".json":
+            if isinstance(reference, ReferenceImage):
                 start, code = reference.funcbytes(symbol)
             else:
                 section = next(s for s in reference.sects if s[0] == "__text")
                 start, length = section[2:4]
                 code = reference.read(start, length)
             length = len(code)
-            (temp / "native-link.bin").write_bytes(
+            _ = (temp / "native-link.bin").write_bytes(
                 struct.pack("<3Q", start, reference.names[symbol][4], length)
                 + code
             )
@@ -618,18 +698,18 @@ def verify(configuration, references):
                     else 0xFFFFFF800F000000 + image.symbols[target]
                 )
                 for name, target in zip(
-                    adapter["compatibilityImports"],
-                    adapter["compatibilityTargets"],
+                    compatibility_imports,
+                    compatibility_targets,
+                    strict=True,
                 )
             }
-            (temp / "imports.bin").write_bytes(
+            _ = (temp / "imports.bin").write_bytes(
                 b"".join(
-                    struct.pack("<Q", current[name])
-                    for name in manifest["nativeImports"]
+                    struct.pack("<Q", current[name]) for name in native_imports
                 )
                 + b"".join(
                     struct.pack("<Q", compatibility[name])
-                    for name in adapter["compatibilityImports"]
+                    for name in compatibility_imports
                 )
             )
             labels = [
@@ -648,7 +728,7 @@ def verify(configuration, references):
                     ],
                     text=True,
                 )
-                run = json.loads(output)
+                run = json_object(output)
                 run["system"] = system
                 run["independentReferenceChecks"] = check_reference(
                     temp, current, compatibility, far, labels
@@ -659,7 +739,7 @@ def verify(configuration, references):
 
         abi = verify_abi(temp)
     assert source_fingerprint == fingerprint()
-    result = {
+    result: dict[str, object] = {
         "version": VERSION,
         "configuration": configuration,
         "driverLoading": "embedded",
@@ -684,12 +764,13 @@ def verify(configuration, references):
         "hardwareValidation": "not-run-by-build",
     }
     destination = ROOT / f"build/Validation-{configuration}.json"
-    destination.write_text(json.dumps(result, indent=2) + "\n")
+    _ = destination.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
     return result
 
 
-def build(configuration, analyze=False):
+def build(configuration: str, analyze: bool = False) -> None:
+    """Run the explicitly requested native build or static analyze action."""
     require_assertions_active()
     source_fingerprint = fingerprint()
     action = "analyze" if analyze else "build"
@@ -727,7 +808,7 @@ def build(configuration, analyze=False):
         "Source changed during the build"
     )
     if analyze:
-        (ROOT / f"build/Analysis-{configuration}.json").write_text(
+        _ = (ROOT / f"build/Analysis-{configuration}.json").write_text(
             json.dumps(
                 {
                     "passed": True,
@@ -743,7 +824,7 @@ def build(configuration, analyze=False):
             ROOT
             / f"build/DerivedData/Build/Products/{configuration}/SimpleATH.kext/Contents/MacOS/SimpleATH"
         )
-        (ROOT / f"build/Build-{configuration}.json").write_text(
+        _ = (ROOT / f"build/Build-{configuration}.json").write_text(
             json.dumps(
                 {
                     "sourceFingerprint": source_fingerprint,
@@ -768,34 +849,38 @@ def copy_package_sources(root: Path, stage: Path) -> None:
     """
     extra = stage / "Extra"
     for filename in ("README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
-        shutil.copy2(root / filename, stage / filename)
-    shutil.copy2(root / "tools/collect.py", extra / "collect.py")
+        _ = shutil.copy2(root / filename, stage / filename)
+    _ = shutil.copy2(root / "tools/collect.py", extra / "collect.py")
     docs = stage / "Docs"
     docs.mkdir()
     for document in sorted((root / "docs").glob("*.md")):
-        shutil.copy2(document, docs / document.name)
+        _ = shutil.copy2(document, docs / document.name)
     # A checked-out OCLP reference may carry additional licensing terms.
     # Include its notice when present, never require a downloaded reference.
     license_file = root / ".research/OpenCore-Legacy-Patcher/LICENSE.txt"
     if license_file.is_file() and not license_file.is_symlink():
-        shutil.copy2(license_file, extra / "OCLP-LICENSE.txt")
+        _ = shutil.copy2(license_file, extra / "OCLP-LICENSE.txt")
 
 
-def package(configuration, channel="rel"):
+def package(configuration: str, channel: str = "rel") -> None:
+    """Package a fully verified native artifact when explicitly authorized."""
     require_assertions_active()
-    report = json.loads(
+    report = json_object(
         (ROOT / f"build/Validation-{configuration}.json").read_text()
     )
+    native_targets = [
+        mapping(target) for target in sequence(report["nativeTargets"])
+    ]
     product = ROOT / f"build/DerivedData/Build/Products/{configuration}"
     assert report["sourceFingerprint"] == fingerprint()
-    assert {target["system"] for target in report["nativeTargets"]} == set(
+    assert {string(target["system"]) for target in native_targets} == set(
         SYSTEMS
     )
     assert report["sha256"] == digest(
         product / "SimpleATH.kext/Contents/MacOS/SimpleATH"
     )
     assert report["probeSHA256"] == digest(product / "athprobe")
-    analysis = json.loads((ROOT / "build/Analysis-Release.json").read_text())
+    analysis = json_object((ROOT / "build/Analysis-Release.json").read_text())
     assert analysis["passed"]
     assert analysis["sourceFingerprint"] == fingerprint()
     assert analysis["logSHA256"] == digest(ROOT / "build/analyze-Release.log")
@@ -804,17 +889,17 @@ def package(configuration, channel="rel"):
     dist.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".package-", dir=dist) as temporary:
         stage = Path(temporary) / name
-        shutil.copytree(
+        _ = shutil.copytree(
             product / "SimpleATH.kext", stage / "EFI/OC/Kexts/SimpleATH.kext"
         )
         extra = stage / "Extra"
         extra.mkdir()
-        shutil.copy2(product / "athprobe", extra / "athprobe")
-        shutil.copytree(
+        _ = shutil.copy2(product / "athprobe", extra / "athprobe")
+        _ = shutil.copytree(
             product / "SimpleATH.kext.dSYM", extra / "SimpleATH.kext.dSYM"
         )
         copy_package_sources(ROOT, stage)
-        (extra / "Validation.json").write_text(
+        _ = (extra / "Validation.json").write_text(
             json.dumps(report, indent=2) + "\n"
         )
         save_plist(stage / "config.fragment.plist", fragment())
@@ -826,7 +911,7 @@ def package(configuration, channel="rel"):
             for p in stage.rglob("*")
             if p.is_file()
         }
-        (extra / "manifest.json").write_text(
+        _ = (extra / "manifest.json").write_text(
             json.dumps(
                 {
                     "version": VERSION,
@@ -860,41 +945,70 @@ def package(configuration, channel="rel"):
                     hashlib.sha256(output.read(name + "/" + path)).hexdigest()
                     == sha
                 )
-    archive.with_suffix(".zip.sha256").write_text(
+    _ = archive.with_suffix(".zip.sha256").write_text(
         f"{digest(archive)}  {archive.name}\n"
     )
     print(archive)
 
 
-def main():
+def _is_list(value: object) -> TypeIs[list[object]]:
+    return isinstance(value, list)
+
+
+def _collection_paths(volumes: object) -> list[Path]:
+    """Normalize only path instances produced by the CLI volume parser.
+
+    Returns:
+        Boot kernel collection paths under explicitly selected volumes.
+
+    Raises:
+        TypeError: A non-path volume was supplied.
+
+    """
+    if not _is_list(volumes):
+        message = "Expected an array of target volume paths"
+        raise TypeError(message)
+    result: list[Path] = []
+    for volume in volumes:
+        if not isinstance(volume, Path):
+            message = "Expected a target volume Path"
+            raise TypeError(message)
+        result.append(
+            volume / "System/Library/KernelCollections/BootKernelExtensions.kc"
+        )
+    return result
+
+
+def main() -> None:
+    """Dispatch an explicitly selected build, verification or package action."""
     require_assertions_active()
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    _ = parser.add_argument(
         "action", choices=["build", "verify", "analyze", "package"]
     )
-    parser.add_argument(
+    _ = parser.add_argument(
         "--configuration", choices=["Debug", "Release"], default="Debug"
     )
-    parser.add_argument("--channel", choices=["pre", "rel"], default="rel")
-    parser.add_argument("--target-volume", type=Path, action="append")
-    args = parser.parse_args()
-    if args.action in ["build", "verify", "analyze"]:
-        validate_reference_systems()
-    if args.action in ["build", "analyze"]:
-        build(args.configuration, args.action == "analyze")
-    if args.action in ["verify", "build"]:
+    _ = parser.add_argument("--channel", choices=["pre", "rel"], default="rel")
+    _ = parser.add_argument("--target-volume", type=Path, action="append")
+    selected = vars(parser.parse_args())
+    action = string(selected.get("action"))
+    configuration = string(selected.get("configuration"))
+    channel = string(selected.get("channel"))
+    volumes: object = selected.get("target_volume")
+    if action in {"build", "verify", "analyze"}:
+        _ = validate_reference_systems()
+    if action in {"build", "analyze"}:
+        build(configuration, analyze=action == "analyze")
+    if action in {"verify", "build"}:
         references = (
-            [
-                volume
-                / "System/Library/KernelCollections/BootKernelExtensions.kc"
-                for volume in args.target_volume
-            ]
-            if args.target_volume
+            _collection_paths(volumes)
+            if volumes is not None
             else list(reference_paths().values())
         )
-        verify(args.configuration, references)
-    if args.action == "package":
-        package(args.configuration, args.channel)
+        _ = verify(configuration, references)
+    if action == "package":
+        package(configuration, channel)
 
 
 if __name__ == "__main__":
