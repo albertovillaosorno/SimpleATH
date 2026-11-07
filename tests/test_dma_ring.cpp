@@ -50,5 +50,24 @@ int main()
         ring.slot(fresh.index)->state != SlotState::Reserved ||
         ring.release(fresh) != Error::Ok || ring.reset() != Error::Ok)
         return 7;
+
+    // A caller can mistakenly place its output token inside the persistent
+    // ring allocation. Clearing such an alias on entry destroys slot state,
+    // including the outstanding descriptor's ownership and recovery token.
+    if (ring.initialize(2) != Error::Ok || ring.reserve(owned, 91) != Error::Ok)
+        return 8;
+    const RingSlot preserved = *ring.slot(owned.index);
+    auto *ownerBytes = reinterpret_cast<uint8_t *>(&ring);
+    auto *aliasedToken = reinterpret_cast<TxSlotToken *>(ownerBytes);
+    if (ring.reserve(*aliasedToken, 92) != Error::UnexpectedState ||
+        ring.capacity() != 2 || ring.active() != 1 ||
+        ring.slot(owned.index)->state != preserved.state ||
+        ring.slot(owned.index)->generation != preserved.generation ||
+        ring.slot(owned.index)->cookie != preserved.cookie ||
+        ring.slot(owned.index)->dmaMapped != preserved.dmaMapped ||
+        ring.slot(owned.index)->descriptorCompleted !=
+            preserved.descriptorCompleted ||
+        ring.release(owned) != Error::Ok || ring.reset() != Error::Ok)
+        return 9;
     return 0;
 }

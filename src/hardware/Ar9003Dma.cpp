@@ -10,6 +10,18 @@ namespace simpleath
         static constexpr uint64_t K_DEVICE_MAX_ADDRESS = 0xffffffffULL;
         static constexpr uint32_t K_GENERATION_MAX = 0xffffffffU;
 
+        // Do not let a caller-owned output token overwrite live ring metadata.
+        // Compare address distances to avoid pointer-end overflow.
+        static bool overlaps_storage(const void *first, size_t first_bytes,
+                                     const void *second, size_t second_bytes)
+        {
+            const auto left = reinterpret_cast<uintptr_t>(first);
+            const auto right = reinterpret_cast<uintptr_t>(second);
+            return first_bytes && second_bytes &&
+                   (left >= right ? left - right < second_bytes
+                                  : right - left < first_bytes);
+        }
+
         Error validateMapping(const Mapping &mapping, size_t required_bytes)
         {
             if (mapping.cpuAddress == nullptr || mapping.length == 0 ||
@@ -102,6 +114,10 @@ namespace simpleath
 
         Error TxRing::reserve(TxSlotToken &token, uint32_t cookie)
         {
+            // A forged output alias inside this ring must not wipe ownership
+            // metadata when token is cleared or populated.
+            if (overlaps_storage(&token, sizeof(token), this, sizeof(*this)))
+                return Error::UnexpectedState;
             // A failed reservation must not leave an earlier live token.
             token = {};
             if (capacity_ == 0)

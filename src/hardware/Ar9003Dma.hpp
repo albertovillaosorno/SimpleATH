@@ -97,6 +97,8 @@ namespace simpleath
 
                 TxRing();
                 Error initialize(size_t numberOfSlots);
+                // Reject a token output inside this ring without clearing it
+                // or touching live slot ownership (UnexpectedState).
                 Error reserve(TxSlotToken &token, uint32_t cookie);
                 Error descriptorPrepared(const TxSlotToken &token,
                                          bool dmaMapped, bool complete);
