@@ -13,6 +13,12 @@ namespace
             uint32_t firstStatus = 0;
             uint32_t clockReads = 0;
             uint32_t ownerChecks = 0;
+            uint32_t clocksAfterRevocation = 0;
+            uint32_t delaysAfterRevocation = 0;
+            uint32_t clocksAfterFirstStatus = 0;
+            bool triggerSeen = false;
+            bool revokeAfterTriggerTimestamp = false;
+            bool revokeDuringWaitTimestamp = false;
             bool backwards = false;
             bool d0 = true;
     };
@@ -39,6 +45,7 @@ namespace
                 break;
             case 0x2000: // EEPROM trigger window.
                 *value = 0;
+                fake.triggerSeen = true;
                 break;
             case 0x4084: // Ready sample followed by payload/status re-read.
                 *value = ++fake.statusReads == 1 ? fake.firstStatus
@@ -54,11 +61,31 @@ namespace
     {
         auto &fake = *static_cast<FakeNvm *>(context);
         ++fake.clockReads;
+        if (!fake.d0)
+            ++fake.clocksAfterRevocation;
+        if (fake.triggerSeen && fake.revokeAfterTriggerTimestamp)
+        {
+            // The post-trigger timestamp itself revokes ownership. The wait
+            // loop must preflight its next clock rather than trust this one.
+            fake.revokeAfterTriggerTimestamp = false;
+            fake.d0 = false;
+        }
+        if (fake.statusReads == 1 && fake.revokeDuringWaitTimestamp &&
+            ++fake.clocksAfterFirstStatus == 2)
+        {
+            // The clock itself revokes D0 after the post-read budget clock;
+            // the wait loop must not call a delay on the revoked provider.
+            fake.revokeDuringWaitTimestamp = false;
+            fake.d0 = false;
+        }
         return fake.backwards && fake.clockReads > 1 ? 99 : 100;
     }
 
-    void delay(void *, uint32_t)
+    void delay(void *context, uint32_t)
     {
+        auto &fake = *static_cast<FakeNvm *>(context);
+        if (!fake.d0)
+            ++fake.delaysAfterRevocation;
     }
 
     simpleath::NvmResult capture(FakeNvm &fake, uint8_t (&bytes)[2],
@@ -130,5 +157,27 @@ int main()
         fake.registerReads != 0 || status.captureComplete || bytes[0] ||
         bytes[1])
         return 5;
+
+    // The post-trigger timestamp can revoke its owner after the read's last
+    // successful D0 preflight. The next timer call checks ownership anew.
+    fake = {};
+    fake.revokeAfterTriggerTimestamp = true;
+    bytes[0] = bytes[1] = 0xaa;
+    if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
+        !fake.triggerSeen || fake.clocksAfterRevocation != 0 ||
+        fake.statusReads != 0 || status.captureComplete || bytes[0] || bytes[1])
+        return 6;
+
+    // The clock may revoke the owner during the busy-status timestamp. Do not
+    // invoke even a bounded delay callback with that invalidated context.
+    fake = {};
+    fake.firstStatus = 0x10000;
+    fake.revokeDuringWaitTimestamp = true;
+    bytes[0] = bytes[1] = 0xaa;
+    if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
+        fake.statusReads != 1 || fake.clocksAfterFirstStatus != 2 ||
+        fake.delaysAfterRevocation != 0 || status.captureComplete || bytes[0] ||
+        bytes[1])
+        return 7;
     return 0;
 }

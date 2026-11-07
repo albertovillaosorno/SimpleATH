@@ -59,6 +59,11 @@ namespace simpleath
                 // than checking only elapsed bounds.
                 NvmResult clock(uint64_t &now)
                 {
+                    // The time source can share the revoked PCI owner. Every
+                    // call, including wait timestamps, requires a fresh D0
+                    // preflight rather than relying on the previous MMIO read.
+                    if (!backend_.ownerInD0(backend_.context))
+                        return NvmResult::SessionUnavailable;
                     now = backend_.nowMicros(backend_.context);
                     if (now < lastMicros_)
                         return NvmResult::InvalidClock;
@@ -68,8 +73,6 @@ namespace simpleath
 
                 NvmResult budget()
                 {
-                    if (!backend_.ownerInD0(backend_.context))
-                        return NvmResult::SessionUnavailable;
                     uint64_t now = 0;
                     const NvmResult result = clock(now);
                     if (result != NvmResult::Ok)
@@ -132,6 +135,10 @@ namespace simpleath
                             return NvmResult::Ok;
                         if (i == timeoutMicros / kPollMicros)
                             break;
+                        // The last clock callback may itself revoke D0. Do
+                        // not issue a delay through its now-invalid context.
+                        if (!backend_.ownerInD0(backend_.context))
+                            return NvmResult::SessionUnavailable;
                         backend_.delayMicros(backend_.context, kPollMicros);
                     }
                     return NvmResult::WordTimeout;
