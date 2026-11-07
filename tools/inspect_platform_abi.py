@@ -12,7 +12,10 @@ Mach-O nlist candidates do not establish KPI eligibility, C++ layout, export
 trie/reexport resolution, dependency versions or OpenCore relocatability.
 """
 
+from __future__ import annotations
+
 import argparse
+from enum import StrEnum
 import hashlib
 import json
 import mmap
@@ -21,11 +24,90 @@ from pathlib import Path
 import plistlib
 import stat
 import struct
+import sys
+from typing import NamedTuple
 from typing import Never
+from typing import TYPE_CHECKING
 from typing import TypeIs
 from typing import TypedDict
 from typing import cast
 import uuid
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+
+class _InspectionIssue(StrEnum):
+    """Stable, explicit input rejection reasons for offline ABI evidence."""
+
+    AMBIGUOUS_X86_64_SLICES = "Ambiguous x86_64 slices"
+    COLLECTION_SOURCE_CHANGED_DURING_INSPECTION = (
+        "Collection source changed during inspection"
+    )
+    COLLECTION_SOURCE_EXCEEDS_INSPECTION_LIMITS = (
+        "Collection source exceeds inspection limits"
+    )
+    COLLECTION_SOURCE_MUST_BE_A_REGULAR_FILE = (
+        "Collection source must be a regular file"
+    )
+    DEFINED_SECTION_SYMBOL_HAS_NO_SECTION = (
+        "Defined section symbol has no section"
+    )
+    EMPTY_OR_DUPLICATE_FILESET_ENTRY_NAME = (
+        "Empty or duplicate fileset entry name"
+    )
+    EXPECTED_A_MACH_O_FILESET_NOT_A_STANDALONE_IMAGE = (
+        "Expected a Mach-O fileset, not a standalone image"
+    )
+    EXPECTED_THIN_LITTLE_ENDIAN_X86_64_MACH_O = (
+        "Expected thin little-endian x86_64 Mach-O"
+    )
+    EXPECTED_THIN_MACH_O_OR_BIG_ENDIAN_FAT_MAGIC = (
+        "Expected thin Mach-O or big-endian FAT_MAGIC"
+    )
+    INVALID_FAT_ARCHITECTURE_COUNT = "Invalid fat architecture count"
+    INVALID_FAT_SLICE_OFFSET_ALIGNMENT = "Invalid fat slice offset/alignment"
+    INVALID_FILESET_ENTRY_NAME_OFFSET = "Invalid fileset entry name offset"
+    INVALID_LC_DYLD_EXPORTS_TRIE = "Invalid LC_DYLD_EXPORTS_TRIE"
+    INVALID_LC_DYLD_INFO = "Invalid LC_DYLD_INFO"
+    INVALID_MACH_O_COMMAND_COUNT = "Invalid Mach-O command count"
+    INVALID_MACH_O_LOAD_COMMAND_SIZE = "Invalid Mach-O load command size"
+    INVALID_OR_DUPLICATE_LC_SYMTAB = "Invalid or duplicate LC_SYMTAB"
+    INVALID_OR_DUPLICATE_LC_UUID = "Invalid or duplicate LC_UUID"
+    KDK_INPUT_CHANGED_DURING_INSPECTION = "KDK input changed during inspection"
+    KDK_INPUT_GREW_BEYOND_INSPECTION_LIMIT = (
+        "KDK input grew beyond inspection limit"
+    )
+    KDK_INPUT_MUST_BE_A_BOUNDED_REGULAR_FILE = (
+        "KDK input must be a bounded regular file"
+    )
+    KDK_PATH_MUST_REMAIN_BELOW_THE_SELECTED_ROOT = (
+        "KDK path must remain below the selected root"
+    )
+    MACH_O_COMMAND_BYTES_COUNT_DISAGREE = "Mach-O command bytes/count disagree"
+    MACH_O_RANGE_EXCEEDS_SUPPLIED_FILE = "Mach-O range exceeds supplied file"
+    MISSING_OFFLINE_ABI_SOURCE = "Missing offline ABI source"
+    NO_X86_64_SLICE = "No x86_64 slice"
+    OVERLAPPING_FAT_SLICES = "Overlapping fat slices"
+    SYMBOL_NAME_EXCEEDS_MACH_O_STRING_TABLE = (
+        "Symbol name exceeds Mach-O string table"
+    )
+    SYSTEMVERSION_PLIST_HAS_EMPTY_VERSION_BUILD_FIELDS = (
+        "SystemVersion.plist has empty version/build fields"
+    )
+    SYSTEMVERSION_PLIST_MUST_CONTAIN_A_DICTIONARY = (
+        "SystemVersion.plist must contain a dictionary"
+    )
+    SYSTEMVERSION_PLIST_REQUIRES_VERSION_BUILD_STRINGS = (
+        "SystemVersion.plist requires version/build strings"
+    )
+    TRUNCATED_LC_FILESET_ENTRY = "Truncated LC_FILESET_ENTRY"
+    TRUNCATED_MACH_O_LOAD_COMMAND = "Truncated Mach-O load command"
+    UNEXPECTED_KDK_BUNDLE_IDENTIFIER = "Unexpected KDK bundle identifier"
+    UNTERMINATED_MACH_O_STRING = "Unterminated Mach-O string"
+
+
+PCI_FAMILY = "IOPCIFamily"
 
 GROUPS = {
     "pci": ("com.apple.iokit.IOPCIFamily", ("IOPCIDevice",)),
@@ -73,13 +155,14 @@ def checked_range(
         ValueError: The range falls outside its containing byte buffer.
 
     """
-    if (
-        offset < 0
-        or size < 0
-        or offset > len(data)
-        or size > len(data) - offset
-    ):
-        raise ValueError("Mach-O range exceeds supplied file")
+    if offset < 0 or size < 0:
+        raise ValueError(
+            _InspectionIssue.MACH_O_RANGE_EXCEEDS_SUPPLIED_FILE.value
+        )
+    if offset > len(data) or size > len(data) - offset:
+        raise ValueError(
+            _InspectionIssue.MACH_O_RANGE_EXCEEDS_SUPPLIED_FILE.value
+        )
     return offset, offset + size
 
 
@@ -91,35 +174,342 @@ def cstring(data: bytes | mmap.mmap, offset: int, end: int) -> str:
 
     Raises:
         ValueError: The span or required terminator is absent.
-        UnicodeDecodeError: The byte sequence is not UTF-8.
 
     """
     _ = checked_range(data, offset, end - offset)
     terminator = data.find(b"\0", offset, end)
     if terminator < 0:
-        raise ValueError("Unterminated Mach-O string")
+        raise ValueError(_InspectionIssue.UNTERMINATED_MACH_O_STRING.value)
     return data[offset:terminator].decode("utf-8", errors="strict")
 
 
-def image_inventory(
-    data: bytes | mmap.mmap, header_offset: int
-) -> _ImageInventory:
-    """Inventory symbols without treating an nlist as an export allowlist.
+MACHO_MAGIC = 0xFEEDFACF
+MACHO_MAGIC_BYTES = b"\xcf\xfa\xed\xfe"
+FAT_MAGIC_BYTES = b"\xca\xfe\xba\xbe"
+X86_64_CPU_TYPE = 0x01000007
+MACHO_HEADER_BYTES = 32
+COMMAND_HEADER_BYTES = 8
+LC_UUID = 0x1B
+LC_SYMTAB = 0x2
+LC_FILESET_ENTRY = 0x80000035
+LC_EXPORTS_TRIE = 0x80000033
+LC_DYLD_INFO = 0x22
+LC_DYLD_INFO_ONLY = 0x80000022
+UUID_COMMAND_BYTES = 24
+SYMTAB_COMMAND_BYTES = 24
+FILESET_COMMAND_BYTES = 32
+EXPORT_TRIE_COMMAND_BYTES = 16
+DYLD_INFO_COMMAND_BYTES = 48
+N_ABS = 2
+N_SECT = 14
+MH_FILESET = 0xC
+FAT_MAX_ARCHES = 16
+FAT_MAX_ALIGNMENT = 31
+FAT_ARCH_BYTES = 20
 
-    File offsets in a fileset child refer to the supplied collection, not to
-    the child's header. Only thin little-endian x86_64 filesets are accepted.
-    No relocation, fixup, pointer, vtable or instruction processing is done.
+_Symtab = tuple[int, int, int, int]
+
+
+def _image_header(
+    data: bytes | mmap.mmap,
+    header_offset: int,
+) -> tuple[int, _CommandSpan]:
+    """Check a thin little-endian Mach-O header and its command span.
+
+    Returns:
+        File type, command count, start and exclusive end.
+
+    Raises:
+        ValueError: The header or command span is invalid.
+
     """
-    _ = checked_range(data, header_offset, 32)
+    _ = checked_range(data, header_offset, MACHO_HEADER_BYTES)
     magic, cpu, _, filetype, count, command_bytes, _, _ = struct.unpack_from(
         "<8I", data, header_offset
     )
-    if magic != 0xFEEDFACF or cpu != 0x01000007:
-        raise ValueError("Expected thin little-endian x86_64 Mach-O")
-    position = header_offset + 32
+    if magic != MACHO_MAGIC or cpu != X86_64_CPU_TYPE:
+        raise ValueError(
+            _InspectionIssue.EXPECTED_THIN_LITTLE_ENDIAN_X86_64_MACH_O.value
+        )
+    position = header_offset + MACHO_HEADER_BYTES
     _, commands_end = checked_range(data, position, command_bytes)
-    if count > command_bytes // 8:
-        raise ValueError("Invalid Mach-O command count")
+    if count > command_bytes // COMMAND_HEADER_BYTES:
+        raise ValueError(_InspectionIssue.INVALID_MACH_O_COMMAND_COUNT.value)
+    return filetype, _CommandSpan(count, position, commands_end)
+
+
+def _record_fileset_entry(
+    data: bytes | mmap.mmap,
+    position: int,
+    size: int,
+    *,
+    result: _ImageInventory,
+) -> None:
+    """Check and retain a fileset child name and absolute image offset.
+
+    Raises:
+        ValueError: The name, command or child image span is malformed.
+
+    """
+    if size < FILESET_COMMAND_BYTES:
+        raise ValueError(_InspectionIssue.TRUNCATED_LC_FILESET_ENTRY.value)
+    _, offset, string_offset, _ = struct.unpack_from(
+        "<QQII", data, position + COMMAND_HEADER_BYTES
+    )
+    if string_offset < FILESET_COMMAND_BYTES or string_offset >= size:
+        raise ValueError(
+            _InspectionIssue.INVALID_FILESET_ENTRY_NAME_OFFSET.value
+        )
+    name = cstring(data, position + string_offset, position + size)
+    if not name or name in result["entries"]:
+        raise ValueError(
+            _InspectionIssue.EMPTY_OR_DUPLICATE_FILESET_ENTRY_NAME.value
+        )
+    _ = checked_range(data, offset, MACHO_HEADER_BYTES)
+    result["entries"][name] = offset
+
+
+def _record_uuid(
+    data: bytes | mmap.mmap,
+    position: int,
+    size: int,
+    *,
+    result: _ImageInventory,
+) -> None:
+    """Reject duplicate LC_UUID records and preserve their identifier.
+
+    Raises:
+        ValueError: The command length or image UUID uniqueness is invalid.
+
+    """
+    if size != UUID_COMMAND_BYTES or result["uuid"] is not None:
+        raise ValueError(_InspectionIssue.INVALID_OR_DUPLICATE_LC_UUID.value)
+    value = data[position + COMMAND_HEADER_BYTES : position + size]
+    result["uuid"] = str(uuid.UUID(bytes=value)).upper()
+
+
+def _record_metadata_command(
+    data: bytes | mmap.mmap,
+    position: int,
+    size: int,
+    *,
+    result: _ImageInventory,
+) -> _Symtab | None:
+    """Inspect UUID, symtab and fileset-entry commands.
+
+    Returns:
+        The parsed symtab tuple if the command declares one.
+
+    Raises:
+        ValueError: A command has invalid length or duplicate image UUID.
+
+    """
+    command = struct.unpack_from("<I", data, position)[0]
+    if command == LC_UUID:
+        _record_uuid(data, position, size, result=result)
+    elif command == LC_SYMTAB:
+        if size != SYMTAB_COMMAND_BYTES:
+            raise ValueError(
+                _InspectionIssue.INVALID_OR_DUPLICATE_LC_SYMTAB.value
+            )
+        return struct.unpack_from("<4I", data, position + COMMAND_HEADER_BYTES)
+    elif command == LC_FILESET_ENTRY:
+        _record_fileset_entry(data, position, size, result=result)
+    return None
+
+
+def _record_export_command(
+    data: bytes | mmap.mmap,
+    position: int,
+    size: int,
+    *,
+    result: _ImageInventory,
+) -> None:
+    """Check and retain only the presence of an export trie.
+
+    Raises:
+        ValueError: The encoded export-data command is malformed.
+
+    """
+    command = struct.unpack_from("<I", data, position)[0]
+    if command == LC_EXPORTS_TRIE:
+        if size != EXPORT_TRIE_COMMAND_BYTES:
+            raise ValueError(
+                _InspectionIssue.INVALID_LC_DYLD_EXPORTS_TRIE.value
+            )
+        offset, length = struct.unpack_from(
+            "<II", data, position + COMMAND_HEADER_BYTES
+        )
+    elif command in {LC_DYLD_INFO, LC_DYLD_INFO_ONLY}:
+        if size != DYLD_INFO_COMMAND_BYTES:
+            raise ValueError(_InspectionIssue.INVALID_LC_DYLD_INFO.value)
+        offset, length = struct.unpack_from("<II", data, position + 40)
+    else:
+        return
+    _ = checked_range(data, offset, length)
+    result["exportTriePresent"] |= length != 0
+
+
+class _CommandSpan(NamedTuple):
+    """Bounded load-command count and byte interval."""
+
+    num_commands: int
+    start: int
+    end: int
+
+
+def _validated_command_size(
+    data: bytes | mmap.mmap,
+    position: int,
+    end: int,
+) -> int:
+    """Check a command's header, alignment and bounded body.
+
+    Returns:
+        The validated byte length of one command.
+
+    Raises:
+        ValueError: The command cannot fit in the span.
+
+    """
+    if end - position < COMMAND_HEADER_BYTES:
+        raise ValueError(_InspectionIssue.TRUNCATED_MACH_O_LOAD_COMMAND.value)
+    _, size = struct.unpack_from("<II", data, position)
+    if size < COMMAND_HEADER_BYTES or size % COMMAND_HEADER_BYTES:
+        raise ValueError(
+            _InspectionIssue.INVALID_MACH_O_LOAD_COMMAND_SIZE.value
+        )
+    if size > end - position:
+        raise ValueError(
+            _InspectionIssue.INVALID_MACH_O_LOAD_COMMAND_SIZE.value
+        )
+    return size
+
+
+def _unique_symtab(
+    previous: _Symtab | None, candidate: _Symtab | None
+) -> _Symtab | None:
+    """Preserve at most one LC_SYMTAB while scanning image metadata.
+
+    Returns:
+        The first table, or none when neither command supplies one.
+
+    Raises:
+        ValueError: Multiple symbol tables are encountered.
+
+    """
+    if candidate is None:
+        return previous
+    if previous is not None:
+        raise ValueError(_InspectionIssue.INVALID_OR_DUPLICATE_LC_SYMTAB.value)
+    return candidate
+
+
+def _scan_load_commands(
+    data: bytes | mmap.mmap,
+    result: _ImageInventory,
+    span: _CommandSpan,
+) -> _Symtab | None:
+    """Validate load-command alignment and duplicate symbol tables.
+
+    Returns:
+        Optional symbol-table descriptor after validating every command.
+
+    Raises:
+        ValueError: Commands are truncated, malformed or duplicated.
+
+    """
+    position = span.start
+    symtab = None
+    for _ in range(span.num_commands):
+        size = _validated_command_size(data, position, span.end)
+        candidate = _record_metadata_command(
+            data, position, size, result=result
+        )
+        symtab = _unique_symtab(symtab, candidate)
+        _record_export_command(data, position, size, result=result)
+        position += size
+    if position != span.end:
+        raise ValueError(
+            _InspectionIssue.MACH_O_COMMAND_BYTES_COUNT_DISAGREE.value
+        )
+    return symtab
+
+
+def _is_public_definition(kind: int) -> bool:
+    """Require external non-private N_SECT or N_ABS, never STAB/indirect.
+
+    Returns:
+        True only for public defined nlist entries.
+
+    """
+    if kind & 0xE0 or kind & 0x10:
+        return False
+    return bool(kind & 1) and kind & 0x0E in {N_ABS, N_SECT}
+
+
+def _candidate_symbol_name(
+    data: bytes | mmap.mmap,
+    offset: int,
+    string_table: tuple[int, int, int],
+) -> str | None:
+    """Decode an eligible public definition without trusting indirect symbols.
+
+    Returns:
+        A candidate name, or none for a private/non-definition entry.
+
+    Raises:
+        ValueError: Defined symbols point outside the bounded string table.
+
+    """
+    name_index, kind, section, _, _ = struct.unpack_from("<IBBHQ", data, offset)
+    if not _is_public_definition(kind) or name_index == 0:
+        return None
+    definition = kind & 0x0E
+    if definition == N_SECT and section == 0:
+        raise ValueError(
+            _InspectionIssue.DEFINED_SECTION_SYMBOL_HAS_NO_SECTION.value
+        )
+    strings, strings_end, string_bytes = string_table
+    if name_index >= string_bytes:
+        raise ValueError(
+            _InspectionIssue.SYMBOL_NAME_EXCEEDS_MACH_O_STRING_TABLE.value
+        )
+    return cstring(data, strings + name_index, strings_end)
+
+
+def _read_symbol_table(
+    data: bytes | mmap.mmap,
+    symtab: _Symtab,
+    result: _ImageInventory,
+) -> None:
+    """Retain only defined public global Mach-O nlist candidates."""
+    offset, count, strings, string_bytes = symtab
+    _ = checked_range(data, offset, count * EXPORT_TRIE_COMMAND_BYTES)
+    _, strings_end = checked_range(data, strings, string_bytes)
+    for index in range(count):
+        entry = offset + index * EXPORT_TRIE_COMMAND_BYTES
+        name = _candidate_symbol_name(
+            data, entry, (strings, strings_end, string_bytes)
+        )
+        if name:
+            result["symbols"][name] = "global_definition_candidate"
+
+
+def image_inventory(
+    data: bytes | mmap.mmap,
+    header_offset: int,
+) -> _ImageInventory:
+    """Inventory symbols without treating an nlist as an export allowlist.
+
+    Fileset child offsets are absolute within the supplied collection.
+    No relocation, vtable, instruction or native code is processed.
+
+    Returns:
+        Candidate-only image and symbol metadata.
+
+    """
+    filetype, commands = _image_header(data, header_offset)
     result: _ImageInventory = {
         "uuid": None,
         "symbols": {},
@@ -128,78 +518,9 @@ def image_inventory(
         "symbolEvidence": "defined_global_nlist_candidates",
         "filetype": filetype,
     }
-    symtab = None
-    for _ in range(count):
-        if commands_end - position < 8:
-            raise ValueError("Truncated Mach-O load command")
-        command, size = struct.unpack_from("<II", data, position)
-        if size < 8 or size % 8 or size > commands_end - position:
-            raise ValueError("Invalid Mach-O load command size")
-        if command == 0x1B:  # LC_UUID
-            if size != 24 or result["uuid"] is not None:
-                raise ValueError("Invalid or duplicate LC_UUID")
-            result["uuid"] = str(
-                uuid.UUID(bytes=data[position + 8 : position + 24])
-            ).upper()
-        elif command == 0x2:  # LC_SYMTAB
-            if size != 24 or symtab is not None:
-                raise ValueError("Invalid or duplicate LC_SYMTAB")
-            symtab = struct.unpack_from("<4I", data, position + 8)
-        elif command == 0x80000035:  # LC_FILESET_ENTRY
-            if size < 32:
-                raise ValueError("Truncated LC_FILESET_ENTRY")
-            _, offset, string_offset, _ = struct.unpack_from(
-                "<QQII", data, position + 8
-            )
-            if string_offset < 32 or string_offset >= size:
-                raise ValueError("Invalid fileset entry name offset")
-            name = cstring(data, position + string_offset, position + size)
-            if not name or name in result["entries"]:
-                raise ValueError("Empty or duplicate fileset entry name")
-            _ = checked_range(data, offset, 32)
-            result["entries"][name] = offset
-        elif command == 0x80000033:  # LC_DYLD_EXPORTS_TRIE
-            if size != 16:
-                raise ValueError("Invalid LC_DYLD_EXPORTS_TRIE")
-            offset, length = struct.unpack_from("<II", data, position + 8)
-            _ = checked_range(data, offset, length)
-            result["exportTriePresent"] = length != 0
-        elif command in (0x22, 0x80000022):  # LC_DYLD_INFO[_ONLY]
-            if size != 48:
-                raise ValueError("Invalid LC_DYLD_INFO")
-            offset, length = struct.unpack_from("<II", data, position + 40)
-            _ = checked_range(data, offset, length)
-            result["exportTriePresent"] |= length != 0
-        position += size
-    if position != commands_end:
-        raise ValueError("Mach-O command bytes/count disagree")
+    symtab = _scan_load_commands(data, result, commands)
     if symtab is not None:
-        offset, count, strings, string_bytes = symtab
-        _ = checked_range(data, offset, count * 16)
-        _, strings_end = checked_range(data, strings, string_bytes)
-        for index in range(count):
-            name_index, kind, section, _, _ = struct.unpack_from(
-                "<IBBHQ", data, offset + index * 16
-            )
-            # Exclude STAB, private externals, undefined and indirect symbols.
-            # Keep only public external N_SECT or N_ABS definitions.
-            definition = kind & 0x0E
-            if (
-                kind & 0xE0
-                or kind & 0x10
-                or not kind & 1
-                or definition not in (2, 14)
-            ):
-                continue
-            if definition == 14 and section == 0:
-                raise ValueError("Defined section symbol has no section")
-            if name_index == 0:
-                continue
-            if name_index >= string_bytes:
-                raise ValueError("Symbol name exceeds Mach-O string table")
-            name = cstring(data, strings + name_index, strings_end)
-            if name:
-                result["symbols"][name] = "global_definition_candidate"
+        _read_symbol_table(data, symtab, result)
     return result
 
 
@@ -216,7 +537,6 @@ def load_collection(
 
     Raises:
         ValueError: A source is nonregular, oversized, too short or unstable.
-        OSError: The supplied offline file cannot be safely opened or mapped.
 
     """
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
@@ -224,15 +544,19 @@ def load_collection(
     try:
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
-            raise ValueError("Collection source must be a regular file")
-        if not 32 <= before.st_size <= COLLECTION_FILE_LIMIT:
-            raise ValueError("Collection source exceeds inspection limits")
+            raise ValueError(
+                _InspectionIssue.COLLECTION_SOURCE_MUST_BE_A_REGULAR_FILE.value
+            )
+        if not MACHO_HEADER_BYTES <= before.st_size <= COLLECTION_FILE_LIMIT:
+            raise ValueError(
+                _InspectionIssue.COLLECTION_SOURCE_EXCEEDS_INSPECTION_LIMITS.value
+            )
         with mmap.mmap(descriptor, 0, access=mmap.ACCESS_READ) as data:
             digest = hashlib.sha256(data).hexdigest()
             root = image_inventory(data, 0)
-            if root["filetype"] != 0xC:  # MH_FILESET
+            if root["filetype"] != MH_FILESET:  # MH_FILESET
                 raise ValueError(
-                    "Expected a Mach-O fileset, not a standalone image"
+                    _InspectionIssue.EXPECTED_A_MACH_O_FILESET_NOT_A_STANDALONE_IMAGE.value
                 )
             images = {
                 name: image_inventory(data, offset)
@@ -242,7 +566,9 @@ def load_collection(
             initial = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
             current = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
             if initial != current:
-                raise ValueError("Collection source changed during inspection")
+                raise ValueError(
+                    _InspectionIssue.COLLECTION_SOURCE_CHANGED_DURING_INSPECTION.value
+                )
     finally:
         os.close(descriptor)
     return digest, {"collectionUUID": root["uuid"]}, images
@@ -358,6 +684,7 @@ def load_reference(
         The content digest, contextual metadata and candidate-only inventory.
 
     Invalid snapshot or manifest evidence raises ValueError.
+
     """
     data = read_kdk_file(path.parent, path.name)
     digest = hashlib.sha256(data).hexdigest()
@@ -377,58 +704,112 @@ def load_reference(
     return digest, metadata, images
 
 
-def x86_slice(data: bytes) -> bytes:
-    """Select the x86_64 slice without writing or executing a Mach-O image."""
-    if data[:4] == b"\xcf\xfa\xed\xfe":
-        return data
-    if data[:4] != b"\xca\xfe\xba\xbe":
-        raise ValueError("Expected thin Mach-O or big-endian FAT_MAGIC")
-    _ = checked_range(data, 0, 8)
+def _fat_architectures(data: bytes) -> list[tuple[int, int, int]]:
+    """Check every FAT32 slice, including non-x86 overlaps and alignment.
+
+    Returns:
+        CPU type, absolute offset and length for each bounded architecture.
+
+    Raises:
+        ValueError: The FAT header or any slice range is malformed.
+
+    """
+    _ = checked_range(data, 0, COMMAND_HEADER_BYTES)
     count = struct.unpack_from(">I", data, 4)[0]
-    if not 1 <= count <= 16:
-        raise ValueError("Invalid fat architecture count")
-    _ = checked_range(data, 8, count * 20)
-    selected = None
-    ranges: list[tuple[int, int]] = []
+    if not 1 <= count <= FAT_MAX_ARCHES:
+        raise ValueError(_InspectionIssue.INVALID_FAT_ARCHITECTURE_COUNT.value)
+    _ = checked_range(data, COMMAND_HEADER_BYTES, count * FAT_ARCH_BYTES)
+    records: list[tuple[int, int, int]] = []
     for index in range(count):
-        cpu, _, offset, size, alignment = struct.unpack_from(
-            ">5I", data, 8 + index * 20
+        cpu, _, offset, size, align = struct.unpack_from(
+            ">5I", data, COMMAND_HEADER_BYTES + index * FAT_ARCH_BYTES
         )
         _ = checked_range(data, offset, size)
-        if (
-            offset < 8 + count * 20
-            or alignment > 31
-            or offset % (1 << alignment)
-        ):
-            raise ValueError("Invalid fat slice offset/alignment")
-        if any(offset < end and start < offset + size for start, end in ranges):
-            raise ValueError("Overlapping fat slices")
-        ranges.append((offset, offset + size))
-        if cpu == 0x01000007:
-            if selected is not None:
-                raise ValueError("Ambiguous x86_64 slices")
-            selected = data[offset : offset + size]
+        _verify_fat_slice(records, (offset, size, align), count)
+        records.append((cpu, offset, size))
+    return records
+
+
+def _verify_fat_slice(
+    records: list[tuple[int, int, int]],
+    span: tuple[int, int, int],
+    count: int,
+) -> None:
+    """Reject a FAT slice which overlaps metadata or another slice.
+
+    Raises:
+        ValueError: The slice is misaligned, malformed or overlaps metadata.
+
+    """
+    offset, size, align = span
+    header_end = COMMAND_HEADER_BYTES + count * FAT_ARCH_BYTES
+    if offset < header_end or align > FAT_MAX_ALIGNMENT:
+        raise ValueError(
+            _InspectionIssue.INVALID_FAT_SLICE_OFFSET_ALIGNMENT.value
+        )
+    if offset % (1 << align):
+        raise ValueError(
+            _InspectionIssue.INVALID_FAT_SLICE_OFFSET_ALIGNMENT.value
+        )
+    if any(
+        offset < start + length and start < offset + size
+        for _, start, length in records
+    ):
+        raise ValueError(_InspectionIssue.OVERLAPPING_FAT_SLICES.value)
+
+
+def _select_fat_x86_64(data: bytes) -> bytes:
+    """Select precisely one x86_64 candidate from validated FAT records.
+
+    Returns:
+        The exact selected x86_64 bytes.
+
+    Raises:
+        ValueError: The source contains zero or multiple matching slices.
+
+    """
+    selected = None
+    for cpu, offset, size in _fat_architectures(data):
+        if cpu != X86_64_CPU_TYPE:
+            continue
+        if selected is not None:
+            raise ValueError(_InspectionIssue.AMBIGUOUS_X86_64_SLICES.value)
+        selected = data[offset : offset + size]
     if selected is None:
-        raise ValueError("No x86_64 slice")
+        raise ValueError(_InspectionIssue.NO_X86_64_SLICE.value)
     return selected
+
+
+def x86_slice(data: bytes) -> bytes:
+    """Select a bounded x86_64 Mach-O slice without executing image code.
+
+    Returns:
+        The original thin image, or one matching FAT architecture span.
+
+    Raises:
+        ValueError: A source has an unknown image header type.
+
+    """
+    if data[:4] == MACHO_MAGIC_BYTES:
+        return data
+    if data[:4] != FAT_MAGIC_BYTES:
+        raise ValueError(
+            _InspectionIssue.EXPECTED_THIN_MACH_O_OR_BIG_ENDIAN_FAT_MAGIC.value
+        )
+    return _select_fat_x86_64(data)
 
 
 KDK_FILE_LIMIT = 128 * 1024 * 1024
 KDK_READ_CHUNK = 1024 * 1024
 
 
-def read_kdk_file(root: Path, relative: str) -> bytes:
-    """Read a bounded regular file within root without following symlinks.
+def _open_kdk_leaf(root: Path, parts: tuple[str, ...]) -> int:
+    """Open a leaf relative to held no-follow directory descriptors.
 
-    Each directory is opened relative to an already-open parent descriptor.
-    Never trust a pre-open resolve/stat check: a hostile offline package could
-    replace a symlink between validation and read. No live path is permitted
-    through a symlink within the supplied KDK root.
+    Returns:
+        An owned descriptor; callers must close it.
+
     """
-    path = Path(relative)
-    parts = path.parts
-    if path.is_absolute() or not parts or any(p in (".", "..") for p in parts):
-        raise ValueError("KDK path must remain below the selected root")
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
     parent = os.open(root, directory_flags)
@@ -437,35 +818,85 @@ def read_kdk_file(root: Path, relative: str) -> bytes:
             child = os.open(part, directory_flags, dir_fd=parent)
             os.close(parent)
             parent = child
-        descriptor = os.open(parts[-1], file_flags, dir_fd=parent)
-        try:
-            before = os.fstat(descriptor)
-            if (
-                not stat.S_ISREG(before.st_mode)
-                or before.st_size > KDK_FILE_LIMIT
-            ):
-                raise ValueError("KDK input must be a bounded regular file")
-            result = bytearray()
-            while True:
-                chunk = os.read(
-                    descriptor,
-                    min(KDK_READ_CHUNK, KDK_FILE_LIMIT + 1 - len(result)),
-                )
-                if not chunk:
-                    break
-                result.extend(chunk)
-                if len(result) > KDK_FILE_LIMIT:
-                    raise ValueError("KDK input grew beyond inspection limit")
-            after = os.fstat(descriptor)
-            old = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
-            new = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
-            if old != new or len(result) != before.st_size:
-                raise ValueError("KDK input changed during inspection")
-            return bytes(result)
-        finally:
-            os.close(descriptor)
+        return os.open(parts[-1], file_flags, dir_fd=parent)
     finally:
         os.close(parent)
+
+
+def _bounded_kdk_bytes(descriptor: int) -> bytes:
+    """Read and verify a held regular file before trusting its bytes.
+
+    Returns:
+        All bytes of a stable, bounded regular input.
+
+    Raises:
+        ValueError: The file is nonregular, oversized or changes on read.
+
+    """
+    before = os.fstat(descriptor)
+    if not stat.S_ISREG(before.st_mode) or before.st_size > KDK_FILE_LIMIT:
+        raise ValueError(
+            _InspectionIssue.KDK_INPUT_MUST_BE_A_BOUNDED_REGULAR_FILE.value
+        )
+    result = _read_kdk_chunks(descriptor)
+    after = os.fstat(descriptor)
+    old = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+    new = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+    if old != new or len(result) != before.st_size:
+        raise ValueError(
+            _InspectionIssue.KDK_INPUT_CHANGED_DURING_INSPECTION.value
+        )
+    return result
+
+
+def _read_kdk_chunks(descriptor: int) -> bytes:
+    """Read up to the strict file limit without trusting the recorded size.
+
+    Returns:
+        Bounded raw bytes; caller rechecks the file identity and size.
+
+    Raises:
+        ValueError: The input grows beyond the byte limit during reading.
+
+    """
+    result = bytearray()
+    while True:
+        chunk = os.read(
+            descriptor, min(KDK_READ_CHUNK, KDK_FILE_LIMIT + 1 - len(result))
+        )
+        if not chunk:
+            break
+        result.extend(chunk)
+        if len(result) > KDK_FILE_LIMIT:
+            raise ValueError(
+                _InspectionIssue.KDK_INPUT_GREW_BEYOND_INSPECTION_LIMIT.value
+            )
+    return bytes(result)
+
+
+def read_kdk_file(root: Path, relative: str) -> bytes:
+    """Read a bounded regular file within root without following symlinks.
+
+    Each path component is opened relative to a held directory descriptor.
+
+    Returns:
+        Validated bytes from an immutable-during-read snapshot.
+
+    Raises:
+        ValueError: The relative path or target file is not acceptable.
+
+    """
+    path = Path(relative)
+    parts = path.parts
+    if path.is_absolute() or not parts or any(p in {".", ".."} for p in parts):
+        raise ValueError(
+            _InspectionIssue.KDK_PATH_MUST_REMAIN_BELOW_THE_SELECTED_ROOT.value
+        )
+    descriptor = _open_kdk_leaf(root, parts)
+    try:
+        return _bounded_kdk_bytes(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def _kdk_plist_mapping(data: bytes, label: str) -> dict[str, object]:
@@ -486,6 +917,89 @@ def _kdk_plist_mapping(data: bytes, label: str) -> dict[str, object]:
     return decoded
 
 
+def _kdk_pci_exports(
+    read: Callable[[str], bytes],
+    contents: str,
+    image: _ImageInventory,
+    *,
+    details: dict[str, object],
+) -> None:
+    """Intersect packaged PCI export declarations with defined nlist symbols."""
+    relative = contents + "Resources/config/IOPCIFamily.exports"
+    exports = {
+        line.strip()
+        for line in read(relative).decode("utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    image["symbols"] = {
+        name: "kdk_config_export_and_defined_global_nlist"
+        if name in exports
+        else "defined_global_nlist_candidate_only"
+        for name in image["symbols"]
+    }
+    details["configExportListEntries"] = len(exports)
+
+
+def _kdk_family(
+    read: Callable[[str], bytes],
+    family: str,
+    metadata: _KdkMetadata,
+    *,
+    images: dict[str, _ImageInventory],
+) -> None:
+    """Record one family's static slice and metadata, without ABI approval.
+
+    Raises:
+        ValueError: Bundle identity or packaged image metadata is invalid.
+
+    """
+    contents = f"System/Library/Extensions/{family}.kext/Contents/"
+    info = _kdk_plist_mapping(
+        read(contents + "Info.plist"), "family Info.plist"
+    )
+    identifier = "com.apple.iokit." + family
+    if info.get("CFBundleIdentifier") != identifier:
+        raise ValueError(
+            _InspectionIssue.UNEXPECTED_KDK_BUNDLE_IDENTIFIER.value
+        )
+    selected = x86_slice(read(contents + "MacOS/" + family))
+    image = image_inventory(selected, 0)
+    images[identifier] = image
+    details: dict[str, object] = {
+        "version": info.get("CFBundleVersion"),
+        "compatibleVersion": info.get("OSBundleCompatibleVersion"),
+        "dependencies": info.get("OSBundleLibraries"),
+        "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
+        "x86_64SliceBytes": len(selected),
+        "uuid": image["uuid"],
+    }
+    metadata["images"][identifier] = details
+    if family == PCI_FAMILY:
+        _kdk_pci_exports(read, contents, image, details=details)
+
+
+def _kdk_kernel(
+    read: Callable[[str], bytes],
+    metadata: _KdkMetadata,
+    images: dict[str, _ImageInventory],
+) -> None:
+    """Record an optional packaged kernel, rejecting other read errors."""
+    try:
+        kernel_data = read("System/Library/Kernels/kernel")
+    except FileNotFoundError:
+        # KDK packages may omit the standalone kernel. Never suppress any
+        # other failure including symlink and malformed-file errors.
+        return
+    selected = x86_slice(kernel_data)
+    image = image_inventory(selected, 0)
+    images["com.apple.kernel"] = image
+    metadata["images"]["com.apple.kernel"] = {
+        "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
+        "x86_64SliceBytes": len(selected),
+        "uuid": image["uuid"],
+    }
+
+
 def load_kdk(
     root: Path,
 ) -> tuple[None, _KdkMetadata, dict[str, _ImageInventory]]:
@@ -493,6 +1007,8 @@ def load_kdk(
 
     Returns:
         Package-only metadata and nlist candidates, not usable ABI proof.
+
+    Invalid source metadata or image bounds propagate their errors.
 
     """
     files: dict[str, dict[str, int | str]] = {}
@@ -519,57 +1035,9 @@ def load_kdk(
         "images": {},
     }
     images: dict[str, _ImageInventory] = {}
-    for family in ("IOPCIFamily", "IO80211Family", "IOSkywalkFamily"):
-        contents = "System/Library/Extensions/" + family + ".kext/Contents/"
-        info = _kdk_plist_mapping(
-            read(contents + "Info.plist"), "family Info.plist"
-        )
-        identifier = "com.apple.iokit." + family
-        if info.get("CFBundleIdentifier") != identifier:
-            raise ValueError("Unexpected KDK bundle identifier")
-        selected = x86_slice(read(contents + "MacOS/" + family))
-        image = image_inventory(selected, 0)
-        images[identifier] = image
-        metadata["images"][identifier] = {
-            "version": info.get("CFBundleVersion"),
-            "compatibleVersion": info.get("OSBundleCompatibleVersion"),
-            "dependencies": info.get("OSBundleLibraries"),
-            "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
-            "x86_64SliceBytes": len(selected),
-            "uuid": image["uuid"],
-        }
-        if family == "IOPCIFamily":
-            relative = contents + "Resources/config/IOPCIFamily.exports"
-            exports = {
-                line.strip()
-                for line in read(relative).decode("utf-8").splitlines()
-                if line.strip() and not line.lstrip().startswith("#")
-            }
-            image["symbols"] = {
-                name: "kdk_config_export_and_defined_global_nlist"
-                if name in exports
-                else "defined_global_nlist_candidate_only"
-                for name in image["symbols"]
-            }
-            metadata["images"][identifier]["configExportListEntries"] = len(
-                exports
-            )
-    kernel_path = "System/Library/Kernels/kernel"
-    try:
-        kernel_data = read(kernel_path)
-    except FileNotFoundError:
-        # KDK packages may omit the standalone kernel. Do not follow optional
-        # symlinks for the existence test or silently skip hostile paths.
-        kernel_data = None
-    if kernel_data is not None:
-        selected = x86_slice(kernel_data)
-        images["com.apple.kernel"] = image_inventory(selected, 0)
-        metadata["images"]["com.apple.kernel"] = {
-            "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
-            "x86_64SliceBytes": len(selected),
-            "uuid": images["com.apple.kernel"]["uuid"],
-        }
-    # A directory has no file hash; each actual input and selected slice is hashed above.
+    for family in (PCI_FAMILY, "IO80211Family", "IOSkywalkFamily"):
+        _kdk_family(read, family, metadata, images=images)
+    _kdk_kernel(read, metadata, images)
     return None, metadata, images
 
 
@@ -587,30 +1055,33 @@ def read_system_version(path: Path) -> tuple[bytes, str, str]:
     # plistlib has an untyped return; validate its shape immediately below.
     decoded = cast("object", plistlib.loads(data))
     if not _is_mapping(decoded):
-        raise ValueError("SystemVersion.plist must contain a dictionary")
+        raise ValueError(
+            _InspectionIssue.SYSTEMVERSION_PLIST_MUST_CONTAIN_A_DICTIONARY.value
+        )
     version = decoded
     product = version.get("ProductVersion")
     build = version.get("ProductBuildVersion")
     if not isinstance(product, str) or not isinstance(build, str):
-        raise ValueError("SystemVersion.plist requires version/build strings")
+        _reject_snapshot(
+            _InspectionIssue.SYSTEMVERSION_PLIST_REQUIRES_VERSION_BUILD_STRINGS.value
+        )
     if not product or not build:
-        raise ValueError("SystemVersion.plist has empty version/build fields")
+        raise ValueError(
+            _InspectionIssue.SYSTEMVERSION_PLIST_HAS_EMPTY_VERSION_BUILD_FIELDS.value
+        )
     return data, product, build
 
 
-def inventory(
-    path: Path,
-    reference_mode: bool,
-    system_version: Path | None = None,
-    kdk_mode: bool = False,
+def _inventory_groups(
+    images: dict[str, _ImageInventory] | dict[str, dict[str, object]],
 ) -> dict[str, object]:
-    if kdk_mode:
-        digest, metadata, images = load_kdk(path)
-    else:
-        digest, metadata, images = (
-            load_reference(path) if reference_mode else load_collection(path)
-        )
-    groups = {}
+    """Project candidate symbols into four explicit ABI evidence families.
+
+    Returns:
+        Candidate-only group metadata, never a native interface approval.
+
+    """
+    groups: dict[str, object] = {}
     for label, (image_name, classes) in GROUPS.items():
         image = images.get(image_name)
         if image is None:
@@ -635,15 +1106,75 @@ def inventory(
             "recordedTableNames": image.get("recordedTableNames"),
             "recordedFunctionNames": image.get("recordedFunctionNames"),
         }
-    supplied_system = None
-    if system_version is not None:
-        data, product, build = read_system_version(system_version)
-        supplied_system = {
-            "sha256": hashlib.sha256(data).hexdigest(),
-            "version": product,
-            "build": build,
-            "pairedToCollectionVerified": False,
-        }
+    return groups
+
+
+def _supplied_version(path: Path | None) -> dict[str, object] | None:
+    """Keep caller-supplied OS metadata clearly unpaired from collection.
+
+    Returns:
+        Optional static metadata with an explicit unverified pairing state.
+
+    """
+    if path is None:
+        return None
+    data, product, build = read_system_version(path)
+    return {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "version": product,
+        "build": build,
+        "pairedToCollectionVerified": False,
+    }
+
+
+_LIMITATION_PARTS: tuple[tuple[str, ...], ...] = (
+    ("Missing images mean missing evidence, not missing OS APIs.",),
+    (
+        "Nlist definitions are candidates, not a verified KPI export",
+        "allowlist.",
+    ),
+    (
+        "Export tries, reexports and KPI dependency/version eligibility",
+        "are not resolved.",
+    ),
+    (
+        "No C++ class size, vtable, selector, key-path or",
+        "packet-lifetime contract is proven.",
+    ),
+    (
+        "A supplied SystemVersion plist is not proof of collection",
+        "provenance or pairing.",
+    ),
+    (
+        "KDK files/export lists are package evidence, not attested",
+        "loaded production images.",
+    ),
+    (
+        "No source compilation, Mach-O import/relocation validation,",
+        "load or hardware test is performed.",
+    ),
+)
+
+
+def inventory(
+    path: Path,
+    *,
+    reference_mode: bool,
+    system_version: Path | None = None,
+    kdk_mode: bool = False,
+) -> dict[str, object]:
+    """Inventory only supplied offline Mach-O, KDK or retained reference.
+
+    Returns:
+        A JSON-compatible, deliberately unverified ABI candidate report.
+
+    """
+    if kdk_mode:
+        digest, metadata, images = load_kdk(path)
+    else:
+        digest, metadata, images = (
+            load_reference(path) if reference_mode else load_collection(path)
+        )
     return {
         "schemaVersion": 1,
         "source": str(path),
@@ -654,20 +1185,12 @@ def inventory(
         if reference_mode
         else "provided_collection",
         "metadata": metadata,
-        "suppliedSystemVersion": supplied_system,
+        "suppliedSystemVersion": _supplied_version(system_version),
         "imageNames": sorted(images),
-        "groups": groups,
+        "groups": _inventory_groups(images),
         "nativePciAbiVerified": False,
         "nativeWirelessAbiVerified": False,
-        "limitations": [
-            "Missing images mean missing evidence, not missing OS APIs.",
-            "Nlist definitions are candidates, not a verified KPI export allowlist.",
-            "Export tries, reexports and KPI dependency/version eligibility are not resolved.",
-            "No C++ class size, vtable, selector, key-path or packet-lifetime contract is proven.",
-            "A supplied SystemVersion plist is not proof of collection provenance or pairing.",
-            "KDK files/export lists are package evidence, not attested loaded production images.",
-            "No source compilation, Mach-O import/relocation validation, load or hardware test is performed.",
-        ],
+        "limitations": [" ".join(parts) for parts in _LIMITATION_PARTS],
     }
 
 
@@ -678,14 +1201,39 @@ def _parsed_path(args: argparse.Namespace, name: str) -> Path | None:
         One optional, already-parsed path.
 
     Raises:
-        ValueError: An option yielded an unsupported type.
+        TypeError: An option yielded an unsupported type.
 
     """
     raw = cast("object", getattr(args, name))
     if raw is None or isinstance(raw, Path):
         return raw
     message = f"Unexpected CLI path value for {name}"
-    raise ValueError(message)
+    raise TypeError(message)
+
+
+def _cli_inventory(args: argparse.Namespace) -> dict[str, object]:
+    """Validate all untyped CLI inputs before reading package evidence.
+
+    Returns:
+        An offline report for the selected bounded source.
+
+    Raises:
+        ValueError: No source option was supplied.
+
+    """
+    reference = _parsed_path(args, "reference")
+    collection = _parsed_path(args, "collection")
+    kdk_root = _parsed_path(args, "kdk_root")
+    system_version = _parsed_path(args, "system_version")
+    selected = reference or collection or kdk_root
+    if selected is None:
+        raise ValueError(_InspectionIssue.MISSING_OFFLINE_ABI_SOURCE.value)
+    return inventory(
+        selected,
+        reference_mode=reference is not None,
+        system_version=system_version,
+        kdk_mode=kdk_root is not None,
+    )
 
 
 def main() -> None:
@@ -701,7 +1249,10 @@ def main() -> None:
     _ = inputs.add_argument(
         "--kdk-root",
         type=Path,
-        help="already extracted KDK root containing System/Library; no install/mount",
+        help=(
+            "already extracted KDK root containing System/Library; "
+            "no install/mount"
+        ),
     )
     _ = parser.add_argument(
         "--system-version",
@@ -710,22 +1261,10 @@ def main() -> None:
     )
     args = parser.parse_args()
     try:
-        reference = _parsed_path(args, "reference")
-        collection = _parsed_path(args, "collection")
-        kdk_root = _parsed_path(args, "kdk_root")
-        system_version = _parsed_path(args, "system_version")
-        selected = reference or collection or kdk_root
-        if selected is None:
-            raise ValueError("Missing offline ABI source")
-        result = inventory(
-            selected,
-            reference is not None,
-            system_version,
-            kdk_root is not None,
-        )
+        result = _cli_inventory(args)
     except (OSError, ValueError, KeyError, TypeError, struct.error) as error:
         parser.exit(2, f"Static ABI inventory failed: {error}\n")
-    print(json.dumps(result, indent=2, sort_keys=True))
+    _ = sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
 
 if __name__ == "__main__":
