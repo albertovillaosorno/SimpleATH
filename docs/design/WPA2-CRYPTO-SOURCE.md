@@ -60,3 +60,25 @@ interface, operational RF/DMA TX/RX, or usable WPA2 connection.
 Build, tests, EFI installation and physical verification remain prohibited
 without explicit owner authorization. The vectors above are specifications
 for later validation, not recorded test results.
+
+## Source-only EAPOL hardening (2026-11-06)
+
+- The M3 GTK KDE parser accepts the standard AES-wrap trailing padding
+  (`0xdd`, then zero octets), while continuing to reject truncated,
+  malformed and duplicate GTK KDEs. A `0xdd` vendor KDE with nonzero
+  content is still parsed as an element. IEEE 802.11-2007 (Key Data
+  AES-wrap padding) and hostapd authenticator key-data construction
+  provide public specification and implementation evidence.
+- The supplicant now arms keycache rollback **before** calling the first
+  pairwise-key installation callback. A false return must not leave a
+  partially written pairwise key slot; the backend's removal callback
+  must be idempotent and clean up attempted pairwise/group installs.
+- This is static reasoning and source change only: neither the parser nor
+  the hardware keycache callback has been executed or verified.
+
+Public evidence (reviewed 2026-11-06):
+
+- IEEE 802.11-2007, clause 8.5 Key Data and GTK KDE:
+  https://people.iith.ac.in/tbr/teaching/docs/802.11-2007.pdf
+- hostapd authenticator reference, `src/ap/wpa_auth.c` (BSD terms):
+  https://github.com/wertarbyte/hostap/blob/master/src/ap/wpa_auth.c

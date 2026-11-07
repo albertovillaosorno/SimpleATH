@@ -74,6 +74,9 @@ namespace simpleath
                                           const uint8_t tk[16]);
                 bool (*installGroupGtk)(void *context, uint8_t keyId,
                                         const uint8_t gtk[16]);
+                // Must roll back even partially programmed pairwise/group
+                // slots when an install callback returns false. Idempotent
+                // after partial writes, before the first successful install.
                 void (*removeInstalledKeys)(void *context);
         };
 
@@ -123,7 +126,7 @@ namespace simpleath
                 uint8_t ptk_[48];
                 uint8_t snonce_[32];
                 uint8_t eapolVersion_;
-                bool installed_;
+                bool keyInstallAttempted_;
         };
 
     } // namespace ieee80211

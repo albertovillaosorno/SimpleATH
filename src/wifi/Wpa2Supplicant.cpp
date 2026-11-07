@@ -89,9 +89,17 @@ namespace simpleath
                 size_t offset = 0;
                 while (offset < length)
                 {
-                    // WPA2 key data may end with 0xdd padding for AES wrapping.
-                    if (plaintext[offset] == 0xdd && length - offset < 2)
-                        break;
+                    // AES-wrap padding is 0xdd followed only by zero octets.
+                    // A vendor KDE can also start with 0xdd, so treat it as
+                    // padding only when every remaining octet is zero.
+                    if (plaintext[offset] == 0xdd)
+                    {
+                        bool padding = true;
+                        for (size_t i = offset + 1; i < length; ++i)
+                            padding = padding && plaintext[i] == 0;
+                        if (padding)
+                            return found;
+                    }
                     if (length - offset < 2)
                         return false;
                     const uint8_t tag = plaintext[offset];
@@ -125,7 +133,7 @@ namespace simpleath
         Wpa2Supplicant::Wpa2Supplicant()
             : state_(Wpa2State::Inactive), crypto_ {}, replay_ {}, station_ {},
               ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, eapolVersion_(0),
-              installed_(false)
+              keyInstallAttempted_(false)
         {
         }
 
@@ -148,9 +156,9 @@ namespace simpleath
 
         Wpa2Result Wpa2Supplicant::fail(Wpa2Result error)
         {
-            if (installed_ && crypto_.removeInstalledKeys)
+            if (keyInstallAttempted_ && crypto_.removeInstalledKeys)
                 crypto_.removeInstalledKeys(crypto_.context);
-            installed_ = false;
+            keyInstallAttempted_ = false;
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
@@ -160,7 +168,7 @@ namespace simpleath
 
         void Wpa2Supplicant::reset()
         {
-            if (installed_ && crypto_.removeInstalledKeys)
+            if (keyInstallAttempted_ && crypto_.removeInstalledKeys)
                 crypto_.removeInstalledKeys(crypto_.context);
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
@@ -170,7 +178,7 @@ namespace simpleath
             station_ = {};
             ap_ = {};
             eapolVersion_ = 0;
-            installed_ = false;
+            keyInstallAttempted_ = false;
             state_ = Wpa2State::Inactive;
         }
 
@@ -327,13 +335,15 @@ namespace simpleath
             // Software confirmation only. The platform callbacks must actually
             // install CCMP keys and persist them to valid hardware keycache
             // slots.
+            // A failed callback can still leave a partially written key slot.
+            // Arm rollback before either hardware installation attempt.
+            keyInstallAttempted_ = true;
             if (!crypto_.installPairwiseTk(crypto_.context, ap_, ptk_ + 32u))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));
                 return fail(Wpa2Result::HardwareKeyInstallFailure);
             }
-            installed_ = true;
             if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk))
             {
                 secureClear(gtk, sizeof(gtk));
