@@ -29,11 +29,17 @@ namespace
         {
             const auto bytes =
                 static_cast<const uint8_t *>(data->getBytesNoCopy());
-            const uint32_t value = static_cast<uint32_t>(bytes[0]) |
-                                   (static_cast<uint32_t>(bytes[1]) << 8) |
-                                   (static_cast<uint32_t>(bytes[2]) << 16) |
-                                   (static_cast<uint32_t>(bytes[3]) << 24);
-            service->setProperty(diagnosticKey, value, 32);
+            // Registry properties are diagnostics, not trusted identity.
+            // Even a length-valid OSData must not be dereferenced if it has
+            // no accessible backing bytes.
+            if (bytes)
+            {
+                const uint32_t value = static_cast<uint32_t>(bytes[0]) |
+                                       (static_cast<uint32_t>(bytes[1]) << 8) |
+                                       (static_cast<uint32_t>(bytes[2]) << 16) |
+                                       (static_cast<uint32_t>(bytes[3]) << 24);
+                service->setProperty(diagnosticKey, value, 32);
+            }
         }
         if (property)
             property->release();
@@ -98,7 +104,11 @@ OSDefineMetaClassAndStructors(SimpleATH, IOService)
             // bus transport is installed. Keep the complete Wi-Fi path
             // disabled.
             setProperty("SimpleATHRadioInitialized", false);
-            setProperty("SimpleATHHardwareCorePresent", true);
+            // A portable C++ core is present in source, but the runtime has
+            // neither authenticated PCI identity nor instantiated its hardware
+            // transport. Never report a detected physical core from matching.
+            setProperty("SimpleATHPortableCoreSourcePresent", true);
+            setProperty("SimpleATHHardwareCorePresent", false);
             setProperty("SimpleATHMmioTransportReady", false);
             setProperty("SimpleATHEepromValidated", false);
             setProperty("SimpleATHRegulatoryReady", false);

@@ -33,8 +33,12 @@ No new target-kernel load or wireless result exists.
 The passive IOService does not instantiate the PCI session, read physical
 configuration/MMIO, obtain exclusive ownership, enable bus mastering, allocate
 DMA, request interrupts, or register a network interface. Registry-ID diagnostics
-are explicitly marked as potentially spoofed. Physical identity, SREV, EEPROM,
-regulatory approval, association and traffic remain unverified/not implemented.
+are explicitly marked as potentially spoofed. Passive matching publishes
+`SimpleATHPortableCoreSourcePresent=true` but keeps
+`SimpleATHHardwareCorePresent=false` until an actual PCI owner establishes
+physical identity; diagnostic OSData payloads are also checked for accessible
+bytes before decoding. Physical identity, SREV, EEPROM, regulatory approval,
+association and traffic remain unverified/not implemented.
 
 ## Open blockers in dependency order
 
