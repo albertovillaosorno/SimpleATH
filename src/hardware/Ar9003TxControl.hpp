@@ -112,7 +112,9 @@ namespace simpleath
                 uint8_t finalRateSeries;
                 uint16_t sequenceNumber;
                 uint32_t timestamp;
-                bool frameAcked;
+                // AR_FrmXmitOK signals success, not proof of an ACK when the
+                // transmission's policy did not request an ACK.
+                bool frameTransmitOk;
                 bool excessiveRetries;
                 bool filtered;
                 bool fifoUnderrun;
@@ -124,8 +126,10 @@ namespace simpleath
         };
 
         // Caller performs DMA synchronization before reading TX completion
-        // status. The status ring must not be recycled until the owner confirms
-        // no DMA access.
+        // status. Out is zeroed on all errors, and a pending status is
+        // Incomplete even when the vendor field has not been written yet.
+        // The status ring must not be recycled until the owner confirms no
+        // DMA access. Queue IDs outside the supported 0..9 range are rejected.
         DescriptorError decodeTxCompletion(const TxCompletionWords &status,
                                            TxCompletion &out);
 

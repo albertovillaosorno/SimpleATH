@@ -33,6 +33,7 @@ namespace simpleath
             constexpr uint32_t kInfoVendor = 0x168c0000u;
             constexpr uint32_t kAr9565ControlLength = 0x18u;
             constexpr uint32_t kInfoDescriptorBits = 0xc000u;
+            constexpr uint8_t kMaximumQcu = 9u;
 
             bool packetTypeValid(TxPacketType type)
             {
@@ -53,6 +54,7 @@ namespace simpleath
             if ((info & 0xffff0000u) != kInfoVendor ||
                 (info & kInfoDescriptorBits) != kInfoDescriptorBits ||
                 (info & 0xffu) != kAr9565ControlLength ||
+                ((info >> 8u) & 0x0fu) > kMaximumQcu ||
                 (descriptor.word[10] & 0xffffu) !=
                     txPointerChecksum(descriptor))
                 return TxControlError::UninitializedPointerDescriptor;
@@ -179,22 +181,29 @@ namespace simpleath
         DescriptorError decodeTxCompletion(const TxCompletionWords &raw,
                                            TxCompletion &out)
         {
-            if ((raw.word[0] & 0xffff0000u) != kInfoVendor ||
-                (raw.word[0] & 0x8000u) == 0)
-                return DescriptorError::InvalidVendor;
+            // The ring status may still hold an earlier result. Never leave
+            // a valid-looking prior completion after any failure.
+            out = {};
+            // ath9k checks AR_TxDone before inspecting ds_info; an unfilled
+            // status slot is pending, not evidence of a wrong PCI vendor.
             const uint32_t final = raw.word[8];
             if ((final & 1u) == 0)
                 return DescriptorError::Incomplete;
+            const uint32_t info = raw.word[0];
+            if ((info & 0xffff0000u) != kInfoVendor || (info & 0x8000u) == 0)
+                return DescriptorError::InvalidVendor;
 
             TxCompletion complete {};
-            complete.queue = static_cast<uint8_t>((raw.word[0] >> 8u) & 0x0fu);
+            complete.queue = static_cast<uint8_t>((info >> 8u) & 0x0fu);
+            if (complete.queue > kMaximumQcu)
+                return DescriptorError::CorruptStatus;
             complete.finalRateSeries =
                 static_cast<uint8_t>((final >> 21u) & 3u);
             complete.sequenceNumber =
                 static_cast<uint16_t>((final >> 1u) & 0x0fffu);
             complete.timestamp = raw.word[4];
             const uint32_t flags = raw.word[3];
-            complete.frameAcked = (flags & 0x00000001u) != 0;
+            complete.frameTransmitOk = (flags & 0x00000001u) != 0;
             complete.excessiveRetries = (flags & 0x00000002u) != 0;
             complete.fifoUnderrun = (flags & 0x00000004u) != 0;
             complete.filtered = (flags & 0x00000008u) != 0;
