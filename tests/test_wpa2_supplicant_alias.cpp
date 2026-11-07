@@ -98,6 +98,27 @@ int main()
     Wpa2Supplicant supplicant;
     uint8_t pmk[32] {};
     pmk[0] = 1;
+    auto callbacks = fakeCallbacks(fake);
+    callbacks.context = &supplicant;
+    if (supplicant.begin(callbacks, kStation, kAp, pmk, kRsnIe,
+                         sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
+        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        return 11;
+    callbacks.context = &callbacks;
+    if (supplicant.begin(callbacks, kStation, kAp, pmk, kRsnIe,
+                         sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
+        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        return 12;
+    callbacks = fakeCallbacks(fake);
+    const auto *aliasedPmk = reinterpret_cast<const uint8_t *>(&supplicant);
+    if (supplicant.begin(callbacks, kStation, kAp, aliasedPmk, kRsnIe,
+                         sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
+        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        return 13;
+    if (supplicant.begin(callbacks, kStation, kAp, pmk, aliasedPmk,
+                         sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
+        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        return 14;
     if (supplicant.begin(fakeCallbacks(fake), kStation, kAp, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::Ok)
         return 1;

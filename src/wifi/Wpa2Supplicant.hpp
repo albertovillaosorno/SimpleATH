@@ -97,6 +97,8 @@ namespace simpleath
 
                 // Use the exact validated BSS RSNE (ID, length, payload)
                 // from Beacon/Probe Response to bind M3 to the association.
+                // Credential/RSNE sources and callback metadata/context must
+                // not alias this state or one another's writable context.
                 Wpa2Result begin(const Wpa2Crypto &crypto, const Mac &station,
                                  const Mac &ap, const uint8_t pmk[32],
                                  const uint8_t *expectedRsnIe,

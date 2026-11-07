@@ -73,6 +73,40 @@ namespace simpleath
                                        : first - second < bBytes;
             }
 
+            // No borrowed credential/association bytes may alias a live
+            // supplicant. begin() installs callbacks and copies secrets; an
+            // overlapping source could be rewritten during that transition.
+            // A callback context also cannot start in any borrowed argument;
+            // the owner ensures its complete allocation is disjoint.
+            bool beginInputsDisjoint(const void *owner, size_t ownerBytes,
+                                     const Wpa2Crypto &crypto,
+                                     const Mac &station, const Mac &ap,
+                                     const uint8_t *pmk, const uint8_t *rsn,
+                                     size_t rsnBytes)
+            {
+                struct Span
+                {
+                        const void *address;
+                        size_t bytes;
+                };
+
+                const Span inputs[] = {{&crypto, sizeof(crypto)},
+                                       {&station, sizeof(station)},
+                                       {&ap, sizeof(ap)},
+                                       {pmk, 32},
+                                       {rsn, rsnBytes}};
+                if (overlaps(crypto.context, 1, owner, ownerBytes))
+                    return false;
+                for (const Span &input : inputs)
+                {
+                    if (overlaps(input.address, input.bytes, owner,
+                                 ownerBytes) ||
+                        overlaps(input.address, input.bytes, crypto.context, 1))
+                        return false;
+                }
+                return true;
+            }
+
             // The RX frame can be DMA-owned and written is a caller-supplied
             // reference. Reject aliases before written=0 or any crypto/state
             // transition, including an opaque callback context starting in
@@ -244,6 +278,9 @@ namespace simpleath
                                          const uint8_t *expectedRsnIe,
                                          size_t expectedRsnIeLength)
         {
+            if (!beginInputsDisjoint(this, sizeof(*this), crypto, station, ap,
+                                     pmk, expectedRsnIe, expectedRsnIeLength))
+                return Wpa2Result::InvalidArgument;
             if (state_ != Wpa2State::Inactive)
                 return Wpa2Result::InvalidState;
             if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
