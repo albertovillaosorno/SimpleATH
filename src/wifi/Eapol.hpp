@@ -66,6 +66,7 @@ namespace simpleath
 
         // KeyFrame borrows pointers into frame; the result object cannot
         // overlap those input bytes. On an overlap no input or output changes.
+        // All other failures clear stale borrowed output pointers and metadata.
         EapolResult parseEapolKey(const uint8_t *frame, size_t length,
                                   KeyFrame &out);
 

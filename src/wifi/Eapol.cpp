@@ -70,15 +70,19 @@ namespace simpleath
         EapolResult parseEapolKey(const uint8_t *const frame, size_t length,
                                   KeyFrame &out)
         {
-            if (frame == nullptr)
-            {
-                return EapolResult::NullBuffer;
-            }
             // A borrowed EAPOL-Key frame must not be overwritten with parsed
             // metadata: the MIC, nonce and replay counter still refer to it.
             if (overlaps_storage(frame, length, &out, sizeof(out)))
             {
                 return EapolResult::OverlappingBuffers;
+            }
+            // Revocation on ordinary failure is mandatory: KeyFrame contains
+            // borrowed nonce/MIC/key-data pointers into an earlier RX frame.
+            // Keep the alias check above this write to preserve DMA evidence.
+            out = {};
+            if (frame == nullptr)
+            {
+                return EapolResult::NullBuffer;
             }
             if (length < K_EAPOL_HEADER_BYTES)
             {

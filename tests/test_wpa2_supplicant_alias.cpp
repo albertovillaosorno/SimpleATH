@@ -351,6 +351,23 @@ namespace
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != 1)
             return false;
+
+        // A reused parser output must not keep old borrowed RX pointers when
+        // a subsequent malformed input is refused. Only an overlap contract
+        // error preserves the output untouched.
+        independent[0] = 0;
+        if (parseEapolKey(independent, sizeof(independent), parsed) !=
+                EapolResult::UnsupportedVersion ||
+            parsed.eapolBytes || parsed.eapolLength || parsed.nonce ||
+            parsed.mic || parsed.keyData ||
+            parsed.message != KeyMessage::Unknown)
+            return false;
+        independent[0] = 2;
+        if (parseEapolKey(independent, sizeof(independent), parsed) !=
+                EapolResult::Ok ||
+            parseEapolKey(nullptr, 0, parsed) != EapolResult::NullBuffer ||
+            parsed.eapolBytes || parsed.nonce || parsed.mic || parsed.keyData)
+            return false;
         return true;
     }
 
