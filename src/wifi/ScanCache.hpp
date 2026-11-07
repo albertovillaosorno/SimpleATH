@@ -40,9 +40,10 @@ namespace simpleath
                 bool snapshot(size_t ordinal, Bss &out) const;
 
                 // Only allows Open or WPA2/CCMP PSK, with a visible SSID
-                // and 2.4GHz channel. This does NOT check country-specific
-                // regulatory restrictions. A copy of the selected BSS is
-                // returned; no invalidatable pointers.
+                // and 2.4GHz channel. If both security types are permitted,
+                // prefer WPA2/CCMP PSK over Open before comparing signal.
+                // This does NOT check country-specific regulatory policy.
+                // A copy of the BSS is returned; no invalidatable pointers.
                 bool strongest(const uint8_t *ssid, size_t ssidLength,
                                uint8_t channel, bool permitOpen,
                                bool permitWpa2, Bss &out) const;

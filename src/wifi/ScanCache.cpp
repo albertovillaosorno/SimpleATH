@@ -148,7 +148,15 @@ namespace simpleath
                     if (difference != 0)
                         continue;
                 }
-                if (!found || candidate.rssiDbm > best.rssiDbm)
+                // Never prefer a stronger Open BSS over compatible WPA2
+                // solely because both policies were explicitly allowed.
+                // RSSI is only the tiebreaker within a security class.
+                const bool secureCandidate = security == Security::Wpa2Personal;
+                const bool secureBest =
+                    found && best.beacon.rsn.security == Security::Wpa2Personal;
+                if (!found || (secureCandidate && !secureBest) ||
+                    (secureCandidate == secureBest &&
+                     candidate.rssiDbm > best.rssiDbm))
                 {
                     found = true;
                     best = candidate;

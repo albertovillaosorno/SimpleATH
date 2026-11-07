@@ -88,9 +88,9 @@ namespace simpleath
                 EngineResult startScan(bool radioInitialized,
                                        bool countryChannelAllowed);
                 // requestedChannel MUST be the explicitly permitted primary
-                // channel; 0 (wildcard) is refused. The caller's country policy
-                // must authorize the exact selected channel and bandwidth
-                // before submitting any TX.
+                // channel; 0 (wildcard) is refused. An explicit nonempty SSID
+                // is also mandatory: no wildcard association. Country policy
+                // must authorize channel and bandwidth before any TX.
                 EngineResult chooseNetwork(const Mac &station,
                                            const uint8_t *ssid,
                                            size_t ssidLength,

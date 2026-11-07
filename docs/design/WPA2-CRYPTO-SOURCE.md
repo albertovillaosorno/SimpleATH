@@ -158,3 +158,14 @@ References:
   hardware in the link-loss event path; the owner must still quiesce and
   call the appropriate reset/reconnect entrypoints in order.
 - Source-only state coupling; no runtime event or actual recovery tested.
+
+## Network selection downgrade guard (2026-11-06)
+
+- `WifiEngine::chooseNetwork` requires a nonempty, explicit SSID (maximum
+  32 bytes). Wildcard scanning is not treated as authorization to connect
+  to the strongest arbitrary BSS.
+- When both Open and WPA2-PSK/CCMP were permitted by the caller, the
+  bounded BSS selector prefers a compatible WPA2 BSS before comparing
+  signal strength within the same security class. Incompatible advertised
+  WPA2 suites and PMF-required BSSes remain unsupported.
+- This is static selection policy, not a validated physical RF scan.

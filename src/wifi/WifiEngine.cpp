@@ -99,8 +99,11 @@ namespace simpleath
             if (!channelAuthorized_ || requestedChannel < 1u ||
                 requestedChannel > 14u)
                 return EngineResult::CountryNotAuthorized;
-            if (!validStationMac(station))
+            if (!validStationMac(station) || !ssid || ssidLength == 0 ||
+                ssidLength > 32)
                 return EngineResult::InvalidInput;
+            // An explicit SSID is mandatory for association. A wildcard
+            // scan result is never authorization to join an arbitrary BSS.
             Bss candidate {};
             if (!cache_.strongest(ssid, ssidLength, requestedChannel, allowOpen,
                                   allowWpa2, candidate))
