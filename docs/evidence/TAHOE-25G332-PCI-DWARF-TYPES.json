@@ -1,0 +1,339 @@
+{
+  "schemaVersion": 1,
+  "target": "x86_64 macOS Tahoe 26.7.2 build 25G332",
+  "evidenceKind": "static_kdk_pci_dsym_dwarf_and_config_export_list",
+  "image": {
+    "bundleId": "com.apple.iokit.IOPCIFamily",
+    "uuid": "227771C6-ADC2-30C7-8408-263F723CF81C",
+    "imageSha256": "6820f89378e8c9aa53062d1efe70db07641382e73eced3eb9114d0565c286ff6",
+    "matchingDsymDwarfSha256": "6e716d3b2ceb69eaa8f0d8675fc5e5482a3c5b7ba416715b72dfa0d36b6fc1e9",
+    "pciExportsSha256": "97a9f76d102f57a297a252e3d29f6e7abccd233e3f3e7681d2a78799ffc07fbe",
+    "pciExportsEntries": 388,
+    "llDbExtractionReportSha256": "ca4203b20ed3fa6eadbb683d8addd5825ad4b29468bbeed1d7ad7313addab529"
+  },
+  "extraction": "Static LLDB target create --arch x86_64 on packaged IOPCIFamily file with matching KDK dSYM loaded and symbol-file scripts disabled; no process was launched, attached, driver built or IOKit called. SBTypeMemberFunction exposes selected direct declarations only.",
+  "symbolConvention": "LLDB method mangledName uses Itanium _ZN...; Mach-O nlist/PCI export-list symbols prefix an additional underscore: __ZN... . Membership in packaged IOPCIFamily.exports is checked after adding precisely one underscore; this is only a package-level candidate, not effective runtime export or KPI permission.",
+  "types": {
+    "IOPCIDevice": {
+      "typeComplete": true,
+      "byteSize": 184,
+      "directFields": {
+        "parent": 136,
+        "ioMap": 144,
+        "slotNameProperty": 152,
+        "reserved": 160,
+        "space": 168,
+        "savedConfig": 176
+      },
+      "methods": [
+        {
+          "name": "getDeviceMemoryWithIndex",
+          "mangledName": "_ZN11IOPCIDevice24getDeviceMemoryWithIndexEj",
+          "returnType": "IODeviceMemory *",
+          "canonicalReturnType": "IODeviceMemory *",
+          "arguments": [
+            "unsigned int"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice24getDeviceMemoryWithIndexEj",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configRead32",
+          "mangledName": "_ZN11IOPCIDevice12configRead32E17IOPCIAddressSpaceh",
+          "returnType": "UInt32",
+          "canonicalReturnType": "unsigned int",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configRead32E17IOPCIAddressSpaceh",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configWrite32",
+          "mangledName": "_ZN11IOPCIDevice13configWrite32E17IOPCIAddressSpacehj",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8",
+            "UInt32"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice13configWrite32E17IOPCIAddressSpacehj",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configRead16",
+          "mangledName": "_ZN11IOPCIDevice12configRead16E17IOPCIAddressSpaceh",
+          "returnType": "UInt16",
+          "canonicalReturnType": "unsigned short",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configRead16E17IOPCIAddressSpaceh",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configWrite16",
+          "mangledName": "_ZN11IOPCIDevice13configWrite16E17IOPCIAddressSpaceht",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8",
+            "UInt16"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice13configWrite16E17IOPCIAddressSpaceht",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configRead8",
+          "mangledName": "_ZN11IOPCIDevice11configRead8E17IOPCIAddressSpaceh",
+          "returnType": "UInt8",
+          "canonicalReturnType": "unsigned char",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice11configRead8E17IOPCIAddressSpaceh",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configWrite8",
+          "mangledName": "_ZN11IOPCIDevice12configWrite8E17IOPCIAddressSpacehh",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOPCIAddressSpace",
+            "UInt8",
+            "UInt8"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configWrite8E17IOPCIAddressSpacehh",
+          "listedInPciExports": true
+        },
+        {
+          "name": "configRead32",
+          "mangledName": "_ZN11IOPCIDevice12configRead32Ey",
+          "returnType": "UInt32",
+          "canonicalReturnType": "unsigned int",
+          "arguments": [
+            "IOByteCount"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configRead32Ey",
+          "listedInPciExports": false
+        },
+        {
+          "name": "configRead16",
+          "mangledName": "_ZN11IOPCIDevice12configRead16Ey",
+          "returnType": "UInt16",
+          "canonicalReturnType": "unsigned short",
+          "arguments": [
+            "IOByteCount"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configRead16Ey",
+          "listedInPciExports": false
+        },
+        {
+          "name": "configRead8",
+          "mangledName": "_ZN11IOPCIDevice11configRead8Ey",
+          "returnType": "UInt8",
+          "canonicalReturnType": "unsigned char",
+          "arguments": [
+            "IOByteCount"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice11configRead8Ey",
+          "listedInPciExports": false
+        },
+        {
+          "name": "configWrite32",
+          "mangledName": "_ZN11IOPCIDevice13configWrite32Eyj",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOByteCount",
+            "UInt32"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice13configWrite32Eyj",
+          "listedInPciExports": false
+        },
+        {
+          "name": "configWrite16",
+          "mangledName": "_ZN11IOPCIDevice13configWrite16Eyt",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOByteCount",
+            "UInt16"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice13configWrite16Eyt",
+          "listedInPciExports": false
+        },
+        {
+          "name": "configWrite8",
+          "mangledName": "_ZN11IOPCIDevice12configWrite8Eyh",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOByteCount",
+            "UInt8"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice12configWrite8Eyh",
+          "listedInPciExports": false
+        },
+        {
+          "name": "setMemoryEnable",
+          "mangledName": "_ZN11IOPCIDevice15setMemoryEnableEb",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "arguments": [
+            "bool"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice15setMemoryEnableEb",
+          "listedInPciExports": true
+        },
+        {
+          "name": "setBusMasterEnable",
+          "mangledName": "_ZN11IOPCIDevice18setBusMasterEnableEb",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "arguments": [
+            "bool"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice18setBusMasterEnableEb",
+          "listedInPciExports": true
+        },
+        {
+          "name": "mapDeviceMemoryWithRegister",
+          "mangledName": "_ZN11IOPCIDevice27mapDeviceMemoryWithRegisterEhj",
+          "returnType": "IOMemoryMap *",
+          "canonicalReturnType": "IOMemoryMap *",
+          "arguments": [
+            "UInt8",
+            "IOOptionBits"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice27mapDeviceMemoryWithRegisterEhj",
+          "listedInPciExports": true
+        },
+        {
+          "name": "extendedConfigRead32",
+          "mangledName": "_ZN11IOPCIDevice20extendedConfigRead32Ey",
+          "returnType": "UInt32",
+          "canonicalReturnType": "unsigned int",
+          "arguments": [
+            "IOByteCount"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice20extendedConfigRead32Ey",
+          "listedInPciExports": true
+        },
+        {
+          "name": "extendedConfigRead16",
+          "mangledName": "_ZN11IOPCIDevice20extendedConfigRead16Ey",
+          "returnType": "UInt16",
+          "canonicalReturnType": "unsigned short",
+          "arguments": [
+            "IOByteCount"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice20extendedConfigRead16Ey",
+          "listedInPciExports": true
+        },
+        {
+          "name": "extendedConfigWrite16",
+          "mangledName": "_ZN11IOPCIDevice21extendedConfigWrite16Eyt",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOByteCount",
+            "UInt16"
+          ],
+          "darwinNlistSymbol": "__ZN11IOPCIDevice21extendedConfigWrite16Eyt",
+          "listedInPciExports": true
+        }
+      ]
+    },
+    "IOService": {
+      "typeComplete": true,
+      "byteSize": 136,
+      "directFields": {
+        "reserved": 40,
+        "__provider": 48,
+        "__providerGeneration": 56,
+        "__owner": 64,
+        "__state": 72,
+        "__timeBusy": 80,
+        "__accumBusy": 88,
+        "pwrMgt": 96,
+        "initialized": 104,
+        "pm_vars": 112,
+        "_numInterruptSources": 120,
+        "_interruptSources": 128
+      },
+      "methods": [
+        {
+          "name": "isInactive",
+          "mangledName": "_ZNK9IOService10isInactiveEv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "arguments": [],
+          "darwinNlistSymbol": "__ZNK9IOService10isInactiveEv",
+          "listedInPciExports": false
+        },
+        {
+          "name": "open",
+          "mangledName": "_ZN9IOService4openEPS_jPv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "arguments": [
+            "IOService *",
+            "IOOptionBits",
+            "void *"
+          ],
+          "darwinNlistSymbol": "__ZN9IOService4openEPS_jPv",
+          "listedInPciExports": false
+        },
+        {
+          "name": "close",
+          "mangledName": "_ZN9IOService5closeEPS_j",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "arguments": [
+            "IOService *",
+            "IOOptionBits"
+          ],
+          "darwinNlistSymbol": "__ZN9IOService5closeEPS_j",
+          "listedInPciExports": false
+        },
+        {
+          "name": "isOpen",
+          "mangledName": "_ZNK9IOService6isOpenEPKS_",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "arguments": [
+            "const IOService *"
+          ],
+          "darwinNlistSymbol": "__ZNK9IOService6isOpenEPKS_",
+          "listedInPciExports": false
+        },
+        {
+          "name": "getProvider",
+          "mangledName": "_ZNK9IOService11getProviderEv",
+          "returnType": "IOService *",
+          "canonicalReturnType": "IOService *",
+          "arguments": [],
+          "darwinNlistSymbol": "__ZNK9IOService11getProviderEv",
+          "listedInPciExports": false
+        }
+      ]
+    }
+  },
+  "contractLimitations": [
+    "IOPCIDevice and IOService direct byte-size/field observations do not provide inherited vtable slot ordering, metaclass lifecycle, complete superclass C++ ABI or runtime object validity.",
+    "The IOService methods are defined in another image and are not expected in this PCI-family export list. False membership is not a statement that an IOService method is missing.",
+    "IOPCIDevice IOByteCount configRead*/configWrite* overloads appear in the static DWARF metadata but were not in the packaged PCI export list; extendedConfigRead32 and extendedConfigWrite16 are separate symbol candidates and are source-gated.",
+    "Package config-export and debug info do not prove loaded 25G332 effective exports, import eligibility, actual callable semantics or matching installed SDK signatures.",
+    "NativePciBackend remains compile-gated and no PCI owner, BAR, IOMMU, DMA, radio, Wi-Fi event or device connection was exercised."
+  ],
+  "nativePciAbiVerified": false,
+  "nativeDmaAbiVerified": false,
+  "nativeWirelessAbiVerified": false
+}
