@@ -369,7 +369,9 @@ int main()
     // Replaying an epoch is a failed acquisition, not permission to retain
     // a previous image (including after invalidation and power resume).
     if (runLease(fixture, lease, 11) != NvmDiscoveryResult::InvalidArgument ||
-        lease.view(11))
+        lease.view(11) ||
+        fixture.status.result != NvmDiscoveryResult::InvalidArgument ||
+        fixture.status.lastCapture.captureComplete || fixture.status.attempts)
         return 15;
     reset(fixture.fake);
     writeBoard(fixture.fake.eeprom, 0x3ff, false);
@@ -379,7 +381,9 @@ int main()
     lease.invalidate();
     if (lease.view(12) ||
         runLease(fixture, lease, 12) != NvmDiscoveryResult::InvalidArgument ||
-        lease.view(12))
+        lease.view(12) ||
+        fixture.status.result != NvmDiscoveryResult::InvalidArgument ||
+        fixture.status.lastCapture.captureComplete || fixture.status.attempts)
         return 17;
 
     // A rejected corrupt reacquisition wipes the formerly accepted board,

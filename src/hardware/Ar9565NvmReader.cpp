@@ -596,7 +596,13 @@ namespace simpleath
         // advance, never roll back or reuse a previously retired generation.
         invalidate();
         if (!ownerEpoch || ownerEpoch <= lastEpoch_)
-            return NvmDiscoveryResult::InvalidArgument;
+        {
+            // A rejected generation must not expose the previous successful
+            // capture status after invalidating its board lease. Aliases were
+            // rejected above, so these diagnostics are safe to clear.
+            status = {};
+            return status.result = NvmDiscoveryResult::InvalidArgument;
+        }
         lastEpoch_ = ownerEpoch;
         acquiring_ = true;
         const NvmDiscoveryResult result =
