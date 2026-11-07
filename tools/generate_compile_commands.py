@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 SimpleATH contributors.
+"""Write host-only Clang-Tidy parse commands without compiling a kext.
+
+These commands are source-analysis fixtures, not captured Xcode build actions.
+Apple kernel headers and private Tahoe ABI are not supplied by this script.
+"""
+
+import json
+from pathlib import Path
+from typing import TypedDict
+
+OBJCXX_SUFFIX = ".mm"
+
+
+class CompileCommand(TypedDict):
+    """One explicitly scoped Clang compilation database entry."""
+
+    directory: str
+    file: str
+    arguments: list[str]
+
+
+def source_commands(root: Path) -> list[CompileCommand]:
+    """Enumerate source, fixture and tool translation units without binaries.
+
+    Returns:
+        Stable absolute-root Clang parse commands for existing source files.
+
+    """
+    root = root.resolve()
+    found: list[Path] = []
+    for folder in ("src", "tests", "tools"):
+        for suffix in ("*.cpp", "*.mm"):
+            found.extend(
+                path
+                for path in (root / folder).rglob(suffix)
+                if path.is_file() and not path.is_symlink()
+            )
+    result: list[CompileCommand] = []
+    for path in sorted(found):
+        relative = path.relative_to(root).as_posix()
+        standard = (
+            "c++17" if relative.startswith(("tests/", "tools/")) else "c++14"
+        )
+        language = "objective-c++" if path.suffix == OBJCXX_SUFFIX else "c++"
+        result.append({
+            "directory": str(root),
+            "file": relative,
+            "arguments": [
+                "clang++",
+                f"-std={standard}",
+                "-I",
+                "src",
+                "-x",
+                language,
+                "-fsyntax-only",
+                relative,
+            ],
+        })
+    return result
+
+
+def write_database(root: Path) -> Path:
+    """Replace only the local source-analysis compilation database.
+
+    Returns:
+        The written compilation database path for this checkout.
+
+    """
+    resolved = root.resolve()
+    destination = resolved / "compile_commands.json"
+    payload = json.dumps(source_commands(resolved), indent=2) + "\n"
+    _ = destination.write_text(payload, encoding="utf-8")
+    return destination
+
+
+def main() -> None:
+    """Refresh absolute checkout paths after moving or cloning the source."""
+    _ = write_database(Path(__file__).resolve().parent.parent)
+
+
+if __name__ == "__main__":
+    main()

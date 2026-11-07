@@ -112,6 +112,23 @@ uses the existing rules in the repository root:
     python3 -B tools/validate.py --no-tests --no-json tools/validate.py
     python3 -B tools/validate.py --no-cache --no-tidy tools/validate.py
 
+The tracked `compile_commands.json` now supplies explicit **host-side,
+source-only** Clang-Tidy parse commands for existing C++/Objective-C++
+translation units in `src/`, `tests/` and `tools/`. Source entries use the
+project's C++14 dialect; offline test/tool entries use C++17. It was not
+captured from an Xcode kext compilation and does not establish native Tahoe
+header, ABI or runtime compatibility. The JSON records this checkout's
+absolute root path, as Clang-Tidy silently skips unmatched relative entries.
+After moving or cloning the repository, refresh those paths with:
+
+    python3 -B tools/generate_compile_commands.py
+
+This generator only inventories source paths and writes JSON; it never invokes
+a compiler, builds a kext or fabricates missing headers. On a Linux host
+without Apple's SDK/KDK, platform-specific source still has unresolved
+includes. Clang-Tidy now **runs** and reports actual source findings; a
+failing lint check is not a successful native verification.
+
 **Incremental cache:** .cache/validate/cache.json holds separate results
 per file and linter. Unchanged files are not rechecked; changes to source,
 root rule files, or installed linter version invalidate the cache.

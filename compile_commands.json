@@ -1,0 +1,702 @@
+[
+  {
+    "directory": ".",
+    "file": "src/Bridge.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/Bridge.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/Loader.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/Loader.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/NativeSkywalk.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/NativeSkywalk.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/NativeUserClient.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/NativeUserClient.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/Patcher.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/Patcher.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/Relocate.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/Relocate.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/SimpleATH.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/SimpleATH.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/UserClient.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/UserClient.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9003Descriptors.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9003Descriptors.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9003Dma.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9003Dma.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9003TxControl.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9003TxControl.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565Core.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565Core.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565Eeprom.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565Eeprom.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565InitCatalog.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565InitCatalog.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565NvmReader.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565NvmReader.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565Power.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565Power.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/hardware/Ar9565RtcPower.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565RtcPower.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/platform/Ar9565NativeDma.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/platform/Ar9565NativeDma.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/platform/Ar9565NativePci.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/platform/Ar9565NativePci.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/platform/Ar9565PciSession.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/platform/Ar9565PciSession.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/platform/probe/main.mm",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "objective-c++",
+      "-fsyntax-only",
+      "src/platform/probe/main.mm"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/DataFrames.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/DataFrames.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/DataPath.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/DataPath.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/Eapol.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/Eapol.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/Frames.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/Frames.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/LegacyScanBridge.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/LegacyScanBridge.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/LinkMonitor.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/LinkMonitor.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/ScanCache.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/ScanCache.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/Station.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/Station.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/WifiEngine.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/WifiEngine.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/Wpa2Supplicant.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/Wpa2Supplicant.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/crypto/Wpa2CryptoAdapter.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/crypto/Wpa2CryptoAdapter.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "src/wifi/crypto/Wpa2Primitives.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/crypto/Wpa2Primitives.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_ar9565_core.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_ar9565_core.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_data_frames.mm",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "objective-c++",
+      "-fsyntax-only",
+      "tests/test_data_frames.mm"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_dma_ring.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_dma_ring.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_edma_codec.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_edma_codec.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_eeprom_piers.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_eeprom_piers.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_init_catalog.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_init_catalog.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_management_admission.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_management_admission.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_nvm_contract.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_nvm_contract.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_nvm_discovery.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_nvm_discovery.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_open_station_pipeline.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_open_station_pipeline.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_pci_session.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_pci_session.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_power_candidates.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_power_candidates.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_rtc_power.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_rtc_power.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_scan_bridge.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_scan_bridge.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_wpa2_public_alias.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_wpa2_public_alias.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tools/abi_validation_host.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tools/abi_validation_host.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tools/forwarding_validation_host.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tools/forwarding_validation_host.cpp"
+    ]
+  }
+]
