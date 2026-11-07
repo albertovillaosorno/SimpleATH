@@ -779,6 +779,25 @@ def _checked_collection(value: object) -> _ExportCollection:
     return value
 
 
+def open_export_collection(path: str | Path) -> _ExportCollection:
+    """Load the export-only reader without an eager reference import cycle.
+
+    Returns:
+        A reader with the exact checked collection protocol.
+
+    Raises:
+        TypeError: The selected reader lacks its required export interface.
+
+    """
+    name = "tools.kernel_collection" if __package__ else "kernel_collection"
+    module = importlib.import_module(name)
+    factory: object = vars(module).get("KernelCollection")
+    if not callable(factory):
+        message = "Native kernel-collection factory is not callable"
+        raise TypeError(message)
+    return _checked_collection(factory(path))
+
+
 def _export_one(
     plan: _ExportPlan, manifest: dict[str, object], required: set[str]
 ) -> bytes:
@@ -788,9 +807,7 @@ def _export_one(
         Deterministic UTF-8 JSON for the selected pinned system.
 
     """
-    from kernel_collection import KernelCollection  # ruff: ignore[import-outside-top-level] - Export-only binary collection.
-
-    collection = _checked_collection(KernelCollection(plan.native.path))
+    collection = open_export_collection(plan.native.path)
     try:
         guards = _vtable_guards(manifest.get("nativeVtableGuards"))
         guards.extend(plan.vtable_guards)

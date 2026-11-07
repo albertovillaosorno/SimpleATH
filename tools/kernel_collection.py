@@ -4,15 +4,14 @@
 
 from __future__ import annotations
 
+import importlib
 import mmap
 from pathlib import Path
 import struct
 from typing import Never
-from typing import TYPE_CHECKING
+from typing import Protocol
 from typing import final
-
-if TYPE_CHECKING:
-    from native_references import ReferenceCollection
+from typing import runtime_checkable
 
 if __package__:
     from tools.abi_types import byte_string
@@ -285,12 +284,25 @@ class KernelImage:
         _invalid(message)
 
 
+@runtime_checkable
+class _SnapshotCollection(Protocol):
+    """Common checked collection operations for JSON and binary readers."""
+
+    path: Path
+
+    def pointer(self, address: int) -> int: ...
+
+    def version(self) -> str: ...
+
+    def close(self) -> None: ...
+
+
 class KernelCollection:
     """Inspect an offline binary KC with existing JSON snapshot dispatch."""
 
     def __new__(
         cls, path: str | Path
-    ) -> KernelCollection | ReferenceCollection:
+    ) -> KernelCollection | _SnapshotCollection:
         """Retain the historical JSON snapshot factory interface.
 
         Returns:
@@ -298,11 +310,21 @@ class KernelCollection:
 
         """
         if Path(path).suffix == JSON_SUFFIX:
-            if __package__:
-                from tools.native_references import ReferenceCollection  # ruff: ignore[import-outside-top-level]
-            else:
-                from native_references import ReferenceCollection  # ruff: ignore[import-outside-top-level]
-            return ReferenceCollection(path)
+            name = (
+                "tools.native_references"
+                if __package__
+                else "native_references"
+            )
+            module = importlib.import_module(name)
+            factory: object = vars(module).get("ReferenceCollection")
+            if not callable(factory):
+                _invalid("Native reference collection factory is not callable")
+            candidate: object = factory(path)
+            if not isinstance(candidate, _SnapshotCollection):
+                _invalid(
+                    "Native reference collection lacks required operations"
+                )
+            return candidate
         return super().__new__(cls)
 
     def __init__(self, path: str | Path) -> None:

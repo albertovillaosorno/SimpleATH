@@ -5,9 +5,12 @@
 from pathlib import Path
 import struct
 import tempfile
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest import mock
 
 from tools import kernel_collection as kc
+from tools import native_references as references
 
 VIRTUAL = 0x1000
 EMPTY = b""
@@ -87,6 +90,51 @@ def _section_image(section: bytes) -> bytes:
     struct.pack_into("<I", segment, 4, kc.SEGMENT_SIZE + kc.SECTION_SIZE)
     struct.pack_into("<I", segment, 64, 1)
     return _image([bytes(segment) + section])
+
+
+class _SyntheticSnapshot:
+    """Implement the minimal checked JSON-reader surface without I/O."""
+
+    def __init__(self, path: Path) -> None:
+        """Record the selected synthetic path."""
+        self.path: Path = path
+
+    @staticmethod
+    def pointer(address: int) -> int:
+        """Preserve synthetic pointer addresses.
+
+        Returns:
+            The supplied address without dereferencing a real image.
+
+        """
+        return address
+
+    @staticmethod
+    def version() -> str:
+        """Return an offline marker.
+
+        Returns:
+            A synthetic kernel version label.
+
+        """
+        return "synthetic"
+
+    def close(self) -> None:
+        """No file or mapped memory is owned."""
+
+
+def _json_rejected(source: Path) -> bool:
+    """Check that invalid factory results fail before binary initialization.
+
+    Returns:
+        True if the invalid JSON factory was rejected.
+
+    """
+    try:
+        _ = kc.KernelCollection(source)
+    except ValueError:
+        return True
+    return False
 
 
 class KernelImageBounds(TestCase):
@@ -173,6 +221,36 @@ class KernelImageBounds(TestCase):
             assert collection.fixup_base == VIRTUAL
             collection.close()
             assert collection.data.closed
+
+    @staticmethod
+    def test_pinned_json_dispatch_uses_checked_reference_collection() -> None:
+        """A committed checksum-matching snapshot stays a JSON reader."""
+        source = references.DIRECTORY / "Tahoe.json"
+        collection = kc.KernelCollection(source)
+        assert isinstance(collection, references.ReferenceCollection)
+        assert (
+            collection.version()
+            == references.load_reference(source)["kernelVersion"]
+        )
+        collection.close()
+
+    @staticmethod
+    def test_json_factory_accepts_only_checked_snapshot_operations() -> None:
+        """Dispatch JSON snapshots without opening them as Mach-O files."""
+        source = Path("/synthetic/check.json")
+        snapshot = _SyntheticSnapshot(source)
+        factory = mock.Mock(return_value=snapshot)
+        module = SimpleNamespace(ReferenceCollection=factory)
+        with mock.patch("importlib.import_module", return_value=module):
+            result = kc.KernelCollection(source)
+        assert result is snapshot
+        factory.assert_called_once_with(source)
+
+        malformed = SimpleNamespace(
+            ReferenceCollection=mock.Mock(return_value=object())
+        )
+        with mock.patch("importlib.import_module", return_value=malformed):
+            assert _json_rejected(source)
 
     @staticmethod
     def test_sections_must_fit_virtual_and_file_extents() -> None:
