@@ -26,7 +26,8 @@ enum class Error : uint8_t {
     RingFull,
     InvalidSlot,
     UnexpectedState,
-    NotReadyToTransmit
+    NotReadyToTransmit,
+    GenerationExhausted
 };
 
 enum class Direction : uint8_t { ToDevice, FromDevice };
@@ -73,7 +74,9 @@ public:
     Error descriptorPrepared(size_t slot, bool dmaMapped, bool complete);
     Error handedToHardware(size_t slot, bool radioCalibrated,
                            bool channelAllowed, bool keysReady);
-    Error complete(size_t slot, uint32_t cookie);
+    // Capture slot(slotIndex)->generation at reservation time and carry it
+    // through completion handling. A reused cookie alone cannot identify DMA.
+    Error complete(size_t slot, uint32_t cookie, uint32_t generation);
     Error release(size_t slot);
     void reset();
     size_t active() const { return active_; }

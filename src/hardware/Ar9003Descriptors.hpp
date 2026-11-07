@@ -37,7 +37,8 @@ enum class DescriptorError : uint8_t {
 };
 
 struct Segment {
-    // Physical/IOMMU mapped bus address, NOT a host pointer. AR9003 descriptor
+    // I/O virtual bus address from a mapped DMA command, NOT a host pointer.
+    // No raw physical-address fallback. AR9003 descriptor
     // addresses are 32-bit; a 64-bit host address must never be truncated.
     uint64_t busAddress;
     uint16_t length;
