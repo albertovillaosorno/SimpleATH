@@ -60,6 +60,10 @@ The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
 the PCI ownership contract from a verified native adapter. The
 [EEPROM port](docs/design/EEPROM-PORT.md) reconstructs blocks and interprets
 board fields without asserting calibration or regulatory validity.
+Its five pinned dictionaries and the [active NVM read protocol](docs/design/NVM-READ-PROTOCOL.md)
+are source only; no EEPROM/OTP hardware read has been performed. The
+[ABI evidence inventory](docs/design/ABI-EVIDENCE-ACQUISITION.md) records why
+the retained reference cannot approve a native PCI or Wi-Fi adapter.
 See [status, blockers and recovery](docs/design/STATUS-AND-RECOVERY.md) for
 source commit evidence and the separate build/install/device authorizations.
 The user must explicitly authorize the next CI build and boot test.
