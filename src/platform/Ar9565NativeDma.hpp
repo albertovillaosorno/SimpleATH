@@ -106,18 +106,23 @@ namespace simpleath
                                           uint64_t ownerEpoch,
                                           uint64_t allocationId,
                                           const NativeDmaRequest &request);
+            // Source may not overlap this object or the DMA descriptor's
+            // live CPU memory; use a separately owned staging buffer.
             NativeDmaResult writeClient(uint32_t offset, const void *bytes,
                                         uint32_t length);
             NativeDmaResult synchronizeForDeviceClient();
             // Valid only after a real completed RX transfer has been retired
             // under the gate. Caller bounds length to the actual verified RX
-            // status, not capacity. After validated arguments, errors zero
-            // the output so incomplete frames cannot escape to the caller.
+            // status, not capacity. Output must be disjoint from this object
+            // and its mapped CPU buffer BEFORE any zeroing. After validated
+            // arguments, errors zero output so partial frames cannot escape.
             NativeDmaResult readClient(uint32_t offset, void *bytes,
                                        uint32_t length);
             // Mark ownership BEFORE programming a queue. Failure/uncertain
             // programming leaves DeviceOwned until the owner proves completion
             // or hardware isolation.
+            // Reject a layout reference overlapping this owner object before
+            // zeroing output or assigning a device-owned submission token.
             NativeDmaResult publishGated(uint64_t currentOwnerEpoch,
                                          NativeDmaLayout &layout);
             // Caller must prove no further DMA to THIS packet: real transfer

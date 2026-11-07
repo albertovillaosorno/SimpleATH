@@ -6,6 +6,18 @@
 
 namespace simpleath
 {
+    namespace
+    {
+        bool disjointMemory(const void *first, size_t firstLength,
+                            const void *second, size_t secondLength)
+        {
+            const uintptr_t a = reinterpret_cast<uintptr_t>(first);
+            const uintptr_t b = reinterpret_cast<uintptr_t>(second);
+            // Subtract first so even a forged near-UINTPTR_MAX span cannot
+            // cause wraparound in pointer-plus-length arithmetic.
+            return a <= b ? b - a >= firstLength : a - b >= secondLength;
+        }
+    } // namespace
 
     NativeDmaBuffer::NativeDmaBuffer()
         : provider_(nullptr), loop_(nullptr), mapper_(nullptr),
@@ -142,7 +154,10 @@ namespace simpleath
         if (phase_ != NativeDmaPhase::CpuOwned ||
             request_.direction != kIODirectionOut)
             return NativeDmaResult::WrongState;
-        if (!bytes || !validRange(offset, length))
+        if (!bytes || !validRange(offset, length) ||
+            !disjointMemory(bytes, length, this, sizeof(*this)) ||
+            !disjointMemory(bytes, length, buffer_->getBytesNoCopy(),
+                            request_.length))
             return NativeDmaResult::InvalidArgument;
         readyForDevice_ = false;
         // Write the ORIGINAL descriptor, then synchronize OUT. Writing a
@@ -170,6 +185,10 @@ namespace simpleath
     NativeDmaResult NativeDmaBuffer::publishGated(uint64_t epoch,
                                                   NativeDmaLayout &out)
     {
+        // A forged layout reference into this object would erase our live
+        // state before context/epoch checks. Reject prior to any output write.
+        if (!disjointMemory(&out, sizeof(out), this, sizeof(*this)))
+            return NativeDmaResult::InvalidArgument;
         out = {};
         if (!loop_ || !loop_->inGate())
             return NativeDmaResult::WrongContext;
@@ -217,7 +236,10 @@ namespace simpleath
         if (phase_ != NativeDmaPhase::CpuOwned || !completedTransfer_ ||
             request_.direction != kIODirectionIn)
             return NativeDmaResult::WrongState;
-        if (!bytes || !validRange(offset, length))
+        if (!bytes || !validRange(offset, length) ||
+            !disjointMemory(bytes, length, this, sizeof(*this)) ||
+            !disjointMemory(bytes, length, buffer_->getBytesNoCopy(),
+                            request_.length))
             return NativeDmaResult::InvalidArgument;
         // A failed synchronize or short read must never leave an earlier RX
         // packet (or a partial new packet) in the caller's output buffer.

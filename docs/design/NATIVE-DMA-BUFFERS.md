@@ -64,11 +64,15 @@ needs its own validation before a pointer is programmed.
 TX writes update the original descriptor and invalidate readiness. Explicit
 OUT synchronization then updates any command bounce storage before publication.
 RX reads synchronize IN only after completed-transfer retirement and copy from
-the original descriptor. After argument validation, they clear caller output
-before synchronization and again after a short copy, so a failed operation
-cannot leave a stale or partial packet in that output. Caller lengths must
-come from verified RX status, never from capacity or an untrusted frame
-header. No CPU pointer escapes.
+the original descriptor. Client copy inputs/outputs are required to be disjoint
+from the buffer's live CPU DMA storage and owner object. RX output zeroing only
+occurs **after** those alias checks; otherwise a forged output could erase DMA
+data or live mapping ownership before synchronization. Likewise a gated publish
+rejects an output reference into the buffer object before clearing its layout.
+After validated arguments, RX reads clear caller output before synchronization
+and again after a short copy, so a failed operation cannot leave a stale or
+partial packet in that output. Caller lengths must come from verified RX status,
+never from capacity or an untrusted frame header. No CPU pointer escapes.
 Apple's [synchronize contract](https://developer.apple.com/documentation/kernel/iodmacommand/1547719-synchronize)
 defines those IN/OUT copy directions; [complete](https://developer.apple.com/documentation/kernel/iodmacommand/1811081-complete)
 requires matching preparation and transfer completion. These API descriptions
