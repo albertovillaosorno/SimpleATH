@@ -39,7 +39,17 @@ def main():
     assert info['CFBundleIdentifier'] == '$(PRODUCT_BUNDLE_IDENTIFIER)'
     libraries = info['OSBundleLibraries']
     assert 'as.vit9696.Lilu' not in libraries
-    assert {'com.apple.iokit.IOSkywalkFamily', 'com.apple.iokit.IO80211Family'} <= libraries.keys()
+    if (ROOT / 'BOOTFIX-SIMPLEATH.md').exists():
+        # Stage-1 bootstrap explicitly does NOT link native Wi-Fi or Broadcom libraries.
+        assert set(libraries) == {
+            'com.apple.kpi.iokit', 'com.apple.kpi.libkern',
+            'com.apple.kpi.mach', 'com.apple.kpi.private'}
+        stage1 = (ROOT / 'SimpleATH/SimpleATH.cpp').read_text()
+        assert 'bcm::' not in stage1
+        assert 'IOTimerEventSource' not in stage1
+        assert 'IOResources' in plistlib.dumps(info).decode()
+    else:
+        assert {'com.apple.iokit.IOSkywalkFamily', 'com.apple.iokit.IO80211Family'} <= libraries.keys()
     assert 'com.apple.iokit.IO80211FamilyLegacy' not in libraries
     for name in ['README.md', 'README.en.md']:
         document = (ROOT / name).read_text()

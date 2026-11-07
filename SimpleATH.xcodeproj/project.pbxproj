@@ -112,7 +112,6 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0000000000000000000000C9 /* Build configuration list for PBXNativeTarget "SimpleATH" */;
 			buildPhases = (
-				000000000000000000000150 /* Generate Payloads */,
 				0000000000000000000000A0 /* Sources */,
 			);
 			buildRules = (
@@ -171,15 +170,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
-				000000000000000000000097 /* Bridge.cpp in Sources */,
-				000000000000000000000098 /* UserClient.cpp in Sources */,
-				000000000000000000000099 /* Loader.cpp in Sources */,
-				000000000000000000000140,
-				000000000000000000000141,
-				000000000000000000000142,
-				000000000000000000000143,
-				000000000000000000000160,
-				000000000000000000000170,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

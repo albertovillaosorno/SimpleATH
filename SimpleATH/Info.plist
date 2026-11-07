@@ -1,11 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Info.plist
-  SimpleATH
-
-  Created by laobamac on 2026/11/1.
-  Copyright © 2026 laobamac. All rights reserved.
--->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -45,16 +38,6 @@
 	</dict>
 	<key>OSBundleLibraries</key>
 	<dict>
-		<key>com.apple.driver.mDNSOffloadUserClient</key>
-		<string>1.0.0d7</string>
-		<key>com.apple.iokit.IO80211Family</key>
-		<string>1.0</string>
-		<key>com.apple.iokit.IOSkywalkFamily</key>
-		<string>1.0</string>
-		<key>com.apple.iokit.IONetworkingFamily</key>
-		<string>3.2</string>
-		<key>com.apple.kpi.bsd</key>
-		<string>15.0.0</string>
 		<key>com.apple.kpi.iokit</key>
 		<string>15.0.0</string>
 		<key>com.apple.kpi.libkern</key>
@@ -63,18 +46,6 @@
 		<string>15.0.0</string>
 		<key>com.apple.kpi.private</key>
 		<string>15.0.0</string>
-		<key>com.apple.kpi.unsupported</key>
-		<string>15.0.0</string>
-		<key>com.apple.driver.AppleMobileFileIntegrity</key>
-		<string>1.0.1</string>
-		<key>com.apple.driver.corecapture</key>
-		<string>1.0.0</string>
-		<key>com.apple.iokit.CoreAnalyticsFamily</key>
-		<string>1.0</string>
-		<key>com.apple.kec.corecrypto</key>
-		<string>1.0</string>
-		<key>com.apple.iokit.IOPCIFamily</key>
-		<string>2.8</string>
 	</dict>
 	<key>OSBundleRequired</key>
 	<string>Root</string>
