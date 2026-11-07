@@ -69,7 +69,8 @@ namespace simpleath
             InvalidVendor,
             CorruptStatus,
             ReceiveError,
-            InvalidDescriptor
+            InvalidDescriptor,
+            OverlappingBuffers
         };
 
         struct Segment
@@ -93,7 +94,8 @@ namespace simpleath
         // Only encodes the pointer/checksum part of an AR9565 TX descriptor.
         // It does NOT create the rate/power/encryption/duration/aggregation
         // control words or a DMA mapping. NEVER submit this descriptor to the
-        // device.
+        // device. The output must not overlap input; an alias is rejected
+        // without writes to either buffer.
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out);
         // Validate the canonical pointer fields independently of their
@@ -127,7 +129,8 @@ namespace simpleath
 
         // Caller must first synchronize DMA and verify a complete status write.
         // This only decodes status; it does not read payloads or acknowledge
-        // IRQs. All errors leave out zeroed; raw retains diagnostic bits.
+        // IRQs. Ordinary errors clear out. An alias with the raw status
+        // instead fails without writing into DMA-visible source storage.
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out);
 
     } // namespace edma

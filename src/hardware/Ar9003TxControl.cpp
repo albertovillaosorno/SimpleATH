@@ -33,6 +33,16 @@ namespace simpleath
             constexpr uint32_t kInfoVendor = 0x168c0000u;
             constexpr uint8_t kMaximumQcu = 9u;
 
+            bool overlapsStorage(const void *first, size_t firstBytes,
+                                 const void *second, size_t secondBytes)
+            {
+                const auto left = reinterpret_cast<uintptr_t>(first);
+                const auto right = reinterpret_cast<uintptr_t>(second);
+                return firstBytes && secondBytes &&
+                       (left >= right ? left - right < secondBytes
+                                      : right - left < firstBytes);
+            }
+
             bool packetTypeValid(TxPacketType type)
             {
                 return type == TxPacketType::Normal ||
@@ -46,6 +56,12 @@ namespace simpleath
                                         const TxSafetyPolicy &policy,
                                         TxDescriptor &descriptor)
         {
+            // Control encoding must not overwrite its request or policy.
+            if (overlapsStorage(&request, sizeof(request), &descriptor,
+                                sizeof(descriptor)) ||
+                overlapsStorage(&policy, sizeof(policy), &descriptor,
+                                sizeof(descriptor)))
+                return TxControlError::OverlappingBuffers;
             // A vendor tag and valid checksum alone do not prove that any
             // bounded payload pointer was prepared by the pointer codec.
             if (!validTxPointerDescriptor(descriptor))
@@ -173,8 +189,11 @@ namespace simpleath
         DescriptorError decodeTxCompletion(const TxCompletionWords &raw,
                                            TxCompletion &out)
         {
+            // A DMA status ring cannot be zeroed by a forged output alias.
+            if (overlapsStorage(&raw, sizeof(raw), &out, sizeof(out)))
+                return DescriptorError::OverlappingBuffers;
             // The ring status may still hold an earlier result. Never leave
-            // a valid-looking prior completion after any failure.
+            // a valid-looking prior completion after any ordinary failure.
             out = {};
             // ath9k checks AR_TxDone before inspecting ds_info; an unfilled
             // status slot is pending, not evidence of a wrong PCI vendor.

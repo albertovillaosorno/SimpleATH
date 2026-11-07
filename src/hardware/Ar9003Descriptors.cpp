@@ -41,6 +41,18 @@ namespace simpleath
             constexpr uint32_t kTxInfoIndex = 0u;
             constexpr uint32_t kLinkIndex = 1u;
             constexpr uint32_t kChecksumIndex = 10u;
+
+            // Reject caller-forged overlapping input/output storage before
+            // any write; raw status can belong to a DMA-visible ring.
+            bool overlapsStorage(const void *first, size_t firstBytes,
+                                 const void *second, size_t secondBytes)
+            {
+                const auto left = reinterpret_cast<uintptr_t>(first);
+                const auto right = reinterpret_cast<uintptr_t>(second);
+                return firstBytes && secondBytes &&
+                       (left >= right ? left - right < secondBytes
+                                      : right - left < firstBytes);
+            }
         } // namespace
 
         uint16_t txPointerChecksum(const TxDescriptor &descriptor)
@@ -97,6 +109,8 @@ namespace simpleath
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out)
         {
+            if (overlapsStorage(&input, sizeof(input), &out, sizeof(out)))
+                return DescriptorError::OverlappingBuffers;
             if (input.queue > kValidQueueMax)
                 return DescriptorError::InvalidQueue;
             if (input.segmentCount == 0 || input.segmentCount > 4)
@@ -155,6 +169,10 @@ namespace simpleath
 
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out)
         {
+            // Never clear an output that aliases a DMA-visible status ring.
+            // That contract failure leaves both input and output untouched.
+            if (overlapsStorage(&raw, sizeof(raw), &out, sizeof(out)))
+                return DescriptorError::OverlappingBuffers;
             // A caller must never reuse a prior completed payload/status after
             // this read fails; diagnostic bits remain in the raw words.
             out = {};

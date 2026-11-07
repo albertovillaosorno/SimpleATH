@@ -42,7 +42,8 @@ namespace simpleath
             InvalidRate,
             InvalidChain,
             InvalidDuration,
-            UnsupportedControl
+            UnsupportedControl,
+            OverlappingBuffers
         };
 
         struct TxRate
@@ -93,7 +94,8 @@ namespace simpleath
         // Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields)
         // into an existing validated pointer descriptor. This does not make a
         // packet safe to send until the macOS PCI owner and DMA completion path
-        // are implemented.
+        // are implemented. Request and policy must not overlap the descriptor;
+        // aliases are rejected without modifying either input.
         TxControlError encodeTxControls(const TxControlRequest &request,
                                         const TxSafetyPolicy &policy,
                                         TxDescriptor &descriptor);
@@ -126,10 +128,12 @@ namespace simpleath
         };
 
         // Caller performs DMA synchronization before reading TX completion
-        // status. Out is zeroed on all errors, and a pending status is
+        // status. Ordinary errors clear out, and a pending status is
         // Incomplete even when the vendor field has not been written yet.
-        // The status ring must not be recycled until the owner confirms no
-        // DMA access. Queue IDs outside the supported 0..9 range are rejected.
+        // A result aliasing raw status is rejected untouched to preserve DMA
+        // source bytes. Queue IDs outside the supported 0..9 range are
+        // rejected. The owner must confirm hardware has stopped DMA before ring
+        // recycle.
         DescriptorError decodeTxCompletion(const TxCompletionWords &status,
                                            TxCompletion &out);
 
