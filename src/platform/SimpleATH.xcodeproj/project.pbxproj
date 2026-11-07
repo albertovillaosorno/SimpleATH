@@ -14,6 +14,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		000000000000000000000820 /* Ar9565NvmReader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000821 /* Ar9565NvmReader.cpp */; };
 		000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000194 /* Ar9565Eeprom.cpp */; };
 		000000000000000000000190 /* Ar9565PciSession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000191 /* Ar9565PciSession.cpp */; };
 		000000000000000000000096 /* SimpleATH.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000064 /* SimpleATH.cpp */; };
@@ -43,6 +44,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		000000000000000000000821 /* Ar9565NvmReader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565NvmReader.cpp; sourceTree = "<group>"; };
+		000000000000000000000822 /* Ar9565NvmReader.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565NvmReader.hpp; sourceTree = "<group>"; };
 		000000000000000000000194 /* Ar9565Eeprom.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Eeprom.cpp; sourceTree = "<group>"; };
 		000000000000000000000195 /* Ar9565Eeprom.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Eeprom.hpp; sourceTree = "<group>"; };
 		000000000000000000000191 /* Ar9565PciSession.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/Ar9565PciSession.cpp; sourceTree = "<group>"; };
@@ -106,6 +109,8 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+				000000000000000000000821 /* Ar9565NvmReader.cpp */,
+				000000000000000000000822 /* Ar9565NvmReader.hpp */,
 				0000000000000000000007A0 /* Ar9003Descriptors.cpp */,
 				0000000000000000000007A8 /* Ar9003TxControl.cpp */,
 				0000000000000000000007B8 /* Ar9003TxControl.hpp */,
@@ -245,6 +250,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+				000000000000000000000820 /* Ar9565NvmReader.cpp in Sources */,
 				000000000000000000000790 /* Ar9003Descriptors.cpp in Sources */,
 				000000000000000000000798 /* Ar9003TxControl.cpp in Sources */,
 				000000000000000000000791 /* Ar9003Dma.cpp in Sources */,
