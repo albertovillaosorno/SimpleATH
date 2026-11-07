@@ -148,6 +148,26 @@ int main()
     const InputTrust untrusted {true, true, false, false};
     const InputTrust syntheticVerifiedRx {true, true, true, false};
 
+    // A caller cannot pass the engine's own persistent crypto/station bytes
+    // as borrowed RX/DMA input, even if they accidentally resemble a frame.
+    // Reject before clearing the caller's action or entering the parser.
+    action.kind = ActionKind::LinkLost;
+    action.bytes = 17;
+    const auto *aliasedOwnerFrame = reinterpret_cast<const uint8_t *>(&engine);
+    if (engine.acceptRx(aliasedOwnerFrame, kBeaconBytes, -40, 1290,
+                        syntheticVerifiedRx, nullptr, 0,
+                        action) != EngineResult::InvalidInput ||
+        action.kind != ActionKind::LinkLost || action.bytes != 17 ||
+        engine.scan().size() != 0)
+        return 16;
+    if (engine.encodeOutgoingEthernet(aliasedOwnerFrame, kBeaconBytes, 1,
+                                      syntheticVerifiedRx, nullptr, 0,
+                                      action) != EngineResult::InvalidInput ||
+        action.kind != ActionKind::LinkLost || action.bytes != 17 ||
+        engine.scan().size() != 0)
+        return 17;
+    action = {};
+
     // Caller mistakes must not zero a DMA frame before its FCS/state is
     // checked. An EngineAction occupying the same allocation is rejected
     // untouched, as is a TX response buffer inside the incoming RX frame.

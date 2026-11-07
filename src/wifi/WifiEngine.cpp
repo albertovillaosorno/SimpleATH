@@ -37,6 +37,8 @@ namespace simpleath
             {
                 return overlaps(&action, sizeof(action), engine,
                                 sizeof(*engine)) ||
+                       overlaps(input, inputBytes, engine, sizeof(*engine)) ||
+                       overlaps(trust, trustBytes, engine, sizeof(*engine)) ||
                        overlaps(&action, sizeof(action), input, inputBytes) ||
                        overlaps(&action, sizeof(action), trust, trustBytes) ||
                        overlaps(&action, sizeof(action), out, capacity) ||
