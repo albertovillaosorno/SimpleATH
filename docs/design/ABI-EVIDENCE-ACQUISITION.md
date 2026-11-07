@@ -126,6 +126,50 @@ Mach-O format references:
 and [nlist definitions](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/nlist.h).
 No Apple implementation code is copied into the tool.
 
+## Exact-build kernel DMA type observations (static DWARF)
+
+The bounded, source-only [25G332 kernel type record](../evidence/TAHOE-25G332-KERNEL-DMA-TYPES.json)
+preserves the relevant LLDB type metadata from the already-extracted KDK
+kernel and its matching dSYM. The inspected kernel SHA-256 is
+`a91aad0da9d0a2f545c06859524bb048f4e2e392e46aa12da9fabe652081be53`;
+the kernel dSYM DWARF SHA-256 is
+`44b7b1549ad61149f17bf763b14664fc91b1cd39c428ba41459008def988963d`.
+This is metadata only (names, declarations, direct-field offsets and type
+sizes), not Apple implementation code, a loaded-image record or a runnable
+binary. The LLDB target was created for a file with scripts disabled; no
+process was launched or attached. The original extracted sources remain
+outside the repository.
+
+| KDK type | Observed bytes | Scoped source API evidence |
+| --- | ---: | --- |
+| `IOMapper` | 208 | `copyMapperForDevice(IOService *)` |
+| `IOBufferMemoryDescriptor` | 232 | Both `inTaskWithOptions` factory overloads and `getBytesNoCopy` |
+| `IODMACommand` | 120 | Both `withSpecification` overloads and `setMemoryDescriptor`, `prepare`, `complete`, `synchronize`, `genIOVMSegments`, `clearMemoryDescriptor` |
+| `IOMemoryDescriptor` | 96 | `prepare`, `complete`, `readBytes`, `writeBytes` |
+| `IOMemoryMap` | 88 | `getVirtualAddress`, `getLength` |
+| `IOWorkLoop` | 72 | `inGate`, `onThread` |
+| `IOService` | 136 | `open`, `close`, `isOpen`, `isInactive` |
+
+An immediate SDK-versus-KDK declaration distinction matters for the disabled
+`NativeDmaBuffer`: the pinned MacKernelSDK factories return raw pointers, while
+the KDK DWARF describes `OSPtr<T>` for `copyMapperForDevice`,
+`inTaskWithOptions` and `withSpecification` (canonical types are `T *`).
+Those declarations have matching parameter/mangled forms; an `OSPtr` spelling
+alone does **not** prove changed x86_64 return registers, object ownership,
+reference counts, or safe linking. The static KDK disassembly of
+`IOBufferMemoryDescriptor::inTaskWithOptions` showed its result in `%rax`, not
+a hidden structure-return pointer, but that observation also cannot verify the
+caller contract for all factories. Do not blindly adopt/release a returned
+pointer until each ownership contract is established.
+
+The extracted type fields are **not** a full inherited layout or vtable map.
+In particular, no virtual dispatch slot, provider lifetime, IOMMU mapping
+contract, KPI production export eligibility, or exact Dell loaded-image
+provenance was approved. These remain blocking dependencies for the inactive
+native PCI/DMA implementation; the recorded booleans stay false. No kext
+build, platform-ABI collector run, device access, or physical test was
+performed for this evidence addition.
+
 ## Approval still requires stronger evidence
 
 No inventory mode can set nativePciAbiVerified or nativeWirelessAbiVerified

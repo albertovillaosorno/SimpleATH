@@ -1,0 +1,501 @@
+{
+  "schemaVersion": 1,
+  "sourceKind": "static_kdk_dwarf_type_observations",
+  "target": "x86_64 macOS Tahoe 26.7.2 (25G332)",
+  "source": {
+    "package": "Kernel Debug Kit 26.7.2 (25G332)",
+    "kernelSha256": "a91aad0da9d0a2f545c06859524bb048f4e2e392e46aa12da9fabe652081be53",
+    "kernelUuid": "28267FD5-3E1E-3686-8A1C-E73E2466FCFB",
+    "kernelDsymDwarfSha256": "44b7b1549ad61149f17bf763b14664fc91b1cd39c428ba41459008def988963d",
+    "stagedTypeReportSha256": "51ceed37e5f70f752ed0567bdab920b6249734c2605713807140f92e18a10d8d",
+    "extraction": "LLDB target create --arch x86_64 on the KDK kernel file, then target symbols add on the matching KDK kernel.dSYM; query SBType and SBTypeMemberFunction with symbol-file scripts disabled. No target process launch/attach or kernel code execution."
+  },
+  "sdk": {
+    "revision": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+    "comparisonScope": "IOMapper.h, IOBufferMemoryDescriptor.h and IODMACommand.h factory declarations only; not a vtable/class ABI approval",
+    "factoryDeclarationDifference": "Pinned SDK declares raw factory pointer returns; KDK DWARF names them OSPtr<T> with canonical T*; no change in mangled names or confirmed ownership change follows from this difference alone",
+    "headersSha256": {
+      "IOMapper.h": "daad3e992b0c69345137b882aaf5225d828376ea36bfe17a7a247f1d073b449f",
+      "IOBufferMemoryDescriptor.h": "9f1e16358541ff84b9841597f9c5adaa7dc12594b3a880837bcefff141f32d7d",
+      "IODMACommand.h": "35d9513d987857f08df26b85ab664791feac444f504c05241c0a93aa6faec43d"
+    },
+    "staticReturnObservation": {
+      "symbol": "_ZN24IOBufferMemoryDescriptor17inTaskWithOptionsEP4taskjmm",
+      "observed": "The exact KDK x86_64 kernel function returns its pointer in %rax, with no observed hidden sret destination; static disassembly only, not proof of ownership semantics or a complete ABI contract."
+    }
+  },
+  "types": {
+    "IOMapper": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 208,
+      "methods": [
+        {
+          "name": "copyMapperForDevice",
+          "mangledName": "_ZN8IOMapper19copyMapperForDeviceEP9IOService",
+          "returnType": "OSPtr<IOMapper>",
+          "canonicalReturnType": "IOMapper *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "IOService *"
+          ]
+        }
+      ],
+      "fields": {
+        "__reservedA": 136,
+        "fAllocName": 184,
+        "__reservedB": 192,
+        "fPageSize": 196,
+        "fIsSystem": 200
+      }
+    },
+    "IOBufferMemoryDescriptor": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 232,
+      "methods": [
+        {
+          "name": "inTaskWithOptions",
+          "mangledName": "_ZN24IOBufferMemoryDescriptor17inTaskWithOptionsEP4taskjmm",
+          "returnType": "OSPtr<IOBufferMemoryDescriptor>",
+          "canonicalReturnType": "IOBufferMemoryDescriptor *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "task_t",
+            "IOOptionBits",
+            "vm_size_t",
+            "vm_offset_t"
+          ]
+        },
+        {
+          "name": "inTaskWithOptions",
+          "mangledName": "_ZN24IOBufferMemoryDescriptor17inTaskWithOptionsEP4taskjmmjj",
+          "returnType": "OSPtr<IOBufferMemoryDescriptor>",
+          "canonicalReturnType": "IOBufferMemoryDescriptor *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "task_t",
+            "IOOptionBits",
+            "vm_size_t",
+            "vm_offset_t",
+            "uint32_t",
+            "uint32_t"
+          ]
+        },
+        {
+          "name": "getBytesNoCopy",
+          "mangledName": "_ZN24IOBufferMemoryDescriptor14getBytesNoCopyEv",
+          "returnType": "void *",
+          "canonicalReturnType": "void *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": []
+        },
+        {
+          "name": "getBytesNoCopy",
+          "mangledName": "_ZN24IOBufferMemoryDescriptor14getBytesNoCopyEmm",
+          "returnType": "void *",
+          "canonicalReturnType": "void *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "vm_size_t",
+            "vm_size_t"
+          ]
+        }
+      ],
+      "fields": {
+        "reserved": 176,
+        "_buffer": 184,
+        "_capacity": 192,
+        "_alignment": 200,
+        "_options": 208,
+        "_internalReserved": 216,
+        "_internalFlags": 224
+      }
+    },
+    "IODMACommand": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 120,
+      "methods": [
+        {
+          "name": "withSpecification",
+          "mangledName": "_ZN12IODMACommand17withSpecificationEPFbPS_NS_9Segment64EPvjEhyNS_14MappingOptionsEyjP8IOMapperS2_",
+          "returnType": "OSPtr<IODMACommand>",
+          "canonicalReturnType": "IODMACommand *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "IODMACommand::SegmentFunction",
+            "UInt8",
+            "UInt64",
+            "IODMACommand::MappingOptions",
+            "UInt64",
+            "UInt32",
+            "IOMapper *",
+            "void *"
+          ]
+        },
+        {
+          "name": "withSpecification",
+          "mangledName": "_ZN12IODMACommand17withSpecificationEPFbPS_NS_9Segment64EPvjEPKNS_14SegmentOptionsEjP8IOMapperS2_",
+          "returnType": "OSPtr<IODMACommand>",
+          "canonicalReturnType": "IODMACommand *",
+          "returnTypeIsPointer": true,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "IODMACommand::SegmentFunction",
+            "const IODMACommand::SegmentOptions *",
+            "uint32_t",
+            "IOMapper *",
+            "void *"
+          ]
+        },
+        {
+          "name": "setMemoryDescriptor",
+          "mangledName": "_ZN12IODMACommand19setMemoryDescriptorEPK18IOMemoryDescriptorb",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "const IOMemoryDescriptor *",
+            "bool"
+          ]
+        },
+        {
+          "name": "clearMemoryDescriptor",
+          "mangledName": "_ZN12IODMACommand21clearMemoryDescriptorEb",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "bool"
+          ]
+        },
+        {
+          "name": "prepare",
+          "mangledName": "_ZN12IODMACommand7prepareEyybb",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "UInt64",
+            "UInt64",
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "complete",
+          "mangledName": "_ZN12IODMACommand8completeEbb",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "synchronize",
+          "mangledName": "_ZN12IODMACommand11synchronizeEj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "IOOptionBits"
+          ]
+        },
+        {
+          "name": "genIOVMSegments",
+          "mangledName": "_ZN12IODMACommand15genIOVMSegmentsEPyPvPj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "UInt64 *",
+            "void *",
+            "UInt32 *"
+          ]
+        },
+        {
+          "name": "genIOVMSegments",
+          "mangledName": "_ZN12IODMACommand15genIOVMSegmentsEPFbPS_NS_9Segment64EPvjEPyS2_Pj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "IODMACommand::SegmentFunction",
+            "UInt64 *",
+            "void *",
+            "UInt32 *"
+          ]
+        },
+        {
+          "name": "genIOVMSegments",
+          "mangledName": "_ZN12IODMACommand15genIOVMSegmentsEjPFiPvPS_NS_9Segment64ES0_jES0_PyS0_Pj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "uint32_t",
+            "IODMACommand::InternalSegmentFunction",
+            "void *",
+            "UInt64 *",
+            "void *",
+            "UInt32 *"
+          ]
+        }
+      ],
+      "fields": {
+        "fRefCon": 32,
+        "fMaxSegmentSize": 40,
+        "fMaxTransferSize": 48,
+        "fAlignMaskLength": 56,
+        "fAlignMaskInternalSegments": 60,
+        "fMapper": 64,
+        "fMemory": 72,
+        "fOutSeg": 80,
+        "fAlignMask": 88,
+        "fNumAddressBits": 92,
+        "fNumSegments": 96,
+        "fMappingOptions": 100,
+        "fActive": 104,
+        "reserved": 112
+      }
+    },
+    "IOMemoryDescriptor": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 96,
+      "methods": [
+        {
+          "name": "readBytes",
+          "mangledName": "_ZN18IOMemoryDescriptor9readBytesEyPvy",
+          "returnType": "IOByteCount",
+          "canonicalReturnType": "unsigned long long",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "IOByteCount",
+            "void *",
+            "IOByteCount"
+          ]
+        },
+        {
+          "name": "writeBytes",
+          "mangledName": "_ZN18IOMemoryDescriptor10writeBytesEyPKvy",
+          "returnType": "IOByteCount",
+          "canonicalReturnType": "unsigned long long",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 8,
+          "arguments": [
+            "IOByteCount",
+            "const void *",
+            "IOByteCount"
+          ]
+        },
+        {
+          "name": "prepare",
+          "mangledName": "_ZN18IOMemoryDescriptor7prepareEj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "IODirection"
+          ]
+        },
+        {
+          "name": "complete",
+          "mangledName": "_ZN18IOMemoryDescriptor8completeEj",
+          "returnType": "IOReturn",
+          "canonicalReturnType": "int",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 4,
+          "arguments": [
+            "IODirection"
+          ]
+        }
+      ],
+      "fields": {
+        "reserved": 16,
+        "_mappings": 24,
+        "_flags": 32,
+        "_memRef": 40,
+        "_kernelTag": 48,
+        "_userTag": 50,
+        "_dmaReferences": 52,
+        "_internalIOMDFlags": 54,
+        "_mapName": 56,
+        "_iomapperOptions": 64,
+        "__iomd_reserved3": 66,
+        "__iomd_reserved4": 72,
+        "_length": 80,
+        "_tag": 88
+      }
+    },
+    "IOMemoryMap": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 88,
+      "methods": [
+        {
+          "name": "getVirtualAddress",
+          "mangledName": "_ZN11IOMemoryMap17getVirtualAddressEv",
+          "returnType": "IOVirtualAddress",
+          "canonicalReturnType": "unsigned long long",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 8,
+          "arguments": []
+        },
+        {
+          "name": "getLength",
+          "mangledName": "_ZN11IOMemoryMap9getLengthEv",
+          "returnType": "IOByteCount",
+          "canonicalReturnType": "unsigned long long",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 8,
+          "arguments": []
+        }
+      ],
+      "fields": {
+        "fOptions": 12,
+        "fMemory": 16,
+        "fSuperMap": 24,
+        "fOffset": 32,
+        "fAddress": 40,
+        "fLength": 48,
+        "fAddressTask": 56,
+        "fAddressMap": 64,
+        "fRedirUPL": 72,
+        "fUserClientUnmap": 80
+      }
+    },
+    "IOWorkLoop": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 72,
+      "methods": [
+        {
+          "name": "onThread",
+          "mangledName": "_ZNK10IOWorkLoop8onThreadEv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 1,
+          "arguments": []
+        },
+        {
+          "name": "inGate",
+          "mangledName": "_ZNK10IOWorkLoop6inGateEv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 1,
+          "arguments": []
+        }
+      ],
+      "fields": {
+        "gateLock": 16,
+        "eventChain": 24,
+        "controlG": 32,
+        "workToDoLock": 40,
+        "workThread": 48,
+        "workToDo": 56,
+        "loopRestart": 57,
+        "reserved": 64
+      }
+    },
+    "IOService": {
+      "validType": true,
+      "completeType": true,
+      "bytes": 136,
+      "methods": [
+        {
+          "name": "isInactive",
+          "mangledName": "_ZNK9IOService10isInactiveEv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 1,
+          "arguments": []
+        },
+        {
+          "name": "open",
+          "mangledName": "_ZN9IOService4openEPS_jPv",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 1,
+          "arguments": [
+            "IOService *",
+            "IOOptionBits",
+            "void *"
+          ]
+        },
+        {
+          "name": "close",
+          "mangledName": "_ZN9IOService5closeEPS_j",
+          "returnType": "void",
+          "canonicalReturnType": "void",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 0,
+          "arguments": [
+            "IOService *",
+            "IOOptionBits"
+          ]
+        },
+        {
+          "name": "isOpen",
+          "mangledName": "_ZNK9IOService6isOpenEPKS_",
+          "returnType": "bool",
+          "canonicalReturnType": "bool",
+          "returnTypeIsPointer": false,
+          "returnTypeBytes": 1,
+          "arguments": [
+            "const IOService *"
+          ]
+        }
+      ],
+      "fields": {
+        "reserved": 40,
+        "__provider": 48,
+        "__providerGeneration": 56,
+        "__resv1": 60,
+        "__owner": 64,
+        "__state": 72,
+        "__timeBusy": 80,
+        "__accumBusy": 88,
+        "pwrMgt": 96,
+        "initialized": 104,
+        "__machPortHoldDestroy": 105,
+        "__resv2": 106,
+        "pm_vars": 112,
+        "_numInterruptSources": 120,
+        "_interruptSources": 128
+      }
+    }
+  },
+  "limitations": [
+    "DWARF is static package debug information, not proof of installed/loaded target images or live C++ object layout.",
+    "Recorded fields are direct type fields only; absence of inherited fields, padding, base-class offsets and virtual dispatch slot mapping prevents class ABI approval.",
+    "DWARF method type and mangled names are not sufficient to prove import eligibility, KPI allowlisting, semantic retention/release contracts or safe virtual calls.",
+    "Native PCI ABI, native DMA ABI, and native wireless ABI remain unverified; no code built, loaded or exercised."
+  ],
+  "nativeDmaAbiVerified": false,
+  "nativePciAbiVerified": false,
+  "nativeWirelessAbiVerified": false
+}
