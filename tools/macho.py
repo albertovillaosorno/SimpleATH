@@ -236,7 +236,11 @@ class Image:
 
     def parse_binds(self, data: bytes) -> None:
         """Decode bounded symbol bindings from the selected Mach-O image."""
-        position = address = 0
+        position = address = visits = 0
+        # One image can hold only a bounded number of pointer-sized slots.
+        # Count visits, not dictionary keys: a malicious repeat may overwrite
+        # the same address millions of times without increasing len(binds).
+        max_visits = len(self.data) // 8
         symbol = ""
         while position < len(data):
             byte = data[position]
@@ -251,12 +255,21 @@ class Image:
                 symbol = data[position:end].decode()
                 position = end + 1
             elif opcode == 0x70:
+                if immediate >= len(self.segments):
+                    raise ValueError(
+                        "Mach-O bind segment ordinal out of bounds"
+                    )
                 offset, position = self.leb(data, position)
                 address = self.segments[immediate][1] + offset
             elif opcode == 0x80:
                 offset, position = self.leb(data, position)
                 address += offset
             elif opcode in (0x90, 0xA0, 0xB0):
+                if visits >= max_visits:
+                    raise ValueError(
+                        "Mach-O bind count exceeds image pointer slots"
+                    )
+                visits += 1
                 self.binds[address] = symbol
                 if opcode == 0xA0:
                     skip, position = self.leb(data, position)
@@ -266,6 +279,11 @@ class Image:
             elif opcode == 0xC0:
                 count, position = self.leb(data, position)
                 skip, position = self.leb(data, position)
+                if count > max_visits - visits:
+                    raise ValueError(
+                        "Mach-O bind count exceeds image pointer slots"
+                    )
+                visits += count
                 for _ in range(count):
                     self.binds[address] = symbol
                     address += 8 + skip
