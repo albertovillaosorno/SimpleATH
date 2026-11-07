@@ -201,6 +201,41 @@ full `--no-cache` checkpoint above independently executed all 410 checks.
 The P0 remains **OPEN**; neither report authorizes a native Tahoe build
 or claims operational Wi-Fi.
 
+## Stable NVM and recipe-source checkpoint, 2026-11-07 17:06 CST
+
+A clean-main, full `python3 -B tools/validate.py --no-cache` run at
+`f3a2469` executed **all 410 checks across 161 source files**, with
+**359 pass, 51 Clang-Tidy fail, zero cached and zero skipped**. The report
+was byte-identical to `.cache/validate/report.json`; no source-snapshot
+failure appeared. Subsequent independent source changes make this an
+immutable commit-specific baseline, not a verdict for later HEADs.
+
+After DCO commits `4db609c` (safe in-place initialization recipe channel
+and requirements snapshot) and peer `81b69d6` (hidden-SSID eviction guard),
+a default full `python3 -B tools/validate.py` completed on **clean main
+`81b69d6`**, with `scope=repository`, `source_only=true` and
+`tests_requested=true`: **161 files, 410 checks, 305 cached, 105 executed,
+359 passed, 51 failed, zero skipped**. All 51 failed checks are Clang-Tidy;
+Ruff check/format, BasedPyright, Clang-Format and offline host checks have
+no failed rows. Stdout and saved JSON matched byte-for-byte, and the source
+snapshot did not drift. This latest result is cache-backed, not a second
+fully uncached run. A separate attempted no-cache scan after `4db609c`
+observed peer source changes and correctly failed the snapshot check; it
+must **not** replace either stable report.
+
+Two narrow DCO source-only fixes in this continuation were pushed:
+`f3a2469` checks NVM owner-in-D0 before the first clock callback (a revoked
+owner causes zero timer or MMIO calls), and `4db609c` snapshots borrowed
+initialization channel/prerequisites before zeroing a previous recipe.
+The new synthetic host regressions pass strict C++14 and C++17 (the
+latter under AddressSanitizer/UndefinedBehaviorSanitizer); separate NVM
+discovery host regressions and all 306 Python unit tests passed. These
+tests do not prove native Tahoe ABI, RF behavior or device operation.
+No kext build, CI/tag, device or RF operation was performed.
+
+**P0 remains open** until every failing Clang-Tidy check is fixed without
+suppressing mandatory coverage. The 51 failures are not a green report.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
