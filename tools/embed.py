@@ -7,12 +7,15 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+"""Generate bounded offline legacy payload metadata for native verification."""
+
 import hashlib
 import json
 import plistlib
 import re
+import shutil
 import struct
-import subprocess
+import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv for pinned offline disassembly.
 
 from bootstrap import ROOT
 from bootstrap import validate_payloads
@@ -46,6 +49,13 @@ MAX_EMBED_RELOCATIONS = 1_000_000
 RELOCATION_RECORD_BYTES = 8
 DYSYMTAB_COMMAND = 0xB
 DYSYMTAB_COMMAND_BYTES = 80
+ROUTE_MIN_BYTES = 14
+ROUTE_MAX_BYTES = 32
+ROUTE_RELATIVE_ADDRESS = "%rip"
+ROUTE_DISASSEMBLY_LINE = re.compile(
+    r"\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*(.*)"
+)
+ROUTE_CONTROL_TRANSFER = re.compile(r"(j\w*|call\w*|ret\w*|loop\w*)\b")
 
 
 def checked_relocation_entries(
@@ -106,17 +116,93 @@ def checked_dysymtab_fields(commands: list[LoadCommand]) -> tuple[int, ...]:
     return struct.unpack_from("<18I", tables[0], 8)
 
 
-def header(name):
-    return f"//\n//  {name}\n//  SimpleATH\n//\n//  Created by laobamac on 2026/11/1.\n//  Copyright © 2026 laobamac. All rights reserved.\n//\n"
+def header(name: str) -> str:
+    """Return the fixed attribution header for one generated source file.
+
+    Returns:
+        Header text for an offline generated source artifact.
+
+    """
+    return (
+        "//\n"
+        f"//  {name}\n"
+        "//  SimpleATH\n"
+        "//\n"
+        "//  Created by laobamac on 2026/11/1.\n"
+        "//  Copyright © 2026 laobamac. All rights reserved.\n"
+        "//\n"
+    )
 
 
-def route_prefixes(image, label):
-    names = ROUTE_SYMBOLS[label]
-    result = []
-    for name in names:
-        text = subprocess.check_output(
+def _route_instruction_bytes(line: str, end: int, name: str) -> int | None:
+    """Check one disassembler line for a relocatable contiguous instruction.
+
+    Returns:
+        Complete instruction width, or None for non-instruction lines.
+
+    Raises:
+        RuntimeError: A malformed prefix would be unsafe to relocate.
+
+    """
+    match = ROUTE_DISASSEMBLY_LINE.match(line)
+    if match is None:
+        return None
+    address = int(match[1], 16)
+    if address != end:
+        message = f"Non-contiguous route prefix: {name}"
+        raise RuntimeError(message)
+    instruction = match[3]
+    if ROUTE_RELATIVE_ADDRESS in instruction or ROUTE_CONTROL_TRANSFER.match(
+        instruction
+    ):
+        message = f"Non-relocatable route prefix: {name}: {instruction}"
+        raise RuntimeError(message)
+    return len(match[2].split())
+
+
+def checked_route_prefix(text: str, name: str, start: int) -> int:
+    """Decode and bound a relocatable prologue from disassembler text.
+
+    Returns:
+        The exact byte count of the first relocatable instruction prefix.
+
+    Raises:
+        RuntimeError: An unsafe, missing, or non-contiguous prefix.
+
+    """
+    end = start
+    for line in text.splitlines():
+        width = _route_instruction_bytes(line, end, name)
+        if width is not None:
+            end += width
+            if end - start >= ROUTE_MIN_BYTES:
+                break
+    if not ROUTE_MIN_BYTES <= end - start <= ROUTE_MAX_BYTES:
+        message = f"Invalid route prefix: {name}"
+        raise RuntimeError(message)
+    return end - start
+
+
+def route_prefixes(image: Image, label: str) -> list[tuple[int, int]]:
+    """Inspect fixed offline image routes through the Xcode disassembler.
+
+    Returns:
+        Symbol addresses and bounded relocatable prefix byte lengths.
+
+    Raises:
+        FileNotFoundError: The Xcode command driver is unavailable.
+        RuntimeError: Any route prologue cannot be relocated safely.
+
+    """
+    executable = shutil.which("xcrun")
+    if executable is None:
+        message = "Required offline Xcode disassembler driver is unavailable"
+        raise FileNotFoundError(message)
+    result: list[tuple[int, int]] = []
+    for name in ROUTE_SYMBOLS[label]:
+        text = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Explicit executable and fixed argv.
             [
-                "xcrun",
+                executable,
                 "llvm-objdump",
                 "--arch=x86_64",
                 "-d",
@@ -124,31 +210,10 @@ def route_prefixes(image, label):
                 str(image.path),
             ],
             text=True,
+            shell=False,
         )
         start = image.symbols[name]
-        end = start
-        for line in text.splitlines():
-            match = re.match(
-                r"\s*([0-9a-f]+):\s+((?:[0-9a-f]{2} )+)\s*(.*)", line
-            )
-            if not match:
-                continue
-            address = int(match[1], 16)
-            if address != end:
-                raise RuntimeError(f"Non-contiguous route prefix: {name}")
-            instruction = match[3]
-            if "%rip" in instruction or re.match(
-                r"(j\w*|call\w*|ret\w*|loop\w*)\b", instruction
-            ):
-                raise RuntimeError(
-                    f"Non-relocatable route prefix: {name}: {instruction}"
-                )
-            end += len(match[2].split())
-            if end - start >= 14:
-                break
-        if not 14 <= end - start <= 32:
-            raise RuntimeError(f"Invalid route prefix: {name}")
-        result.append((start, end - start))
+        result.append((start, checked_route_prefix(text, name, start)))
     return result
 
 
