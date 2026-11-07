@@ -23,6 +23,7 @@ not establish that those modules are compiled, wired to hardware or validated.
 | 2f971e6 | EEPROM target/CTL power candidates, signed interpolation, HT/rate constraints and EIRP/antenna intersection | Static source comparison only; no calibration, legal-power approval, hardware TPC conversion or TX |
 | 58ccdc7 | Manual copy-only collector for exact installed OS ABI files | Source review only; not executed on the Dell or tested |
 | a3bbad8 | Exact 25G332 KDK acquisition, PCI nlist/export intersection, full wireless candidates and static PCI dSYM observations | Download hash matched published manifest; actual package files statically inspected; no installer, build, tests, process launch or device access |
+| 609265d | Disabled native IOBuffer/IOMapper/IODMACommand packet-buffer resource source with client/gate handoff, 32-bit segment checks and epoch/allocation/submission retirement | Static pinned-header/KDK-symbol review only; no compilation, tests, native mapping or hardware transfer |
 
 Both PCI-session and EEPROM implementations are in the SimpleATH Xcode Sources
 phase. **Neither has been compiled or tested.** No build was made in this work.
@@ -74,8 +75,14 @@ regulatory approval, association and traffic remain unverified/not implemented.
    field, recipe boolean or selected gain table does not establish permission.
 7. **Data path:** implement actual IOMMU-backed descriptors/buffers, queue
    programming, interrupts, completions, recovery, bounded quiesce, suspend
-   and resume. Portable descriptor codecs or ring metadata alone do not move
-   data. Preserve memory until hardware is proven unable to DMA into it.
+   and resume. The disabled NativeDmaBuffer source now stages device-specific
+   mapper/command packet allocations; it is uncompiled and unwired. Add the
+   controller's client-worker/gate handoff and outstanding-operation lifetime,
+   coherent descriptor/status-ring mapping and actual queue/completion paths.
+   Neither portable ring metadata nor inactive native API calls move frames.
+   Preserve memory until hardware is proven unable to DMA into it. Production
+   quarantine/recovery is still missing; the staged resource deliberately
+   retains memory after uncertain cleanup rather than freeing a DMA target.
 8. **802.11/security:** connect actual received beacons to scan/BSS selection,
    authentication/association, WPA2/RSN/EAPOL/key/replay handling, rates,
    aggregation, disconnect/reconnect and OS packet delivery. Frame codecs or

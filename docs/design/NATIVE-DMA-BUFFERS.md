@@ -66,6 +66,10 @@ OUT synchronization then updates any command bounce storage before publication.
 RX reads synchronize IN only after completed-transfer retirement and copy from
 the original descriptor. Caller lengths must come from verified RX status,
 never from capacity or an untrusted frame header. No CPU pointer escapes.
+Apple's [synchronize contract](https://developer.apple.com/documentation/kernel/iodmacommand/1547719-synchronize)
+defines those IN/OUT copy directions; [complete](https://developer.apple.com/documentation/kernel/iodmacommand/1811081-complete)
+requires matching preparation and transfer completion. These API descriptions
+are not a substitute for exact-build ABI and physical DMA validation.
 
 The class intentionally does not expose a perpetually active descriptor/status
 ring: whole-buffer bounce synchronization while hardware modifies a ring is a
