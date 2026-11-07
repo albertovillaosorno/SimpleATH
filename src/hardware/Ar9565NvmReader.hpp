@@ -72,8 +72,10 @@ namespace simpleath
     // exclusive owner's live config. Requires thread/work-loop context, never a
     // hard interrupt handler. Polling is capped per word and per capture (2
     // seconds plus bounded callback overhead). Destination, status, backend and
-    // identity storage must be disjoint. For a valid destination span, failures
-    // wipe its bytes; invalid arguments do not establish a writable span.
+    // identity storage must be disjoint. Storage aliases are rejected before
+    // writes; only the return value is valid on this contract breach. For a
+    // valid destination span, other failures wipe its bytes; invalid arguments
+    // do not establish a writable span.
     // captureComplete remains false on every failure. No reset/wake, EEPROM
     // writes, bus mastering, RF writes or TX occurs here.
     NvmResult captureAr9565Nvm(const NvmReadBackend &backend,

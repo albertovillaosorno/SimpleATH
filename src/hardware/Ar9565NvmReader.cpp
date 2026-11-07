@@ -137,6 +137,16 @@ namespace simpleath
                 uint64_t lastMicros_;
         };
 
+        bool overlaps(const void *a, size_t aBytes, const void *b,
+                      size_t bBytes)
+        {
+            const auto first = reinterpret_cast<uintptr_t>(a);
+            const auto second = reinterpret_cast<uintptr_t>(b);
+            return aBytes && bBytes &&
+                   (first >= second ? first - second < bBytes
+                                    : second - first < aBytes);
+        }
+
         void clearBytes(uint8_t *destination, size_t length)
         {
             for (size_t i = 0; i < length; ++i)
@@ -149,7 +159,18 @@ namespace simpleath
                                NvmSource source, uint8_t *destination,
                                size_t byteCount, NvmReadStatus &status)
     {
-        // Destination/status/backend storage must be disjoint and caller-owned.
+        // The output could alias the caller's backend callbacks or identity.
+        // Reject such a contract breach BEFORE clearing either output or
+        // invoking a corrupted function pointer. On this error the returned
+        // result, not the unwritable/aliased status field, is authoritative.
+        if (overlaps(destination, byteCount, &backend, sizeof(backend)) ||
+            overlaps(destination, byteCount, &physicalIdentity,
+                     sizeof(physicalIdentity)) ||
+            overlaps(destination, byteCount, &status, sizeof(status)) ||
+            overlaps(&status, sizeof(status), &backend, sizeof(backend)) ||
+            overlaps(&status, sizeof(status), &physicalIdentity,
+                     sizeof(physicalIdentity)))
+            return NvmResult::InvalidArgument;
         status = {};
         status.source = source;
         const size_t maximum = source == NvmSource::Eeprom ? 4096 : 1024;

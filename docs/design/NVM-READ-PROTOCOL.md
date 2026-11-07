@@ -48,8 +48,11 @@ Owner permission to edit source does not authorize invoking this capability.
   up to 4096 EEPROM bytes and 1024 OTP bytes. Those are supported acquisition
   bounds, not a measurement of physical storage capacity. Source/origin
   selection remains explicit and does not silently switch on errors.
-- Wipe a valid requested destination span after acquisition failure and
-  leave captureComplete false. A partial word count is diagnostic only.
+- Reject overlapping destination, status, backend and identity storage
+  before initializing diagnostics or clearing capture bytes; an alias error
+  is reported by the return value without mutating aliased storage. Wipe a
+  valid, disjoint destination span after acquisition failure and leave
+  captureComplete false. A partial word count is diagnostic only.
 
 No bus-master enabling, interrupt, DMA, RF write, EEPROM/OTP write or TX API
 exists in this reader. Its ordinary MMIO reads still have device side effects
