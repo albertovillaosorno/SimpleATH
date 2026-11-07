@@ -165,9 +165,15 @@ namespace simpleath
 
         void LinkMonitor::radioUnavailable(uint64_t nowMs, bool suspend)
         {
-            if (status_.state == LinkState::Associated)
-                lost(suspend ? LinkLoss::DriverSuspend : LinkLoss::RadioStopped,
-                     0, nowMs);
+            // A stopped radio cannot perform an automatic reconnect.
+            // Revoke any pending retry, previous association identity and
+            // link-state claims until an actual new association begins.
+            status_ = {};
+            status_.state = LinkState::RadioUnavailable;
+            status_.reason =
+                suspend ? LinkLoss::DriverSuspend : LinkLoss::RadioStopped;
+            status_.lostAtMs = nowMs;
+            beaconIntervalTu_ = 0;
         }
 
         bool LinkMonitor::reconnectDue(uint64_t nowMs) const

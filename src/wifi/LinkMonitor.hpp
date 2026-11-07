@@ -32,7 +32,8 @@ namespace simpleath
         {
             Idle,
             Associated,
-            ReconnectPending
+            ReconnectPending,
+            RadioUnavailable
         };
 
         enum class LinkLoss : uint8_t
@@ -67,9 +68,9 @@ namespace simpleath
                 LinkMonitor();
                 void clear();
 
-                // Call only after successful native association and key
-                // installation; this class never claims those operations
-                // occurred on its own.
+                // Call only after a validated association; WPA2 keys may
+                // still be pending and interfaceReady must then be false.
+                // This class never claims native operations have occurred.
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
                                           uint16_t beaconIntervalTu,
                                           uint64_t nowMs, bool pmfNegotiated,
@@ -79,6 +80,11 @@ namespace simpleath
                                   uint64_t nowMs, bool fcsVerified,
                                   bool protectedMicAndPnVerified);
                 LinkMonitorResult observeTimeout(uint64_t nowMs);
+                // Stop all reconnect scheduling on radio power-down or
+                // suspend, including an already pending link-loss retry.
+                // Only a subsequent actual association via started() can
+                // restore Associated. Native owner must reauthorize PHY,
+                // regulatory and keys before calling started().
                 void radioUnavailable(uint64_t nowMs, bool suspend);
                 // Explicit scheduling only. There is no timer, hardware or OS
                 // callback.

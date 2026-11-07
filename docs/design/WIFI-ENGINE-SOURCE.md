@@ -13,7 +13,10 @@ The new WifiEngine interface wires together existing portable modules:
   adapter, requiring real CSPRNG and pairwise/group keycache callbacks.
 - Ethernet-II/LLC-SNAP encapsulation for source-level open-mode data.
 - Receive filtering by AP BSSID, DMA/FCS, and verified CCMP MIC/PN.
-- Beacon-loss, disassociation and deauthentication monitoring.
+- Beacon-loss, disassociation and deauthentication monitoring. A radio
+  stop/suspend transitions to a non-retrying RadioUnavailable state, cancels
+  any pending reconnect and discards stale association identity. Only native
+  reinitialization and a new actual association may restore link monitoring.
 
 The caller passes a separate receive-trust report from a real device
 backend. Such a backend is NOT implemented: the flags must never be
