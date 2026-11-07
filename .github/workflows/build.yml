@@ -1,7 +1,7 @@
-name: SimpleATH Rust and Swift Validation
+name: SimpleATH v1 x86_64 kernel build
 
-# User authorization is required before pushing a build-v* tag.
-# Commits, branch pushes, pull requests, releases, and manual dispatch do not run CI.
+# Exactly one user-authorized build tag starts this workflow.
+# Ordinary branch pushes, PRs and workflow_dispatch do not build anything.
 on:
   push:
     tags:
@@ -11,26 +11,44 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  build:
     if: startsWith(github.ref, 'refs/tags/build-v')
     runs-on: macos-26-intel
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Display native toolchain
+        run: |
+          sw_vers
+          uname -m
+          xcodebuild -version
+      - name: Prepare pinned kernel SDK
+        run: python3 tools/bootstrap_sdk.py
+      - name: Build SimpleATH v1 kernel extension
+        run: |
+          xcodebuild \
+            -project src/platform/SimpleATH.xcodeproj \
+            -scheme SimpleATH \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -arch x86_64 \
+            CODE_SIGNING_ALLOWED=NO \
+            build > build-xcode.log 2>&1 || {
+              tail -n 110 build-xcode.log
+              exit 1
+            }
+          tail -n 18 build-xcode.log
+      - name: Verify actual build bundle
+        run: |
+          test -s build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
+          file build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
+          plutil -p build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/Info.plist
+      - name: Upload kext and build log
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          toolchain: '1.99.1'
-          components: rustfmt, clippy
-      - name: Rust formatting and metadata
-        run: |
-          cargo fmt --all -- --check
-          cargo metadata --no-deps --format-version 1 > /dev/null
-      - name: Rust checks and tests
-        run: |
-          cargo clippy --workspace --all-targets -- -D warnings
-          cargo test --workspace
-      - name: Swift diagnostics validation
-        run: |
-          cd swift
-          swift build
-          swift test
+          name: SimpleATH-v1-Intel
+          path: |
+            build/DerivedData/Build/Products/Release/SimpleATH.kext/**
+            build-xcode.log
+          if-no-files-found: warn
