@@ -162,6 +162,31 @@ sources pass Clang Format but still have broader Clang-Tidy findings. No
 kext build, CI, source-changing generator, hardware or network diagnostic
 was executed.
 
+## Fresh uncached full-repository checkpoint, 2026-11-07 16:26 CST
+
+On clean main `90f3091`, a mandatory `python3 -B tools/validate.py
+--no-cache` run finished with `scope=repository`, `source_only=true`,
+`tests_requested=true`, **161 source files, 410 checks executed, zero
+cached, 359 passed, 51 failed, zero skipped**. All **51 failing
+checks are Clang-Tidy** translation-unit checks; no source-snapshot
+drift, missing requested tool, Ruff, BasedPyright or Clang-Format
+failure was reported. The uncached process JSON and
+`.cache/validate/report.json` were byte-identical. The complete Python
+host suite separately passed 306 tests. No repository-wide green result
+is claimed: **P0 stays OPEN** until every Clang-Tidy failure is resolved.
+
+The failure set spans native sources and fixtures; included-header naming,
+array/guard policy and a Linux host's unavailable macOS CoreWLAN header
+remain represented as failures, not suppressed exceptions. The developer
+also executed independent synthetic WPA2 PBKDF2 PMK, PRF-384 PTK,
+HMAC-SHA1-128 EAPOL MIC and RFC3394 unwrap host regressions under strict
+C++14/C++17 before DCO commit `90f3091`. Peer DCO commit `c730162`
+added language-specific cache invalidation and deduplicated identical
+concurrent scans without disabling mandatory checks. Host results do not
+establish native Tahoe ABI, kext behavior or physical Wi-Fi operation.
+
+No kext build, CI/tag, device access or hardware testing was performed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
