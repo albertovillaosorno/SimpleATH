@@ -21,8 +21,9 @@ jobs:
           python3 Tools/native_references.py verify
       - name: Prepare dependencies
         run: python3 Tools/bootstrap.py
-      - name: Build Release
-        run: python3 Tools/build.py build --configuration Release
+      - name: Build minimal bootstrap Release (one native IOKit source)
+        run: |
+          xcodebuild -project SimpleATH.xcodeproj -scheme SimpleATH -configuration Release -derivedDataPath build/DerivedData -arch x86_64 CODE_SIGNING_ALLOWED=NO build
       - name: Upload compiled kernel extension and logs
         if: always()
         uses: actions/upload-artifact@v4
