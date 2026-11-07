@@ -116,8 +116,9 @@ namespace simpleath
     // power-save, configure antenna/regulatory/TPC, start RX, enable DMA or
     // authorize ANY TX. On failure do not restore guessed register values or
     // free hardware-owned DMA. Context and status must not overlap one
-    // another, the backend or identity. The callback context cannot point
-    // into either output and its full storage must be disjoint from them.
+    // another, the backend or identity. The callback context cannot start
+    // inside either output, the callback table or physical identity; the
+    // owner's entire opaque context storage must be disjoint from all of them.
     // Aliasing returns InvalidArgument WITHOUT writing either output.
     // Total callbacks are bounded even with a
     // stalled monotonic clock; wall time includes callback cost.

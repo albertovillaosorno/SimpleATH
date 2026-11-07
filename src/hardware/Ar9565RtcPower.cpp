@@ -310,7 +310,9 @@ namespace simpleath
             overlaps(&context, sizeof(context), &identity, sizeof(identity)) ||
             (backend.context &&
              (overlaps(&status, sizeof(status), backend.context, 1) ||
-              overlaps(&context, sizeof(context), backend.context, 1))))
+              overlaps(&context, sizeof(context), backend.context, 1) ||
+              overlaps(&backend, sizeof(backend), backend.context, 1) ||
+              overlaps(&identity, sizeof(identity), backend.context, 1))))
             return RtcResult::InvalidArgument;
         status = {};
         if (!backend.context || !backend.providerToken || !backend.ownerEpoch ||

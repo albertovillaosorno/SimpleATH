@@ -277,5 +277,37 @@ int main()
             fake.reads || fake.writes)
             return 16;
     }
+    {
+        // An opaque callback may not reinterpret the retained callback table
+        // or physical PCI identity as FakeRtc and subsequently change them.
+        // Reject before clearing status or touching MMIO/time callbacks.
+        FakeRtc fake {};
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        status.lastRegister = 0x1234;
+        auto backend = fake.backend();
+        backend.context = &backend;
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::InvalidArgument ||
+            status.lastRegister != 0x1234 || fake.writes || fake.reads ||
+            context.workaroundCaptured)
+            return 17;
+        Identity physical = kPhysical;
+        backend.context = &physical;
+        if (transitionAr9565Rtc(backend, physical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::InvalidArgument ||
+            status.lastRegister != 0x1234 || fake.writes || fake.reads ||
+            physical.vendorId != kPciVendor || physical.deviceId != kPciDevice)
+            return 18;
+        // Rejection does not poison a legitimate callback on the same object.
+        backend.context = &fake;
+        if (transitionAr9565Rtc(backend, physical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::Ok ||
+            !context.bootstrapCompleted || !status.resetCompleted)
+            return 19;
+    }
     return 0;
 }
