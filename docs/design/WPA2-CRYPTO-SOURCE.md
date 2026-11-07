@@ -26,6 +26,16 @@ These are new AGPL-3.0-only C++ sources built from published specifications
 (FIPS 180-4, RFC 2104, RFC 2898, FIPS 197, RFC 3394, IEEE 802.11).
 No new third-party implementation is copied or bundled.
 
+The callback bridge must preserve the primitive's input/output alias checks.
+In particular, the unwrap callback must never clear its output-length
+reference ahead of `unwrapKey`: that reference might overlap the KEK or an
+incoming EAPOL ciphertext buffer. The adapter now delegates length
+initialization to the primitive after alias rejection, and nonce, PTK, MIC,
+GTK plaintext and unwrap-length outputs are rejected when they overlap the
+adapter's own retained callback state. Alias errors leave the adapter and the
+aliased input untouched; this is source-only behavior, not proof of a secure
+platform keycache backend.
+
 The code wipes PMK/PTK, digest scratch, AES round keys and intermediate GTK
 when possible. The source is unaudited: volatile wiping cannot guarantee
 elimination from registers, duplicate OS buffers or compiler temporaries.

@@ -7,6 +7,22 @@ namespace simpleath
     {
         namespace crypto
         {
+            namespace
+            {
+                // Callback outputs must not overwrite the adapter or its
+                // retained provider callbacks. Compare distances rather than
+                // forming potentially overflowing pointer ends.
+                bool overlaps(const void *a, size_t aBytes, const void *b,
+                              size_t bBytes)
+                {
+                    if (!a || !b || !aBytes || !bBytes)
+                        return false;
+                    const auto first = reinterpret_cast<uintptr_t>(a);
+                    const auto second = reinterpret_cast<uintptr_t>(b);
+                    return first <= second ? second - first < aBytes
+                                           : first - second < bBytes;
+                }
+            } // namespace
 
             Adapter::Adapter() : hardware_ {}, configured_(false)
             {
@@ -52,7 +68,8 @@ namespace simpleath
                 if (!context || !outNonce)
                     return false;
                 auto *adapter = static_cast<Adapter *>(context);
-                if (!adapter->configured_ || !adapter->hardware_.secureRandom)
+                if (!adapter->configured_ || !adapter->hardware_.secureRandom ||
+                    overlaps(adapter, sizeof(*adapter), outNonce, 32))
                     return false;
                 return adapter->hardware_.secureRandom(
                     adapter->hardware_.context, outNonce, 32);
@@ -63,7 +80,8 @@ namespace simpleath
                               const uint8_t aNonce[32],
                               const uint8_t sNonce[32], uint8_t outPtk[48])
             {
-                if (!context || !static_cast<Adapter *>(context)->configured_)
+                if (!context || !static_cast<Adapter *>(context)->configured_ ||
+                    overlaps(context, sizeof(Adapter), outPtk, 48))
                     return false;
                 return derivePtk(pmk, ap, station, aNonce, sNonce, outPtk) ==
                        Error::Ok;
@@ -73,7 +91,8 @@ namespace simpleath
                               const uint8_t *eapol, size_t frameBytes,
                               uint8_t outMic[16])
             {
-                if (!context || !static_cast<Adapter *>(context)->configured_)
+                if (!context || !static_cast<Adapter *>(context)->configured_ ||
+                    overlaps(context, sizeof(Adapter), outMic, 16))
                     return false;
                 return calculateMic(key, eapol, frameBytes, outMic) ==
                        Error::Ok;
@@ -85,9 +104,14 @@ namespace simpleath
                                  size_t *resultLength)
             {
                 if (!context || !resultLength ||
-                    !static_cast<Adapter *>(context)->configured_)
+                    !static_cast<Adapter *>(context)->configured_ ||
+                    overlaps(context, sizeof(Adapter), resultLength,
+                             sizeof(*resultLength)) ||
+                    overlaps(context, sizeof(Adapter), out, capacity))
                     return false;
-                *resultLength = 0;
+                // unwrapKey rejects overlapping length/key/ciphertext/output
+                // storage BEFORE it initializes the result length. Do not
+                // clear the length here and bypass that protection.
                 return unwrapKey(kek, wrapped, wrappedBytes, out, capacity,
                                  *resultLength) == Error::Ok;
             }
