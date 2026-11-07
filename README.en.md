@@ -1,9 +1,9 @@
 <!--
-  README.en.md
+  README.md
   SimpleATH
 
-  Created by laobamac on 2026/9/17.
-  Copyright © 2026 laobamac. All rights reserved.
+  Based on SimpleBCM by laobamac.
+  Original copyright and third-party notices are preserved in NOTICE.md.
 -->
 <div align="center">
 
@@ -14,47 +14,55 @@
 ![Architecture](https://img.shields.io/badge/arch-x86__64-6b7280)
 ![OpenCore](https://img.shields.io/badge/boot-OpenCore-16a34a)
 
-[简体中文](README.md) · **English**
+**Documentation: English**
 
 </div>
 
-SimpleATH restores Broadcom Wi-Fi on macOS Sonoma, Sequoia and Tahoe through OpenCore injection. One kext uses each system’s native IOSkywalkFamily without modifying the system volume.
+SimpleATH is an experimental project to develop native macOS wireless support for the Qualcomm Atheros AR9565 (PCI vendor 0x168c, device 0x0036), using the architecture of [SimpleBCM](https://github.com/laobamac/SimpleBCM) as a reference.
 
-## Installation
+**Current status: Stage 1, minimal kernel bootstrap only. SimpleATH does not yet provide working Atheros Wi-Fi.** The source tree retains the upstream Broadcom implementation for reference, but the current kernel target links only `SimpleATH/SimpleATH.cpp`. The Broadcom payload, loader, periodic workloop, and native wireless bridge are not executed or linked by this bootstrap.
 
-1. Place `SimpleATH.kext` in `EFI/OC/Kexts`, replacing the previous version.
-2. Disable the separate Add entries for IOSkywalkFamily, IO80211FamilyLegacy and AirPortBrcmNIC.
-3. Merge the packaged `config.fragment.plist`, check with `ocvalidate`, then reboot.
+The first source-based build failed to reach the Tahoe desktop. The new minimal-kext build has not yet been proven to boot successfully on the Dell Inspiron 5567. A successful Xcode compilation is not proof of a successful macOS boot.
 
-**Remove or disable existing `Kernel → Block` rules for `com.apple.iokit.IOSkywalkFamily`. Keep native IOSkywalkFamily and IO80211Family enabled.**
+## Boot and recovery
 
-Supports macOS Sonoma 14, Sequoia 15 and Tahoe 26 without restricting minor versions. Use `MinKernel=23.0.0` and `MaxKernel=25.99.99`.
+The known bootable EFI contains 13 enabled kexts without SimpleATH or legacy Atheros wireless drivers. Preserve a copy of it before testing SimpleATH. The experimental EFI enables SimpleATH as an additional, fourteenth kext.
 
-If AirportBrcmFixup is needed, add Lilu, AirportBrcmFixup and AirPortBrcmNIC_Injector using `Extra/config.AirportBrcmFixup.fragment.plist`.
+The bootstrap registers an `IOService` named `SimpleATH` under `IOResources`. If it starts, its IORegistry properties identify `SimpleATHMode=MinimalKernelBootstrap` and `SimpleATHDriverReady=false`.
 
-## Debugging
+Use `-simpleathoff` as a boot argument to disable SimpleATH service matching if necessary. This fallback is not equivalent to removing a kext that fails during kernel linking.
 
-Use the DEBUG package. Run from the extracted package directory:
+## Building locally
 
-```sh
-./Extra/bcmprobe
-./Extra/bcmprobe --scan
-python3 Extra/collect.py
-```
-
-## Building
-
-Requires full Xcode and an Intel Mac. ABI reference data is included in the source; CI uses GitHub-hosted `macos-26-intel`. See [Build and CI](Docs/Build.md).
+Build on an Intel Mac with full Xcode and Python 3. Upstream native ABI references for Sonoma 14, Sequoia 15 and Tahoe 26 are retained unchanged in `Resources/NativeABI`.
 
 ```sh
+python3 Tools/check.py
+python3 Tools/native_references.py verify
 python3 Tools/bootstrap.py
-python3 Tools/build.py build --configuration Debug
-python3 Tools/build.py build --configuration Release
-python3 Tools/build.py analyze --configuration Release
-python3 Tools/build.py package --configuration Debug
-python3 Tools/build.py package --configuration Release
+xcodebuild -project SimpleATH.xcodeproj -scheme SimpleATH -configuration Release -derivedDataPath build/DerivedData -arch x86_64 CODE_SIGNING_ALLOWED=NO build
 ```
 
-Xcode project: `SimpleATH.xcodeproj`. Output: `dist`.
+The build product is `build/DerivedData/Build/Products/Release/SimpleATH.kext`. The full upstream adapter sources and build utilities remain in the repository for future Atheros development, but they are not part of this minimal bootstrap binary.
 
-[Implementation](Docs/Native-Universal.md) · [Third-party licenses](NOTICE.md)
+## GitHub Actions: explicit tag authorization only
+
+**CI will not run on branch pushes, pull requests, releases, schedules or manual dispatch.** It runs only when a tag whose name begins with `build-v` is pushed to GitHub.
+
+Creating a local commit or pushing an ordinary branch commit does not compile anything. Do not create or push a build tag without explicit authorization.
+
+After authorization, a maintainer can select a unique build tag, such as `build-v1.2.0-stage1.1`, and push only that tag:
+
+```sh
+git tag build-v1.2.0-stage1.1
+git push origin build-v1.2.0-stage1.1
+```
+
+Those commands are documentation only; no tag or CI run was created by this localization change.
+
+## Project references
+
+- [Build instructions and CI safeguards](Docs/Build.md)
+- [Upstream native Skywalk architecture (not active in Stage 1)](Docs/Native-Universal.md)
+- [Source-level boot repair explanation](BOOTFIX-SIMPLEATH.md)
+- [Third-party licenses and attribution](NOTICE.md)

@@ -2,8 +2,8 @@
   README.md
   SimpleATH
 
-  Created by laobamac on 2026/9/7.
-  Copyright © 2026 laobamac. All rights reserved.
+  Based on SimpleBCM by laobamac.
+  Original copyright and third-party notices are preserved in NOTICE.md.
 -->
 <div align="center">
 
@@ -14,47 +14,55 @@
 ![Architecture](https://img.shields.io/badge/arch-x86__64-6b7280)
 ![OpenCore](https://img.shields.io/badge/boot-OpenCore-16a34a)
 
-**简体中文** · [English](README.en.md)
+**Documentation: English**
 
 </div>
 
-SimpleATH 通过 OpenCore 注入恢复 macOS Sonoma、Sequoia 和 Tahoe 的 Broadcom Wi-Fi 支持。同一个 Kext 使用各系统原生 IOSkywalkFamily，无需修改系统卷。
+SimpleATH is an experimental project to develop native macOS wireless support for the Qualcomm Atheros AR9565 (PCI vendor 0x168c, device 0x0036), using the architecture of [SimpleBCM](https://github.com/laobamac/SimpleBCM) as a reference.
 
-## 安装
+**Current status: Stage 1, minimal kernel bootstrap only. SimpleATH does not yet provide working Atheros Wi-Fi.** The source tree retains the upstream Broadcom implementation for reference, but the current kernel target links only `SimpleATH/SimpleATH.cpp`. The Broadcom payload, loader, periodic workloop, and native wireless bridge are not executed or linked by this bootstrap.
 
-1. 将 `SimpleATH.kext` 放入 `EFI/OC/Kexts`，替换旧版本。
-2. 禁用 IOSkywalkFamily、IO80211FamilyLegacy、AirPortBrcmNIC 的独立 Add 项。
-3. 合入包内 `config.fragment.plist`，用 `ocvalidate` 检查后重启。
+The first source-based build failed to reach the Tahoe desktop. The new minimal-kext build has not yet been proven to boot successfully on the Dell Inspiron 5567. A successful Xcode compilation is not proof of a successful macOS boot.
 
-**删除或禁用已有的 `com.apple.iokit.IOSkywalkFamily` 的 `Kernel → Block` 规则，保持系统原生 IOSkywalkFamily 和 IO80211Family 启用。**
+## Boot and recovery
 
-支持 macOS Sonoma 14、Sequoia 15 和 Tahoe 26，不限制系统小版本。使用 `MinKernel=23.0.0`、`MaxKernel=25.99.99`。
+The known bootable EFI contains 13 enabled kexts without SimpleATH or legacy Atheros wireless drivers. Preserve a copy of it before testing SimpleATH. The experimental EFI enables SimpleATH as an additional, fourteenth kext.
 
-需要 AirportBrcmFixup 时，按 `Extra/config.AirportBrcmFixup.fragment.plist` 添加 Lilu、AirportBrcmFixup 和 AirPortBrcmNIC_Injector。
+The bootstrap registers an `IOService` named `SimpleATH` under `IOResources`. If it starts, its IORegistry properties identify `SimpleATHMode=MinimalKernelBootstrap` and `SimpleATHDriverReady=false`.
 
-## 调试
+Use `-simpleathoff` as a boot argument to disable SimpleATH service matching if necessary. This fallback is not equivalent to removing a kext that fails during kernel linking.
 
-使用 DEBUG 包，在解压目录运行：
+## Building locally
 
-```sh
-./Extra/bcmprobe
-./Extra/bcmprobe --scan
-python3 Extra/collect.py
-```
-
-## 构建
-
-需要完整 Xcode 和 Intel Mac。ABI 参考数据随源码提供，CI 使用 GitHub 托管的 `macos-26-intel`。详见[构建与 CI](Docs/Build.md)。
+Build on an Intel Mac with full Xcode and Python 3. Upstream native ABI references for Sonoma 14, Sequoia 15 and Tahoe 26 are retained unchanged in `Resources/NativeABI`.
 
 ```sh
+python3 Tools/check.py
+python3 Tools/native_references.py verify
 python3 Tools/bootstrap.py
-python3 Tools/build.py build --configuration Debug
-python3 Tools/build.py build --configuration Release
-python3 Tools/build.py analyze --configuration Release
-python3 Tools/build.py package --configuration Debug
-python3 Tools/build.py package --configuration Release
+xcodebuild -project SimpleATH.xcodeproj -scheme SimpleATH -configuration Release -derivedDataPath build/DerivedData -arch x86_64 CODE_SIGNING_ALLOWED=NO build
 ```
 
-Xcode 工程：`SimpleATH.xcodeproj`。产物目录：`dist`。
+The build product is `build/DerivedData/Build/Products/Release/SimpleATH.kext`. The full upstream adapter sources and build utilities remain in the repository for future Atheros development, but they are not part of this minimal bootstrap binary.
 
-[实现说明](Docs/Native-Universal.md) · [第三方许可](NOTICE.md)
+## GitHub Actions: explicit tag authorization only
+
+**CI will not run on branch pushes, pull requests, releases, schedules or manual dispatch.** It runs only when a tag whose name begins with `build-v` is pushed to GitHub.
+
+Creating a local commit or pushing an ordinary branch commit does not compile anything. Do not create or push a build tag without explicit authorization.
+
+After authorization, a maintainer can select a unique build tag, such as `build-v1.2.0-stage1.1`, and push only that tag:
+
+```sh
+git tag build-v1.2.0-stage1.1
+git push origin build-v1.2.0-stage1.1
+```
+
+Those commands are documentation only; no tag or CI run was created by this localization change.
+
+## Project references
+
+- [Build instructions and CI safeguards](Docs/Build.md)
+- [Upstream native Skywalk architecture (not active in Stage 1)](Docs/Native-Universal.md)
+- [Source-level boot repair explanation](BOOTFIX-SIMPLEATH.md)
+- [Third-party licenses and attribution](NOTICE.md)
