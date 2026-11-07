@@ -203,23 +203,48 @@ def image_inventory(
     return result
 
 
+COLLECTION_FILE_LIMIT = 2 * 1024 * 1024 * 1024
+
+
 def load_collection(
     path: Path,
 ) -> tuple[str, dict[str, object], dict[str, _ImageInventory]]:
-    with (
-        path.open("rb") as stream,
-        mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data,
-    ):
-        digest = hashlib.sha256(data).hexdigest()
-        root = image_inventory(data, 0)
-        if root["filetype"] != 0xC:  # MH_FILESET
-            raise ValueError(
-                "Expected a Mach-O fileset, not a standalone image"
-            )
-        images = {
-            name: image_inventory(data, offset)
-            for name, offset in root["entries"].items()
-        }
+    """Inventory one bounded regular fileset without following a leaf symlink.
+
+    Returns:
+        Its digest, candidate-only UUID metadata and child inventories.
+
+    Raises:
+        ValueError: A source is nonregular, oversized, too short or unstable.
+        OSError: The supplied offline file cannot be safely opened or mapped.
+
+    """
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    descriptor = os.open(path, flags)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("Collection source must be a regular file")
+        if not 32 <= before.st_size <= COLLECTION_FILE_LIMIT:
+            raise ValueError("Collection source exceeds inspection limits")
+        with mmap.mmap(descriptor, 0, access=mmap.ACCESS_READ) as data:
+            digest = hashlib.sha256(data).hexdigest()
+            root = image_inventory(data, 0)
+            if root["filetype"] != 0xC:  # MH_FILESET
+                raise ValueError(
+                    "Expected a Mach-O fileset, not a standalone image"
+                )
+            images = {
+                name: image_inventory(data, offset)
+                for name, offset in root["entries"].items()
+            }
+            after = os.fstat(descriptor)
+            initial = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            current = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            if initial != current:
+                raise ValueError("Collection source changed during inspection")
+    finally:
+        os.close(descriptor)
     return digest, {"collectionUUID": root["uuid"]}, images
 
 

@@ -7,6 +7,7 @@ import hashlib
 import os
 from pathlib import Path
 import plistlib
+import struct
 import tempfile
 from unittest import TestCase
 from unittest import mock
@@ -145,3 +146,71 @@ class InspectorCliBoundaryTests(TestCase):
             system_version=None,
         )
         assert _rejects_bad_cli(args)
+
+
+def _rejects_collection(
+    path: Path, expected: type[OSError | ValueError]
+) -> bool:
+    """Identify the expected rejection of an offline fileset input.
+
+    Returns:
+        True when the source open or bounds validation refuses input.
+
+    """
+    try:
+        _ = inspector.load_collection(path)
+    except expected:
+        return True
+    return False
+
+
+class CollectionReaderBoundaryTests(TestCase):
+    """Inspect only bounded ordinary offline collections."""
+
+    @staticmethod
+    def test_valid_synthetic_fileset_is_inventory_only() -> None:
+        """Keep a no-symbol Mach-O fileset as candidates, not verified ABI."""
+        header = struct.pack("<8I", 0xFEEDFACF, 0x01000007, 0, 0xC, 0, 0, 0, 0)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.fileset"
+            _ = path.write_bytes(header)
+            digest, metadata, images = inspector.load_collection(path)
+            assert digest == hashlib.sha256(header).hexdigest()
+            assert metadata == {"collectionUUID": None}
+            assert images == {}
+
+    @staticmethod
+    def test_fileset_symlink_is_not_followed() -> None:
+        """Refuse an alias to an outside file at the final path component."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "original"
+            _ = source.write_bytes(b"\0" * 32)
+            link = root / "symlink"
+            link.symlink_to(source)
+            assert _rejects_collection(link, OSError)
+
+    @staticmethod
+    def test_fileset_fifo_fails_without_blocking() -> None:
+        """Treat a FIFO as a nonregular input, never a device stream."""
+        with tempfile.TemporaryDirectory() as directory:
+            fifo = Path(directory) / "named-pipe"
+            os.mkfifo(fifo)
+            assert _rejects_collection(fifo, ValueError)
+
+    @staticmethod
+    def test_oversized_sparse_fileset_rejected_before_mapping() -> None:
+        """Reject a sparse input above the collector's size budget."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "huge.fileset"
+            with path.open("wb") as source:
+                _ = source.truncate(inspector.COLLECTION_FILE_LIMIT + 1)
+            assert _rejects_collection(path, ValueError)
+
+    @staticmethod
+    def test_empty_fileset_rejected_before_mmap() -> None:
+        """Handle zero-length input without a host memory-mapping exception."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "empty.fileset"
+            _ = path.write_bytes(b"")
+            assert _rejects_collection(path, ValueError)
