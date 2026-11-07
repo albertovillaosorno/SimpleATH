@@ -1,104 +1,117 @@
 # SimpleATH
 
-**Status: experimental macOS Tahoe 26 (Darwin 25) kernel bootstrap / passive
-AR9565 PCI hardware discovery. This is NOT yet a working Wi-Fi or Bluetooth
-driver.**
+**Experimental, source-first native Wi-Fi kernel extension for Intel macOS
+Tahoe, targeting the Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036)
+in the Dell Inspiron 5567.**
 
-The v1 project targets Qualcomm Atheros QCA9565 / AR9565, PCI `168c:0036`
-(and recognizes a possible `168c:0030` OpenCore compatibility spoof).
+**Not yet a functional, physically verified Wi-Fi driver.** The last
+authorized binary was a passive device-matching prototype; the substantial
+AR9565 radio, MAC, DMA, WPA2 and native AirPort code added since then has
+not been compiled or tested on the Dell. The development goal is genuine
+macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
-## Implemented
+## Development protocol
 
-- Boot-time `SimpleATH` service with no obsolete Apple AirPort, Broadcom,
-  IO80211 or Skywalk binary injected into the kernel.
-- Separate, **passive** `SimpleATHPciProbe` service matched to AR9565 by
-  `IOPCIPrimaryMatch`. It does not link to IOPCIDevice C++ methods or read
-  PCI configuration words, and does not initialize the radio or Wi-Fi.
-- IORegistry properties to diagnose whether the kext and PCI matching started.
-- `-simpleathoff` boot argument to disable its IOService matching.
-- Offline support for a pinned MacKernelSDK, macOS Intel Xcode builds and
-  a tag-only GitHub Actions workflow.
+SimpleATH uses ten coordinating agents with a **direct-to-main,
+NO-PULL-REQUESTS** workflow. The agents coordinate concurrent file
+ownership in their **existing agent chat**; no agent branches or PRs.
+See [AGENTS.md](AGENTS.md) and [TODO.md](TODO.md).
 
-The C++ bridge, firmware runtime and network interface implementation still
-need to be developed and validated. There is no basis to claim Wi-Fi connectivity
-until those exist and are tested on real AR9565 hardware.
+**Every engineering task except the FINAL TODO is deliberately
+theoretical/source-only. Nothing in those tasks is allowed to depend
+on formal or informal verification on physical hardware.** Agents
+research public Linux ath9k code, available KDK/SDK exports,
+documented macOS interfaces, published standards and other publicly
+available driver sources. They implement and harden the driver and
+its fail-closed behavior without requiring Dell diagnostics,
+EEPROM dumps, RF measurements or user testing.
 
-## Source tree
+**Order of operations:** finish ALL source-only TODOs, then
+continue theoretical source hardening **indefinitely**. No deadline,
+scheduled release or automatic transition to experiments exists.
+Only when the owner explicitly decides the time is right will
+the last TODO begin. **The owner personally tests the Dell and
+shares logs/diagnostics in this ChatGPT conversation**; the agents
+then coordinate real-bug fixes in their own chat and commit them
+directly to main. This owner-led loop repeats until the outcome
+is satisfactory.
 
-- `src/SimpleATH.cpp`: minimal kernel entry and passive PCI discovery.
-- `src/Info.plist`: two IOKit personalities and compatible KPI dependencies.
-- `src/platform/SimpleATH.xcodeproj`: Xcode target.
-- `src/platform/Kernel.xcconfig`: macOS kernel SDK/build configuration.
-- `src/platform/abi`: pinned reference profiles and ABI data.
-- `tools/bootstrap_sdk.py`: fetch the pinned kernel SDK for Xcode.
-- `linux/`: owner-provided Linux reference tree, unmodified and excluded
-  from the binary; file-level Linux licenses remain applicable.
+Source-level completeness is not empirical proof. Unknown hardware
+values, regulatory conditions and private macOS ABI differences
+must be recorded and handled safely rather than guessed or
+misrepresented as verified.
 
-## Hardware source development (not compiled yet)
+## Architecture and current source
 
-The source tree now includes a native C++ AR9565 hardware core, chipset
-revision decoder, EEPROM/RTC status reader, guarded initialization plan,
-and real 2.4 GHz register tables generated from Linux ath9k.
+- **PCI and device identity:** guarded AR9565 register/session source,
+  power/ownership and mapped-DMA transport contracts.
+- **EEPROM, OTP and calibration:** bounded parsing, revision-specific
+  definitions and generated register recipes derived from ath9k.
+- **RF/PHY and regulatory rules:** static channel, calibration and
+  transmit-power policy source with explicit missing prerequisites.
+- **AR9003 DMA:** RX/TX descriptors, rate/power controls, safe buffer
+  ownership and completion metadata, not a live packet engine.
+- **802.11 MAC:** scan/BSS snapshots, authentication and association,
+  EAPOL, data framing and link loss/reconnection logic.
+- **WPA2:** portable PMK/PTK/HMAC/AES source and callback adapters;
+  keycache integration and cryptographic review remain unfinished.
+- **Native Tahoe AirPort:** research and interface contracts for
+  IO80211FamilyLegacy/Skywalk; a verified native network service is
+  not yet available.
 
-The hardware port is **incomplete**. PCI bus mastering, live DMA,
-PHY calibration, 802.11 packet delivery, a verified crypto/keycache
-backend and an actual macOS wireless interface have not been integrated.
-The additional source is staged in the Xcode target but has not been built.
+Supporting design references include [AR9565 bring-up](docs/design/AR9565-BRINGUP.md),
+[MAC/DMA source](docs/design/WIFI-MAC-AND-DMA.md),
+[WPA2 cryptography](docs/design/WPA2-CRYPTO-SOURCE.md),
+[Wi-Fi engine](docs/design/WIFI-ENGINE-SOURCE.md),
+[Tahoe ABI evidence](docs/design/TAHOE-25G332-KDK.md),
+[native IO80211 research](docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md)
+and [recovery status](docs/design/STATUS-AND-RECOVERY.md).
 
-The [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md) covers hardware.
-The [Wi-Fi MAC/DMA record](docs/design/WIFI-MAC-AND-DMA.md) covers portable
-802.11 framing, scanning, association, retry/reconnect and the AR9003
-TX/RX descriptor codecs. A [Wi-Fi coordinator](docs/design/WIFI-ENGINE-SOURCE.md)
-links those components without operating hardware.
+Bluetooth may be a separate chipset on the Dell; **AirDrop also depends
+on Bluetooth and macOS Continuity compatibility**. Neither Bluetooth
+nor AirDrop can be guaranteed solely by writing an AR9565 Wi-Fi kext.
+Both remain goals of the owner-controlled final experimental cycle.
 
-Portable [WPA2 cryptographic source](docs/design/WPA2-CRYPTO-SOURCE.md)
-contains new SHA-1/HMAC, PBKDF2, PTK and AES key unwrap algorithms, but they
-are **uncompiled and unaudited** and there is no macOS CSPRNG or actual
-AR9565 keycache provider. A [native IO80211 research record](docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md)
-identifies a demonstrated Tahoe legacy-AirPort integration approach on
-other wireless chipsets; SimpleATH does not yet implement its native classes.
+## Tooling: explicitly NOT a Jig repository
 
-The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
-the PCI ownership contract from a verified native adapter. The
-[EEPROM port](docs/design/EEPROM-PORT.md) reconstructs blocks and interprets
-board fields without asserting calibration or regulatory validity.
-Its five pinned dictionaries and the [active NVM read protocol](docs/design/NVM-READ-PROTOCOL.md)
-are source only; no EEPROM/OTP hardware read has been performed. The
-[ABI evidence inventory](docs/design/ABI-EVIDENCE-ACQUISITION.md) records why
-the retained reference cannot approve a native PCI or Wi-Fi adapter.
-The later [25G332 KDK inspection](docs/design/TAHOE-25G332-KDK.md) supplies
-both old unresolved PCI names in the exact-build package's export list,
-plus fuller native wireless symbols. Loaded-image provenance and complete
-ABI/lifetime contracts still need verification; no native adapter is active.
-The disabled [native DMA packet-buffer source](docs/design/NATIVE-DMA-BUFFERS.md)
-uses device-specific mapper/command APIs with client/gate ownership transfer.
-It is uncompiled and unwired; live rings, queues and interrupts remain missing.
-See [status, blockers and recovery](docs/design/STATUS-AND-RECOVERY.md) for
-source commit evidence and the separate build/install/device authorizations.
-The user must explicitly authorize the next CI build and boot test.
+**SimpleATH is an explicit exception to the Jig rule and does not use
+Jig.** Existing .jig/ material is left as-is, inactive. There is
+no mandatory hexagonal architecture, Jig check, Jig hook or Jig CI gate.
 
-## Local macOS build
+The only dedicated local source validator is a **lightweight,
+standard-library-only Python orchestrator** for already installed Clang
+tools. It operates on C, Objective-C and C++ sources, does not rewrite
+files, and never downloads tools, compiles a kext or runs test suites.
 
-Requires Intel macOS with Xcode and Python 3.
+    python3 tools/validate.py
+    python3 tools/validate.py src/wifi/Frames.cpp
+    python3 tools/validate.py --tidy src/wifi/Frames.cpp
 
-```sh
-python3 tools/bootstrap_sdk.py
-xcodebuild -project src/platform/SimpleATH.xcodeproj \
-  -scheme SimpleATH -configuration Release \
-  -derivedDataPath build/DerivedData -arch x86_64 \
-  CODE_SIGNING_ALLOWED=NO build
-```
+The default invokes Clang Format in dry-run mode; the optional
+Clang-Tidy mode requires an **already existing** compile_commands.json.
+The script **does not create** a compilation database or pretend
+Clang-Tidy has run when the database is absent. Root Clang/EditorConfig
+rules remain authoritative. Linting is only static review, not runtime
+or security certification.
 
-Output: `build/DerivedData/Build/Products/Release/SimpleATH.kext`.
+## Builds, CI and hardware testing
 
-## GitHub Actions authorization
+**Not authorized during source-only development.** Do not produce
+another kext, run an Xcode build or test suite, trigger CI, push
+build-v* tags, modify OpenCore/EFI/USB/SSD, or interact with live
+PCI/RF hardware. The GitHub Actions build remains tag-only, and
+ordinary main pushes never trigger a kext build.
 
-**No builds on commits, branches, pull requests or manual dispatch.**
-Only pushing a tag matching `build-v*` starts the Xcode build. Tags are
-created and pushed only after the owner explicitly authorizes compilation.
+When the owner *later* activates the final TODO, compilation,
+artifact inspection, EFI installation and physical tests require
+their own explicit authorizations. Preserve the known bootable
+OpenCore recovery configuration. A macOS boot, IORegistry match or
+successfully injected passive kext is not working wireless networking.
 
-## License
+## License and attribution
 
-New SimpleATH source is AGPL-3.0-only. The Linux sources retain their own
-SPDX licenses; SimpleBCM retains its original authorship and terms. See
+New authored SimpleATH source is AGPL-3.0-only. Referenced Linux
+ath9k source and imported tables retain their original permissive
+file-specific license notices; historical SimpleBCM reference
+material retains its original attribution. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
