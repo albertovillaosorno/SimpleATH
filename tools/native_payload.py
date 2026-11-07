@@ -115,6 +115,14 @@ def checked_packet_call_patches(
         if index == 0:
             message = f"Missing packet dispatch function: {address:#x}"
             raise ValueError(message)
+        # A valid six-byte encoding cannot run into the next function.
+        # Otherwise a forged instruction at this pinned address could make
+        # the patcher overwrite a neighbor's instruction prefix.
+        if index < len(addresses) and (
+            address + PATCH_INSTRUCTION_BYTES > addresses[index]
+        ):
+            message = f"Packet dispatch crosses function boundary: {address:#x}"
+            raise ValueError(message)
         function = functions[index - 1][1]
         raw = read(address, PATCH_INSTRUCTION_BYTES)
         if not _matches_patch_instruction(function, prefix, raw):

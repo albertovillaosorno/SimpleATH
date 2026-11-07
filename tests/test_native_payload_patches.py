@@ -53,6 +53,7 @@ def _check(
 EXPECTED_PATCH_COUNT = 7
 MISSING_FUNCTION_MESSAGE = "Missing packet dispatch"
 BAD_FUNCTION_ORDER_MESSAGE = "Unsorted or duplicate"
+CROSS_FUNCTION_BOUNDARY_MESSAGE = "crosses function boundary"
 
 
 def _failure(
@@ -96,6 +97,20 @@ class NativePacketPatchContracts(TestCase):
             with self.subTest(raw=raw):
                 functions, patches = _read_patches({address: raw})
                 assert message in _failure(functions, patches)
+
+    @staticmethod
+    def test_patches_cannot_cross_the_next_function_symbol() -> None:
+        """Reject bytes that would overwrite the next function's prefix."""
+        functions, patches = _read_patches()
+        address, _, _ = PACKET_CALL_SITES[0]
+        crossing = sorted([*functions, (address + 3, "_next_function")])
+        assert CROSS_FUNCTION_BOUNDARY_MESSAGE in _failure(crossing, patches)
+        # Adjacent symbols are valid only if the full instruction fits.
+        adjacent = sorted([
+            *functions,
+            (address + PATCH_INSTRUCTION_BYTES, "_next_function"),
+        ])
+        assert _check(adjacent, patches) == _check(functions, patches)
 
     @staticmethod
     def test_missing_and_unsorted_function_addresses_rejected() -> None:
