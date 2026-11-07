@@ -82,6 +82,7 @@ Result parseFrame(const uint8_t *bytes, size_t length, Frame &out) {
     parsed.type = type;
     parsed.subtype = subtype;
     parsed.protectedFrame = (control & 0x4000u) != 0;
+    parsed.moreFragments = (control & 0x0400u) != 0;
     parsed.toDs = toDs;
     parsed.fromDs = fromDs;
     const uint16_t sequenceControl = read16(bytes + 22);
@@ -101,6 +102,8 @@ Result parseFrame(const uint8_t *bytes, size_t length, Frame &out) {
             parsed.source = address(bytes + 10);
             parsed.destination = address(bytes + 16);
         } else if (toDs && fromDs) {
+            parsed.destination = address(bytes + 16);
+            parsed.source = address(bytes + 24);
             parsed.bssid = {}; // WDS has no BSSID in standard three addresses.
         }
     }

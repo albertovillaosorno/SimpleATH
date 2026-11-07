@@ -48,11 +48,14 @@ DescriptorError encodeTxPointers(const TxPointerBlock &input, TxDescriptor &out)
             return DescriptorError::InvalidAddress;
         if (segment.length == 0 || segment.length > kBufferLengthMask)
             return DescriptorError::InvalidLength;
+        if (segment.length - 1u > 0xffffffffull - segment.busAddress)
+            return DescriptorError::InvalidAddress;
         staged.word[2 + index * 2] = static_cast<uint32_t>(segment.busAddress);
         staged.word[3 + index * 2] = static_cast<uint32_t>(segment.length) << 16u;
     }
     staged.word[kChecksumIndex] = txPointerChecksum(staged);
-    out = staged; // Publish atomically at API level after validation.
+    // Caller must serialize this copy; it is not an atomic DMA publication.
+    out = staged;
     return DescriptorError::Ok;
 }
 

@@ -13,7 +13,8 @@ Result decodeLlcData(const uint8_t *frame, size_t frameBytes,
     if (header.type != FrameType::Data)
         return Result::UnsupportedFrame;
     // A-MSDU and fragmentation need separate, bounded reassembly.
-    if ((header.subtype & 0x4u) != 0 || header.fragment != 0)
+    if ((header.subtype & 0x4u) != 0 || header.fragment != 0 ||
+        header.moreFragments)
         return Result::UnsupportedFrame;
     if (header.protectedFrame && !verifiedDecryptionAndMic)
         return Result::InvalidSecurity;

@@ -49,6 +49,7 @@ struct Frame {
     FrameType type;
     uint8_t subtype;
     bool protectedFrame;
+    bool moreFragments;
     bool toDs;
     bool fromDs;
     uint16_t sequence;
