@@ -74,6 +74,25 @@ This limited coverage cannot establish a secure WPA2 stack.
 Review required: side-channel exposure, C++14 ABI compatibility, kernel
 stack, key lifetime, DMA and secret erasure before shipping.
 
+## Synthetic M3 state and key rollback regression (2026-11-07)
+
+`tests/test_wpa2_supplicant_alias.cpp` now drives the bounded M1-to-M3
+state machine with synthetic EAPOL-Key bytes and deliberate fake crypto
+callbacks. The mock MIC is a fixed test value and the mock unwrap returns
+an RSNE/GTK KDE with AES-wrap-shaped padding; neither operation provides
+real cryptographic authentication. Host C++14 and C++17 strict-warning runs
+and a C++14 AddressSanitizer/UndefinedBehaviorSanitizer run passed.
+
+The cases check successful M4 generation, pairwise then group key callback
+ordering and GTK key ID/RSC forwarding; they also check fail-closed MIC,
+replay, invalid high RSC and altered M3 RSNE handling. Simulated failures
+in either pairwise or group installation trigger exactly one rollback of
+attempted key slots. A subsequent reset must not repeat the rollback.
+
+This **only** demonstrates source-level state/error-path handling for fake
+inputs; no IEEE 802.11 known-good M1–M4 capture, real encrypted M3, live
+keycache, controlled RF transfer, or native driver session was tested.
+
 ## Still absent
 
 There is no platform-backed CSPRNG, actual AR9565 CCMP keycache
@@ -82,8 +101,9 @@ interface, operational RF/DMA TX/RX, or usable WPA2 connection.
 
 Kext compilation, CI, EFI installation and physical verification remain
 prohibited without separate owner authorization. Isolated host fixtures are
-permitted by the project's current `AGENTS.md` and `TODO.md`; the RFC3394
-host pass is not a native ABI, RF, association or kernel-security result.
+permitted by the project's current `AGENTS.md` and `TODO.md`; these
+host-only passes are not native ABI, RF, association or kernel-security
+results.
 
 ## Source-only EAPOL hardening (2026-11-06)
 
@@ -97,8 +117,10 @@ host pass is not a native ABI, RF, association or kernel-security result.
   pairwise-key installation callback. A false return must not leave a
   partially written pairwise key slot; the backend's removal callback
   must be idempotent and clean up attempted pairwise/group installs.
-- This is static reasoning and source change only: neither the parser nor
-  the hardware keycache callback has been executed or verified.
+- As of this 2026-11-06 source record, neither the parser nor actual
+  hardware keycache callback had been exercised. The later 2026-11-07
+  synthetic fixture exercises the parser with fake callbacks only; no
+  platform/hardware keycache backend has been executed or verified.
 
 Public evidence (reviewed 2026-11-06):
 
