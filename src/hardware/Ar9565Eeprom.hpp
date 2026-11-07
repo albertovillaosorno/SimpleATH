@@ -144,7 +144,9 @@ namespace simpleath
                                     BoardDataSummary &out);
 
     // AR9565-specific ath9k EEPROM gain-index mapping. Unknown indexes are
-    // rejected instead of selecting generic AR9300 tables. No TX permission.
+    // rejected instead of selecting generic AR9300 tables. Outputs become
+    // Unknown on failure and cannot be passed to createInitRecipe. No TX
+    // permission.
     EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
                                          TxGainProfile &tx, RxGainProfile &rx);
 

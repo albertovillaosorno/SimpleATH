@@ -18,12 +18,14 @@ namespace simpleath
     {
         LowOb,
         HighOb,
-        HighPower
+        HighPower,
+        Unknown = 0xff
     };
     enum class RxGainProfile : uint8_t
     {
         Standard,
-        WithoutExternalLna
+        WithoutExternalLna,
+        Unknown = 0xff
     };
 
     enum class RegisterPhase : uint8_t
