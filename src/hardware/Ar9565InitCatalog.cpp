@@ -92,6 +92,11 @@ namespace simpleath
                             const CalibrationAndRegulatory &requirements,
                             RegisterRecipe &out)
     {
+        // The requested channel can be a member of the caller's old recipe.
+        // Snapshot every borrowed input before clearing out, so a legitimate
+        // in-place refresh never destroys its own channel or prerequisites.
+        const Channel requestedChannel = channel;
+        const CalibrationAndRegulatory requestedRequirements = requirements;
         // Do not expose a previous recipe's valid-looking table pointers or
         // flags when a new revision/channel request is rejected.
         out = {};
@@ -106,12 +111,12 @@ namespace simpleath
             return Result::InvalidChannel;
 
         Channel expected {};
-        if (mapChannel(channel.number, expected) != Result::Ok ||
-            expected.centerMhz != channel.centerMhz ||
+        if (mapChannel(requestedChannel.number, expected) != Result::Ok ||
+            expected.centerMhz != requestedChannel.centerMhz ||
             expected.requiresJapanAuthorization !=
-                channel.requiresJapanAuthorization)
+                requestedChannel.requiresJapanAuthorization)
             return Result::InvalidChannel;
-        if (channel.number == 14 && width != ChannelWidth::Ht20)
+        if (requestedChannel.number == 14 && width != ChannelWidth::Ht20)
             return Result::InvalidChannel;
 
         RegisterRecipe recipe {};
@@ -119,11 +124,12 @@ namespace simpleath
         recipe.width = width;
         recipe.txGain = tx;
         recipe.rxGain = rx;
-        recipe.channel = channel;
+        recipe.channel = requestedChannel;
         // A correctly populated table is NOT permission to transmit.
-        recipe.regulatoryAuthorized = requirements.localCountryRulesAvailable &&
-                                      requirements.channelPermitted &&
-                                      requirements.txPowerLimitsVerified;
+        recipe.regulatoryAuthorized =
+            requestedRequirements.localCountryRulesAvailable &&
+            requestedRequirements.channelPermitted &&
+            requestedRequirements.txPowerLimitsVerified;
         recipe.implementationComplete = false;
 
         const bool ht20 = width == ChannelWidth::Ht20;
@@ -153,7 +159,7 @@ namespace simpleath
                    ht20 ? ini::kRadioPostamble10Ht20View
                         : ini::kRadioPostamble10Ht40View);
 
-        if (channel.number == 14)
+        if (requestedChannel.number == 14)
         {
             append(recipe, RegisterPhase::Japan2484Txfir,
                    ini::kJapan2484TxfirHt20View);

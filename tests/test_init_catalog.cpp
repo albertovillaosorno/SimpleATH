@@ -117,5 +117,37 @@ int main()
                          requirements, rejected) != Result::InvalidChannel ||
         rejected.count || rejected.phases[0].data)
         return 12;
+
+    // Reusing a recipe's own channel is a legitimate in-place refresh. It
+    // must snapshot the input before resetting stale phase pointers.
+    RegisterRecipe aliased = v11;
+    if (createInitRecipe(Revision::V1_1, aliased.channel, ChannelWidth::Ht40,
+                         TxGainProfile::HighPower,
+                         RxGainProfile::WithoutExternalLna, requirements,
+                         aliased) != Result::Ok ||
+        !validRecipe(aliased, 10) || aliased.channel.number != channel.number ||
+        aliased.channel.centerMhz != channel.centerMhz ||
+        aliased.channel.requiresJapanAuthorization ||
+        aliased.phases[5].data != ht40.phases[5].data ||
+        !aliased.regulatoryAuthorized)
+        return 13;
+    // The Japan-only channel and eleven phases must also survive aliasing.
+    aliased = special;
+    if (createInitRecipe(Revision::V1_1, aliased.channel, ChannelWidth::Ht20,
+                         TxGainProfile::LowOb, RxGainProfile::Standard,
+                         requirements, aliased) != Result::Ok ||
+        !validRecipe(aliased, 11) || aliased.channel.number != 14 ||
+        !aliased.channel.requiresJapanAuthorization ||
+        aliased.phases[10].phase != RegisterPhase::Japan2484Txfir)
+        return 14;
+    // Invalid aliased input is still cleared, never retaining an old recipe.
+    aliased = v11;
+    aliased.channel.centerMhz = 1234;
+    if (createInitRecipe(Revision::V1_1, aliased.channel, ChannelWidth::Ht20,
+                         TxGainProfile::LowOb, RxGainProfile::Standard,
+                         requirements, aliased) != Result::InvalidChannel ||
+        aliased.count || aliased.phases[0].data ||
+        aliased.regulatoryAuthorized || aliased.implementationComplete)
+        return 15;
     return 0;
 }
