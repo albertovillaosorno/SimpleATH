@@ -46,6 +46,7 @@ SCALAR_REGISTER = "r8"
 COPY_RELOCATION_KIND = 2
 EXPECTED_COPY_SITES = 18
 EXPECTED_BACKEND_SITES = 16
+EXPECTED_COPY_IMAGES = {"Legacy": 14, "AirPort": 2, "AirPortOriginal": 2}
 
 
 def _metadata_text(*parts: str) -> str:
@@ -119,9 +120,10 @@ def analyze_scalar_handler(
         Verified JSON evidence, or None if the handler is not a scalar GET.
 
     """
+    lines = block.splitlines()
     stores = [
-        line.strip()
-        for line in block.splitlines()
+        (index, line.strip())
+        for index, line in enumerate(lines)
         if re.search(r"\bmov[lqw]\s+[^\n]*, 0x14\(%r(?:bx|1[2345]|8)\)", line)
     ]
     if COPY_OUTPUT_MARKER in block or not stores:
@@ -130,22 +132,29 @@ def analyze_scalar_handler(
         _reject(
             "A scalar GET handler accesses a data pointer; inspect it again"
         )
-    register_match = re.search(r"0x14\(%(r\w+)\)", stores[0])
-    if register_match is None:
-        _reject("Scalar output target register not found")
-    register = register_match[1]
-    if register != SCALAR_REGISTER and not re.search(
-        r"movq\s+%r8, %" + register + r"\b", block
-    ):
-        _reject(
-            "The scalar output target was not confirmed to be apple80211req"
-        )
+    for index, store in stores:
+        _verify_scalar_destination(lines[:index], store)
     return mapping({
         "request": request,
         "symbol": image.name(address),
         "address": hex(address),
-        "stores": stores,
+        "stores": [store for _, store in stores],
     })
+
+
+def _verify_scalar_destination(prior_lines: list[str], store: str) -> None:
+    """Require a proven request pointer before each individual output store."""
+    register_match = re.search(r"0x14\(%(r\w+)\)", store)
+    if register_match is None:
+        _reject("Scalar output target register not found")
+    register = register_match[1]
+    if register != SCALAR_REGISTER and not any(
+        re.search(r"movq\s+%r8, %" + register + r"\b", prior)
+        for prior in prior_lines
+    ):
+        _reject(
+            "The scalar output target was not confirmed to be apple80211req"
+        )
 
 
 def _scalar_gets(
@@ -175,16 +184,11 @@ def verify_copy_counts(copies: Sequence[Mapping[str, object]]) -> None:
     """Require the fixed total and backend-specific copy-site counts."""
     if len(copies) != EXPECTED_COPY_SITES:
         _reject("Unexpected total copy callsite count")
-    for backend in ["AirPort", "AirPortOriginal"]:
-        if (
-            len([
-                entry
-                for entry in copies
-                if entry["image"] in {"Legacy", backend}
-            ])
-            != EXPECTED_BACKEND_SITES
-        ):
-            _reject("Unexpected backend copy callsite count")
+    if any(
+        sum(entry["image"] == label for entry in copies) != count
+        for label, count in EXPECTED_COPY_IMAGES.items()
+    ):
+        _reject("Unexpected backend copy callsite count")
 
 
 def _copy_sites() -> list[dict[str, JsonValue]]:

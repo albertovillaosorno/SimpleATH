@@ -143,6 +143,26 @@ class CodecScalarAndCopyGuards(TestCase):
         assert _rejects_scalar("movl %eax, 0x14(%rbx)")
 
     @staticmethod
+    def test_alias_must_precede_store() -> None:
+        """A later register copy cannot justify an earlier scalar store."""
+        assert _rejects_scalar("movl %eax, 0x14(%rbx)\nmovq %r8, %rbx")
+        assert not _rejects_scalar("movq %r8, %rbx\nmovl %eax, 0x14(%rbx)")
+
+    @staticmethod
+    def test_every_scalar_store_requires_a_verified_destination() -> None:
+        """Reject a second store to an unverified output register."""
+        assert _rejects_scalar("movl %eax, 0x14(%r8)\nmovl %ecx, 0x14(%rbx)")
+
+    @staticmethod
+    def test_unknown_copy_image_is_not_pinned_abi_evidence() -> None:
+        """Pairwise totals alone must not admit an unknown relocation owner."""
+        copies = [{"image": "Legacy"}] * 15
+        copies += [{"image": "AirPort"}, {"image": "AirPortOriginal"}]
+        copies.append({"image": "UnexpectedBackend"})
+        assert len(copies) == COPY_TOTAL
+        assert _rejects_copy_counts(copies)
+
+    @staticmethod
     def test_copy_relocations_require_exact_backend_counts() -> None:
         """Accept only the legacy and two backend totals from pinned ABI."""
         copies = [{"image": "Legacy"}] * (COPY_TOTAL - 2 * 2)
