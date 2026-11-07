@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Read-only PCI/wireless symbol inventory; never a native ABI approval gate.
 
-Reads a retained JSON reference or an already acquired x86_64 Mach-O fileset.
+Reads a retained JSON reference, an x86_64 Mach-O fileset or extracted KDK files.
 Does not invoke build tools, execute target code, mount volumes, fetch files,
 read the running kernel or access PCI hardware. Output goes to stdout only.
 Mach-O nlist candidates do not establish KPI eligibility, C++ layout, export
@@ -172,8 +172,93 @@ def load_reference(path):
     return digest, metadata, images
 
 
-def inventory(path, reference_mode, system_version=None):
-    digest, metadata, images = load_reference(path) if reference_mode else load_collection(path)
+def x86_slice(data):
+    """Select the x86_64 slice without writing or executing a Mach-O image."""
+    if data[:4] == b"\xcf\xfa\xed\xfe":
+        return data
+    if data[:4] != b"\xca\xfe\xba\xbe":
+        raise ValueError("Expected thin Mach-O or big-endian FAT_MAGIC")
+    checked_range(data, 0, 8)
+    count = struct.unpack_from(">I", data, 4)[0]
+    if not 1 <= count <= 16:
+        raise ValueError("Invalid fat architecture count")
+    checked_range(data, 8, count * 20)
+    selected = None
+    ranges = []
+    for index in range(count):
+        cpu, _, offset, size, alignment = struct.unpack_from(">5I", data, 8 + index * 20)
+        checked_range(data, offset, size)
+        if offset < 8 + count * 20 or alignment > 31 or offset % (1 << alignment):
+            raise ValueError("Invalid fat slice offset/alignment")
+        if any(offset < end and start < offset + size for start, end in ranges):
+            raise ValueError("Overlapping fat slices")
+        ranges.append((offset, offset + size))
+        if cpu == 0x01000007:
+            if selected is not None:
+                raise ValueError("Ambiguous x86_64 slices")
+            selected = data[offset:offset + size]
+    if selected is None:
+        raise ValueError("No x86_64 slice")
+    return selected
+
+
+def load_kdk(root):
+    """Read selected package files; never treat KDK files as loaded OS images."""
+    files = {}
+
+    def read(relative):
+        path = root / relative
+        if path.stat().st_size > 128 * 1024 * 1024:
+            raise ValueError("KDK input exceeds per-file inspection limit")
+        data = path.read_bytes()
+        files[relative] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        return data
+
+    version = plistlib.loads(read("System/Library/CoreServices/SystemVersion.plist"))
+    metadata = {"systemVersion": {key: version.get(key) for key in
+                ("ProductName", "ProductVersion", "ProductBuildVersion")},
+                "loadedImageProvenanceVerified": False, "files": files, "images": {}}
+    images = {}
+    for family in ("IOPCIFamily", "IO80211Family", "IOSkywalkFamily"):
+        contents = "System/Library/Extensions/" + family + ".kext/Contents/"
+        info = plistlib.loads(read(contents + "Info.plist"))
+        identifier = "com.apple.iokit." + family
+        if info.get("CFBundleIdentifier") != identifier:
+            raise ValueError("Unexpected KDK bundle identifier")
+        selected = x86_slice(read(contents + "MacOS/" + family))
+        image = image_inventory(selected, 0)
+        images[identifier] = image
+        metadata["images"][identifier] = {
+            "version": info.get("CFBundleVersion"),
+            "compatibleVersion": info.get("OSBundleCompatibleVersion"),
+            "dependencies": info.get("OSBundleLibraries"),
+            "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
+            "x86_64SliceBytes": len(selected), "uuid": image["uuid"],
+        }
+        if family == "IOPCIFamily":
+            relative = contents + "Resources/config/IOPCIFamily.exports"
+            exports = {line.strip() for line in read(relative).decode("utf-8").splitlines()
+                       if line.strip() and not line.lstrip().startswith("#")}
+            image["symbols"] = {name: "kdk_config_export_and_defined_global_nlist"
+                                if name in exports else "defined_global_nlist_candidate_only"
+                                for name in image["symbols"]}
+            metadata["images"][identifier]["configExportListEntries"] = len(exports)
+    kernel_path = "System/Library/Kernels/kernel"
+    if (root / kernel_path).is_file():
+        selected = x86_slice(read(kernel_path))
+        images["com.apple.kernel"] = image_inventory(selected, 0)
+        metadata["images"]["com.apple.kernel"] = {
+            "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
+            "x86_64SliceBytes": len(selected), "uuid": images["com.apple.kernel"]["uuid"]}
+    # A directory has no file hash; each actual input and selected slice is hashed above.
+    return None, metadata, images
+
+
+def inventory(path, reference_mode, system_version=None, kdk_mode=False):
+    if kdk_mode:
+        digest, metadata, images = load_kdk(path)
+    else:
+        digest, metadata, images = load_reference(path) if reference_mode else load_collection(path)
     groups = {}
     for label, (image_name, classes) in GROUPS.items():
         image = images.get(image_name)
@@ -197,7 +282,8 @@ def inventory(path, reference_mode, system_version=None):
                            "build": version.get("ProductBuildVersion"),
                            "pairedToCollectionVerified": False}
     return {"schemaVersion": 1, "source": str(path), "sha256": digest,
-            "sourceKind": "retained_reference" if reference_mode else "provided_collection",
+            "sourceKind": "extracted_kdk_files" if kdk_mode else
+                          "retained_reference" if reference_mode else "provided_collection",
             "metadata": metadata, "suppliedSystemVersion": supplied_system,
             "imageNames": sorted(images), "groups": groups,
             "nativePciAbiVerified": False, "nativeWirelessAbiVerified": False,
@@ -207,6 +293,7 @@ def inventory(path, reference_mode, system_version=None):
                 "Export tries, reexports and KPI dependency/version eligibility are not resolved.",
                 "No C++ class size, vtable, selector, key-path or packet-lifetime contract is proven.",
                 "A supplied SystemVersion plist is not proof of collection provenance or pairing.",
+                "KDK files/export lists are package evidence, not attested loaded production images.",
                 "No source compilation, Mach-O import/relocation validation, load or hardware test is performed.",
             ]}
 
@@ -216,11 +303,14 @@ def main():
     inputs = parser.add_mutually_exclusive_group(required=True)
     inputs.add_argument("--reference", type=Path, help="retained native ABI JSON reference")
     inputs.add_argument("--collection", type=Path, help="already acquired x86_64 kernel fileset")
+    inputs.add_argument("--kdk-root", type=Path,
+                        help="already extracted KDK root containing System/Library; no install/mount")
     parser.add_argument("--system-version", type=Path, help="optional already acquired SystemVersion.plist")
     args = parser.parse_args()
     try:
-        result = inventory(args.reference or args.collection,
-                           args.reference is not None, args.system_version)
+        result = inventory(args.reference or args.collection or args.kdk_root,
+                           args.reference is not None, args.system_version,
+                           args.kdk_root is not None)
     except (OSError, ValueError, KeyError, TypeError, struct.error) as error:
         parser.exit(2, f"Static ABI inventory failed: {error}\n")
     print(json.dumps(result, indent=2, sort_keys=True))

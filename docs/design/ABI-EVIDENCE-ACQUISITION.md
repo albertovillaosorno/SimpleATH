@@ -1,9 +1,16 @@
 # Static ABI evidence acquisition for native PCI and Wi-Fi
 
-No native backend is authorized or enabled by this workflow. Source inspection
+No native backend is enabled by this workflow. Source inspection
 does not require an experimental build or physical card access.
 
 ## Current evidence and exact missing contracts
+
+The later [exact-build KDK inspection](TAHOE-25G332-KDK.md) supplements the
+retained snapshot below. It supplies IOPCIFamily 2.9, both previously unresolved
+PCI symbols in that package's export list, full wireless nlist candidates and
+matching kernel/wireless/Skywalk UUIDs. The snapshot omissions remain limitations
+of that snapshot, not current claims that those APIs are absent. Native ABI
+approval and loaded-image provenance remain incomplete.
 
 The read-only inventory in
 `docs/evidence/TAHOE-ABI-SYMBOL-INVENTORY.json` describes the pinned retained
@@ -95,8 +102,24 @@ The collection reader accepts thin little-endian x86_64 MH_FILESET files,
 bounds load commands/strings/nlists, records image UUIDs and inventories public
 N_SECT/N_ABS nlist definitions while excluding STAB, undefined and private
 external entries. The symbol classification is deliberately a **candidate**,
-not a final KPI export allowlist. The binary-input path is source only and has
-not been exercised or tested; only the retained JSON-input inspection was run.
+not a final KPI export allowlist. The collection/fileset path has not been
+exercised or tested. The later KDK inspection below does not exercise filesets.
+
+The KDK mode reads already extracted package files, selects bounded x86_64
+Mach-O slices, and records family versions/dependencies and per-file/slice
+hashes. For PCI it additionally intersects nlist candidates with the packaged
+IOPCIFamily.exports file. It does not execute the package, install it, load
+kernel code, or approve an adapter:
+
+```sh
+python3 -B tools/inspect_platform_abi.py \
+  --kdk-root /path/to/extracted/KDK/root
+```
+
+This mode was used for static inspection of the actual downloaded 25G332 KDK,
+producing `docs/evidence/TAHOE-25G332-KDK-SYMBOLS.json`. Its binary nlist/slice
+path has thus been exercised on those files, without a test suite or driver
+build. The kernel-collection/fileset input path remains unexercised.
 
 Mach-O format references:
 [Apple's loader definitions](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h)
@@ -105,7 +128,7 @@ No Apple implementation code is copied into the tool.
 
 ## Approval still requires stronger evidence
 
-Neither inventory mode can set nativePciAbiVerified or nativeWirelessAbiVerified
+No inventory mode can set nativePciAbiVerified or nativeWirelessAbiVerified
 to true. A complete review must additionally establish:
 
 - Exact target build/provenance, collection/image UUIDs and source-file hashes.

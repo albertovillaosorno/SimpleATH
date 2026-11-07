@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "sourceRelease": "https://github.com/dortania/KdkSupportPkg/releases/tag/25G332",
+  "sourceManifest": "https://raw.githubusercontent.com/dortania/KdkSupportPkg/gh-pages/manifest.json",
+  "archive": {
+    "url": "https://github.com/dortania/KdkSupportPkg/releases/download/25G332/Kernel_Debug_Kit_26.7.2_build_25G332.dmg",
+    "bytes": 1181052767,
+    "sha256": "9490bd9b5e16ff5cee8b7330c498d64f27a008aa91c5c70d686a00dc5978c555",
+    "downloadedSha256MatchedManifest": true
+  },
+  "acquisition": "Downloaded existing DMG, inspected/unpacked archive entries only; no installer, mount, compilation, device access or tests",
+  "imageInventory": "TAHOE-25G332-KDK-SYMBOLS.json",
+  "debugTypes": {
+    "source": "System/Library/Extensions/IOPCIFamily.kext.dSYM/Contents/Resources/DWARF/IOPCIFamily",
+    "bytes": 3261360,
+    "sha256": "6e716d3b2ceb69eaa8f0d8675fc5e5482a3c5b7ba416715b72dfa0d36b6fc1e9",
+    "method": "LLDB static x86_64 image/symbol loading with initialization and symbol-file scripts disabled; no process launch or attach",
+    "types": {
+      "IOPCIDevice": {
+        "bytes": 184,
+        "fields": {
+          "parent": 136,
+          "ioMap": 144,
+          "slotNameProperty": 152,
+          "reserved": 160,
+          "space": 168,
+          "savedConfig": 176
+        }
+      },
+      "IOService": {
+        "bytes": 136,
+        "fields": {
+          "reserved": 40,
+          "__provider": 48,
+          "__providerGeneration": 56,
+          "__owner": 64,
+          "__state": 72,
+          "__timeBusy": 80,
+          "__accumBusy": 88,
+          "pwrMgt": 96,
+          "initialized": 104,
+          "pm_vars": 112,
+          "_numInterruptSources": 120,
+          "_interruptSources": 128
+        }
+      }
+    },
+    "verifiedRuntimeLayout": false
+  },
+  "otherLocalCandidate": {
+    "path": "<LOCAL_DOWNLOADS>/IO80211Family",
+    "bytes": 1192960,
+    "sha256": "2b668078eab8c835f38034c6695d85a8e28449448f3cacff26b3234e0a17d28c",
+    "uuid": "07644D43-FC89-3B05-AC4F-2E47D1045F4E",
+    "targetUuidMatched": false,
+    "buildProvenance": "unknown; rejected as exact-target ABI evidence"
+  },
+  "appleBinaryContentsRedistributed": false,
+  "loadedImageProvenanceVerified": false,
+  "nativePciAbiVerified": false,
+  "nativeWirelessAbiVerified": false
+}
