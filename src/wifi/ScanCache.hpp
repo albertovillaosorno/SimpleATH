@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Bounded, allocation-free 802.11 BSS discovery cache.
+#ifndef SIMPLEATH_WIFI_SCAN_CACHE_HPP
+#define SIMPLEATH_WIFI_SCAN_CACHE_HPP
+
+#include "Frames.hpp"
+
+namespace simpleath {
+namespace ieee80211 {
+
+struct Bss {
+    Beacon beacon;
+    int8_t rssiDbm;
+    uint64_t lastSeenMs;
+    bool occupied;
+};
+
+class ScanCache {
+public:
+    enum : size_t { kCapacity = 48 };
+    ScanCache();
+    void clear();
+    // Caller must have verified RX descriptor CRC and DMA bounds first.
+    Result observe(const uint8_t *frame, size_t length,
+                   int8_t rssiDbm, uint64_t nowMs);
+    void expire(uint64_t nowMs, uint64_t ttlMs);
+    size_t size() const;
+
+    // Only allows Open or WPA2/CCMP PSK, with a visible SSID and 2.4GHz
+    // channel. This does NOT check country-specific regulatory restrictions.
+    // A copy of the selected BSS is returned; no invalidatable pointers.
+    bool strongest(const uint8_t *ssid, size_t ssidLength, uint8_t channel,
+                   bool permitOpen, bool permitWpa2, Bss &out) const;
+private:
+    Bss entries_[kCapacity];
+};
+
+} // namespace ieee80211
+} // namespace simpleath
+#endif
