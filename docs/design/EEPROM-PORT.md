@@ -44,7 +44,8 @@ It selects EEPROM 0x3ff/0xfff/0x1ff before OTP 0x3ff/0x1ff, rejecting damaged
 chains and unsupported board identity without using template MAC defaults.
 The first nonempty four-byte header irrevocably selects one candidate:
 subsequent capture/restore/identity errors abort rather than trying another
-board source.
+board source. An `NvmBoardLease` now retains the accepted image privately;
+only a new owner epoch can acquire it, and failure/stop invalidates it.
 Only the synthetic host backend exercises this path; the native PCI/power
 owner and hardware authorization remain missing. The block primitive
 supports full uncompressed 1088-byte images; these do not fit the

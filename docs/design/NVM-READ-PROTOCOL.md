@@ -68,6 +68,15 @@ Owner permission to edit source does not authorize invoking this capability.
   invalidate it on reset, D0 loss, teardown and resume. Neither the
   `valid` snapshot flag nor plausible calibration bins grants RF permission;
   `calibrationValidated` and `regulatoryAuthorized` remain false.
+- `NvmBoardLease` retains the reconstructed image privately behind a
+  strictly increasing owner epoch. A const board view is only borrowed under
+  that owner's serialization gate for its current epoch. Failed acquisition,
+  sleep, reset, teardown or D0 loss must invalidate the lease; old epochs
+  cannot be replayed. Revocation during acquisition returns
+  `OwnerEpochRevoked`, prevents publication, and defers erasure until the
+  active operation completes. The future native
+  owner must ALSO revoke hardware callbacks and drain the operation before
+  releasing BAR mappings; the source-only epoch is not native ownership.
 - Reject overlapping destination, status, backend and identity storage
   before initializing diagnostics or clearing capture bytes. Reject a
   backend context pointer that points into either writable output, too;
@@ -97,7 +106,8 @@ No Linux objects are linked into the kext.
 
 The authorized offline host tests now exercise synthetic register ordering,
 post-ready BUSY_ACCESS, disappearing ownership, source/origin fallback,
-checksum rejection, placeholder MAC rejection and failure erasure. They do
+checksum rejection, placeholder MAC rejection, epoch replay, revocation
+and failure erasure. They do
 not establish Tahoe kernel linkage, true register ordering, RF calibration
 or physical NVM behavior. Native kext compilation and any device experiment
 remain separately owner-authorized and have not been performed.

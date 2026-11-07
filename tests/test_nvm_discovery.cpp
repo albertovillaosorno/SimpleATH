@@ -18,6 +18,8 @@ namespace
             bool mutateHeaderOnFullRead = false;
             bool mutateSrevBetweenReads = false;
             uint32_t revisionReads = 0;
+            simpleath::NvmBoardLease *leaseToRevoke = nullptr;
+            uint32_t revokeAtOwnerCheck = 0;
             bool d0 = true;
             uint32_t failOwnerAfter = 0;
     };
@@ -40,6 +42,8 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.ownerChecks;
+        if (fake.leaseToRevoke && fake.ownerChecks == fake.revokeAtOwnerCheck)
+            fake.leaseToRevoke->invalidate();
         return fake.d0 &&
                (!fake.failOwnerAfter || fake.ownerChecks < fake.failOwnerAfter);
     }
@@ -179,6 +183,20 @@ namespace
             backend, identity, fixture.storage, sizeof(fixture.storage),
             fixture.scratch, sizeof(fixture.scratch), fixture.board,
             fixture.status);
+    }
+
+    simpleath::NvmDiscoveryResult
+    runLease(Fixture &fixture, simpleath::NvmBoardLease &lease, uint64_t epoch)
+    {
+        const simpleath::NvmReadBackend backend {&fixture.fake, owner, read,
+                                                 now,           delay, 0x16000};
+        const simpleath::Identity identity {simpleath::kPciVendor,
+                                            simpleath::kPciDevice, 0, 0, false};
+        fill(fixture.storage, sizeof(fixture.storage), 0xcc);
+        fill(fixture.scratch, sizeof(fixture.scratch), 0xcc);
+        return lease.acquire(backend, identity, epoch, fixture.storage,
+                             sizeof(fixture.storage), fixture.scratch,
+                             sizeof(fixture.scratch), fixture.status);
     }
 
     bool clean(const Fixture &fixture)
@@ -337,6 +355,74 @@ int main()
         fixture.fake.readCount != 0 || !fixture.board.valid ||
         fixture.storage[0] != 0xaa)
         return 13;
+
+    // Only a successful real discovery can publish a board for its unique
+    // exclusive owner epoch. Neither a different nor a stale epoch can view.
+    simpleath::NvmBoardLease lease;
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    if (runLease(fixture, lease, 11) != NvmDiscoveryResult::Ok ||
+        !lease.view(11) || lease.view(10) || lease.view(12) ||
+        !lease.view(11)->valid || !clean(fixture))
+        return 14;
+
+    // Replaying an epoch is a failed acquisition, not permission to retain
+    // a previous image (including after invalidation and power resume).
+    if (runLease(fixture, lease, 11) != NvmDiscoveryResult::InvalidArgument ||
+        lease.view(11))
+        return 15;
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    if (runLease(fixture, lease, 12) != NvmDiscoveryResult::Ok ||
+        !lease.view(12))
+        return 16;
+    lease.invalidate();
+    if (lease.view(12) ||
+        runLease(fixture, lease, 12) != NvmDiscoveryResult::InvalidArgument ||
+        lease.view(12))
+        return 17;
+
+    // A rejected corrupt reacquisition wipes the formerly accepted board,
+    // while a later strictly larger owner generation can still be acquired.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, true);
+    if (runLease(fixture, lease, 13) != NvmDiscoveryResult::CorruptImage ||
+        lease.view(13) || !clean(fixture))
+        return 18;
+
+    // A gate/owner revocation callback during acquisition marks the pending
+    // transaction unusable, even if the synthetic MMIO data remains readable.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.leaseToRevoke = &lease;
+    fixture.fake.revokeAtOwnerCheck = 10;
+    if (runLease(fixture, lease, 14) != NvmDiscoveryResult::OwnerEpochRevoked ||
+        fixture.status.result != NvmDiscoveryResult::OwnerEpochRevoked ||
+        lease.view(14) || !clean(fixture))
+        return 19;
+
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    if (runLease(fixture, lease, 15) != NvmDiscoveryResult::Ok ||
+        !lease.view(15))
+        return 20;
+
+    // Buffer aliases with the private lease state cannot erase or mutate the
+    // live snapshot: failure is signaled by the return value only.
+    const simpleath::NvmReadBackend guardedBackend {
+        &fixture.fake, owner, read, now, delay, 0x16000};
+    const simpleath::Identity guardedIdentity {
+        simpleath::kPciVendor, simpleath::kPciDevice, 0, 0, false};
+    if (lease.acquire(guardedBackend, guardedIdentity, 16,
+                      reinterpret_cast<uint8_t *>(&lease),
+                      sizeof(fixture.storage), fixture.scratch,
+                      sizeof(fixture.scratch),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15))
+        return 21;
+    lease.invalidate();
+    if (lease.view(15))
+        return 22;
 
     return 0;
 }

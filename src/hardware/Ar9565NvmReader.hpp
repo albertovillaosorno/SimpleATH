@@ -94,7 +94,8 @@ namespace simpleath
         InvalidArgument,
         NoValidImage,
         CaptureFailed,
-        CorruptImage
+        CorruptImage,
+        OwnerEpochRevoked
     };
 
     // A recovered image and its structurally checked board summary, NOT RF
@@ -147,6 +148,41 @@ namespace simpleath
                                          uint8_t *scratch, size_t scratchBytes,
                                          NvmBoardSelection &board,
                                          NvmDiscoveryStatus &status);
+
+    // A private, reset-invalidatable snapshot for a SINGLE owner's serial
+    // lifetime. Epochs must come from the verified exclusive PCI/power owner:
+    // strictly increasing, never reused after failure, stop or resume.
+    // No public method accepts a fabricated image or sets RF readiness.
+    // Data is borrowed read-only under the owner gate; callers must not keep
+    // the pointer beyond that gate, owner revocation, or the next acquisition.
+    // `invalidate` can mark an in-flight operation revoked without touching
+    // a buffer the operation is still writing; owner callbacks must separately
+    // stop active device accesses and drain the operation before BAR teardown.
+    // Not a substitute for the missing native owner or board calibration.
+    class NvmBoardLease final
+    {
+        public:
+            NvmBoardLease();
+            ~NvmBoardLease();
+            NvmBoardLease(const NvmBoardLease &) = delete;
+            NvmBoardLease &operator=(const NvmBoardLease &) = delete;
+            NvmDiscoveryResult acquire(const NvmReadBackend &backend,
+                                       const Identity &physicalIdentity,
+                                       uint64_t ownerEpoch, uint8_t *storage,
+                                       size_t storageBytes, uint8_t *scratch,
+                                       size_t scratchBytes,
+                                       NvmDiscoveryStatus &status);
+            void invalidate();
+            const NvmBoardSelection *view(uint64_t ownerEpoch) const;
+
+        private:
+            void eraseBoard();
+            NvmBoardSelection board_;
+            uint64_t activeEpoch_;
+            uint64_t lastEpoch_;
+            bool acquiring_;
+            bool revoked_;
+    };
 
 } // namespace simpleath
 #endif

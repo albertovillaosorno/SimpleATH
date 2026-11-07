@@ -487,4 +487,91 @@ namespace simpleath
         return status.result = outcome;
     }
 
+    NvmBoardLease::NvmBoardLease()
+        : board_ {}, activeEpoch_(0), lastEpoch_(0), acquiring_(false),
+          revoked_(false)
+    {
+        board_.txGain = TxGainProfile::Unknown;
+        board_.rxGain = RxGainProfile::Unknown;
+    }
+
+    NvmBoardLease::~NvmBoardLease()
+    {
+        // Destruction while acquisition is active violates the single-owner
+        // lifetime. The owner must drain operations before deleting the lease.
+        eraseBoard();
+    }
+
+    void NvmBoardLease::eraseBoard()
+    {
+        // Volatile byte erasure prevents a dead-store optimization from
+        // retaining the prior board MAC, calibration and regulatory fields.
+        volatile uint8_t *bytes = reinterpret_cast<volatile uint8_t *>(&board_);
+        for (size_t i = 0; i < sizeof(board_); ++i)
+            bytes[i] = 0;
+        board_.txGain = TxGainProfile::Unknown;
+        board_.rxGain = RxGainProfile::Unknown;
+        activeEpoch_ = 0;
+    }
+
+    void NvmBoardLease::invalidate()
+    {
+        activeEpoch_ = 0;
+        if (acquiring_)
+        {
+            // Never erase storage while the in-flight parser writes it.
+            // Rejected at publication even if the device read succeeds.
+            revoked_ = true;
+            return;
+        }
+        eraseBoard();
+        revoked_ = false;
+    }
+
+    const NvmBoardSelection *NvmBoardLease::view(uint64_t ownerEpoch) const
+    {
+        return ownerEpoch && activeEpoch_ == ownerEpoch && !acquiring_ &&
+                       !revoked_ && board_.valid
+                   ? &board_
+                   : nullptr;
+    }
+
+    NvmDiscoveryResult NvmBoardLease::acquire(
+        const NvmReadBackend &backend, const Identity &physicalIdentity,
+        uint64_t ownerEpoch, uint8_t *storage, size_t storageBytes,
+        uint8_t *scratch, size_t scratchBytes, NvmDiscoveryStatus &status)
+    {
+        // A rejected alias must leave both the lease and aliased caller
+        // memory untouched; otherwise erasure could corrupt callback state.
+        if (acquiring_ || overlaps(backend.context, 1, this, sizeof(*this)) ||
+            overlaps(storage, storageBytes, this, sizeof(*this)) ||
+            overlaps(scratch, scratchBytes, this, sizeof(*this)) ||
+            overlaps(&status, sizeof(status), this, sizeof(*this)) ||
+            overlaps(&backend, sizeof(backend), this, sizeof(*this)) ||
+            overlaps(&physicalIdentity, sizeof(physicalIdentity), this,
+                     sizeof(*this)))
+            return NvmDiscoveryResult::InvalidArgument;
+        // Any non-alias attempt invalidates a prior board. An epoch may only
+        // advance, never roll back or reuse a previously retired generation.
+        invalidate();
+        if (!ownerEpoch || ownerEpoch <= lastEpoch_)
+            return NvmDiscoveryResult::InvalidArgument;
+        lastEpoch_ = ownerEpoch;
+        acquiring_ = true;
+        const NvmDiscoveryResult result =
+            discoverAr9565Nvm(backend, physicalIdentity, storage, storageBytes,
+                              scratch, scratchBytes, board_, status);
+        acquiring_ = false;
+        if (revoked_ || result != NvmDiscoveryResult::Ok)
+        {
+            const bool wasRevoked = revoked_;
+            invalidate();
+            if (wasRevoked)
+                status.result = NvmDiscoveryResult::OwnerEpochRevoked;
+            return wasRevoked ? NvmDiscoveryResult::OwnerEpochRevoked : result;
+        }
+        activeEpoch_ = ownerEpoch;
+        return result;
+    }
+
 } // namespace simpleath
