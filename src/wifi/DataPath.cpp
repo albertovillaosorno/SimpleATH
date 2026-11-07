@@ -155,8 +155,13 @@ namespace simpleath
                                         bool ccmpMicAndPnValidated,
                                         Msdu &result)
         {
+            // A failed admission must not preserve stale borrowed RX payload.
+            result = {};
             if (!frame)
                 return DataPathResult::NullBuffer;
+            if (!validStationMac(link.station) ||
+                !physicalBssidValid(link.bssid))
+                return DataPathResult::InvalidAddress;
             if (!link.rfReady || !link.associated)
                 return DataPathResult::NotAssociated;
             if (!link.channelPermitted)
@@ -189,6 +194,11 @@ namespace simpleath
                 return DataPathResult::UnsupportedFrame;
             if (link.security == LinkSecurity::Wpa2Ccmp)
             {
+                // WPA2-PSK pairwise handshake frames are addressed to this
+                // station, never to an arbitrary multicast destination.
+                if (parsed.etherType == kEtherTypeEapol &&
+                    !sameMac(parsed.destination, link.station))
+                    return DataPathResult::NotForThisStation;
                 if (parsed.etherType != kEtherTypeEapol)
                 {
                     if (!link.pairwiseAndGroupKeysInstalled ||

@@ -80,7 +80,9 @@ namespace simpleath
         // Gate a decoded 802.11 MSDU before it is ever delivered into a native
         // network interface. The caller must have checked the EDMA RX status,
         // FCS and decrypted integrity/packet number using a real hardware
-        // backend.
+        // backend. Association addresses must be valid; WPA2-PSK EAPOL
+        // handshake traffic must be unicast to this station. On error the
+        // output is zeroed, including its borrowed payload pointer.
         DataPathResult inspectStationRx(const LinkContext &link,
                                         const uint8_t *ieeeFrame,
                                         size_t ieeeFrameBytes, bool fcsIncluded,

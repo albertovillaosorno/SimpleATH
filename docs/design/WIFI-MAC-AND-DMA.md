@@ -51,7 +51,9 @@ for the **next separately authorized build**.
   Only unfragmented Data/QoS Data subtypes are decapsulated; CF poll/ACK,
   null-data and A-MSDU require distinct implementations. This rule is also
   present in Linux cfg80211 `net/wireless/util.c` (see the upstream source
-  in the evidence references below).
+  in the evidence references below). RX admission also validates the selected
+  unicast station/BSSID, rejects multicast WPA2-PSK handshake EAPOL and clears
+  any borrowed payload pointer on failed decoding or admission.
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
   beacon/scan operation, association timers and packet scheduling.

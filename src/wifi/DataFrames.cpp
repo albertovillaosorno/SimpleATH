@@ -10,6 +10,9 @@ namespace simpleath
                              bool containsFcs, bool verifiedDecryptionAndMic,
                              Msdu &out)
         {
+            // Never leave a borrowed pointer from a previously accepted RX
+            // buffer accessible after a failed parse.
+            out = {};
             Frame header {};
             const Result result = parseFrame(frame, frameBytes, header);
             if (result != Result::Ok)
