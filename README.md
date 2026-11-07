@@ -11,9 +11,9 @@ The v1 project targets Qualcomm Atheros QCA9565 / AR9565, PCI `168c:0036`
 
 - Boot-time `SimpleATH` service with no obsolete Apple AirPort, Broadcom,
   IO80211 or Skywalk binary injected into the kernel.
-- Separate, **read-only** `SimpleATHPciProbe` service for the AR9565 PCI device.
-  The probe only reads PCI identification words. It never accesses radio
-  registers, enables bus mastering, requests interrupts, or transmits packets.
+- Separate, **passive** `SimpleATHPciProbe` service matched to AR9565 by
+  `IOPCIPrimaryMatch`. It does not link to IOPCIDevice C++ methods or read
+  PCI configuration words, and does not initialize the radio or Wi-Fi.
 - IORegistry properties to diagnose whether the kext and PCI matching started.
 - `-simpleathoff` boot argument to disable its IOService matching.
 - Offline support for a pinned MacKernelSDK, macOS Intel Xcode builds and

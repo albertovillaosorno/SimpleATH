@@ -5,7 +5,6 @@
 // Actual AR9565 Wi-Fi operation requires a separately validated backend.
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
-#include <IOKit/pci/IOPCIDevice.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
@@ -40,37 +39,26 @@ public:
 };
 OSDefineMetaClassAndStructors(SimpleATH, IOService)
 
-// The separate PCI service makes no changes to the hardware. It reads the
-// identification registers only, and recognizes an OpenCore device-id spoof
-// without interpreting the spoof as the physical silicon revision.
+// IOKit matches this service to the AR9565 using IOPCIPrimaryMatch in
+// Info.plist. No direct calls to IOPCIDevice: its class metaclass and
+// extendedConfigRead16 symbol were unresolved in Tahoe's boot cache.
+// All hardware remains untouched. The service is a diagnostic marker only.
 class SimpleATHPciProbe final : public IOService {
     OSDeclareDefaultStructors(SimpleATHPciProbe)
 public:
     IOService *probe(IOService *provider, SInt32 *score) override {
-        if (!gSimpleATHEnabled || OSDynamicCast(IOPCIDevice, provider) == nullptr)
-            return nullptr;
-        return IOService::probe(provider, score);
+        return gSimpleATHEnabled ? IOService::probe(provider, score) : nullptr;
     }
 
     bool start(IOService *provider) override {
-        auto *pci = OSDynamicCast(IOPCIDevice, provider);
-        if (!gSimpleATHEnabled || pci == nullptr || !IOService::start(provider))
-            return false;
-        UInt16 vendor = pci->configRead16(0x00);
-        UInt16 device = pci->configRead16(0x02);
-        if (vendor != kAtherosVendor ||
-            (device != kAr9565Device && device != kLegacyCompatibleDevice)) {
-            IOService::stop(provider);
-            return false;
-        }
-        setProperty("SimpleATHMode", "PassivePCIProbe");
-        setProperty("SimpleATHVendorID", vendor, 32);
-        setProperty("SimpleATHObservedPCIDeviceID", device, 32);
+        if (!gSimpleATHEnabled || !IOService::start(provider)) return false;
+        setProperty("SimpleATHMode", "IOKitMatchedPCIProbe");
+        setProperty("SimpleATHVendorID", kAtherosVendor, 32);
+        setProperty("SimpleATHMatchedDeviceIDs", "0036 / 0030 (IOPCIPrimaryMatch)");
         setProperty("SimpleATHDriverReady", false);
         setProperty("SimpleATHRadioInitialized", false);
         registerService();
-        IOLog("SimpleATH: AR9565 PCI detected %04x:%04x; radio inactive\n",
-              static_cast<unsigned>(vendor), static_cast<unsigned>(device));
+        IOLog("SimpleATH: IOKit matched the Atheros PCI device; radio inactive\n");
         return true;
     }
 };
