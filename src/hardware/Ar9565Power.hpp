@@ -18,7 +18,8 @@ namespace simpleath
         MissingCtl,
         MissingCtlCoverage,
         UnsupportedPowerLimit,
-        UnsupportedRate
+        UnsupportedRate,
+        InvalidArgument
     };
 
     struct PowerChannel
@@ -63,8 +64,9 @@ namespace simpleath
     // Interpolates EEPROM targets with ath9k's signed integer rounding, applies
     // explicit CTL edge coverage, and intersects caller ceilings and antenna
     // gain. Missing coverage is an error, never an implicit unrestricted power
-    // budget. Output is zeroed on failure. An Ok result is arithmetic success
-    // only.
+    // budget. Output is zeroed on ordinary failure; an output overlapping an
+    // input is rejected untouched with InvalidArgument. An Ok result is
+    // arithmetic success only.
     PowerResult calculatePowerCandidates(const EepromImage &image,
                                          const PowerChannel &channel,
                                          const PowerCeilings &ceilings,
@@ -73,8 +75,9 @@ namespace simpleath
     // Select an AR9565 single-stream rate's candidate limit. Rejects unknown,
     // multi-stream or channel-14 non-CCK rates. Also rejects contradictory
     // HT40 center/extension geometry and power outside 0..63/its ceiling.
-    // This is NOT an index conversion for TxRate::powerIndex and does not
-    // populate TxSafetyPolicy readiness flags.
+    // An output aliasing the candidate is rejected untouched. This is NOT an
+    // index conversion for TxRate::powerIndex and does not populate
+    // TxSafetyPolicy readiness flags.
     PowerResult candidatePowerForRate(const PowerCandidates &candidates,
                                       uint8_t rateCode, bool ht40,
                                       uint8_t &halfDbm);

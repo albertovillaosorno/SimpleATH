@@ -129,7 +129,9 @@ namespace simpleath
         // reference could otherwise clobber the frame or board image first.
         // The returned error itself is authoritative on this contract breach.
         if (overlaps(&info, sizeof(info), frame, frameBytes) ||
-            overlaps(&info, sizeof(info), &image, sizeof(image)))
+            overlaps(&info, sizeof(info), &image, sizeof(image)) ||
+            overlaps(&info, sizeof(info), &templates, sizeof(templates)) ||
+            overlaps(&image, sizeof(image), &templates, sizeof(templates)))
             return EepromResult::InvalidArgument;
         info = {};
         if (!frame)
@@ -217,13 +219,19 @@ namespace simpleath
                                    EepromImage &image,
                                    EepromRestoreStatus &status)
     {
-        // Never initialize diagnostics before checking aliasing: status may
-        // otherwise overwrite storage, scratch, or the reconstructed image.
-        // On such a contract breach the return code alone reports the error;
-        // neither status nor the aliased buffers can be safely modified.
+        // Check all mutable buffers against input and callback metadata
+        // BEFORE initializing diagnostics or discarding the image. Otherwise,
+        // even an error cleanup could overwrite an aliased source dump.
+        // On a contract breach only the return code reports the failure.
         if (overlaps(&status, sizeof(status), storage, storageBytes) ||
             overlaps(&status, sizeof(status), scratch, scratchBytes) ||
-            overlaps(&status, sizeof(status), &image, sizeof(image)))
+            overlaps(&status, sizeof(status), &image, sizeof(image)) ||
+            overlaps(&status, sizeof(status), &templates, sizeof(templates)) ||
+            overlapsImage(storage, storageBytes, image) ||
+            overlapsImage(scratch, scratchBytes, image) ||
+            overlaps(&image, sizeof(image), &templates, sizeof(templates)) ||
+            overlaps(storage, storageBytes, scratch, scratchBytes) ||
+            overlaps(scratch, scratchBytes, &templates, sizeof(templates)))
             return EepromResult::InvalidArgument;
         // No frame-sized allocation is made on the kernel stack.
         status = {};
@@ -232,10 +240,7 @@ namespace simpleath
         if (!storage || !scratch || storageBytes > 16384 ||
             origin >= storageBytes ||
             scratchBytes < kAr9565EepromScratchBytes ||
-            (origin != 0x3ff && origin != 0xfff && origin != 0x1ff) ||
-            overlapsImage(storage, storageBytes, image) ||
-            overlapsImage(scratch, scratchBytes, image) ||
-            overlaps(storage, storageBytes, scratch, scratchBytes))
+            (origin != 0x3ff && origin != 0xfff && origin != 0x1ff))
         {
             discardEepromImage(image);
             return status.result = EepromResult::InvalidArgument;
@@ -292,6 +297,10 @@ namespace simpleath
     EepromResult summarizeBoardData(const EepromImage &image,
                                     BoardDataSummary &out)
     {
+        // Clearing an output that aliases the reconstructed image would
+        // invalidate the very board data we are about to inspect.
+        if (overlaps(&out, sizeof(out), &image, sizeof(image)))
+            return EepromResult::InvalidArgument;
         out = {};
         if (!image.restored || image.appliedBlocks == 0)
             return EepromResult::MissingBaseImage;
@@ -347,6 +356,12 @@ namespace simpleath
     EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
                                          TxGainProfile &tx, RxGainProfile &rx)
     {
+        // Reject aliases before invalidating outputs: a one-byte gain output
+        // may otherwise overwrite the board index or the other output.
+        if (overlaps(&tx, sizeof(tx), &board, sizeof(board)) ||
+            overlaps(&rx, sizeof(rx), &board, sizeof(board)) ||
+            overlaps(&tx, sizeof(tx), &rx, sizeof(rx)))
+            return EepromResult::InvalidArgument;
         // Never leave a prior valid gain selection in either output when the
         // board's index is unsupported. Unknown is rejected by the INI catalog.
         tx = TxGainProfile::Unknown;

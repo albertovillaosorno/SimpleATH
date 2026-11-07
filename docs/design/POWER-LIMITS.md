@@ -59,6 +59,13 @@ center, HT mode consistency and that selected values are within the 0..63
 hardware field range and the supplied conducted ceiling. A manually forged
 PowerCandidates structure still cannot confer regulatory or hardware authority.
 
+The EEPROM image, channel and ceiling inputs must not overlap the power
+candidate output, and the rate selector output must be disjoint from the
+candidate. Likewise, board-summary output cannot overlap the EEPROM image,
+and TX/RX gain outputs cannot overlap the board or each other. These invalid
+aliases return InvalidArgument before modifying either output or input;
+ordinary failed power calculations still clear stale output.
+
 ## What remains before any transmission
 
 PowerCandidates contains **half-dBm candidate limits**, not descriptor power

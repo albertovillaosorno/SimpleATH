@@ -73,7 +73,8 @@ namespace simpleath
     // entire restore chain on ANY failure. Frame and template storage must
     // be immutable and disjoint from image/info; the caller owns their
     // lifetime for the duration of this serialized call. If info aliases
-    // frame/image, InvalidArgument is returned without writing info.
+    // frame/image/templates or image aliases templates, InvalidArgument is
+    // returned before mutating image/info.
     EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info);
@@ -96,10 +97,11 @@ namespace simpleath
     // establish its hardware source and word normalization. Explicit origin
     // must be 0x3ff, 0xfff or 0x1ff; no speculative fallback or default image
     // is used. Scratch is caller-owned (at least kAr9565EepromScratchBytes),
-    // and all buffers and status must be disjoint. Malformed chains
-    // invalidate/wipe the image. If status aliases storage/scratch/image,
-    // returns InvalidArgument without modifying any aliased output; the
-    // return code is authoritative and the caller must discard the image.
+    // and all mutable buffers and template metadata must be disjoint from
+    // each other and the input storage. Malformed chains invalidate/wipe the
+    // image. Storage/scratch/image/status/template aliasing returns
+    // InvalidArgument without modifying any aliased output; the return code
+    // is authoritative and the caller must separately discard the image.
     // No hardware operations, storage acquisition or regulatory approval.
     EepromResult restoreEepromDump(const uint8_t *storage, size_t storageBytes,
                                    uint16_t origin,
@@ -111,7 +113,8 @@ namespace simpleath
     // Diagnostic interpretation of a completely reconstructed little-endian
     // image. Includes raw regulatory/antenna/calibration fields for later
     // policy and calibration code, not a validation of those fields for
-    // transmission.
+    // transmission. Output is cleared on ordinary failure, but an output
+    // overlapping the image is rejected untouched with InvalidArgument.
     struct BoardDataSummary
     {
             uint8_t eepromVersion;
@@ -145,8 +148,9 @@ namespace simpleath
 
     // AR9565-specific ath9k EEPROM gain-index mapping. Unknown indexes are
     // rejected instead of selecting generic AR9300 tables. Outputs become
-    // Unknown on failure and cannot be passed to createInitRecipe. No TX
-    // permission.
+    // Unknown on ordinary failure and cannot be passed to createInitRecipe.
+    // Aliasing either output with the board or the other output returns
+    // InvalidArgument without writing either. No TX permission.
     EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
                                          TxGainProfile &tx, RxGainProfile &rx);
 

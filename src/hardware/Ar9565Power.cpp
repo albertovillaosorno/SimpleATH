@@ -32,6 +32,16 @@ namespace simpleath
 {
     namespace
     {
+        // Difference-based overlap checks avoid pointer-end overflow.
+        bool overlaps(const void *a, size_t aBytes, const void *b,
+                      size_t bBytes)
+        {
+            const auto first = reinterpret_cast<uintptr_t>(a);
+            const auto second = reinterpret_cast<uintptr_t>(b);
+            return first <= second ? second - first < aBytes
+                                   : first - second < bBytes;
+        }
+
         uint8_t minimum(uint8_t a, uint8_t b)
         {
             return a < b ? a : b;
@@ -194,6 +204,12 @@ namespace simpleath
                                          const PowerCeilings &ceilings,
                                          PowerCandidates &out)
     {
+        // Do not overwrite a source image, channel or ceiling through a
+        // malformed caller-owned output alias before validating the inputs.
+        if (overlaps(&out, sizeof(out), &image, sizeof(image)) ||
+            overlaps(&out, sizeof(out), &channel, sizeof(channel)) ||
+            overlaps(&out, sizeof(out), &ceilings, sizeof(ceilings)))
+            return PowerResult::InvalidArgument;
         out = {};
         BoardDataSummary board {};
         if (summarizeBoardData(image, board) != EepromResult::Ok)
@@ -290,6 +306,8 @@ namespace simpleath
                                       uint8_t rateCode, bool ht40,
                                       uint8_t &halfDbm)
     {
+        if (overlaps(&halfDbm, sizeof(halfDbm), &candidate, sizeof(candidate)))
+            return PowerResult::InvalidArgument;
         halfDbm = 0;
         // Require a populated, geometrically valid candidate, not a default
         // object.
