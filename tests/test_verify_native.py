@@ -3,11 +3,15 @@
 """Fake-only forwarding ABI fixture tests; never invoke a Darwin compiler."""
 
 import ast
+from contextlib import ExitStack
+import importlib
 import os
 from pathlib import Path
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import sys
 import tempfile
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest import TestCase
 from unittest import mock
@@ -259,6 +263,75 @@ class NativeAbiInvariantTests(TestCase):
             )
             for call in zips
         )
+
+    @staticmethod
+    def test_verifier_stages_keep_ordered_fail_closed_execution() -> None:
+        """Preserve stages, output shape and offline resource teardown."""
+        with mock.patch.object(
+            sys,
+            "path",
+            [str(Path(__file__).parent.parent / "tools"), *sys.path],
+        ):
+            verifier = importlib.import_module("tools.verify_native")
+        verifier_class = vars(verifier)["_NativeVerifier"]
+        runner = object.__new__(verifier_class)
+        runner.plan = SimpleNamespace(
+            packet_calls=[1, 2],
+            vptr_sites=[1],
+            pool_meta=[1, 2, 3],
+            callbacks=[("native", "legacy", [1, 2])],
+            wireless=mock.Mock(),
+            model=mock.Mock(),
+        )
+        runner.checks = ["synthetic ABI contract"]
+        ordered = (
+            "_check_payloads",
+            "_check_profile",
+            "_check_controller",
+            "_check_power",
+            "_check_facade",
+            "_check_clients",
+            "_check_callbacks",
+            "_check_packet_calls",
+            "_check_constructors",
+            "_check_forwarding",
+        )
+        legacy = b"synthetic old source"
+        product = object()
+        evidence = {"forwardingCalls": 6}
+        outputs: dict[str, object] = {
+            "_check_payloads": legacy,
+            "_check_facade": product,
+            "_check_forwarding": evidence,
+        }
+        visited: list[tuple[str, tuple[object, ...]]] = []
+        with ExitStack() as patches:
+            for name in ordered:
+
+                def stub(*args: object, stage: str = name) -> object:
+                    visited.append((stage, args[1:]))
+                    return outputs.get(stage)
+
+                patches.enter_context(
+                    mock.patch.object(verifier_class, name, new=stub)
+                )
+            report = runner.run()
+
+        assert tuple(name for name, _ in visited) == ordered
+        assert visited[2][1] == (legacy,)
+        assert visited[5][1] == (product,)
+        assert report == {
+            "checks": ["synthetic ABI contract"],
+            "forwarding": evidence,
+            "packetCallSites": 2,
+            "packetConstructors": 1,
+            "poolSizeSites": 3,
+            "nativeInterfaceCallbacks": [2],
+            "kernelExecution": False,
+            "hardwareValidation": "not-run-by-build",
+        }
+        runner.plan.wireless.close.assert_called_once_with()
+        runner.plan.model.close.assert_called_once_with()
 
     @staticmethod
     def test_invariant_guard_rejects_false_or_nonboolean_truthy() -> None:
