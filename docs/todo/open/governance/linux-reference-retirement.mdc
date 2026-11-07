@@ -46,7 +46,7 @@ backups, EFI contents, SDK/KDK evidence or system files.
       board/regulatory semantics and the AR9565 1.1 radio postamble.
 - [ ] Retained generation/inspection tools no longer require a local linux/
       tree. Retain the completed source data without requiring new builds,
-      test suites or hardware experiments.
+      hardware experiments; necessary offline host tests are permitted.
 - [ ] Review the actual directory and ledger immediately before deletion:
       no unexpected/new reference, hash mismatch or unrecorded local change
       may be discarded. A path alias or symlink must not redirect deletion.

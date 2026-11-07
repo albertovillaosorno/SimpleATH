@@ -2,7 +2,7 @@
 schema: simpleath.todo.v1
 id: validator-findings
 status: open
-priority: P4
+priority: P0
 lane: A10
 phase: source-only
 hardware_required: false
@@ -36,8 +36,10 @@ Clang Format dry-run inspected 71 native source files without findings.
 This source-format result is not C++ compilation or driver validation.
 
 Three helper agents began Python corrections and were interrupted at the
-owner's request. Their modifications remain UNCOMMITTED and UNFINISHED in
-the shared working tree; do not treat them as accepted or merge them blindly.
+owner's request. At that handoff their modifications were UNCOMMITTED
+and UNFINISHED.
+Some have since been reviewed and committed by live peers; inspect current
+diffs/history before treating any remaining edit as accepted.
 They performed formatting/safe fixes and began typing/refactoring:
 
 - ABI tools: macho.py, kernel_collection.py, profiles.py, native_abi.py,
@@ -59,6 +61,38 @@ and /tmp/simpleath-pyright-findings.json; they may disappear. The shared
 .cache/validate/report.json is overwritten by later runs, including partial
 file runs, so inspect its scope before citing it as a repository result.
 
+## Updated checkpoint, 2026-11-07
+
+The owner subsequently authorized necessary offline Python/C++/Objective-C++
+tests under root tests/. This overrides the earlier no-test instruction only
+for isolated host tests; kext compilation, CI/tags, device/RF, EFI and installs
+remain prohibited. Keep default validation lint-only; use --tests explicitly.
+
+Commit f885b1b replaced the validator only after checking a separate staging
+copy with Ruff/BasedPyright and host regressions. The installed runner's focused
+check inspected four lint sources and executed 11 checks, all passing with no
+skips, including 16 Python runner regressions and two native host programs.
+It does not clear this repository-wide TODO. The NVM callback regression is a
+separate subsequent test addition, not part of that original commit's count.
+
+A fresh full lint-only working-tree run then reported 98 files / 148 checks:
+117 pass, 31 fail, 0 skipped. Concurrent peers were editing; this is a bounded
+checkpoint, not an immutable release-wide verdict. The 31 failures are failed
+checks, not the number of individual diagnostics. Group remaining work:
+
+- ABI parsing/reference tools: abi_types.py, inspect_platform_abi.py,
+  kernel_collection.py, macho.py, native_abi.py, native_references.py, profiles.py.
+- Build helpers: build.py, native_payload.py, embed.py, publish.py.
+- Check/generation helpers: audit_codecs.py, check.py,
+  generate_ar9300_templates.py, verify.py, verify_native.py.
+
+All names are under tools/. Claim narrow files through agent-slack and fix
+real type/behavior boundaries without hiding diagnostics or weakening configs.
+Legacy runtime-check/build scripts are lint inputs, not test entrypoints to
+execute. New useful regressions belong under tests/ and run through the
+reviewed host-test mode. Recheck actual current errors before editing because
+peers may already have resolved a listed item.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
@@ -70,8 +104,11 @@ file runs, so inspect its scope before citing it as a repository result.
       must explain that operation; no blanket noqa, ignored file, disabled
       type check, Any/cast shortcut or weakened root configuration.
 - [ ] Keep the validator small, static and standard-library based; no new
-      framework, installs, downloads, tests, compiler invocation or database
-      generation. Optional Clang-Tidy needs an existing compilation database.
+      framework, installs, downloads, kext compiler invocation or database
+      generation. Optional --tests supports necessary offline host tests
+      in Python/C++/Objective-C++ under root tests/, including isolated host
+      compilation. Do not execute the kext build or device-check scripts.
+      Optional Clang-Tidy needs an existing compilation database.
 - [ ] Finish formatting/type work before claiming a source task is clean.
       Missing tools or skipped requested checks are limitations, not passes.
 - [ ] Commit reviewed changes in focused main commits, then obtain a fresh

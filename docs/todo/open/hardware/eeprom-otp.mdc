@@ -43,7 +43,34 @@ the user's actual EEPROM to finish the source task**.
 - [ ] Define immutable board-data lifetime, failure erasure and reset/resume
       invalidation; connect consumers to validated board state in code.
 
+## Start here and next implementation step
+
+Use captureAr9565Nvm in Ar9565NvmReader.*, restoreEepromDump/applyEepromBlock
+in Ar9565Eeprom.*, and the five pinned reconstruction dictionaries. Acquisition
+and parsing exist separately; native active ownership and source/origin search
+are not connected. BoardDataSummary is not calibrated RF state.
+
+Port the AR9565-applicable source/origin search from ar9300_eeprom_restore_internal
+in [ar9003_eeprom.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c),
+using the local pinned constants and bounded read protocol. Keep source kind,
+origin, byte order and accepted block provenance with the immutable image.
+The EEPROM/OTP search spans are bounds, not discovered physical capacities.
+Never synthesize usable board data from the default dictionary alone.
+
+The passive AR_EEPROM control register is 0x401c with its absent/corrupt flags;
+the AR9565 active EEPROM status/data register is 0x4084. They are distinct,
+legitimate registers. Reading either control/status value is not a full-image
+checksum or calibration check. Complete the board/calibration consumers used by
+radio/power code and invalidate them on source/reset failure.
+
+Existing host regression tests/test_nvm_contract.cpp covers second-read payload
+order, post-ready faults, output wiping and a regressing clock. Further useful
+cases: reconstruction truncation/checksum failure, overlapping output storage,
+unsupported gain indexes and valid templates with invalid board restrictions.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

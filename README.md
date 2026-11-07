@@ -7,7 +7,9 @@ in the Dell Inspiron 5567.**
 **Not yet a functional, physically verified Wi-Fi driver.** The last
 authorized binary was a passive device-matching prototype; the substantial
 AR9565 radio, MAC, DMA, WPA2 and native AirPort code added since then has
-not been compiled or tested on the Dell. The development goal is genuine
+not been built into a new authorized kext or tested on the Dell.
+A few portable modules now have offline host regressions; those do not
+verify kernel loading, native AirPort or real device operation. The development goal is genuine
 macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
 ## Development protocol
@@ -115,21 +117,34 @@ per file and linter. Unchanged files are not rechecked; changes to source,
 root rule files, or installed linter version invalidate the cache.
 Use --no-cache when changes to imported headers/modules may affect an
 unchanged file. The latest structured agent/CLI report is always written
-to .cache/validate/report.json; --json emits the same report on stdout.
+to .cache/validate/report.json after a completed run; --json emits the
+same report on stdout. Read its scope and the CLI exit status before
+interpreting a pass count; another agent may overwrite the shared report.
 Pass/fail/cached/skipped counts and bounded diagnostics are explicit;
 a cached failure stays a failure.
 
+The default remains lint-only. The owner also authorized necessary offline
+host tests under root tests/: use `python3 -B tools/validate.py --tests`.
+Python uses standard-library unittest; C++ and Objective-C++ test programs
+use the installed host compiler and temporary executables. No test framework
+is downloaded. See [tests/README.md](tests/README.md) for naming, companion
+.sources files, bounded execution, failure/skipped semantics and examples.
+Tests run only when explicitly requested and their results are not cached.
+They exercise synthetic data/fakes, never actual PCI/RF or kernel objects.
+
 The script never formats files in place, builds a kext, generates a
-compilation database, installs software, runs test suites or touches
-hardware. Existing lint failures are reported rather than hidden.
+compilation database, installs software or touches hardware. Existing lint
+failures and missing requested checks remain failures, not a green report.
+The runner uses the project's Python 3.14 tool environment.
 
 ## Builds, CI and hardware testing
 
 **Not authorized during source-only development.** Do not produce
-another kext, run an Xcode build or test suite, trigger CI, push
+another kext, run an Xcode build, trigger CI, push
 build-v* tags, modify OpenCore/EFI/USB/SSD, or interact with live
 PCI/RF hardware. The GitHub Actions build remains tag-only, and
-ordinary main pushes never trigger a kext build.
+ordinary main pushes never trigger a kext build. The separate offline
+host-test authorization above does not authorize these actions.
 
 When the owner *later* activates the final TODO, compilation,
 artifact inspection, EFI installation and physical tests require

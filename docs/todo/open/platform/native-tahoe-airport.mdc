@@ -47,7 +47,45 @@ prerequisite.**
       AWDL/Continuity capabilities and their source integration or exact known
       platform limitations. Do not assume Ethernet delivery provides them.
 
+## Start here and next implementation step
+
+Read TAHOE-NATIVE-IO80211-REFERENCE.md and the exact-build KDK record. The
+current target's SimpleATH service is passive. The retained NativeSkywalk/
+Bridge code is an old Ethernet-wrapper research path, not an AR9565-native
+controller; source presence or renamed identifiers do not close this task.
+
+First settle the exact usable Tahoe family and superclass ABI with A1. Then
+implement a real native controller/interface and bounded Apple80211 request/
+event dispatcher: scan start/results/completion, connect/disconnect, SSID/BSSID,
+channel, RSSI, auth/key and power state. Connect real packet input/output and
+ownership/backpressure to the EDMA and MAC/security owners. Keep UI state tied
+to real association generations, including stop and resume cancellation.
+
+Apple documents [NetworkingDriverKit](https://developer.apple.com/documentation/networkingdriverkit)
+as Ethernet-only; its interface cannot satisfy native AirPort. Public third-party
+legacy-driver examples are architectural references, not exact-25G332 ABI proof.
+A restored legacy family or root patch is outside current authorization and
+cannot be smuggled in as a stock-Tahoe solution.
+
+Define a single security owner with A7: who consumes EAPOL, derives PMK/PTK,
+installs keys and opens the controlled port. A native OS supplicant and the
+portable supplicant cannot independently control the same connection. Specify
+which owner supplies management/action frames and channel scheduling for any
+claimed AWDL/Continuity support. These are source contracts to resolve, not
+features inferred from successful IP delivery.
+
+A real native Wi-Fi interface may exchange Ethernet-II payloads with the OS;
+that framing does not make it an Ethernet impersonation. The requirement is
+the verified native wireless service, control plane and packet contracts.
+
+Host fixtures can validate bounded request parsing, copied scan snapshots and
+stale completion rejection. They cannot prove private class layouts, native
+UI acceptance or AWDL/Continuity. Keep those distinctions and exact remaining
+ABI blockers visible while implementing the supported source path.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

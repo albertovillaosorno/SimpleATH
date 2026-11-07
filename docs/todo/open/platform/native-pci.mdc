@@ -44,7 +44,30 @@ documented APIs and public source. **No physical PCI reads.**
       real callers while preserving TX/DMA/interrupt safety gates. A backend
       contract or permanently disabled source branch is not this integration.
 
+## Start here and next implementation step
+
+Read src/platform/Ar9565PciSession.* and Ar9565NativePci.* together with
+src/SimpleATH.cpp. PciReadOnlySession orchestrates ownership/config/BAR
+inspection; NativePciBackend supplies real API calls behind a disabled macro.
+The service remains passive. A successful portable session is not a native
+power owner, IRQ path or radio transport.
+
+Implement the serialized owner first: provider retention/open, confirmed D0,
+work-loop/gate, epoch invalidation, partial-start rollback and stop/termination.
+Then expose separate active NVM/reset capabilities through bounded MMIO and
+posted-write completion. Never expand the passive allowlist to trigger NVM or
+RF operations. Define the order with DMA/IRQ owners before enabling bus master.
+Use the verified A1 declarations/dependencies, not guessed virtual indexes.
+
+Primary references: [IOPCIDevice](https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp)
+and [IOService contract](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h).
+Useful host-fake regressions: failed command enable/readback, unrelated command
+bit drift, D0 loss between callbacks, double stop and stale-epoch access.
+These cases do not prove that actual IOPCIFamily or PCI hardware behaves correctly.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

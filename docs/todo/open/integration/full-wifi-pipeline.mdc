@@ -53,7 +53,50 @@ reconnection in code. Remove placeholders and invented readiness indicators.
       cannot be declared complete by inserting a boolean readiness assertion
       or an always-rejecting safety gate; implement the supported normal path.
 
+## Start here and next implementation step
+
+Start at src/SimpleATH.cpp, not at a disconnected unit test. It currently
+publishes passive diagnostics; WifiEngine is not its hardware/network service.
+The native PCI/DMA macros remain disabled, and the radio recipe remains
+non-executable. An integrated driver is therefore still missing.
+
+Implement one lifecycle owner joining these actual boundaries in order:
+PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
+RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.
+For each transition list its call site, owning context, generation, resource
+transfer, cancellation and rollback. Add the reverse teardown path before
+publishing the service. Test only material transitions with fakes as useful.
+
+Trace an OS packet through encryption/queue completion and a received beacon
+or protected packet back to the OS. Trace scan -> selection -> auth -> assoc
+-> WPA2 -> controlled data port. Then trace provider loss and sleep/resume,
+including key erasure, DMA isolation and a fresh reconnect. Correct buffer
+capacity/retry semantics must survive failure between each pair of steps.
+
+Do not flip implementationComplete/verification booleans or preprocessor flags
+to manufacture completion. Required normal paths must exist and be reachable;
+runtime safety checks remain. Keep this task open until every required callback
+has a real source implementation and the Xcode target selects that path.
+
+## Required ownership map to implement
+
+| Resource/state | Producer and consumer | Retirement/invalidation boundary |
+| --- | --- | --- |
+| PCI provider and active MMIO capability | Serialized native owner -> NVM/reset/queue clients | Revoke epoch before D0 loss, unmap or close |
+| RX DMA packet | Device -> completion owner -> MAC/native packet input | Preserve backing until completion and every consumer releases it |
+| Scan/BSS result | Bounded parser/cache -> completed snapshot -> native result copy | Ticket/connection generation; never a borrowed mutable DMA pointer |
+| EAPOL and key state | Explicit single supplicant owner -> keycache/data gate | Reject stale connection work; quiesce/remove keys before context release |
+| TX OS packet | Native queue -> MAC/security -> device queue | Completion/drop/cancel must resolve ownership exactly once |
+| Calibration/channel/power permission | Radio/board/country owner -> every TX path | Invalidate on reset, channel/country change, RF-kill and power loss |
+
+Resolve whether native AirPort/OS or the portable supplicant owns each RSN
+step; never let both independently run a handshake or program competing keys.
+Keep DHCP/DNS/TCP in the OS networking stack, reached through the real native
+packet interface. Do not implement another IP stack inside this kext.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

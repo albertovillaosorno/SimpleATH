@@ -46,7 +46,34 @@ transfer required.**
       failure, stop and sleep. Quarantine uncertain ownership; implement the
       real cleanup/recovery path and fresh resume generations.
 
+## Start here and next implementation step
+
+Ar9003Descriptors.* and Ar9003TxControl.* encode/decode fields; Ar9003Dma.*
+tracks portable slots/generations. NativeDmaBuffer stages device-specific
+IOMapper/IODMACommand packet resources behind a disabled macro. None programs
+live queue/status rings or installs an interrupt source in the service.
+
+Implement coherent descriptor/status-ring allocations and native queue control,
+then IRQ/deferred completion processing and backpressure. Connect each packet's
+publish/retire token to real completion or proven quiescence. Keep blocking
+allocation/sync/release outside the owner gate, with explicit worker lifetime
+and epoch revalidation when returning under the gate. Map before publication;
+stop producers and isolate hardware before retiring/freeing uncertain DMA.
+
+Primary references: [IODMACommand](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IODMACommand.cpp),
+[ath9k EDMA MAC/status](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mac.c),
+[RX queues](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/recv.c),
+and [TX queues/completion](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/xmit.c).
+Exact Tahoe API evidence remains required; Linux DMA addresses are not macOS
+IOMMU mappings.
+
+Useful fake tests: checksum-valid malformed descriptors, wrong queue/generation,
+ring wrap/full pressure, incomplete completion, failed mapping/prepare/complete,
+and IRQ/stop/sleep interleavings without freeing hardware-owned memory.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

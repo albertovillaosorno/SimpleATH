@@ -47,7 +47,40 @@ live signal or transmission tests.**
 - [ ] Enforce the common TX gate before management, data and automatic MAC
       responses: valid calibration, permitted channel/power and RF-kill state.
 
+## Start here and next implementation step
+
+Ar9565RtcPower.* implements bounded RTC/MAC sequences through a callback
+contract; it is not an active native writer. Ar9565InitCatalog.* selects exact
+source tables but keeps implementationComplete false. Ar9565Power.* returns
+numerical candidates, not calibrated register values or transmission authority.
+
+Implement the actual ordered radio executor after A2/A3 contracts exist:
+reset/wake -> PLL -> revision/mode/gain INI phases -> board values -> calibration
+-> channel/power programming -> RX/automatic-response policy. Handle every
+failure by invalidating affected channel/key/queue/calibration state, with
+quiescence coordinated through the owner. Preserve per-revision choices.
+
+Start from ath9k [hw.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.c)
+(ath9k_hw_init_pll/reset), [ar9003_hw.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_hw.c)
+(mode/gain recipes), [ar9003_calib.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_calib.c)
+(PCI calibration path), and [ar9003_mci.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mci.c)
+(reset/coexistence sequencing). Scope each port to AR9565, not similarly named
+AR9561/AR956x SoCs. Use ar9003_eeprom.c calibration/power consumers to connect
+real board fields; do not stop at raw summaries.
+
+Country information from an AP is an input to policy, not sole authority to
+relax EEPROM/board restrictions. Implement the intersection with a trusted
+platform country/channel policy; an unknown origin cannot silently grant TX.
+See Linux Wireless [regulatory processing](https://wireless.docs.kernel.org/en/latest/en/developers/regulatory/processing_rules.html).
+This is a source contract, not a claim that Linux regulatory APIs exist on macOS.
+
+Useful fake-clock/register tests: short reset pulse, stalled/backwards clock,
+revision-specific postamble, malformed HT40 geometry, stale calibration epoch,
+and denial of management/data/automatic TX before board and country approval.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

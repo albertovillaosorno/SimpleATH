@@ -31,8 +31,8 @@ scope:
 Reason through bounds, overflow, lifetime, crypto erasure, regulatory safety,
 deadlocks, interrupt races, rollback, licensing and documentation. Keep
 README/AGENTS/TODO accurate. Use tools/validate.py for installed Clang, Ruff
-and BasedPyright checks; no Jig, new tools, compilation, CI or hardware
-diagnostics.
+and BasedPyright checks plus necessary offline host tests; no Jig, new
+frameworks, kext compilation, CI or hardware diagnostics.
 
 ## Acceptance
 
@@ -57,7 +57,29 @@ diagnostics.
       blocker remains. Afterwards, continue theoretical/web hardening under
       the indefinite hold; reopen source records for newly discovered work.
 
+## Start here and next implementation step
+
+Use the canonical open records and actual main source, plus the current
+validator report with its scope. A successful per-file report or host harness
+does not close the 31-failed-check working-tree lint checkpoint recorded by A10,
+prove a kernel ABI, or replace missing integration.
+
+Prioritize concrete bugs on the current implementation path: callback/buffer
+lifetime, integer/address bounds, interrupt/gate order, DMA isolation, power
+loss, key/PN reuse and regulatory enable paths. Confirm a proposed defect in
+current source before changing it; peer commits may already have fixed it.
+Add a regression only if it materially tests behavior or an error boundary.
+Source-only completion still does not require a hardware dump or owner logs.
+
+After all pre-final records close, keep the owner-only final record open and
+continue this research/review loop indefinitely until new owner guidance.
+Reopen a source record for newly required implementation rather than hiding it
+under the final physical task. Keep the highest-priority ready work moving;
+do not use endless cosmetic cleanup to avoid a missing native driver path.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

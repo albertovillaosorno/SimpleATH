@@ -6,8 +6,10 @@ Move source-completed records to docs/todo/completed/ and remove
 their index entries without deleting their recorded provenance.
 
 **All P0–P4 work is strictly theoretical/source-only.** No hardware
-verification, Dell logs, physical scan, compilation, or test suite may
-be required to finish a pre-final task. Research online code and
+verification, Dell logs, physical scan or kext compilation may be required
+to finish a pre-final task. Necessary offline Python/C++/Objective-C++ host
+tests under tests/ are now authorized through tools/validate.py --tests;
+they do not establish kernel or hardware success. Research online code and
 documentation, document uncertainty, and make unknowns fail closed.
 
 Ten agents coordinate in their existing chat, commit directly to main
@@ -17,6 +19,15 @@ installed-tool validator tools/validate.py and its local .cache/ report.
 **Order:** finish all P0–P4 tasks; then harden theoretically
 **indefinitely**; only the owner may activate P5. The owner will
 perform the real hardware testing and send results in this chat.
+
+**Priority rule:** work P0 first, then P1, P2, P3 and P4, following the
+recorded dependencies. Within a priority choose the next dependency-ready
+unfinished deliverable. If blocked, work on its actual prerequisite or an
+independent ready item and record why; do not silently skip implementation
+in favor of unlimited cosmetic hardening. Coordinate parallel work and Git
+through the local agent-slack channel described in AGENTS.md. The temporary
+lead role ends on explicit leave or chat-lease expiry; peers then continue
+without waiting. No stale file or quiet chat proves task completion.
 
 Each index entry has a TODO title, one summary and one typed-record link.
 
@@ -39,7 +50,7 @@ successful. Record which checks actually ran.
 
 At that point the owner must be able to request compilation of the exact
 reviewed commit in GitHub Actions using ONE expressly authorized `build-v*`
-tag. Do not create a tag, dispatch CI, compile locally, install or experiment
+tag. Do not create a tag, dispatch CI, compile a kext locally, install or experiment
 without the corresponding explicit authorization. No exact tag is authorized
 by this roadmap. Source readiness must not depend on a prior build or test.
 
@@ -55,7 +66,8 @@ and separate Bluetooth/Continuity support must remain honestly documented.
 
 Finish the pending lint/type corrections, review the interrupted edits under
 tools/, preserve every script's behavior and obtain a fresh full validator
-report with no unresolved findings. No builds or test suites are authorized.
+report with no unresolved findings. Necessary offline host tests are allowed;
+kext builds, CI and hardware experiments remain unauthorized.
 
 [docs/todo/open/governance/validator-findings.mdc](docs/todo/open/governance/validator-findings.mdc)
 
@@ -119,8 +131,8 @@ actual Wi-Fi scan or screenshot required.**
 
 Complete theoretically reviewed PMK/PTK, EAPOL MIC and four-way handshake, AES
 unwrap, CCMP, keycache, group rekey and packet-number/replay control. Compare
-algorithms with published specifications and source vectors; **do not run test
-suites or claim crypto certification**.
+algorithms with published specifications and source vectors; use necessary
+offline regression tests, without claiming cryptographic certification.
 
 [docs/todo/open/wifi/wpa2-ccmp.mdc](docs/todo/open/wifi/wpa2-ccmp.mdc)
 
@@ -152,8 +164,8 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 Reason through bounds, overflow, lifetime, crypto erasure, regulatory safety,
 deadlocks, interrupt races, rollback, licensing and documentation. Keep
 README/AGENTS/TODO accurate. Use tools/validate.py for installed Clang, Ruff
-and BasedPyright checks; no Jig, new tools, compilation, CI or hardware
-diagnostics.
+and BasedPyright checks plus necessary offline host tests; no Jig, new
+frameworks, kext compilation, CI or hardware diagnostics.
 
 [docs/todo/open/governance/source-hardening.mdc](docs/todo/open/governance/source-hardening.mdc)
 

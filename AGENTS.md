@@ -68,6 +68,39 @@ be guaranteed from AR9565 source analysis alone.
 - All source changes may be researched and discussed in parallel;
   only Git writes to overlapping files require serialization.
 
+## Priority, live coordination and handoff
+
+Work in numerical priority order P0 -> P1 -> P2 -> P3 -> P4 -> P5,
+respecting each record's dependencies. Select the highest-priority ready
+unfinished work. If a prerequisite is unresolved, implement/research that
+prerequisite first; record the exact blocker and advance independent work
+without pretending the blocked task is complete. Parallel work may proceed
+on independent dependency-ready paths, with temporary file coordination.
+If the highest-priority path is already being implemented by a live peer,
+coordinate its interface and choose independent ready work; do not steal
+claims or wait idly for an entire task to finish.
+Do not spend the project on repeated low-priority polishing while known
+missing PCI/native-Wi-Fi/radio/data paths remain unassigned.
+
+Use the existing local `agent-slack` CLI (the agents service), not real Slack:
+join for this repository, read members/history, announce the task, reserve
+only overlapping paths temporarily and reserve @git for each Git mutation.
+Keep useful decisions/evidence in these TODO records because chat is volatile.
+The owner designated the active TODO/validator coordinator as temporary lead;
+that role lasts only while its chat lease is valid and it is actively working.
+Heartbeat at least every five minutes while working; leases expire after
+15 minutes. On explicit leave or lease expiry, peers take over highest-priority
+work without waiting for the prior coordinator. This is a coordination handoff,
+not evidence that code is complete or authorization for experiments. Do not
+leave an autonomous background heartbeat running after work stops.
+
+Create tests only for material behavior, regressions or error paths that
+benefit from execution. Use root tests/ and tools/validate.py --tests; no
+mandatory tests for trivial formatting/docs edits and no new test framework.
+Tests must use synthetic data/fakes and stay offline with no device, RF,
+EFI, root-patch, install, CI or network effects. Host tests do not verify
+Tahoe kernel ABI or physical Wi-Fi. Keep failures/skips distinct from passes.
+
 ## Ten agent work areas (not hexagonal architecture)
 
 | Agent | Source-only responsibility |
@@ -111,9 +144,12 @@ database, WAL service, framework, build or test runner is needed.
 
 ## Prohibitions and tooling
 
-New kext compilation, CI/build tags, test suites, actual PCI/RF
-activity, root patches and USB/EFI/OpenCore/SSD modifications remain
-UNAUTHORIZED until the owner expressly authorizes those steps.
+New kext compilation, CI/build tags, actual PCI/RF activity, root patches
+and USB/EFI/OpenCore/SSD modifications remain UNAUTHORIZED until the owner
+expressly authorizes those steps. The owner has separately authorized
+necessary offline host tests under root tests/: Python, C++ and
+Objective-C++. This permits compiling/running isolated host test programs,
+not building/loading a kext or exercising devices.
 A boot or registry match alone is not proof of Wi-Fi function.
 
 **SIMPLEATH IS AN EXPLICIT EXCEPTION TO THE JIG RULE. IT DOES NOT
@@ -128,8 +164,10 @@ and optional Clang-Tidy (C/Objective-C/C++), Ruff and BasedPyright
 pyrightconfig.json and .editorconfig. Unchanged files reuse
 content-addressed results in .cache/validate/; report.json gives
 machine-readable findings for coordinating agents. Use --no-cache
-when imported dependencies change. Never build, link, run tests,
-fetch/install tools or create compilation databases.
+when imported dependencies change. Default execution is lint-only. The
+optional --tests mode runs authorized offline tests under tests/ and may
+compile standalone host test programs. Never build/link a kext, access
+hardware, fetch/install tools or create compilation databases.
 
 TODO.md indexes the canonical typed records in docs/todo/open/.
 Each P0-P4 record is source-only, with acceptance and evidence separated
@@ -140,9 +178,9 @@ Build, installation or test authorization is not a closure request.
 
 The validator-findings record hands off the interrupted Python edits. Those
 working-tree edits are unfinished; review them before committing and cite a
-fresh full validation report rather than a partial-file result. The owner
-has stopped the helper agents invoked for that work. This instruction does
-not restart or authorize new helper agents.
+fresh full validation report rather than a partial-file result. The owner stopped the helper agents originally invoked for that work.
+A later instruction authorizes live coordination and necessary host tests;
+use the local agent-slack channel before overlapping edits.
 
 ## Completion reporting
 
@@ -163,4 +201,5 @@ memory, concurrency, DMA, power, security and regulatory defects. Record
 evidence and useful source commits, not cosmetic churn or invented bugs.
 Reopen an appropriate source TODO if new required work is discovered.
 Keep the AR9565 ledger current through reference retirement. This standing
-instruction never authorizes builds, tests, tags, RF activity or P5 closure.
+instruction never authorizes kext builds, tags, RF activity or P5 closure.
+Necessary offline host tests remain within the separate authorization above.

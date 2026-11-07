@@ -45,9 +45,42 @@ suites or claim crypto certification**.
       keys are installed. Preserve EAPOL access required by authentication;
       disconnect/reset/sleep cannot retain stale usable keys or reuse a PN.
 - [ ] Record static algorithm/specification comparisons and reviewed boundary
-      cases without executing prohibited test suites or claiming certification.
+      cases with necessary offline regressions, without claiming certification.
+
+## Start here and next implementation step
+
+Wpa2Supplicant::onMessage1/onMessage3 handles the initial exchange using
+Wpa2CryptoAdapter and portable Wpa2Primitives. Eapol.* supplies parsing/replay
+logic. KeyHardware is still a native callback contract; no AR9565 hardware
+key installer is connected. Existing AES/MIC code alone does not complete CCMP
+packet handling, group rekey or controlled-port lifetime.
+
+Implement actual AR9565 keycache programming/removal and packet PN/replay
+handling, then group-key rekey, retry/timeouts and owner reset/rollback. Bind
+message processing to the same immutable EAPOL snapshot, BSS RSNE and connection
+epoch. Treat cipher/decrypt/MIC/PN status as authenticated input before payload
+delivery. Define what happens if M2/M4 encoding/submission or any key operation
+fails; erase secrets and revoke callbacks before their contexts are released.
+
+Before wiring the supplicant into native AirPort, resolve with A8 whether the
+OS or this source owns EAPOL, key derivation and controlled-port authorization.
+Route each key operation through one connection owner and generation; do not
+run two independent handshakes. Diagnostics must never log PMK/PTK/GTK or other
+secret key material.
+
+Use published IEEE 802.11/RSN behavior and the existing crypto design record.
+For hardware key layout consult ath9k [key.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/key.c)
+and register definitions, with file-specific notices retained where applicable.
+Do not confuse message codecs with the radio's installed-key state.
+
+Useful host regressions: known algorithm vectors, stale replay counters, duplicate
+M3 without key/PN reinstall, mismatched RSNE, malformed wrapped GTK/padding,
+nonce/output overlap, group RSC/PN propagation, timeout and failed key rollback.
+Use synthetic keys only; passing vectors is not cryptographic certification.
 
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

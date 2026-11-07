@@ -43,7 +43,44 @@ fail-closed behavior. **No live logs needed.**
       Xcode target. Resolve source-known unsupported imports; actual binary
       relocation inspection belongs to the separately authorized build.
 
+## Start here and next implementation step
+
+Use docs/design/TAHOE-25G332-KDK.md, the exact-build symbol report and
+TAHOE-25G332-KERNEL-DMA-TYPES.json under docs/evidence/. The latter covers
+kernel/IOKit types; it does not establish IO80211 object layouts or exports.
+Check actual PBXSourcesBuildPhase membership and conditional macros before
+attributing imports to the active kext. Navigator entries alone are not built.
+
+Produce one actionable API table: caller/source, image/build/UUID, signature,
+export/KPI evidence, required virtual layout and ownership contract. Resolve
+PCI and wireless families separately. Choose a target-provided native Wi-Fi
+family before defining controller/interface subclasses; do not silently
+substitute restored IO80211FamilyLegacy components for the exact Tahoe image.
+A missing private ABI fact remains a concrete source blocker to investigate.
+
+Primary references: [IOPCIFamily source](https://github.com/apple-oss-distributions/IOPCIFamily),
+[IODMACommand source](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IODMACommand.cpp),
+and the versioned SDK/KDK evidence already retained in this repository.
+
+## El Capitan reverse-engineering decision
+
+Do not add a whole-driver El Capitan decompilation project to the critical
+path. ath9k explicitly names AR9565/0036; OCLP's AirPortAtheros40 inventory
+lists 0030 and older devices, not 0036. That inventory is not a complete
+silicon-support proof, and a 0030 spoof proves no AR9565 compatibility.
+[ath9k identity definitions](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.h),
+[OCLP device inventory](https://github.com/dortania/OpenCore-Legacy-Patcher/blob/main/opencore_legacy_patcher/datasets/pci_data.py).
+
+Use Ghidra/static disassembly only for a specific unanswered ABI/lifetime
+question, prioritizing the exact 25G332 binary. State the question and the
+observation needed to answer it; do not treat decompiled pseudocode as original,
+complete source or mix it into the new driver. If needed, put curated findings
+in reference/ and scratch binaries/projects/output in .temp/reference/.
+No bulk reconstruction, copied legacy stack or additional archive is required.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.

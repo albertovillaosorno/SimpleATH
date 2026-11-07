@@ -45,7 +45,33 @@ actual Wi-Fi scan or screenshot required.**
       to key/queue invalidation and native status. Keep stale BSS/association
       events from changing a new connection generation.
 
+## Start here and next implementation step
+
+Frames.*, ScanCache.*, Station.*, LinkMonitor.* and WifiEngine.* provide
+portable parsers/state. LegacyScanBridge has completed-scan snapshots; it is
+not an Apple80211 dispatcher. EngineAction may borrow RX data: the native owner
+must consume/copy it before recycling its DMA buffer and reject stale actions.
+
+Connect bounded channel dwell to the radio/channel owner and connect real
+beacon/probe RX and actual management TX completion to scan/auth/assoc timers.
+Use one connection generation across station, keys, link monitor and queues.
+Then implement negotiated rate control, aggregation/BA/reorder limits and
+reconnect scheduling in the actual data path. Do not let configuration booleans
+stand in for radio calibration or permission to transmit an active probe.
+
+Behavior references: [mac80211 scan](https://github.com/torvalds/linux/blob/master/net/mac80211/scan.c),
+[station management](https://github.com/torvalds/linux/blob/master/net/mac80211/mlme.c),
+[RX aggregation](https://github.com/torvalds/linux/blob/master/net/mac80211/agg-rx.c)
+and [TX aggregation](https://github.com/torvalds/linux/blob/master/net/mac80211/agg-tx.c).
+Consult protocol behavior without importing incompatible implementation code.
+
+Useful regressions: hidden SSID after BSSID/channel/security changes, truncated
+rates/RSN, failed auth/assoc retry, TX-buffer exhaustion before a state change,
+beacon timeout across suspend, and stale events from a previous connection.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
+- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Add offline host tests only where material behavior/error paths warrant them;
+  run through tools/validate.py --tests without treating them as hardware proof.
