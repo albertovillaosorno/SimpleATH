@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Station.hpp"
+#include "Wpa2Supplicant.hpp"
 
 namespace simpleath {
 namespace ieee80211 {
@@ -106,6 +107,18 @@ StationResult Station::onAssociationResponse(const uint8_t *bytes,
         return StationResult::Wpa2CryptoNotImplemented;
     }
     state_ = StationState::AssociatedOpen;
+    return StationResult::NetworkInterfaceNotImplemented;
+}
+
+StationResult Station::recordInstalledWpa2Keys(
+    const Wpa2Supplicant &supplicant) {
+    if (state_ != StationState::WaitingForWpa2Keys)
+        return StationResult::InvalidState;
+    if (!supplicant.keysInstalled())
+        return StationResult::Wpa2CryptoNotImplemented;
+    // Real packet delivery and macOS 802.11 interface registration are
+    // separate steps; do not report a usable network yet.
+    state_ = StationState::HardwareKeysInstalled;
     return StationResult::NetworkInterfaceNotImplemented;
 }
 
