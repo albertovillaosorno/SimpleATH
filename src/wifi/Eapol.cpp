@@ -78,27 +78,33 @@ namespace simpleath
             const bool error = (info & 0x0400u) != 0;
             const bool request = (info & 0x0800u) != 0;
             const bool encryptedData = (info & 0x1000u) != 0;
-            if (error || request || (hasMic && !anyNonzero(mic, 16)))
+            // RSN does not use the legacy Key Index, SMK/PeerKey, or
+            // reserved Key Information bits in this PSK-CCMP handshake.
+            // An unset MIC flag also requires an all-zero MIC field.
+            constexpr uint16_t kUnsupportedInfo = 0xe030u;
+            if (error || request || (info & kUnsupportedInfo) != 0 ||
+                hasMic != anyNonzero(mic, 16))
                 return EapolResult::InvalidKeyInformation;
 
             KeyMessage message = KeyMessage::Unknown;
             if (pairwise)
             {
-                if (ack && !hasMic && !install && !secure &&
+                if (ack && !hasMic && !install && !secure && !encryptedData &&
                     anyNonzero(nonce, 32))
                     message = KeyMessage::Pairwise1;
-                else if (!ack && hasMic && !install && !secure)
+                else if (!ack && hasMic && !install && !secure &&
+                         !encryptedData)
                     message = KeyMessage::Pairwise2;
                 else if (ack && hasMic && install && secure && encryptedData)
                     message = KeyMessage::Pairwise3;
-                else if (!ack && hasMic && !install && secure)
+                else if (!ack && hasMic && !install && secure && !encryptedData)
                     message = KeyMessage::Pairwise4;
             }
             else
             {
-                if (ack && hasMic && secure && encryptedData)
+                if (ack && hasMic && !install && secure && encryptedData)
                     message = KeyMessage::Group1;
-                else if (!ack && hasMic && secure)
+                else if (!ack && hasMic && !install && secure && !encryptedData)
                     message = KeyMessage::Group2;
             }
             if (message == KeyMessage::Unknown)

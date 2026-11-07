@@ -96,3 +96,25 @@ Public evidence (reviewed 2026-11-06):
 - IEEE 802.11-2007, clause 8.5 (4-Way Handshake M3), requires the
   supplicant to validate the AP's RSNE against the Beacon/Probe Response.
   These are source-level constraints, not hardware verification.
+
+## EAPOL Key Information and outbound length review (2026-11-06)
+
+- The M2 and M4 serializers now set the EAPOL-Key Key Length to **zero**;
+  a 16-byte CCMP key length is required on incoming M1/M3, not the
+  Supplicant's responses. This follows IEEE Std 802.11-2012 sections
+  11.6.6.3 and 11.6.6.5 and the public hostapd RSN supplicant source.
+- RSN EAPOL-Key parsing rejects nonzero legacy Key Index, unsupported
+  PeerKey/SMK or reserved information bits, MIC flag/value disagreement,
+  and encrypted-data flags on cleartext M1/M2/M4/Group2. Group messages
+  remain unimplemented by the station state machine.
+- Source-level static review only; no EAPOL capture, protocol tests,
+  compilation or radio access was performed.
+
+References:
+
+- IEEE Std 802.11-2012, section 11.6.6:
+  https://mrncciew.com/wp-content/uploads/2014/10/ieee-802-11-2012.pdf
+- hostapd `src/rsn_supp/wpa.c` (BSD licensed):
+  https://chromium.googlesource.com/chromiumos/third_party/hostap/+/refs/heads/firmware-R130-16032.B-wpa_supplicant-2.10.0/src/rsn_supp/wpa.c
+- hostapd wireless test monitor `wlantest/rx_eapol.c`:
+  https://fuchsia.googlesource.com/third_party/hostap/+/3aed10f3b7f643f288f6aa1c5aef223c5c679b9e/wlantest/rx_eapol.c

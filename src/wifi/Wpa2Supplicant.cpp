@@ -74,7 +74,9 @@ namespace simpleath
                 uint8_t *body = message + kEapolHeaderBytes;
                 body[0] = 2; // RSN key descriptor.
                 putBig16(body + 1, keyInfo);
-                putBig16(body + 3, 16); // CCMP temporal key length.
+                // The Supplicant's M2/M4 Key Length is zero (IEEE 802.11);
+                // only Authenticator M1/M3 carry the CCMP TK length of 16.
+                putBig16(body + 3, 0);
                 putBig64(body + 5, replayCounter);
                 if (nonce)
                     copyBytes(body + 13, nonce, 32);
