@@ -29,7 +29,7 @@ def _image_bytes() -> bytes:
     strings_offset = symbols_offset + SYMBOL_SIZE
     relocation_offset = strings_offset + len(COPY_SYMBOL)
     data = bytearray(relocation_offset + RELOCATION_SIZE)
-    struct.pack_into("<I", data, 16, 2)
+    struct.pack_into("<II", data, 16, 2, SYMTAB_SIZE + DYSYMTAB_SIZE)
     struct.pack_into("<II", data, command_offset, 2, SYMTAB_SIZE)
     struct.pack_into(
         "<IIII",
@@ -80,6 +80,25 @@ class MachoRelocationBoundaries(TestCase):
         """Preserve address, width, name and kind from a valid record."""
         result = profiles.relocations(_image(_image_bytes()))
         assert result == [(0x123, 2, "_copyin", 0)]
+
+    @staticmethod
+    def test_command_bytes_and_count_must_match_header() -> None:
+        """Reject metadata parsed past the declared load-command area."""
+        data = bytearray(_image_bytes())
+        command_bytes = SYMTAB_SIZE + DYSYMTAB_SIZE
+        struct.pack_into("<I", data, 20, command_bytes - 1)
+        assert _rejects(bytes(data), "Invalid Mach-O load command size")
+        struct.pack_into("<I", data, 20, command_bytes + 8)
+        assert _rejects(bytes(data), "do not fill declared command range")
+        struct.pack_into("<II", data, 16, 0xFFFFFFFF, command_bytes)
+        assert _rejects(bytes(data), "load commands exceed")
+
+    @staticmethod
+    def test_unbacked_command_tail_rejected_before_symbol_reads() -> None:
+        """Require the declared command extent to fit physical file bytes."""
+        data = bytearray(_image_bytes())
+        struct.pack_into("<I", data, 20, len(data))
+        assert _rejects(bytes(data), "load commands exceed")
 
     @staticmethod
     def test_missing_symbol_tables_rejected() -> None:
