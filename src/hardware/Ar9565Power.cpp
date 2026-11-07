@@ -172,6 +172,17 @@ namespace simpleath
         PowerResult ctlLimit(const uint8_t *bytes, uint8_t group, uint8_t mode,
                              uint16_t mhz, uint8_t &out)
         {
+            // Validate the entire fixed-size index table even if an early
+            // matching row would be sufficient. A nonzero row after the first
+            // zero sentinel indicates malformed NVM, not ignorable padding.
+            bool terminated = false;
+            for (size_t row = 0; row < 12; ++row)
+            {
+                if (bytes[310 + row] == 0)
+                    terminated = true;
+                else if (terminated)
+                    return PowerResult::InvalidCtlIndexes;
+            }
             bool found = false;
             uint8_t selected = 63;
             for (size_t row = 0; row < 12 && bytes[310 + row]; ++row)

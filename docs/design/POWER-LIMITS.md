@@ -38,6 +38,10 @@ although upstream's generic unused-bin sentinel is 0xff. This stricter source
 parser treats either 0x00 or 0xff as **trailing padding only**: a later
 nonempty edge is malformed, and neither terminator supplies channel coverage.
 Synthetic tests check valid mixed padding and reject interior/empty edges.
+The 12-entry CTL-index table must also have only trailing zero padding: a
+nonzero index after the first zero is a malformed table, even if an earlier
+index could satisfy the requested mode. Such a chain returns
+`InvalidCtlIndexes` without exposing stale power candidates.
 
 There are two deliberate fail-closed departures from upstream's permissive
 fallbacks: uncovered CTL frequencies do not acquire MAX_RATE_POWER, and a

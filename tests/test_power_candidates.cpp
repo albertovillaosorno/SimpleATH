@@ -192,5 +192,20 @@ int main()
             PowerResult::InvalidCtlEdges ||
         output.controlMhz || output.cck[0])
         return 17;
+
+    // A later live CTL index after a zero sentinel must fail even when the
+    // first two rows cover this request; the rest cannot be ignored.
+    image.bytes[323] = 137;
+    image.bytes[313] = 0xe1; // Index 312 remains zero (table terminator).
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidCtlIndexes ||
+        output.controlMhz || output.cck[0])
+        return 18;
+    image.bytes[313] = 0; // Legitimate trailing zero padding again.
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::Ok ||
+        output.cck[0] != 24 || output.ofdm[0] != 24)
+        return 19;
     return 0;
 }

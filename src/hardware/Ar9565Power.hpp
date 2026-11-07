@@ -19,7 +19,8 @@ namespace simpleath
         MissingCtlCoverage,
         UnsupportedPowerLimit,
         UnsupportedRate,
-        InvalidArgument
+        InvalidArgument,
+        InvalidCtlIndexes
     };
 
     struct PowerChannel
