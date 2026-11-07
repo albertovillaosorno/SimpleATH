@@ -21,6 +21,7 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 from typing import TYPE_CHECKING
 from typing import TypeIs
@@ -41,6 +42,7 @@ from embed import VERSION
 from embed_macho_parser import parse
 from kernel_collection import KernelCollection
 from macho import Image
+from native_abi import Mach
 from native_references import ReferenceCollection
 from native_references import ReferenceImage
 from native_references import reference_paths
@@ -49,6 +51,8 @@ from source_fingerprint import source_fingerprint
 from system_profiles import SYSTEMS
 from system_profiles import validate_reference_systems
 from verification_runtime import require_assertions_active
+from verify import verify_abi
+from verify_native import verify_native
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -581,6 +585,9 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     Returns:
         A report of source-only checks, not evidence of device operation.
 
+    Raises:
+        TypeError: A reference collection reader has an unsupported type.
+
     """
     require_assertions_active()
     validate_payloads()
@@ -625,7 +632,7 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     )
     require_invariant(
         not any(
-            LILU_IDENTIFIER in n or n in ["_lilu", "_lilu_os_log"]
+            LILU_IDENTIFIER in n or n in {"_lilu", "_lilu_os_log"}
             for n in undefined
         )
     )
@@ -759,12 +766,8 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
         )
         runs: list[Mapping[str, object]] = []
         native_abi: dict[str, object] = {}
-        from verify_native import verify_native
-
         for system, current in addresses.items():
             profile = SYSTEMS[system]
-            from native_abi import Mach
-
             reference = Mach(
                 verified_references[system], "com.apple.iokit.IOSkywalkFamily"
             )
@@ -833,8 +836,6 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
                 )
                 runs.append(run)
             native_abi[system] = verify_native(temp, binary, system)
-        from verify import verify_abi
-
         abi = verify_abi(temp)
     require_invariant(source_fingerprint == fingerprint())
     result: dict[str, object] = {
@@ -863,12 +864,17 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     }
     destination = ROOT / f"build/Validation-{configuration}.json"
     _ = destination.write_text(json.dumps(result, indent=2) + "\n")
-    print(json.dumps(result, indent=2))
+    _ = sys.stdout.write(json.dumps(result, indent=2) + "\n")
     return result
 
 
 def build(configuration: str, analyze: bool = False) -> None:
-    """Run the explicitly requested native build or static analyze action."""
+    """Run the explicitly requested native build or static analyze action.
+
+    Raises:
+        RuntimeError: The native tool emitted errors or warnings.
+
+    """
     require_assertions_active()
     source_fingerprint = fingerprint()
     action = "analyze" if analyze else "build"
@@ -890,7 +896,7 @@ def build(configuration: str, analyze: bool = False) -> None:
     ]
     with log.open("w") as output:
         result = subprocess.run(
-            command, stdout=output, stderr=subprocess.STDOUT
+            command, stdout=output, stderr=subprocess.STDOUT, check=False
         )
     diagnostics = [
         line
@@ -899,11 +905,12 @@ def build(configuration: str, analyze: bool = False) -> None:
             s in line for s in ["error:", "warning:", "** BUILD", "** ANALYZE"]
         )
     ]
-    print("\n".join(diagnostics))
+    _ = sys.stdout.write("\n".join(diagnostics) + "\n")
     if result.returncode or any(
         BUILD_WARNING_PREFIX in line for line in diagnostics
     ):
-        raise RuntimeError(f"Build diagnostics require attention: {log}")
+        message = f"Build diagnostics require attention: {log}"
+        raise RuntimeError(message)
     require_invariant(
         source_fingerprint == fingerprint(),
         lambda: "Source changed during the build",
@@ -1053,7 +1060,7 @@ def package(configuration: str, channel: str = "rel") -> None:
     _ = archive.with_suffix(".zip.sha256").write_text(
         f"{digest(archive)}  {archive.name}\n"
     )
-    print(archive)
+    _ = sys.stdout.write(f"{archive}\n")
 
 
 def _is_list(value: object) -> TypeIs[list[object]]:
