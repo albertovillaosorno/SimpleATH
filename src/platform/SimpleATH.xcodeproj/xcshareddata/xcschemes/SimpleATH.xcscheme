@@ -20,20 +20,6 @@
                ReferencedContainer = "container:SimpleATH.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "NO"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "0000000000000000000000D3"
-               BuildableName = "bcmprobe"
-               BlueprintName = "bcmprobe"
-               ReferencedContainer = "container:SimpleATH.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction

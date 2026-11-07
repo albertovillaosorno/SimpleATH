@@ -18,3 +18,11 @@
 .idea/
 .vscode/
 linux/
+_pycache_/
+
+# Local Python compilation caches.
+__pycache__/
+*.pyc
+.build/
+build/
+.research/

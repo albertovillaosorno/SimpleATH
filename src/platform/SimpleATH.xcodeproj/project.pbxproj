@@ -36,9 +36,9 @@
 		000000000000000000000070 /* WirelessABI.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = WirelessABI.hpp; sourceTree = "<group>"; };
 		000000000000000000000071 /* Profiles.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Profiles.hpp; sourceTree = "<group>"; };
 		000000000000000000000078 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		000000000000000000000079 /* Config/Kernel.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config/Kernel.xcconfig; sourceTree = "<group>"; };
+		000000000000000000000079 /* Config/Kernel.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = src/platform/Kernel.xcconfig; sourceTree = "<group>"; };
 		00000000000000000000007A /* Loader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Loader.cpp; sourceTree = "<group>"; };
-		00000000000000000000007B /* Probe/main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = Probe/main.mm; sourceTree = "<group>"; };
+		00000000000000000000007B /* Probe/main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = src/platform/probe/main.mm; sourceTree = "<group>"; };
 		000000000000000000000082 /* SimpleATH.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = SimpleATH.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000083 /* bcmprobe */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = bcmprobe; sourceTree = BUILT_PRODUCTS_DIR; };
 		00000000000000000000012C = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Relocate.cpp; sourceTree = "<group>"; };
@@ -81,7 +81,7 @@
 				000000000000000000000173,
 				000000000000000000000078 /* Info.plist */,
 			);
-			path = SimpleATH;
+			path = src;
 			sourceTree = "<group>";
 		};
 		00000000000000000000008D /* Products */ = {
@@ -155,7 +155,7 @@
 			);
 			mainGroup = 00000000000000000000008E;
 			productRefGroup = 00000000000000000000008D /* Products */;
-			projectDirPath = "";
+			projectDirPath = "../../..";
 			projectRoot = "";
 			targets = (
 				0000000000000000000000D2 /* SimpleATH */,
@@ -198,7 +198,7 @@
 			name = "Generate Payloads";
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "python3 -B \"$SRCROOT/Tools/embed.py\"";
+			shellScript = "python3 -B \"$SRCROOT/tools/embed.py\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 

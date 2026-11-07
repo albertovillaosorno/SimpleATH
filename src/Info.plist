@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(MODULE_VERSION)</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright © 2026 laobamac. All rights reserved.</string>
+	<string>Copyright (c) 2026 Alberto Villa Osorno; SimpleBCM attribution in third-party notices.</string>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>SimpleATH</key>
@@ -34,6 +34,21 @@
 			<string>IOResources</string>
 			<key>IOResourceMatch</key>
 			<string>IOKit</string>
+		</dict>
+		<key>SimpleATHPCI</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHPciProbe</string>
+			<key>IOMatchCategory</key>
+			<string>SimpleATHPassivePCI</string>
+			<key>IOProviderClass</key>
+			<string>IOPCIDevice</string>
+			<key>IOPCIPrimaryMatch</key>
+			<string>0x0036168c 0x0030168c</string>
+			<key>IOProbeScore</key>
+			<integer>1</integer>
 		</dict>
 	</dict>
 	<key>OSBundleLibraries</key>
@@ -50,6 +65,6 @@
 	<key>OSBundleRequired</key>
 	<string>Root</string>
 	<key>OSBundleCompatibleVersion</key>
-	<string>1.2.0</string>
+	<string>0.1.0</string>
 </dict>
 </plist>

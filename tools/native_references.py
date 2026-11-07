@@ -21,7 +21,7 @@ from bootstrap import ROOT
 from system_profiles import SYSTEMS, system_volumes
 
 
-DIRECTORY = ROOT / 'Resources/NativeABI'
+DIRECTORY = ROOT / 'src/platform/abi'
 KERNEL = 'com.apple.kernel'
 SKYWALK = 'com.apple.iokit.IOSkywalkFamily'
 WIRELESS = 'com.apple.iokit.IO80211Family'
