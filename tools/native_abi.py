@@ -7,13 +7,17 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+"""Bounded native Mach-O ABI inspection and source-only model verification."""
+
 from __future__ import annotations
 
+import argparse
 import collections
 import ctypes
 import functools
 import hashlib
 from itertools import pairwise
+import json
 import mmap
 import os
 from pathlib import Path
@@ -21,12 +25,17 @@ import re
 import stat
 import struct
 import subprocess
+from typing import Protocol
 from typing import TYPE_CHECKING
+from typing import TypedDict
+from typing import final
+from typing import runtime_checkable
 import uuid
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from collections.abc import Iterator
+    from collections.abc import Mapping
     from typing import BinaryIO
 
 if __package__:
@@ -276,8 +285,14 @@ class Mach:
     names: dict[str, tuple[str, int, int, int, int]]
     byaddr: collections.defaultdict[int, list[str]]
 
-    def __new__(cls, path, entry=None):
+    def __new__(
+        cls, path: str | Path, entry: str | None = None
+    ) -> Mach | ReferenceImage:
+        """Return a pinned reference view for a snapshot JSON path."""
         if Path(path).suffix == ".json":
+            if entry is None:
+                message = "Snapshot image requires an explicit entry name"
+                raise ValueError(message)
             return ReferenceImage(path, entry)
         return super().__new__(cls)
 
@@ -550,8 +565,43 @@ def dem(names: Iterable[str]) -> list[str]:
     ).splitlines()
 
 
+@runtime_checkable
+class _CreateDisassembler(Protocol):
+    """Checked callable surface of LLVMCreateDisasm."""
+
+    def __call__(
+        self, triple: bytes, info: None, tag: int, callback: None, symbol: None
+    ) -> int | None: ...
+
+
+@runtime_checkable
+class _DecodeInstruction(Protocol):
+    """Checked callable surface of LLVMDisasmInstruction."""
+
+    def __call__(
+        self,
+        context: int,
+        data: object,
+        size: int,
+        address: int,
+        output: object,
+        capacity: int,
+    ) -> int: ...
+
+
+def _llvm_export(library: ctypes.CDLL, name: str) -> object:
+    """Fetch an initialized symbol from the library's loaded export map."""
+    exports: Mapping[str, object] = vars(library)
+    symbol = exports.get(name)
+    if not callable(symbol):
+        message = f"LLVM library is missing callable symbol {name}"
+        raise RuntimeError(message)
+    return symbol
+
+
 @functools.lru_cache(maxsize=1)
-def disassembler():
+def disassembler() -> tuple[ctypes.CDLL, int]:
+    """Load the selected Apple LLVM disassembler from its system toolchain."""
     toolchain = Path(
         subprocess.check_output(
             ["xcrun", "--find", "llvm-objdump"], text=True
@@ -576,27 +626,40 @@ def disassembler():
     ]
     library.LLVMDisasmInstruction.restype = ctypes.c_size_t
     library.lto_initialize_disassembler()
-    context = library.LLVMCreateDisasm(
-        b"x86_64-apple-darwin", None, 0, None, None
-    )
-    if not context:
-        raise RuntimeError("Unable to initialize the x86_64 disassembler")
+    creator = _llvm_export(library, "LLVMCreateDisasm")
+    if not isinstance(creator, _CreateDisassembler):
+        message = "Missing LLVM disassembler construction entrypoint"
+        raise RuntimeError(message)
+    context = creator(b"x86_64-apple-darwin", None, 0, None, None)
+    if not isinstance(context, int) or context == 0:
+        message = "Unable to initialize the x86_64 disassembler"
+        raise RuntimeError(message)
     return library, context
 
 
 def insns(data: bytes, addr: int) -> Iterator[tuple[int, int, str, bytes]]:
     library, context = disassembler()
+    decode = _llvm_export(library, "LLVMDisasmInstruction")
+    if not isinstance(decode, _DecodeInstruction):
+        message = "Missing LLVM instruction decoding entrypoint"
+        raise RuntimeError(message)
     buf = ctypes.create_string_buffer(data)
     o = 0
     while o < len(data):
         out = ctypes.create_string_buffer(512)
-        l = library.LLVMDisasmInstruction(
+        length = decode(
             context, ctypes.byref(buf, o), len(data) - o, addr + o, out, 512
         )
-        if not l:
-            raise ValueError(f"Undecodable instruction at {addr + o:#x}")
-        yield (addr + o, l, out.value.decode().strip(), data[o : o + l])
-        o += l
+        if length <= 0 or length > len(data) - o:
+            message = f"Undecodable instruction at {addr + o:#x}"
+            raise ValueError(message)
+        yield (
+            addr + o,
+            length,
+            bytes(out).split(b"\x00", 1)[0].decode().strip(),
+            data[o : o + length],
+        )
+        o += length
 
 
 NATIVE_CLASSES = (
@@ -700,7 +763,7 @@ def table(
         raise ValueError(message)
     addresses = _vtable_addresses(start, min(following))
     relocs = image.relocs()
-    result = []
+    result: list[str] = []
     for address in addresses:
         raw = struct.unpack("<Q", image.read(address, 8))[0]
         if address in relocs and relocs[address][0] != "LOCAL":
@@ -709,6 +772,9 @@ def table(
             if kernel and raw >> 48 != 65535:
                 if raw >> 30 & 3 or raw >> 63:
                     raise ValueError("Unsupported kernel collection fixup")
+                if not isinstance(kernel, Mach):
+                    message = "Kernel fixup resolution requires a Mach-O image"
+                    raise ValueError(message)
                 target = (raw & 1073741823) + kernel.fixup_base
             else:
                 target = raw
@@ -728,8 +794,30 @@ def table(
     return result
 
 
+class _Layout(TypedDict, total=False):
+    """Optional constructor fields keyed by original class kind."""
+
+    old: int
+    native: int
+    parent: str
+    allocationTypeView: int
+    allocationTypeSize: int
+
+
+class _Imports(TypedDict):
+    """Complete direct import and missing relocation manifest."""
+
+    oldSkywalkImports: int
+    missingInNative: list[str]
+    relocations: dict[str, list[int]]
+
+
+@final
 class NativeModel:
+    """Derive checked Skywalk class and method slots from pinned images."""
+
     def __init__(self, system: str = "Tahoe") -> None:
+        """Read and validate all pinned images before modeling ABI slots."""
         self.system: str = system
         self.profile = SYSTEMS[system]
         for key, expected in EXPECTED_SOURCES.items():
@@ -777,7 +865,7 @@ class NativeModel:
             self.old_tables[cls] = old
             self.new_tables[cls] = new
             keyed = {method_key(n): i for i, n in enumerate(new)}
-            entries = []
+            entries: list[tuple[str, str, int]] = []
             for offset, name in enumerate(old):
                 key = method_key(name)
                 if key in keyed:
@@ -796,7 +884,7 @@ class NativeModel:
             keyed = {method_key(n): i for i, n in enumerate(parent_new)}
             new = list(parent_new)
             physical = list(self.tables[parent])
-            logical = []
+            logical: list[tuple[str, str, int]] = []
             for i, name in enumerate(old):
                 key = method_key(name)
                 if i < len(parent_old) and name == parent_old[i]:
@@ -828,7 +916,8 @@ class NativeModel:
             self.old_views[cls] = logical
             self.tables[cls] = physical
 
-    def describe(self):
+    def describe(self) -> dict[str, object]:
+        """Describe source provenance, class slots and absent imports."""
         sources = {
             "OldSky": PATHS["OldSky"],
             "Legacy": PATHS["Legacy"],
@@ -862,8 +951,9 @@ class NativeModel:
             "imports": self.imports(),
         }
 
-    def layouts(self):
-        result = {}
+    def layouts(self) -> dict[str, _Layout]:
+        """Return class allocation footprints from verified constructors."""
+        result: dict[str, _Layout] = {}
         for cls in NATIVE_CLASSES:
             result[cls] = {
                 "old": class_size(self.old, cls),
@@ -882,9 +972,24 @@ class NativeModel:
             }
         return result
 
-    def imports(self):
-        result = {}
+    def imports(self) -> dict[str, _Imports]:
+        """Report unresolved imports from full symbol and relocation tables.
+
+        Returns:
+            Per-image counts and complete missing symbol relocation offsets.
+
+        Raises:
+            ValueError: Snapshot metadata lacks the full import catalog.
+
+        """
+        if not isinstance(self.old, Mach) or not isinstance(self.native, Mach):
+            message = "Native import audit requires full Mach-O symbols"
+            raise ValueError(message)
+        result: dict[str, _Imports] = {}
         for label, image in self.images.items():
+            if not isinstance(image, Mach):
+                message = "Native import audit requires full Mach-O relocations"
+                raise ValueError(message)
             references = image.undef() & self.old.defined()
             absent = references - self.native.defined()
             result[label] = {
@@ -901,7 +1006,8 @@ class NativeModel:
             }
         return result
 
-    def close(self):
+    def close(self) -> None:
+        """Release all mapped native images or in-memory references."""
         for image in [
             self.old,
             self.native,
@@ -924,10 +1030,11 @@ def class_size(image: Mach | ReferenceImage, cls: str) -> int:
     return sizes[0]
 
 
-def verify_model(model):
-    checks = []
+def verify_model(model: NativeModel) -> list[str]:
+    """Verify source ABI invariants against the pinned release profile."""
+    checks: list[str] = []
 
-    def require(condition, name):
+    def require(condition: bool, name: str) -> None:
         if not condition:
             raise ValueError("ABI verification failed: " + name)
         checks.append(name)
@@ -1001,33 +1108,44 @@ def verify_model(model):
         "Skywalk missing-entry counts",
     )
     layouts = model.layouts()
-    for label, cls, parent in LEGACY_CLASSES:
+    for _, cls, _ in LEGACY_CLASSES:
         require(
-            layouts[cls]["old"] == layouts[cls]["allocationTypeSize"],
+            layouts[cls].get("old") is not None
+            and layouts[cls].get("old")
+            == layouts[cls].get("allocationTypeSize"),
             cls + " original allocation metadata",
         )
     return checks
 
 
-def main():
-    import argparse
-    import json
-
+def main() -> None:
+    """Run an explicitly read-only native source ABI audit."""
     parser = argparse.ArgumentParser(
         description="Read-only native ABI audit; does not produce a bootable driver"
     )
-    parser.add_argument("action", choices=["audit", "verify"])
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--system", choices=list(SYSTEMS), default="Tahoe")
-    args = parser.parse_args()
-    model = NativeModel(args.system)
+    _ = parser.add_argument("action", choices=["audit", "verify"])
+    _ = parser.add_argument("--output", type=Path)
+    _ = parser.add_argument("--system", choices=list(SYSTEMS), default="Tahoe")
+    values: dict[str, object] = vars(parser.parse_args())
+    system = values.get("system")
+    action = values.get("action")
+    output = values.get("output")
+    if (
+        not isinstance(system, str)
+        or system not in SYSTEMS
+        or action not in ("verify", "audit")
+        or (output is not None and not isinstance(output, Path))
+    ):
+        message = "Invalid native ABI audit arguments"
+        raise ValueError(message)
+    model = NativeModel(system)
     try:
         result = model.describe()
-        checks = verify_model(model) if args.action == "verify" else []
+        checks = verify_model(model) if action == "verify" else []
         result["auditChecks"] = checks
-        if args.output:
-            args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(result, indent=2) + "\n")
+        if isinstance(output, Path):
+            output.parent.mkdir(parents=True, exist_ok=True)
+            _ = output.write_text(json.dumps(result, indent=2) + "\n")
         print(
             json.dumps(
                 {

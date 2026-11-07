@@ -642,6 +642,40 @@ def _export_image(
     }
 
 
+def _is_object_tuple(value: object) -> TypeIs[tuple[object, ...]]:
+    """Narrow an imported runtime tuple before examining each member.
+
+    Returns:
+        Whether the value is a tuple of objects.
+
+    """
+    return isinstance(value, tuple)
+
+
+def _class_names(module: str, attribute: str) -> tuple[str, ...]:
+    """Load a checked class catalog without creating a module import cycle.
+
+    Returns:
+        Strict string class names in their canonical catalog order.
+
+    Raises:
+        TypeError: The referenced module does not contain a valid catalog.
+
+    """
+    qualified = f"tools.{module}" if __package__ else module
+    member: object = vars(importlib.import_module(qualified)).get(attribute)
+    if not _is_object_tuple(member):
+        message = f"Native class catalog is not a tuple: {qualified}"
+        raise TypeError(message)
+    names: list[str] = []
+    for item in member:
+        if not isinstance(item, str):
+            message = f"Native class catalog is not all strings: {qualified}"
+            raise TypeError(message)
+        names.append(item)
+    return tuple(names)
+
+
 def _export_images(plan: _ExportPlan, required: set[str]) -> dict[str, object]:
     """Build all three image records in their original order.
 
@@ -649,13 +683,13 @@ def _export_images(plan: _ExportPlan, required: set[str]) -> dict[str, object]:
         Image records indexed by their collection bundle identifiers.
 
     """
-    from native_abi import NATIVE_CLASSES  # ruff: ignore[import-outside-top-level] - Export-only ABI class list.
-    from native_payload import CLIENT_CLASSES  # ruff: ignore[import-outside-top-level] - Export-only native clients.
+    native_classes = _class_names("native_abi", "NATIVE_CLASSES")
+    client_classes = _class_names("native_payload", "CLIENT_CLASSES")
 
     selected = (
         _ImageSelection(KERNEL, plan.model.kernel, ("IOService",)),
-        _ImageSelection(SKYWALK, plan.native, tuple(NATIVE_CLASSES)),
-        _ImageSelection(WIRELESS, plan.wireless, tuple(CLIENT_CLASSES)),
+        _ImageSelection(SKYWALK, plan.native, native_classes),
+        _ImageSelection(WIRELESS, plan.wireless, client_classes),
     )
     return {
         item.identifier: _export_image(plan, item, required)
