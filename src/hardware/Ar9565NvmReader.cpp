@@ -163,13 +163,19 @@ namespace simpleath
         // Reject such a contract breach BEFORE clearing either output or
         // invoking a corrupted function pointer. On this error the returned
         // result, not the unwritable/aliased status field, is authoritative.
+        // The opaque context's full allocation size is not known here. Its
+        // pointer must at least not point into either writable output: clearing
+        // that storage would corrupt callback state before the first call.
+        // The caller still guarantees disjointness of the complete allocation.
         if (overlaps(destination, byteCount, &backend, sizeof(backend)) ||
             overlaps(destination, byteCount, &physicalIdentity,
                      sizeof(physicalIdentity)) ||
             overlaps(destination, byteCount, &status, sizeof(status)) ||
+            overlaps(destination, byteCount, backend.context, 1) ||
             overlaps(&status, sizeof(status), &backend, sizeof(backend)) ||
             overlaps(&status, sizeof(status), &physicalIdentity,
-                     sizeof(physicalIdentity)))
+                     sizeof(physicalIdentity)) ||
+            overlaps(&status, sizeof(status), backend.context, 1))
             return NvmResult::InvalidArgument;
         status = {};
         status.source = source;

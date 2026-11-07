@@ -49,8 +49,11 @@ Owner permission to edit source does not authorize invoking this capability.
   bounds, not a measurement of physical storage capacity. Source/origin
   selection remains explicit and does not silently switch on errors.
 - Reject overlapping destination, status, backend and identity storage
-  before initializing diagnostics or clearing capture bytes; an alias error
-  is reported by the return value without mutating aliased storage. Wipe a
+  before initializing diagnostics or clearing capture bytes. Reject a
+  backend context pointer that points into either writable output, too;
+  its complete allocation must be kept disjoint by the caller because its
+  size is opaque. An alias error is reported by the return value without
+  mutating aliased storage. Wipe a
   valid, disjoint destination span after acquisition failure and leave
   captureComplete false. A partial word count is diagnostic only.
 

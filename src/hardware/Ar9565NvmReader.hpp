@@ -39,6 +39,8 @@ namespace simpleath
     // context throughout.
     struct NvmReadBackend
     {
+            // Retained, disjoint callback state: it must not overlap either
+            // writable capture output. Its full size is opaque to this reader.
             void *context;
             bool (*ownerInD0)(void *context);
             // Must use ordered little-endian MMIO and report transport errors.
@@ -72,8 +74,10 @@ namespace simpleath
     // exclusive owner's live config. Requires thread/work-loop context, never a
     // hard interrupt handler. Polling is capped per word and per capture (2
     // seconds plus bounded callback overhead). Destination, status, backend and
-    // identity storage must be disjoint. Storage aliases are rejected before
-    // writes; only the return value is valid on this contract breach. For a
+    // identity storage must be disjoint, as must the backend context's full
+    // allocation. A context pointer into either output is rejected before
+    // writes, but deeper context-allocation overlaps remain a caller contract.
+    // Only the return value is valid on an alias error. For a
     // valid destination span, other failures wipe its bytes; invalid arguments
     // do not establish a writable span.
     // captureComplete remains false on every failure. No reset/wake, EEPROM
