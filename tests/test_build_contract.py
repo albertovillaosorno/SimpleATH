@@ -5,12 +5,14 @@
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
 
 # The opt-in legacy CLI imports helpers directly from tools/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from build import PROJECT
 from build import copy_package_sources
+from build import native_addresses
 
 LICENSE_TEXT = "LICENSE"
 README_TEXT = "README.md"
@@ -32,6 +34,26 @@ class BuildSourceLayoutTests(TestCase):
             "SimpleATH.xcodeproj",
         )
         assert PROJECT.is_dir()
+
+    @staticmethod
+    def test_native_imports_require_public_kernel_exports() -> None:
+        """Private nlist definitions cannot masquerade as linkable imports."""
+        kernel = SimpleNamespace(
+            symbols={"_public": 0x1000, "_private": 0x2000},
+            exports={"_public"},
+        )
+        wifi = SimpleNamespace(
+            symbols={"_wifi": 0x3000, "_wifi_private": 0x4000},
+            exports={"_wifi"},
+        )
+        collection = SimpleNamespace(
+            kernel=kernel,
+            images={"wifi": wifi},
+        )
+        assert native_addresses(collection, ["wifi", "missing"]) == {
+            "_public": 0x1000,
+            "_wifi": 0x3000,
+        }
 
     @staticmethod
     def test_bundle_sources_use_current_repo_paths() -> None:

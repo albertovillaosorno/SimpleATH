@@ -7,6 +7,8 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -19,6 +21,7 @@ import struct
 import subprocess
 import tempfile
 import zipfile
+from typing import TYPE_CHECKING
 
 from bootstrap import ROOT
 from bootstrap import validate_payloads
@@ -29,12 +32,16 @@ from embed import VERSION
 from embed_macho_parser import parse
 from kernel_collection import KernelCollection
 from macho import Image
+from native_references import ReferenceCollection
 from native_references import reference_paths
 from profiles import IMAGES
 from source_fingerprint import source_fingerprint
 from system_profiles import SYSTEMS
 from system_profiles import validate_reference_systems
 from verification_runtime import require_assertions_active
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 CONFIGURATIONS = ("Debug", "Release")
 PROJECT = ROOT / "src/platform/SimpleATH.xcodeproj"
@@ -333,8 +340,17 @@ def save_plist(path, value):
     path.write_text(data.replace("<!DOCTYPE", header + "<!DOCTYPE", 1))
 
 
-def native_addresses(collection, libraries):
-    available = dict(collection.kernel.symbols)
+def native_addresses(
+    collection: KernelCollection | ReferenceCollection, libraries: Iterable[str]
+) -> dict[str, int]:
+    """Return only exported symbols from the kernel and selected libraries.
+
+    Returns:
+        Names and addresses eligible for the initial source-only import check.
+
+    """
+    kernel = collection.kernel
+    available = {name: kernel.symbols[name] for name in kernel.exports}
     for name in libraries:
         if name in collection.images:
             image = collection.images[name]
@@ -471,6 +487,9 @@ def verify(configuration, references):
     verified_references = {}
     for reference in references:
         c = KernelCollection(reference)
+        if not isinstance(c, (KernelCollection, ReferenceCollection)):
+            message = "Unexpected kernel collection reader implementation"
+            raise TypeError(message)
         kernel = int(c.version().split(".")[0])
         profiles = [
             p for p in manifest["systemProfiles"] if p["kernel"] == kernel
