@@ -17,7 +17,8 @@ namespace simpleath
             NoResult,
             ScanInProgress,
             InvalidState,
-            InvalidArgument
+            InvalidArgument,
+            EventPending
         };
 
         struct NativeBssSnapshot
@@ -39,8 +40,28 @@ namespace simpleath
                 Security security;
         };
 
+        // Minted by this bridge, never by an Apple80211 request or a synthetic
+        // registry property. An owner must retain the ticket until actual RF
+        // work completes, then return the identical ticket under its gate.
+        struct ScanBridgeTicket
+        {
+                uint64_t generation;
+                uint32_t serial;
+        };
+
+        struct ScanBridgeCompletion
+        {
+                ScanBridgeTicket ticket;
+                size_t resultCount;
+                bool succeeded;
+        };
+
         struct ScanBridgeStatus
         {
+                uint64_t activeGeneration;
+                uint64_t finishedGeneration;
+                uint64_t completedGeneration;
+                uint32_t finishedSerial;
                 uint32_t requestSerial;
                 uint32_t completedSerial;
                 uint32_t completedScans;
@@ -50,6 +71,8 @@ namespace simpleath
                 size_t nextResult;
                 bool radioScanRunning;
                 bool completeSnapshotAvailable;
+                bool completionEventPending;
+                bool lastScanSucceeded;
         };
 
         // A completed snapshot is a *value copy*, stable while the live BSS
@@ -64,18 +87,33 @@ namespace simpleath
         {
             public:
                 LegacyScanBridge();
+                // Clear on stop/termination. The generation counter is never
+                // reset, so stale completions cannot match a later scan after
+                // a fresh start reuses the same request serial.
                 void clear();
-                ScanBridgeResult beginScan(uint32_t serial);
-                // The radio backend MUST call this only after genuine channel
-                // dwell work and RX have finished. This class cannot claim that
-                // radio did scan.
+                ScanBridgeResult beginScan(uint32_t serial,
+                                           ScanBridgeTicket &ticket);
+                // The native owner MUST call this only after genuine channel
+                // dwell work and RX have finished. The ticket is checked
+                // before consuming source cache or changing the result set.
                 ScanBridgeResult completeScan(const ScanCache &cache,
-                                              uint32_t serial, bool succeeded);
-                // Reads results from last completed snapshot, including while a
-                // new scan is in progress. This avoids disappearing results in
-                // native UI. On NoResult/ScanInProgress, out is cleared.
-                ScanBridgeResult next(NativeBssSnapshot &out);
-                void rewind();
+                                              const ScanBridgeTicket &ticket,
+                                              bool succeeded);
+                // The owner posts SCAN_DONE/its failure equivalent only after
+                // reading this pending completion, and acknowledges ONLY after
+                // the native client accepted its event. Pending completions
+                // block a new beginScan; neither method emits an OS event.
+                ScanBridgeResult completion(ScanBridgeCompletion &out) const;
+                ScanBridgeResult
+                acknowledgeCompletion(const ScanBridgeTicket &ticket);
+                // Only the last successful completion ticket can read or
+                // rewind its value snapshot; late callbacks from a retired
+                // owner may not affect a newer cursor or leak newer results.
+                // A completed ticket can still enumerate while a new scan
+                // runs. On ordinary failure, out is cleared.
+                ScanBridgeResult next(const ScanBridgeTicket &ticket,
+                                      NativeBssSnapshot &out);
+                ScanBridgeResult rewind(const ScanBridgeTicket &ticket);
 
                 const ScanBridgeStatus &status() const
                 {
@@ -85,6 +123,7 @@ namespace simpleath
             private:
                 NativeBssSnapshot completed_[ScanCache::kCapacity];
                 ScanBridgeStatus state_;
+                uint64_t lastGeneration_;
         };
 
     } // namespace ieee80211

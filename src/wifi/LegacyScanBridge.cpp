@@ -13,6 +13,16 @@ namespace simpleath
                     dest[i] = src[i];
             }
 
+            bool overlapsStorage(const void *a, size_t aBytes, const void *b,
+                                 size_t bBytes)
+            {
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return aBytes && bBytes &&
+                       (first >= second ? first - second < bBytes
+                                        : second - first < aBytes);
+            }
+
             bool accepted(const Bss &bss)
             {
                 const Beacon &beacon = bss.beacon;
@@ -52,7 +62,8 @@ namespace simpleath
             }
         } // namespace
 
-        LegacyScanBridge::LegacyScanBridge() : completed_ {}, state_ {}
+        LegacyScanBridge::LegacyScanBridge()
+            : completed_ {}, state_ {}, lastGeneration_(0)
         {
         }
 
@@ -63,16 +74,31 @@ namespace simpleath
             state_ = {};
         }
 
-        ScanBridgeResult LegacyScanBridge::beginScan(uint32_t serial)
+        ScanBridgeResult LegacyScanBridge::beginScan(uint32_t serial,
+                                                     ScanBridgeTicket &ticket)
         {
+            // A caller may not smuggle an output reference into this large
+            // owner object and overwrite its generation or result storage.
+            if (overlapsStorage(&ticket, sizeof(ticket), this, sizeof(*this)))
+                return ScanBridgeResult::InvalidArgument;
+            ticket = {};
             if (serial == 0)
                 return ScanBridgeResult::InvalidArgument;
             if (state_.radioScanRunning)
                 return ScanBridgeResult::ScanInProgress;
+            if (state_.completionEventPending)
+                return ScanBridgeResult::EventPending;
             if (serial <= state_.requestSerial)
                 return ScanBridgeResult::InvalidArgument;
+            // No wraparound/reuse is possible within this object's lifetime.
+            if (lastGeneration_ == UINT64_MAX)
+                return ScanBridgeResult::InvalidState;
+            ++lastGeneration_;
             state_.requestSerial = serial;
+            state_.activeGeneration = lastGeneration_;
             state_.radioScanRunning = true;
+            ticket.generation = lastGeneration_;
+            ticket.serial = serial;
             // Rewind the last complete snapshot so synchronous SCAN_RESULT
             // calls still see valid results until the newly requested scan
             // finishes.
@@ -83,13 +109,22 @@ namespace simpleath
             return ScanBridgeResult::Ok;
         }
 
-        ScanBridgeResult LegacyScanBridge::completeScan(const ScanCache &cache,
-                                                        uint32_t serial,
-                                                        bool succeeded)
+        ScanBridgeResult
+        LegacyScanBridge::completeScan(const ScanCache &cache,
+                                       const ScanBridgeTicket &ticket,
+                                       bool succeeded)
         {
-            if (!state_.radioScanRunning || serial != state_.requestSerial)
+            if (!state_.radioScanRunning || ticket.generation == 0 ||
+                ticket.generation != state_.activeGeneration ||
+                ticket.serial != state_.requestSerial ||
+                overlapsStorage(&cache, sizeof(cache), this, sizeof(*this)) ||
+                overlapsStorage(&ticket, sizeof(ticket), this, sizeof(*this)))
                 return ScanBridgeResult::InvalidState;
             state_.radioScanRunning = false;
+            state_.finishedGeneration = ticket.generation;
+            state_.finishedSerial = ticket.serial;
+            state_.lastScanSucceeded = false;
+            state_.completionEventPending = true;
             if (!succeeded)
                 return ScanBridgeResult::InvalidState;
 
@@ -121,6 +156,7 @@ namespace simpleath
                     state_.resultCount = 0;
                     state_.nextResult = 0;
                     state_.completedSerial = 0;
+                    state_.completedGeneration = 0;
                     state_.rejectedEntries = 0;
                     state_.completeSnapshotAvailable = false;
                     return ScanBridgeResult::InvalidState;
@@ -137,22 +173,58 @@ namespace simpleath
             state_.resultCount = count;
             state_.rejectedEntries = rejected;
             state_.nextResult = 0;
-            state_.completedSerial = serial;
+            state_.completedSerial = ticket.serial;
+            state_.completedGeneration = ticket.generation;
             state_.completeSnapshotAvailable = true;
+            state_.lastScanSucceeded = true;
             if (state_.completedScans < 0xffffffffu)
                 ++state_.completedScans;
             return ScanBridgeResult::Ok;
         }
 
-        ScanBridgeResult LegacyScanBridge::next(NativeBssSnapshot &out)
+        ScanBridgeResult
+        LegacyScanBridge::completion(ScanBridgeCompletion &out) const
         {
+            if (overlapsStorage(&out, sizeof(out), this, sizeof(*this)))
+                return ScanBridgeResult::InvalidArgument;
+            out = {};
+            if (!state_.completionEventPending)
+                return ScanBridgeResult::NoResult;
+            out.ticket = {state_.finishedGeneration, state_.finishedSerial};
+            out.succeeded = state_.lastScanSucceeded;
+            out.resultCount = out.succeeded ? state_.resultCount : 0;
+            return ScanBridgeResult::Ok;
+        }
+
+        ScanBridgeResult
+        LegacyScanBridge::acknowledgeCompletion(const ScanBridgeTicket &ticket)
+        {
+            if (!state_.completionEventPending ||
+                ticket.generation != state_.finishedGeneration ||
+                ticket.serial != state_.finishedSerial)
+                return ScanBridgeResult::InvalidState;
+            state_.completionEventPending = false;
+            return ScanBridgeResult::Ok;
+        }
+
+        ScanBridgeResult LegacyScanBridge::next(const ScanBridgeTicket &ticket,
+                                                NativeBssSnapshot &out)
+        {
+            if (overlapsStorage(&out, sizeof(out), this, sizeof(*this)) ||
+                overlapsStorage(&out, sizeof(out), &ticket, sizeof(ticket)))
+                return ScanBridgeResult::InvalidArgument;
             // An exhausted or invalidated iterator cannot return a stale
             // BSS from the previous successful call.
             out = {};
             if (!state_.completeSnapshotAvailable)
-                return state_.radioScanRunning
+                return state_.radioScanRunning &&
+                               ticket.generation == state_.activeGeneration &&
+                               ticket.serial == state_.requestSerial
                            ? ScanBridgeResult::ScanInProgress
                            : ScanBridgeResult::NoResult;
+            if (ticket.generation != state_.completedGeneration ||
+                ticket.serial != state_.completedSerial)
+                return ScanBridgeResult::InvalidState;
             if (state_.nextResult >= state_.resultCount)
                 return ScanBridgeResult::NoResult;
             out = completed_[state_.nextResult++];
@@ -161,9 +233,15 @@ namespace simpleath
             return ScanBridgeResult::Ok;
         }
 
-        void LegacyScanBridge::rewind()
+        ScanBridgeResult
+        LegacyScanBridge::rewind(const ScanBridgeTicket &ticket)
         {
+            if (!state_.completeSnapshotAvailable ||
+                ticket.generation != state_.completedGeneration ||
+                ticket.serial != state_.completedSerial)
+                return ScanBridgeResult::InvalidState;
             state_.nextResult = 0;
+            return ScanBridgeResult::Ok;
         }
 
     } // namespace ieee80211
