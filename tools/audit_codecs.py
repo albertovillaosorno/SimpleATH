@@ -12,31 +12,64 @@
 import hashlib
 import json
 import re
-import struct
+from typing import TYPE_CHECKING
 
-from macho import Image
-from profiles import IMAGES
-from profiles import ROOT
-from profiles import SCALAR_GET_REQUESTS
-from profiles import relocations
+if __package__:
+    from tools.abi_types import mapping
+    from tools.abi_types import unpack_integers
+    from tools.macho import Image
+    from tools.profiles import IMAGES
+    from tools.profiles import ROOT
+    from tools.profiles import SCALAR_GET_REQUESTS
+    from tools.profiles import relocations
+else:
+    from abi_types import mapping
+    from abi_types import unpack_integers
+    from macho import Image
+    from profiles import IMAGES
+    from profiles import ROOT
+    from profiles import SCALAR_GET_REQUESTS
+    from profiles import relocations
+
+if TYPE_CHECKING:
+    from tools.abi_types import JsonValue
 
 
-def main():
-    image = Image(IMAGES["Legacy"])
-    table = struct.unpack(
-        "<417Q", image.read(image.symbols["_gGetHandlerTable"], 417 * 8)
-    )
-    assembly = image.disassemble(r"^__ZL.*get.*P17IO80211Controller")
-    blocks = {}
+def disassembly_blocks(assembly: str) -> dict[int, str]:
+    """Index disassembly blocks by their exact entry-point address.
+
+    Returns:
+        Recognized symbol-code blocks keyed by canonical hexadecimal address.
+
+    Raises:
+        ValueError: A duplicate handler address appears in disassembly output.
+
+    """
+    blocks: dict[int, str] = {}
     for block in assembly.split("\n\n"):
         match = re.match(r"([0-9a-f]+) <([^>]+)>:", block)
         if match:
-            blocks[int(match[1], 16)] = block
+            address = int(match[1], 16)
+            if address in blocks:
+                message = "Duplicate disassembly handler address"
+                raise ValueError(message)
+            blocks[address] = block
+    return blocks
+
+
+def main() -> None:
+    """Check pinned offline codec evidence before updating its report."""
+    image = Image(IMAGES["Legacy"])
+    table = unpack_integers(
+        image.read(image.symbols["_gGetHandlerTable"], 417 * 8), "<417Q"
+    )
+    assembly = image.disassemble(r"^__ZL.*get.*P17IO80211Controller")
+    blocks = disassembly_blocks(assembly)
     if not (set(table) - {0}) <= blocks.keys():
         raise RuntimeError(
             "The GET handler table contains entries that were not disassembled"
         )
-    scalar = []
+    scalar: list[dict[str, JsonValue]] = []
     for request, address in enumerate(table, 1):
         if not address:
             continue
@@ -64,27 +97,31 @@ def main():
             raise RuntimeError(
                 "The scalar output target was not confirmed to be apple80211req"
             )
-        scalar.append({
-            "request": request,
-            "symbol": image.name(address),
-            "address": hex(address),
-            "stores": stores,
-        })
+        scalar.append(
+            mapping({
+                "request": request,
+                "symbol": image.name(address),
+                "address": hex(address),
+                "stores": stores,
+            })
+        )
     if [entry["request"] for entry in scalar] != SCALAR_GET_REQUESTS:
         raise RuntimeError(
             "The scalar GET mapping does not match the actual machine code"
         )
-    copies = []
+    copies: list[dict[str, JsonValue]] = []
     for label in ["Legacy", "AirPort", "AirPortOriginal"]:
         binary = Image(IMAGES[label])
         for address, _, symbol, kind in relocations(binary):
             if symbol in ("_copyin", "_copyout") and kind == 2:
-                copies.append({
-                    "image": label,
-                    "address": hex(address - 1),
-                    "symbol": binary.name(address - 1),
-                    "operation": symbol,
-                })
+                copies.append(
+                    mapping({
+                        "image": label,
+                        "address": hex(address - 1),
+                        "symbol": binary.name(address - 1),
+                        "operation": symbol,
+                    })
+                )
     if len(copies) != 18:
         raise RuntimeError("Unexpected total copy callsite count")
     for backend in ["AirPort", "AirPortOriginal"]:
@@ -110,11 +147,11 @@ def main():
     ):
         raise RuntimeError("The legacy capability bitmap structure has changed")
     set_entries = {
-        request: struct.unpack(
-            "<Q",
+        request: unpack_integers(
             image.read(
                 image.symbols["_gSetHandlerTable"] + (request - 1) * 8, 8
             ),
+            "<Q",
         )[0]
         for request in [20, 216]
     }
@@ -129,7 +166,7 @@ def main():
         raise RuntimeError(
             "The legacy association or roaming profile structure has changed"
         )
-    report = {
+    report: dict[str, JsonValue] = mapping({
         "copyright": "Copyright © 2026 laobamac. All rights reserved.",
         "legacySHA256": hashlib.sha256(image.path.read_bytes()).hexdigest(),
         "getTableCapacity": 417,
@@ -216,7 +253,7 @@ def main():
             "instructionOffset": "0x6984",
             "behavior": "If req_data is NULL, the native caller supplies &req_val and length 4 as IOUC output.",
         },
-    }
+    })
     report["sonoma"] = {
         "OSBuild": "23J620",
         "kernel": "23.6.0",
@@ -261,8 +298,11 @@ def main():
     }
     destination = ROOT / "docs/Control-Codecs.json"
     content = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
-    if not destination.exists() or destination.read_text() != content:
-        destination.write_text(content)
+    if (
+        not destination.exists()
+        or destination.read_text(encoding="utf-8") != content
+    ):
+        _ = destination.write_text(content, encoding="utf-8")
     print(
         f"GET handler table verified: {report["populatedGetEntries"]} entries / {report["uniqueGetCodecs"]} unique codec entry points, {len(scalar)} scalar results, and 16 guarded copy sites per backend."
     )
