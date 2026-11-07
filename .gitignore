@@ -1,16 +1,20 @@
-#
-#  .gitignore
-#  SimpleATH
-#
-#  Created by laobamac on 2026/9/16.
-#  Copyright © 2026 laobamac. All rights reserved.
-#
-
-.research/
-build/
-dist/
-*.log
-__pycache__/
+# Local builds, editor data, secrets, and transient reports.
+/.cache/
+/.dependencies/
+/.logs/
+/.temp/
+/target/
+/.swiftpm/
+/swift/.build/
+/swift/.swiftpm/
+/.swift-build/
+/.env
+/.env.*
+!/.env.example
+*.key
+*.pem
+*.p12
 .DS_Store
-xcuserdata/
-SimpleATH-diagnostics-*/
+.idea/
+.vscode/
+linux/

@@ -1,7 +1,7 @@
-name: SimpleATH Xcode Compile
+name: SimpleATH Rust and Swift Validation
 
-# A build requires an explicitly pushed build-v* tag.
-# Ordinary branch pushes, pull requests, releases, and manual dispatches do not trigger CI.
+# User authorization is required before pushing a build-v* tag.
+# Commits, branch pushes, pull requests, releases, and manual dispatch do not run CI.
 on:
   push:
     tags:
@@ -11,32 +11,26 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  validate:
     if: startsWith(github.ref, 'refs/tags/build-v')
     runs-on: macos-26-intel
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Toolchain
-        run: |
-          sw_vers
-          xcodebuild -version
-      - name: Validate source and native ABI
-        run: |
-          python3 Tools/check.py
-          python3 Tools/native_references.py verify
-      - name: Prepare dependencies
-        run: python3 Tools/bootstrap.py
-      - name: Build minimal bootstrap Release (one native IOKit source)
-        run: |
-          xcodebuild -project SimpleATH.xcodeproj -scheme SimpleATH -configuration Release -derivedDataPath build/DerivedData -arch x86_64 CODE_SIGNING_ALLOWED=NO build
-      - name: Upload compiled kernel extension and logs
-        if: always()
-        uses: actions/upload-artifact@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: SimpleATH-Xcode-Build
-          path: |
-            build/DerivedData/Build/Products/Release/SimpleATH.kext/**
-            build/*.log
-            build/*.json
-          if-no-files-found: warn
+          toolchain: '1.99.1'
+          components: rustfmt, clippy
+      - name: Rust formatting and metadata
+        run: |
+          cargo fmt --all -- --check
+          cargo metadata --no-deps --format-version 1 > /dev/null
+      - name: Rust checks and tests
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+      - name: Swift diagnostics validation
+        run: |
+          cd swift
+          swift build
+          swift test
