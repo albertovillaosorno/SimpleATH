@@ -2,6 +2,7 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Fake-only forwarding ABI fixture tests; never invoke a Darwin compiler."""
 
+import ast
 from pathlib import Path
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
@@ -11,6 +12,7 @@ from unittest import TestCase
 from unittest import mock
 
 from tools import native_forwarding_probe as probe
+from tools.native_invariants import require
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,6 +23,9 @@ EXPECTED_CALLS = 12
 EXPECT_FORWARD0 = 'extern "C" void athSkyForward0();'
 EXPECT_CALLBACK1 = 'extern "C" void athSkyCallback1();'
 EXPECT_FORWARD_PTR = "reinterpret_cast<uintptr_t>(athSkyForward1)"
+EXPECTED_ABI_GUARDS = 52
+REQUIRE_FUNCTION = "require"
+FAILURE_MARKER = "synthetic failed"
 GOOD_OUTPUT = (
     '{"forwardingCalls":12,"retainedReceivers":4,"releasedReceivers":4}'
 )
@@ -163,3 +168,47 @@ class NativeForwardingProbeTests(TestCase):
                     root, ASSEMBLY, probe.MAX_FORWARDERS + 1
                 )
             )
+
+
+class NativeAbiInvariantTests(TestCase):
+    """Prevent Python optimization from silently disabling ABI validation."""
+
+    @staticmethod
+    def test_all_verifier_asserts_are_explicit_guards() -> None:
+        """Keep every native verification check active under Python -O."""
+        source = Path(__file__).parent.parent / "tools/verify_native.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        assert not any(isinstance(node, ast.Assert) for node in ast.walk(tree))
+        guards = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == REQUIRE_FUNCTION
+        ]
+        assert len(guards) == EXPECTED_ABI_GUARDS
+
+    @staticmethod
+    def test_invariant_guard_rejects_false_or_nonboolean_truthy() -> None:
+        """Reject false checks and malformed truthy manifest metadata."""
+        verified = True
+        assert require(verified, "synthetic verified") is None
+        invalid: tuple[object, ...] = (
+            False,
+            None,
+            1,
+            "true",
+            [0],
+            {"fake": True},
+            0,
+        )
+        errors: list[str] = []
+        for condition in invalid:
+            try:
+                require(condition, FAILURE_MARKER)
+            except ValueError as error:
+                errors.append(str(error))
+            else:
+                errors.append("Accepted malformed native ABI condition")
+        assert len(errors) == len(invalid)
+        assert all(FAILURE_MARKER in error for error in errors)
