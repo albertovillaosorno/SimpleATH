@@ -158,6 +158,83 @@ namespace
                Result::InvalidElement;
     }
 
+    bool rejectOverlappingManagementTx()
+    {
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        size_t written = 123;
+
+        // A caller-owned SSID inside the output buffer must survive a failed
+        // probe request unchanged, even though normal serialization zeroes
+        // its output before copying the SSID.
+        uint8_t probe[96] {};
+        std::memset(probe, 0x5a, sizeof(probe));
+        probe[40] = 'T';
+        probe[41] = 'e';
+        probe[42] = 's';
+        probe[43] = 't';
+        uint8_t previousProbe[sizeof(probe)] {};
+        std::memcpy(previousProbe, probe, sizeof(probe));
+        if (makeProbeRequest(station, probe + 40, 4, 1, probe, sizeof(probe),
+                             written) != Result::OverlappingBuffers ||
+            written != 123 ||
+            std::memcmp(probe, previousProbe, sizeof(probe)) != 0)
+            return false;
+
+        struct StationBuffer
+        {
+                Mac input;
+                uint8_t spare[64];
+        } stationBuffer {station, {}};
+
+        uint8_t previousStation[sizeof(stationBuffer)] {};
+        std::memcpy(previousStation, &stationBuffer, sizeof(stationBuffer));
+        written = 456;
+        if (makeOpenAuthenticationRequest(
+                stationBuffer.input, ap, 2,
+                reinterpret_cast<uint8_t *>(&stationBuffer),
+                sizeof(stationBuffer), written) != Result::OverlappingBuffers ||
+            written != 456 ||
+            std::memcmp(&stationBuffer, previousStation,
+                        sizeof(stationBuffer)) != 0)
+            return false;
+
+        Beacon network {};
+        network.bssid = ap;
+        network.infrastructure = true;
+        network.ssidLength = 4;
+        std::memcpy(network.ssid, "Test", 4);
+        network.rsn.security = Security::Open;
+        uint8_t previousNetwork[sizeof(network)] {};
+        std::memcpy(previousNetwork, &network, sizeof(network));
+        written = 789;
+        if (makeAssociationRequest(
+                station, network, 3, reinterpret_cast<uint8_t *>(&network),
+                sizeof(network), written) != Result::OverlappingBuffers ||
+            written != 789 ||
+            std::memcmp(&network, previousNetwork, sizeof(network)) != 0)
+            return false;
+
+        // The count is also a caller-owned reference. Do not zero it when
+        // that reference lives inside the destination buffer.
+        struct CountBuffer
+        {
+                size_t count;
+                uint8_t spare[96];
+        } countBuffer {321, {}};
+
+        uint8_t previousCount[sizeof(countBuffer)] {};
+        std::memcpy(previousCount, &countBuffer, sizeof(countBuffer));
+        const uint8_t ssid[4] {'T', 'e', 's', 't'};
+        if (makeProbeRequest(station, ssid, sizeof(ssid), 4,
+                             reinterpret_cast<uint8_t *>(&countBuffer),
+                             sizeof(countBuffer),
+                             countBuffer.count) != Result::OverlappingBuffers ||
+            std::memcmp(&countBuffer, previousCount, sizeof(countBuffer)) != 0)
+            return false;
+        return true;
+    }
+
     bool enforceAssociationAdmission()
     {
         uint8_t frame[kAssocBytes] {};
@@ -206,5 +283,7 @@ int main()
         return 5;
     if (!enforceAssociationAdmission())
         return 6;
+    if (!rejectOverlappingManagementTx())
+        return 7;
     return 0;
 }

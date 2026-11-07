@@ -47,6 +47,29 @@ namespace simpleath
             return p[0] == 0x00 && p[1] == 0x0f && p[2] == 0xac && p[3] == id;
         }
 
+        // A serializer must not clear or overwrite the caller's borrowed
+        // identity, SSID, network snapshot, or byte-count reference.
+        // Subtraction avoids overflow when a caller supplies a large capacity.
+        static bool overlaps(const void *firstBuffer, size_t firstBytes,
+                             const void *secondBuffer, size_t secondBytes)
+        {
+            if (!firstBuffer || !secondBuffer || !firstBytes || !secondBytes)
+                return false;
+            const auto first = reinterpret_cast<uintptr_t>(firstBuffer);
+            const auto second = reinterpret_cast<uintptr_t>(secondBuffer);
+            return first <= second ? second - first < firstBytes
+                                   : first - second < secondBytes;
+        }
+
+        static bool aliasesSerializedInput(const uint8_t *output,
+                                           size_t capacity, size_t &written,
+                                           const void *input, size_t inputBytes)
+        {
+            return overlaps(output, capacity, &written, sizeof(written)) ||
+                   overlaps(output, capacity, input, inputBytes) ||
+                   overlaps(&written, sizeof(written), input, inputBytes);
+        }
+
         static bool all_zero(const Mac &mac)
         {
             uint8_t aggregate = 0;
@@ -397,9 +420,17 @@ namespace simpleath
                                 uint8_t *output, size_t capacity,
                                 size_t &written)
         {
-            written = 0;
             if (!output)
+            {
+                written = 0;
                 return Result::NullBuffer;
+            }
+            if (aliasesSerializedInput(output, capacity, written, &station,
+                                       sizeof(station)) ||
+                aliasesSerializedInput(output, capacity, written, ssid,
+                                       ssidLength))
+                return Result::OverlappingBuffers;
+            written = 0;
             if (!validStationMac(station))
                 return Result::InvalidAddress;
             if (ssidLength > 32 || (ssidLength && !ssid))
@@ -438,9 +469,17 @@ namespace simpleath
                                              uint16_t sequence, uint8_t *output,
                                              size_t capacity, size_t &written)
         {
-            written = 0;
             if (!output)
+            {
+                written = 0;
                 return Result::NullBuffer;
+            }
+            if (aliasesSerializedInput(output, capacity, written, &station,
+                                       sizeof(station)) ||
+                aliasesSerializedInput(output, capacity, written, &bssid,
+                                       sizeof(bssid)))
+                return Result::OverlappingBuffers;
+            written = 0;
             if (!validStationMac(station) || !validStationMac(bssid))
                 return Result::InvalidAddress;
             constexpr size_t needed =
@@ -466,9 +505,17 @@ namespace simpleath
                                       uint16_t sequence, uint8_t *output,
                                       size_t capacity, size_t &written)
         {
-            written = 0;
             if (!output)
+            {
+                written = 0;
                 return Result::NullBuffer;
+            }
+            if (aliasesSerializedInput(output, capacity, written, &station,
+                                       sizeof(station)) ||
+                aliasesSerializedInput(output, capacity, written, &network,
+                                       sizeof(network)))
+                return Result::OverlappingBuffers;
+            written = 0;
             if (!validStationMac(station) || !validStationMac(network.bssid))
                 return Result::InvalidAddress;
             if (network.ssidLength == 0 || network.ssidLength > 32 ||
