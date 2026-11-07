@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "0000000000000000000000D3"
-               BuildableName = "bcmprobe"
-               BlueprintName = "bcmprobe"
+               BuildableName = "athprobe"
+               BlueprintName = "athprobe"
                ReferencedContainer = "container:SimpleATH.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>

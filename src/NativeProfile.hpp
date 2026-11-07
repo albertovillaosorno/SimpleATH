@@ -13,7 +13,7 @@
 #include <stddef.h>
 #include "Payload.hpp"
 
-namespace bcm {
+namespace ath {
 
 enum class SkyAPI : uint32_t {
     EthernetConstructor, EthernetDestructor, EthernetInit, EthernetFree, EthernetTable, PacketTable, PoolTable,
@@ -165,9 +165,9 @@ extern const uint32_t skyPoolVtable;
 extern const uint32_t skyPacketVtable;
 extern const SkyEntry skyPacketSubclassEntries[];
 extern const uint32_t skyPacketSubclassSlotCount;
-extern "C" const uintptr_t bcmSkyForwarders[];
-extern "C" const uintptr_t bcmSkyCallbacks[];
-extern "C" const uintptr_t bcmCompatibilityImports[];
+extern "C" const uintptr_t athSkyForwarders[];
+extern "C" const uintptr_t athSkyCallbacks[];
+extern "C" const uintptr_t athCompatibilityImports[];
 extern const uint32_t compatibilityImportCount;
 extern const char *const compatibilityImportNames[];
 

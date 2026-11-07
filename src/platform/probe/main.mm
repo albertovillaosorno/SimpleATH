@@ -1,6 +1,6 @@
 //
 //  main.mm
-//  bcmprobe
+//  athprobe
 //
 //  Created by laobamac on 2026/9/29.
 //  Copyright © 2026 laobamac. All rights reserved.
@@ -17,7 +17,7 @@ int main(int argc, const char *argv[]) {
     @autoreleasepool {
         const bool scan = argc == 2 && strcmp(argv[1], "--scan") == 0;
         if (argc > 1 && !scan) {
-            fprintf(stderr, "usage: bcmprobe [--scan]\n");
+            fprintf(stderr, "usage: athprobe [--scan]\n");
             return 2;
         }
         NSMutableDictionary *report = [NSMutableDictionary dictionary];
@@ -85,8 +85,8 @@ int main(int argc, const char *argv[]) {
             }];
         }
         report[@"systemInterfaces"] = systemInterfaces;
-        auto store = SCDynamicStoreCreate(kCFAllocatorDefault, CFSTR("bcmprobe"), nullptr, nullptr);
-        auto preferences = SCPreferencesCreate(kCFAllocatorDefault, CFSTR("bcmprobe"), nullptr);
+        auto store = SCDynamicStoreCreate(kCFAllocatorDefault, CFSTR("athprobe"), nullptr, nullptr);
+        auto preferences = SCPreferencesCreate(kCFAllocatorDefault, CFSTR("athprobe"), nullptr);
         NSMutableArray *services = [NSMutableArray array];
         NSArray *serviceList = preferences ? CFBridgingRelease(SCNetworkServiceCopyAll(preferences)) : nil;
         for (id item in serviceList) {

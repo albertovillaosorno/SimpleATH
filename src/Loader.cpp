@@ -24,15 +24,15 @@ extern "C" uintptr_t vm_kernel_slide;
 extern "C" uintptr_t PE_get_kc_slide(int);
 extern "C" void *kext_get_vm_map(kmod_info_t *);
 extern "C" kern_return_t vm_map_wire(void *, uintptr_t, uintptr_t, vm_prot_t, boolean_t);
-extern "C" OSObject *bcmLookupKext(const char *) asm("__ZN6OSKext24lookupKextWithIdentifierEPKc");
-extern "C" OSObject *bcmRegisterKext(OSDictionary *, bool, int) asm("__ZN6OSKext21withPrelinkedInfoDictEP12OSDictionaryb7kc_kind");
-extern "C" OSReturn bcmProtectKext(OSObject *, bool, bool) asm("__ZN6OSKext15setVMAttributesEbb");
-extern "C" OSReturn bcmValidateKextMapping(OSObject *, bool) asm("__ZN6OSKext19validateKextMappingEb");
-extern "C" bool bcmSetAutounloadEnabled(OSObject *, bool) asm("__ZN6OSKext20setAutounloadEnabledEb");
-extern "C" OSReturn bcmLoadKext(const char *, bool, bool, uint8_t, uint8_t, OSArray *)
+extern "C" OSObject *athLookupKext(const char *) asm("__ZN6OSKext24lookupKextWithIdentifierEPKc");
+extern "C" OSObject *athRegisterKext(OSDictionary *, bool, int) asm("__ZN6OSKext21withPrelinkedInfoDictEP12OSDictionaryb7kc_kind");
+extern "C" OSReturn athProtectKext(OSObject *, bool, bool) asm("__ZN6OSKext15setVMAttributesEbb");
+extern "C" OSReturn athValidateKextMapping(OSObject *, bool) asm("__ZN6OSKext19validateKextMappingEb");
+extern "C" bool athSetAutounloadEnabled(OSObject *, bool) asm("__ZN6OSKext20setAutounloadEnabledEb");
+extern "C" OSReturn athLoadKext(const char *, bool, bool, uint8_t, uint8_t, OSArray *)
     asm("__ZN6OSKext22loadKextWithIdentifierEPKcbbhhP7OSArray");
 
-namespace bcm {
+namespace ath {
 
 static constexpr int KCKindUnknown = 0;
 static LinkedImage images[2];
@@ -122,13 +122,13 @@ static bool registerImage(uint32_t index) {
         command = reinterpret_cast<load_command *>(reinterpret_cast<uint8_t *>(command) + command->cmdsize);
     }
     image.registered = true;
-    modules[index] = bcmRegisterKext(dictionary, true, KCKindUnknown);
+    modules[index] = athRegisterKext(dictionary, true, KCKindUnknown);
     dictionary->release();
     if (!modules[index])
         return false;
-    bcmSetAutounloadEnabled(modules[index], false);
+    athSetAutounloadEnabled(modules[index], false);
     image.editable = false;
-    auto result = bcmProtectKext(modules[index], true, false);
+    auto result = athProtectKext(modules[index], true, false);
     if (result != KERN_SUCCESS) {
         lastError = result;
         return false;
@@ -164,7 +164,7 @@ bool preparePayloads() {
         return fail("UnsupportedNativeWireless", "com.apple.iokit.IO80211Family");
     for (auto index : selected) {
         const auto &payload = payloads[index ? nativeSystem->airPortPayloadIndex : 0];
-        auto existing = bcmLookupKext(payload.identifier);
+        auto existing = athLookupKext(payload.identifier);
         if (existing) {
             existing->release();
             return fail("ConflictingModule", payload.identifier);
@@ -175,8 +175,8 @@ bool preparePayloads() {
         if (guard.parent >= nativeImportCount || guard.method >= nativeImportCount)
             return fail("InvalidVtableGuard", "SimpleATH", i);
         uintptr_t method;
-        memcpy(&method, reinterpret_cast<void *>(bcmNativeImports[guard.parent] + guard.offset), sizeof(method));
-        if (method != bcmNativeImports[guard.method])
+        memcpy(&method, reinterpret_cast<void *>(athNativeImports[guard.parent] + guard.offset), sizeof(method));
+        if (method != athNativeImports[guard.method])
             return fail("NativeVtableMismatch", nativeImportNames[guard.parent], guard.offset);
     }
     status = "Mapping";
@@ -195,8 +195,8 @@ bool preparePayloads() {
     }
     status = "Linking";
     for (auto index : selected) {
-        if (!relocateImage(images[index], images, 2, bcmNativeImports, nativeImportCount,
-                           bcmCompatibilityImports, compatibilityImportCount))
+        if (!relocateImage(images[index], images, 2, athNativeImports, nativeImportCount,
+                           athCompatibilityImports, compatibilityImportCount))
             return fail("LinkFailed", images[index].payload->identifier);
     }
     Bridge::initialize();
@@ -223,27 +223,27 @@ bool startPayloads() {
         return false;
     status = "Loading";
     for (auto index : selected) {
-        auto result = bcmLoadKext(images[index].payload->identifier, false, true, 2, 2, nullptr);
+        auto result = athLoadKext(images[index].payload->identifier, false, true, 2, 2, nullptr);
         if (result != KERN_SUCCESS)
             return fail("LoadFailed", images[index].payload->identifier, result);
         ++loadedCount;
     }
     status = "ValidatingMappings";
     for (auto index : selected) {
-        auto result = bcmValidateKextMapping(modules[index], true);
+        auto result = athValidateKextMapping(modules[index], true);
         if (result != KERN_SUCCESS)
             return fail("MappingValidationFailed", images[index].payload->identifier, result);
         ++validatedCount;
     }
     status = "Starting";
     for (auto index : selected) {
-        auto result = bcmLoadKext(images[index].payload->identifier, false, true, 0, 2, nullptr);
+        auto result = athLoadKext(images[index].payload->identifier, false, true, 0, 2, nullptr);
         if (result != KERN_SUCCESS)
             return fail("StartFailed", images[index].payload->identifier, result);
     }
     status = "Matching";
     for (auto index : selected) {
-        auto result = bcmLoadKext(images[index].payload->identifier, false, true, 0, 0, nullptr);
+        auto result = athLoadKext(images[index].payload->identifier, false, true, 0, 0, nullptr);
         if (result != KERN_SUCCESS)
             return fail("MatchingFailed", images[index].payload->identifier, result);
         gIOCatalogue->moduleHasLoaded(images[index].payload->identifier);

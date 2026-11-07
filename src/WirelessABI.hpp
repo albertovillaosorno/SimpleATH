@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace bcm {
+namespace ath {
 
 constexpr uint32_t GetCommand = 0xC02869C9;
 constexpr uint32_t SetCommand = 0x802869C8;

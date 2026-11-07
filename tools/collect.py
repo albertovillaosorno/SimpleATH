@@ -30,7 +30,7 @@ def capture(command):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path.cwd() / ("SimpleATH-diagnostics-" + datetime.now().strftime("%Y%m%d-%H%M%S")))
-    parser.add_argument("--interface", action="append", help="Wireless BSD interface; defaults to bcmprobe discovery")
+    parser.add_argument("--interface", action="append", help="Wireless BSD interface; defaults to athprobe discovery")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     commands = [
@@ -38,8 +38,8 @@ def main():
         ["sysctl", "-n", "kern.osversion", "kern.osrelease"],
         ["ioreg", "-r", "-c", "SimpleATH", "-l"],
         ["ioreg", "-r", "-c", "IO80211APIUserClient", "-l"],
-        ["ioreg", "-r", "-c", "BCMLegacyInterface", "-l"],
-        ["ioreg", "-r", "-c", "BCMNativeInterface", "-l"],
+        ["ioreg", "-r", "-c", "ATHLegacyInterface", "-l"],
+        ["ioreg", "-r", "-c", "ATHNativeInterface", "-l"],
         ["ioreg", "-p", "IOPower", "-r", "-c", "AirPort_BrcmNIC", "-l"],
         ["ioreg", "-p", "IOPower", "-r", "-c", "IOSkywalkNetworkBSDClient", "-l"],
         ["ioreg", "-r", "-c", "IO80211AsyncEventUserClient", "-l"],
@@ -60,8 +60,8 @@ def main():
         loaded += ["--optional-identifier", identifier]
     commands.append(loaded)
     folder = Path(__file__).resolve().parent
-    candidates = [folder / "bcmprobe", folder.parent / "bcmprobe"]
-    candidates += [folder.parent / "build/DerivedData/Build/Products" / configuration / "bcmprobe"
+    candidates = [folder / "athprobe", folder.parent / "athprobe"]
+    candidates += [folder.parent / "build/DerivedData/Build/Products" / configuration / "athprobe"
                    for configuration in ("Release", "Debug")]
     probe = next((path for path in candidates if path.is_file()), None)
     results = []

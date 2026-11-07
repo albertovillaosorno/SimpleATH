@@ -37,7 +37,7 @@ def prerelease_body(repository, commits):
 def release_body():
     # Historical upstream Broadcom release template, retained for reference.
     # The current SimpleATH bootstrap does not implement a Wi-Fi backend.
-    return """The original SimpleBCM architecture supports macOS Sonoma, Sequoia, and Tahoe
+    return """The original SimpleATH architecture supports macOS Sonoma, Sequoia, and Tahoe
     with native Skywalk using OpenCore injection, without modifying the system volume.
 
 - The original Broadcom implementation embeds a Legacy payload and two AirPort

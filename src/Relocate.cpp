@@ -9,7 +9,7 @@
 #include "Payload.hpp"
 #include <string.h>
 
-namespace bcm {
+namespace ath {
 
 uint64_t payloadChecksum(const uint8_t *bytes, size_t length) {
     uint64_t value = 14695981039346656037ULL;

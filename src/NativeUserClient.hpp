@@ -11,7 +11,7 @@
 
 #include <IOKit/IOUserClient.h>
 
-namespace bcm {
+namespace ath {
 
 bool prepareNativeUserClients();
 IOReturn wrapNativeUserClient(IOReturn, task_t, void *, uint32_t,

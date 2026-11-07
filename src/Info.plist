@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(MODULE_VERSION)</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>Copyright (c) 2026 Alberto Villa Osorno; SimpleBCM attribution in third-party notices.</string>
+	<string>Copyright (c) 2026 Alberto Villa Osorno; third-party source attributions in THIRD_PARTY_NOTICES.md.</string>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>SimpleATH</key>

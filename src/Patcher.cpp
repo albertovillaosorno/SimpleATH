@@ -11,12 +11,12 @@
 
 uintptr_t KernelPatcher::branchTarget(uintptr_t target, uintptr_t pc) {
     auto delta = static_cast<int64_t>(target - pc);
-    return delta >= INT32_MIN && delta <= INT32_MAX ? target : bcm::allocateStub(image, target);
+    return delta >= INT32_MIN && delta <= INT32_MAX ? target : ath::allocateStub(image, target);
 }
 
 uintptr_t KernelPatcher::solveSymbol(size_t index, const char *name) {
     if (index != KernelID)
-        return bcm::findSymbol(image, name);
+        return ath::findSymbol(image, name);
     if (!strcmp(name, "_copyin"))
         return reinterpret_cast<uintptr_t>(copyin);
     if (!strcmp(name, "_copyout"))
@@ -28,7 +28,7 @@ bool KernelPatcher::routeMultipleLong(size_t, RouteRequest *routes, size_t count
     if (!image.editable)
         return false;
     for (size_t i = 0; i < count; ++i) {
-        auto address = bcm::findSymbol(image, routes[i].name);
+        auto address = ath::findSymbol(image, routes[i].name);
         uint32_t prefix = 0;
         for (uint32_t j = 0; j < image.payload->routeCount; ++j) {
             const auto &r = image.payload->routes[j];

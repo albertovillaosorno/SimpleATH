@@ -60,7 +60,7 @@ static uint32_t randomValue() {
 }
 
 template<bool Sequoia> static void joinStatusVectors() {
-    constexpr auto abi = Sequoia ? bcm::SequoiaABI : bcm::TahoeABI;
+    constexpr auto abi = Sequoia ? ath::SequoiaABI : ath::TahoeABI;
     const uint8_t bssid[] = {2, 4, 6, 8, 10, 12};
     for (uint32_t status : {0U, 17U, 65535U}) {
         for (uint32_t result : {0U, 1U, 2U, 9U}) {
@@ -68,16 +68,16 @@ template<bool Sequoia> static void joinStatusVectors() {
             memset(arena, 0xA5, sizeof(arena));
             auto output = arena + 8;
             const auto addressLength = result == 1 ? sizeof(bssid) : 0;
-            assert(!bcm::encodeJoinStatus(status, result, bssid, addressLength, output, abi.joinStatusSize - 1, abi));
+            assert(!ath::encodeJoinStatus(status, result, bssid, addressLength, output, abi.joinStatusSize - 1, abi));
             for (auto byte : arena)
                 assert(byte == 0xA5);
-            assert(bcm::encodeJoinStatus(status, result, bssid, addressLength, output, abi.joinStatusSize, abi));
+            assert(ath::encodeJoinStatus(status, result, bssid, addressLength, output, abi.joinStatusSize, abi));
             uint8_t expected[abi.joinStatusSize] {};
-            bcm::writeUInt32(expected + (Sequoia ? 8 : 0x1B8), status);
-            bcm::writeUInt32(expected + (Sequoia ? 12 : 0x1BC), status);
+            ath::writeUInt32(expected + (Sequoia ? 8 : 0x1B8), status);
+            ath::writeUInt32(expected + (Sequoia ? 12 : 0x1BC), status);
             if (!Sequoia) {
-                bcm::writeUInt32(expected + 0x1C4, result);
-                bcm::writeUInt32(expected + 0x1C8, 1);
+                ath::writeUInt32(expected + 0x1C4, result);
+                ath::writeUInt32(expected + 0x1C8, 1);
             }
             if (addressLength)
                 memcpy(expected + (Sequoia ? 0 : 0x1CC), bssid, sizeof(bssid));
@@ -89,32 +89,32 @@ template<bool Sequoia> static void joinStatusVectors() {
     }
     uint8_t output[abi.joinStatusSize];
     memset(output, 0xA5, sizeof(output));
-    assert(!bcm::encodeJoinStatus(0, 1, nullptr, 6, output, sizeof(output), abi));
-    assert(!bcm::encodeJoinStatus(0, 1, bssid, 5, output, sizeof(output), abi));
-    assert(!bcm::encodeJoinStatus(0, 1, bssid, 6, nullptr, sizeof(output), abi));
+    assert(!ath::encodeJoinStatus(0, 1, nullptr, 6, output, sizeof(output), abi));
+    assert(!ath::encodeJoinStatus(0, 1, bssid, 5, output, sizeof(output), abi));
+    assert(!ath::encodeJoinStatus(0, 1, bssid, 6, nullptr, sizeof(output), abi));
     for (auto byte : output)
         assert(byte == 0xA5);
 }
 
 template<unsigned Kernel> static void powerAvailabilityVectors() {
-    constexpr auto abi = Kernel == 23 ? bcm::SonomaABI : Kernel == 24 ? bcm::SequoiaABI : bcm::TahoeABI;
+    constexpr auto abi = Kernel == 23 ? ath::SonomaABI : Kernel == 24 ? ath::SequoiaABI : ath::TahoeABI;
     for (uint32_t radios = 1; radios <= 4; ++radios) {
         for (uint32_t mask = 0; mask < (1U << radios); ++mask) {
-            uint8_t power[bcm::PowerDataSize] {};
-            bcm::writeUInt32(power, 1);
-            bcm::writeUInt32(power + 4, radios);
+            uint8_t power[ath::PowerDataSize] {};
+            ath::writeUInt32(power, 1);
+            ath::writeUInt32(power + 4, radios);
             for (size_t index = 0; index < radios; ++index)
-                bcm::writeUInt32(power + 8 + 4 * index, (mask >> index) & 1);
+                ath::writeUInt32(power + 8 + 4 * index, (mask >> index) & 1);
             const std::vector<uint8_t> source(power, power + sizeof(power));
             uint8_t arena[abi.driverAvailableSize + 16];
             memset(arena, 0xA5, sizeof(arena));
             auto output = arena + 8;
-            assert(!bcm::encodePowerAvailability(power, sizeof(power), output, abi.driverAvailableSize - 1, abi));
+            assert(!ath::encodePowerAvailability(power, sizeof(power), output, abi.driverAvailableSize - 1, abi));
             for (auto byte : arena)
                 assert(byte == 0xA5);
-            assert(bcm::encodePowerAvailability(power, sizeof(power), output, abi.driverAvailableSize, abi));
-            assert(bcm::readUInt32(output + 8) == (mask ? 1 : 0));
-            assert(bcm::readUInt32(output + 0x10) == bcm::PowerStateAvailabilityReason);
+            assert(ath::encodePowerAvailability(power, sizeof(power), output, abi.driverAvailableSize, abi));
+            assert(ath::readUInt32(output + 8) == (mask ? 1 : 0));
+            assert(ath::readUInt32(output + 0x10) == ath::PowerStateAvailabilityReason);
             for (size_t index = 0; index < abi.driverAvailableSize; ++index)
                 if (!(index >= 8 && index < 12) && !(index >= 0x10 && index < 0x14))
                     assert(output[index] == 0);
@@ -123,47 +123,47 @@ template<unsigned Kernel> static void powerAvailabilityVectors() {
             assert(!memcmp(power, source.data(), sizeof(power)));
         }
     }
-    uint8_t power[bcm::PowerDataSize] {};
+    uint8_t power[ath::PowerDataSize] {};
     uint8_t output[abi.driverAvailableSize];
     memset(output, 0xA5, sizeof(output));
-    assert(!bcm::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
-    bcm::writeUInt32(power, 1);
+    assert(!ath::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
+    ath::writeUInt32(power, 1);
     for (uint32_t radios : {0U, 5U}) {
-        bcm::writeUInt32(power + 4, radios);
-        assert(!bcm::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
+        ath::writeUInt32(power + 4, radios);
+        assert(!ath::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
     }
-    bcm::writeUInt32(power + 4, 1);
-    bcm::writeUInt32(power + 8, 2);
-    assert(!bcm::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
-    bcm::writeUInt32(power + 8, 1);
-    assert(!bcm::encodePowerAvailability(power, sizeof(power) - 1, output, sizeof(output), abi));
-    assert(!bcm::encodePowerAvailability(power, sizeof(power) + 1, output, sizeof(output), abi));
-    assert(!bcm::encodePowerAvailability(nullptr, sizeof(power), output, sizeof(output), abi));
-    assert(!bcm::encodePowerAvailability(power, sizeof(power), nullptr, sizeof(output), abi));
+    ath::writeUInt32(power + 4, 1);
+    ath::writeUInt32(power + 8, 2);
+    assert(!ath::encodePowerAvailability(power, sizeof(power), output, sizeof(output), abi));
+    ath::writeUInt32(power + 8, 1);
+    assert(!ath::encodePowerAvailability(power, sizeof(power) - 1, output, sizeof(output), abi));
+    assert(!ath::encodePowerAvailability(power, sizeof(power) + 1, output, sizeof(output), abi));
+    assert(!ath::encodePowerAvailability(nullptr, sizeof(power), output, sizeof(output), abi));
+    assert(!ath::encodePowerAvailability(power, sizeof(power), nullptr, sizeof(output), abi));
     for (auto byte : output)
         assert(byte == 0xA5);
 }
 
 template<unsigned Kernel> static void availabilityVectors() {
-    constexpr auto abi = Kernel == 23 ? bcm::SonomaABI : Kernel == 24 ? bcm::SequoiaABI : bcm::TahoeABI;
-    for (size_t length : {size_t(0), size_t(1), bcm::LegacyDriverAvailableSize - 1,
-                         bcm::LegacyDriverAvailableSize, bcm::LegacyDriverAvailableSize + 1,
-                         abi.driverAvailableSize, bcm::MaximumEventPayload}) {
-        for (uint32_t event : {9U, 37U, bcm::DriverAvailableEvent}) {
+    constexpr auto abi = Kernel == 23 ? ath::SonomaABI : Kernel == 24 ? ath::SequoiaABI : ath::TahoeABI;
+    for (size_t length : {size_t(0), size_t(1), ath::LegacyDriverAvailableSize - 1,
+                         ath::LegacyDriverAvailableSize, ath::LegacyDriverAvailableSize + 1,
+                         abi.driverAvailableSize, ath::MaximumEventPayload}) {
+        for (uint32_t event : {9U, 37U, ath::DriverAvailableEvent}) {
             std::vector<uint8_t> source(length);
             for (auto &byte : source)
                 byte = static_cast<uint8_t>(randomValue());
             auto original = source;
             const auto expected = event == 0x37 && length == 0xB8 ? abi.driverAvailableSize : length;
-            assert(bcm::eventPayloadSize(event, length, abi) == expected);
+            assert(ath::eventPayloadSize(event, length, abi) == expected);
             std::vector<uint8_t> arena(expected + 16, 0xA5);
             auto output = arena.data() + 8;
             if (expected) {
-                assert(!bcm::copyEventPayload(event, source.data(), length, output, expected - 1, abi));
+                assert(!ath::copyEventPayload(event, source.data(), length, output, expected - 1, abi));
                 for (auto byte : arena)
                     assert(byte == 0xA5);
             }
-            assert(bcm::copyEventPayload(event, source.data(), length, output, expected, abi));
+            assert(ath::copyEventPayload(event, source.data(), length, output, expected, abi));
             if (length)
                 assert(!memcmp(output, source.data(), length));
             for (size_t index = length; index < expected; ++index)
@@ -176,9 +176,9 @@ template<unsigned Kernel> static void availabilityVectors() {
     }
     uint8_t output[abi.driverAvailableSize];
     memset(output, 0xA5, sizeof(output));
-    assert(!bcm::copyEventPayload(0x37, nullptr, 0xB8, output, sizeof(output), abi));
-    assert(!bcm::copyEventPayload(0x37, output, 0xB8, nullptr, sizeof(output), abi));
-    assert(!bcm::copyEventPayload(1, output, bcm::MaximumEventPayload + 1, output, sizeof(output), abi));
+    assert(!ath::copyEventPayload(0x37, nullptr, 0xB8, output, sizeof(output), abi));
+    assert(!ath::copyEventPayload(0x37, output, 0xB8, nullptr, sizeof(output), abi));
+    assert(!ath::copyEventPayload(1, output, ath::MaximumEventPayload + 1, output, sizeof(output), abi));
     for (auto byte : output)
         assert(byte == 0xA5);
 }
@@ -193,12 +193,12 @@ static void nativeAvailability() {
     auto getAvailable = reinterpret_cast<signed char (*)(id, SEL)>(objc_msgSend);
     auto getReason = reinterpret_cast<uint32_t (*)(id, SEL)>(objc_msgSend);
     for (uint32_t available : {0U, 1U}) {
-        uint8_t legacy[bcm::LegacyDriverAvailableSize] {};
+        uint8_t legacy[ath::LegacyDriverAvailableSize] {};
         uint32_t reason = 0x42;
         memcpy(legacy + 0x10, &reason, sizeof(reason));
         memcpy(legacy + 8, &available, sizeof(available));
-        uint8_t converted[bcm::NativeDriverAvailableSize];
-        assert(bcm::copyEventPayload(bcm::DriverAvailableEvent, legacy, sizeof(legacy), converted, sizeof(converted), bcm::TahoeABI));
+        uint8_t converted[ath::NativeDriverAvailableSize];
+        assert(ath::copyEventPayload(ath::DriverAvailableEvent, legacy, sizeof(legacy), converted, sizeof(converted), ath::TahoeABI));
         auto data = CFDataCreate(kCFAllocatorDefault, converted, sizeof(converted));
         assert(data);
         auto message = initialize(send(reinterpret_cast<id>(cls), sel_registerName("alloc")),
@@ -212,12 +212,12 @@ static void nativeAvailability() {
         ++nativeAvailabilityRecords;
     }
     for (uint32_t available : {0U, 1U}) {
-        uint8_t power[bcm::PowerDataSize] {};
-        bcm::writeUInt32(power, 1);
-        bcm::writeUInt32(power + 4, 2);
-        bcm::writeUInt32(power + 12, available);
-        uint8_t converted[bcm::NativeDriverAvailableSize];
-        assert(bcm::encodePowerAvailability(power, sizeof(power), converted, sizeof(converted), bcm::TahoeABI));
+        uint8_t power[ath::PowerDataSize] {};
+        ath::writeUInt32(power, 1);
+        ath::writeUInt32(power + 4, 2);
+        ath::writeUInt32(power + 12, available);
+        uint8_t converted[ath::NativeDriverAvailableSize];
+        assert(ath::encodePowerAvailability(power, sizeof(power), converted, sizeof(converted), ath::TahoeABI));
         auto data = CFDataCreate(kCFAllocatorDefault, converted, sizeof(converted));
         assert(data);
         auto message = initialize(send(reinterpret_cast<id>(cls), sel_registerName("alloc")),
@@ -225,7 +225,7 @@ static void nativeAvailability() {
             reinterpret_cast<id>(const_cast<void *>(static_cast<const void *>(data))));
         assert(message);
         assert(getAvailable(message, sel_registerName("available")) == available);
-        assert(getReason(message, sel_registerName("reason")) == bcm::PowerStateAvailabilityReason);
+        assert(getReason(message, sel_registerName("reason")) == ath::PowerStateAvailabilityReason);
         send(message, sel_registerName("release"));
         CFRelease(data);
         ++nativeAvailabilityRecords;
@@ -243,25 +243,25 @@ static void unhex(const char *source, uint8_t *output, size_t length) {
 }
 
 template<bool Sequoia> static void associationVectorFor(const char *nativeHex, const char *legacyHex) {
-    constexpr auto abi = Sequoia ? bcm::SequoiaABI : bcm::TahoeABI;
+    constexpr auto abi = Sequoia ? ath::SequoiaABI : ath::TahoeABI;
     uint8_t arena[abi.associateSize + 16];
     memset(arena, 0xA5, sizeof(arena));
     auto buffer = arena + 8;
-    uint8_t decoded[bcm::TahoeABI.associateSize];
+    uint8_t decoded[ath::TahoeABI.associateSize];
     unhex(nativeHex, decoded, sizeof(decoded));
     memcpy(buffer, decoded, abi.associateSize);
     uint8_t original[abi.associateSize];
     memcpy(original, buffer, sizeof(original));
-    uint8_t expected[bcm::LegacyAssociateSize];
+    uint8_t expected[ath::LegacyAssociateSize];
     unhex(legacyHex, expected, sizeof(expected));
-    bcm::Request request {};
+    ath::Request request {};
     request.length = abi.associateSize;
-    assert(!bcm::prepareAssociate(request, buffer, abi.associateSize - 1, abi));
+    assert(!ath::prepareAssociate(request, buffer, abi.associateSize - 1, abi));
     assert(!memcmp(buffer, original, sizeof(original)));
-    assert(bcm::prepareAssociate(request, buffer, abi.associateSize, abi));
-    assert(request.length == bcm::LegacyAssociateSize);
+    assert(ath::prepareAssociate(request, buffer, abi.associateSize, abi));
+    assert(request.length == ath::LegacyAssociateSize);
     assert(!memcmp(buffer, expected, sizeof(expected)));
-    for (size_t offset = bcm::LegacyAssociateSize; offset < abi.associateSize; ++offset)
+    for (size_t offset = ath::LegacyAssociateSize; offset < abi.associateSize; ++offset)
         assert(buffer[offset] == 0);
     for (size_t offset = 0; offset < 8; ++offset)
         assert(arena[offset] == 0xA5 && buffer[abi.associateSize + offset] == 0xA5);
@@ -274,7 +274,7 @@ template<bool Sequoia> static void associationVectorFor(const char *nativeHex, c
         uint8_t rejected[abi.associateSize];
         memcpy(rejected, buffer, sizeof(rejected));
         request.length = abi.associateSize;
-        assert(!bcm::prepareAssociate(request, buffer, abi.associateSize, abi));
+        assert(!ath::prepareAssociate(request, buffer, abi.associateSize, abi));
         assert(!memcmp(buffer, rejected, sizeof(rejected)));
     }
     ++associationConversions;
@@ -338,11 +338,11 @@ static void associationVectors() {
         "000000000000000000000000000000000000000000000000000000000000000000000000");
 }
 
-static void decode(uint8_t *ring, size_t capacity, bcm::EventState &state, const std::vector<uint8_t> &expected) {
+static void decode(uint8_t *ring, size_t capacity, ath::EventState &state, const std::vector<uint8_t> &expected) {
     uint32_t read = state.read;
     while (capacity - read < 48 || *reinterpret_cast<uint32_t *>(ring + read) == 0x50)
         read = (read + 4) % capacity;
-    bcm::EventHeader header;
+    ath::EventHeader header;
     memcpy(&header, ring + read, sizeof(header));
     assert(header.status == 0x57 && header.event == 1);
     assert(header.length == expected.size());
@@ -357,23 +357,23 @@ static void decode(uint8_t *ring, size_t capacity, bcm::EventState &state, const
 }
 
 template<unsigned Kernel> static void boundaries() {
-    constexpr auto abi = Kernel == 23 ? bcm::SonomaABI : Kernel == 24 ? bcm::SequoiaABI : bcm::TahoeABI;
+    constexpr auto abi = Kernel == 23 ? ath::SonomaABI : Kernel == 24 ? ath::SequoiaABI : ath::TahoeABI;
     for (uint8_t mask : {uint8_t(0), uint8_t(0x3F), uint8_t(0x40), uint8_t(0xFF)}) {
         uint8_t arena[abi.capabilitySize + 16];
         memset(arena, 0xA5, sizeof(arena));
         auto buffer = arena + 8;
-        buffer[bcm::ScanCompletionCapabilityByte] = mask;
-        uint8_t original[bcm::LegacyCapabilitySize];
+        buffer[ath::ScanCompletionCapabilityByte] = mask;
+        uint8_t original[ath::LegacyCapabilitySize];
         memcpy(original, buffer, sizeof(original));
-        bcm::Request request {};
-        request.length = bcm::LegacyCapabilitySize;
-        assert(!bcm::expandCapabilities(request, buffer, abi.capabilitySize - 1, abi, true));
-        assert(bcm::expandCapabilities(request, buffer, abi.capabilitySize, abi, true));
+        ath::Request request {};
+        request.length = ath::LegacyCapabilitySize;
+        assert(!ath::expandCapabilities(request, buffer, abi.capabilitySize - 1, abi, true));
+        assert(ath::expandCapabilities(request, buffer, abi.capabilitySize, abi, true));
         assert(request.length == abi.capabilitySize);
-        for (size_t index = 0; index < bcm::LegacyCapabilitySize; ++index)
-            assert(buffer[index] == (index == bcm::ScanCompletionCapabilityByte ?
-                   (original[index] | bcm::ScanCompletionCapabilityMask) : original[index]));
-        for (size_t index = bcm::LegacyCapabilitySize; index < abi.capabilitySize; ++index)
+        for (size_t index = 0; index < ath::LegacyCapabilitySize; ++index)
+            assert(buffer[index] == (index == ath::ScanCompletionCapabilityByte ?
+                   (original[index] | ath::ScanCompletionCapabilityMask) : original[index]));
+        for (size_t index = ath::LegacyCapabilitySize; index < abi.capabilitySize; ++index)
             assert(buffer[index] == 0);
         for (size_t index = 0; index < 8; ++index)
             assert(arena[index] == 0xA5 && buffer[abi.capabilitySize + index] == 0xA5);
@@ -383,19 +383,19 @@ template<unsigned Kernel> static void boundaries() {
         uint8_t arena[abi.scanResultSize + 16];
         memset(arena, 0xA5, sizeof(arena));
         auto buffer = arena + 8;
-        memcpy(buffer + bcm::ScanIELengthOffset, &capacity, sizeof(capacity));
-        bcm::Request request {};
+        memcpy(buffer + ath::ScanIELengthOffset, &capacity, sizeof(capacity));
+        ath::Request request {};
         request.length = abi.scanResultSize;
-        assert(!bcm::prepareScanResult(request, buffer, abi.scanResultSize - 1, abi));
-        assert(bcm::prepareScanResult(request, buffer, abi.scanResultSize, abi));
-        assert(request.length == bcm::LegacyScanResultSize);
+        assert(!ath::prepareScanResult(request, buffer, abi.scanResultSize - 1, abi));
+        assert(ath::prepareScanResult(request, buffer, abi.scanResultSize, abi));
+        assert(request.length == ath::LegacyScanResultSize);
         uint16_t limited;
-        memcpy(&limited, buffer + bcm::ScanIELengthOffset, sizeof(limited));
-        assert(limited == std::min(capacity, uint16_t(bcm::LegacyScanIECapacity)));
-        uint8_t original[bcm::LegacyScanResultSize];
+        memcpy(&limited, buffer + ath::ScanIELengthOffset, sizeof(limited));
+        assert(limited == std::min(capacity, uint16_t(ath::LegacyScanIECapacity)));
+        uint8_t original[ath::LegacyScanResultSize];
         memcpy(original, buffer, sizeof(original));
-        assert(!bcm::expandScanResult(request, buffer, abi.scanResultSize - 1, abi));
-        assert(bcm::expandScanResult(request, buffer, abi.scanResultSize, abi));
+        assert(!ath::expandScanResult(request, buffer, abi.scanResultSize - 1, abi));
+        assert(ath::expandScanResult(request, buffer, abi.scanResultSize, abi));
         assert(request.length == abi.scanResultSize);
         assert(!memcmp(original, buffer, sizeof(original)));
         for (size_t offset = sizeof(original); offset < abi.scanResultSize; ++offset)
@@ -405,19 +405,19 @@ template<unsigned Kernel> static void boundaries() {
         ++scanConversions;
     }
     for (int32_t value : {INT32_MIN, -1, 0, 1, 0x12345678, INT32_MAX}) {
-        bcm::Request request {};
+        ath::Request request {};
         request.value = value;
         request.length = 32;
         uint8_t bytes[8];
         memset(bytes, 0xA5, sizeof(bytes));
-        assert(bcm::encodeScalarResult(request, bytes, sizeof(bytes)));
+        assert(ath::encodeScalarResult(request, bytes, sizeof(bytes)));
         int32_t decoded;
         memcpy(&decoded, bytes, sizeof(decoded));
         assert(decoded == value && request.length == 4);
         for (size_t i = 4; i < sizeof(bytes); ++i)
             assert(bytes[i] == 0xA5);
         request.length = 3;
-        assert(!bcm::encodeScalarResult(request, bytes, sizeof(bytes)));
+        assert(!ath::encodeScalarResult(request, bytes, sizeof(bytes)));
     }
     alignas(8) uint8_t arena[0x4000 + 16];
     auto ring = arena + 8;
@@ -425,17 +425,17 @@ template<unsigned Kernel> static void boundaries() {
         for (uint32_t offset = 0; offset < capacity; offset += 4) {
             for (size_t length : {size_t(0), size_t(1), size_t(3), size_t(4), size_t(37), size_t(1023), size_t(4080)}) {
                 memset(arena, 0xA5, sizeof(arena));
-                bcm::EventState state {offset, offset, 0};
+                ath::EventState state {offset, offset, 0};
                 uint32_t write = offset;
                 uint16_t sequence = 65535;
                 std::vector<uint8_t> payload(length);
                 for (size_t i = 0; i < length; ++i)
                     payload[i] = static_cast<uint8_t>(i * 7);
-                auto result = bcm::EventRing::append(ring, capacity, &state, write, sequence, "en0", 1,
+                auto result = ath::EventRing::append(ring, capacity, &state, write, sequence, "en0", 1,
                                                     payload.data(), payload.size(), 123, 456);
                 if (48 + length + 3 >= capacity) {
-                    assert(result == bcm::RingResult::Full);
-                } else if (result == bcm::RingResult::Written) {
+                    assert(result == ath::RingResult::Full);
+                } else if (result == ath::RingResult::Written) {
                     decode(ring, capacity, state, payload);
                     assert(sequence == 0);
                 } else {
@@ -448,15 +448,15 @@ template<unsigned Kernel> static void boundaries() {
             }
         }
     }
-    bcm::EventState state {};
+    ath::EventState state {};
     uint32_t write = 0;
     uint16_t sequence = 0;
     const auto before = state;
-    assert(bcm::EventRing::append(ring, 16384, &state, write, sequence, "en0", 1, nullptr, 4097, 0, 0) == bcm::RingResult::Invalid);
+    assert(ath::EventRing::append(ring, 16384, &state, write, sequence, "en0", 1, nullptr, 4097, 0, 0) == ath::RingResult::Invalid);
     assert(memcmp(&state, &before, sizeof(state)) == 0);
     state.read = 3;
-    assert(bcm::EventRing::append(ring, 16384, &state, write, sequence, "en0", 1, nullptr, 0, 0, 0) == bcm::RingResult::Invalid);
-    bcm::EventFilter filter {};
+    assert(ath::EventRing::append(ring, 16384, &state, write, sequence, "en0", 1, nullptr, 0, 0, 0) == ath::RingResult::Invalid);
+    ath::EventFilter filter {};
     assert(!filter.accepts(1) && !filter.accepts(248) && !filter.accepts(249));
     filter.bitmap[0] = 1;
     filter.bitmap[30] = 0x80;
@@ -465,7 +465,7 @@ template<unsigned Kernel> static void boundaries() {
 
 static void concurrent() {
     alignas(8) uint8_t ring[0x4000] {};
-    bcm::EventState state {};
+    ath::EventState state {};
     constexpr uint32_t total = 100000;
     std::thread producer([&] {
         uint32_t write = 0;
@@ -474,10 +474,10 @@ static void concurrent() {
             const size_t length = randomValue() % 1024;
             std::vector<uint8_t> payload(length, static_cast<uint8_t>(n));
             for (;;) {
-                auto result = bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence,
+                auto result = ath::EventRing::append(ring, sizeof(ring), &state, write, sequence,
                     "en0", n + 1, payload.data(), length, length, n);
-                assert(result != bcm::RingResult::Invalid);
-                if (result == bcm::RingResult::Written)
+                assert(result != ath::RingResult::Invalid);
+                if (result == ath::RingResult::Written)
                     break;
                 std::this_thread::yield();
             }
@@ -495,7 +495,7 @@ static void concurrent() {
                 __atomic_store_n(&state.read, read, __ATOMIC_RELEASE);
                 continue;
             }
-            bcm::EventHeader header;
+            ath::EventHeader header;
             memcpy(&header, ring + read, sizeof(header));
             assert(header.status == 0x57 && header.event == n + 1);
             assert(header.seconds == header.length && header.microseconds == n);
@@ -586,7 +586,7 @@ static unsigned nativeConsumer() {
     field(context, 0x48, callback);
     memcpy(context + 4, "en0", 4);
     alignas(8) uint8_t ring[0x4000] {};
-    bcm::EventState state {};
+    ath::EventState state {};
     field(context, 0x1A0, ring + 0);
     field(context, 0x1A8, size_t(sizeof(ring)));
     field(context, 0x1B0, &state);
@@ -602,9 +602,9 @@ static unsigned nativeConsumer() {
                 payload[i] = static_cast<uint8_t>(i * 13);
             NativeResult result {payload.data(), length, 0, 1};
             field(context, 0x50, &result);
-            assert(bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0", 1,
-                                         payload.data(), length, 123, 456) == bcm::RingResult::Written);
-            consume(opaque, bcm::EventNotification, nullptr, 0);
+            assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0", 1,
+                                         payload.data(), length, 123, 456) == ath::RingResult::Written);
+            consume(opaque, ath::EventNotification, nullptr, 0);
             assert(state.read == write);
             assert(result.calls == 1);
             ++count;
@@ -621,11 +621,11 @@ static unsigned nativeConsumer() {
             uint16_t sequence = 0;
             uint32_t status = 0;
             auto payload = reinterpret_cast<const uint8_t *>(&status);
-            NativeResult result {payload, length, 0, bcm::ScanDoneEvent};
+            NativeResult result {payload, length, 0, ath::ScanDoneEvent};
             field(context, 0x50, &result);
-            assert(bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
-                   bcm::ScanDoneEvent, payload, length, 123, 456) == bcm::RingResult::Written);
-            consume(opaque, bcm::EventNotification, nullptr, 0);
+            assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
+                   ath::ScanDoneEvent, payload, length, 123, 456) == ath::RingResult::Written);
+            consume(opaque, ath::EventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             assert(dispatch_semaphore_wait(semaphore, DISPATCH_TIME_NOW) == 0);
             assert(dispatch_semaphore_wait(semaphore, DISPATCH_TIME_NOW) != 0);
@@ -636,37 +636,37 @@ static unsigned nativeConsumer() {
     dispatch_release(semaphore);
     for (uint32_t offset : {0U, 4U, 16332U, 16336U, 16380U}) {
         for (uint32_t available : {0U, 1U}) {
-            uint8_t legacy[bcm::LegacyDriverAvailableSize] {};
+            uint8_t legacy[ath::LegacyDriverAvailableSize] {};
             memcpy(legacy + 8, &available, sizeof(available));
-            uint8_t payload[bcm::NativeDriverAvailableSize];
-            assert(bcm::copyEventPayload(bcm::DriverAvailableEvent, legacy, sizeof(legacy), payload, sizeof(payload), bcm::TahoeABI));
+            uint8_t payload[ath::NativeDriverAvailableSize];
+            assert(ath::copyEventPayload(ath::DriverAvailableEvent, legacy, sizeof(legacy), payload, sizeof(payload), ath::TahoeABI));
             memset(ring, 0, sizeof(ring));
             state = {offset, offset, 0};
             uint32_t write = offset;
             uint16_t sequence = 0;
-            NativeResult result {payload, sizeof(payload), 0, bcm::DriverAvailableEvent};
+            NativeResult result {payload, sizeof(payload), 0, ath::DriverAvailableEvent};
             field(context, 0x50, &result);
-            assert(bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
-                bcm::DriverAvailableEvent, payload, sizeof(payload), 123, 456) == bcm::RingResult::Written);
-            consume(opaque, bcm::EventNotification, nullptr, 0);
+            assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
+                ath::DriverAvailableEvent, payload, sizeof(payload), 123, 456) == ath::RingResult::Written);
+            consume(opaque, ath::EventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             ++nativeAvailabilityRecords;
         }
     }
     for (uint32_t offset : {0U, 4U, 15868U, 16336U, 16380U}) {
         for (uint32_t status : {0U, 17U}) {
-            uint8_t payload[bcm::TahoeABI.joinStatusSize];
+            uint8_t payload[ath::TahoeABI.joinStatusSize];
             const uint8_t bssid[] = {2, 4, 6, 8, 10, 12};
-            assert(bcm::encodeJoinStatus(status, status ? 2 : 1, bssid, status ? 0 : 6, payload, sizeof(payload), bcm::TahoeABI));
+            assert(ath::encodeJoinStatus(status, status ? 2 : 1, bssid, status ? 0 : 6, payload, sizeof(payload), ath::TahoeABI));
             memset(ring, 0, sizeof(ring));
             state = {offset, offset, 0};
             uint32_t write = offset;
             uint16_t sequence = 0;
-            NativeResult result {payload, sizeof(payload), 0, bcm::AssociationDoneEvent};
+            NativeResult result {payload, sizeof(payload), 0, ath::AssociationDoneEvent};
             field(context, 0x50, &result);
-            assert(bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
-                bcm::AssociationDoneEvent, payload, sizeof(payload), 123, 456) == bcm::RingResult::Written);
-            consume(opaque, bcm::EventNotification, nullptr, 0);
+            assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0",
+                ath::AssociationDoneEvent, payload, sizeof(payload), 123, 456) == ath::RingResult::Written);
+            consume(opaque, ath::EventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             ++nativeJoinRecords;
         }
@@ -684,7 +684,7 @@ static unsigned nativeConsumer() {
     opaque = nullptr;
     assert(open(&opaque) == 0 && opaque);
     for (uint16_t ieLength : {uint16_t(0), uint16_t(32), uint16_t(0x400)}) {
-        uint8_t record[bcm::TahoeABI.scanResultSize] {};
+        uint8_t record[ath::TahoeABI.scanResultSize] {};
         field(record, 0, uint32_t(1));
         field(record, 4, uint32_t(1));
         field(record, 8, uint32_t(1));
@@ -696,11 +696,11 @@ static unsigned nativeConsumer() {
         record[0x21] = 1;
         record[0x60] = 3;
         memcpy(record + 0x61, "SBC", 3);
-        field(record, bcm::ScanIELengthOffset, ieLength);
-        bcm::Request request {};
-        request.length = bcm::TahoeABI.scanResultSize;
-        assert(bcm::prepareScanResult(request, record, sizeof(record), bcm::TahoeABI));
-        assert(bcm::expandScanResult(request, record, sizeof(record), bcm::TahoeABI));
+        field(record, ath::ScanIELengthOffset, ieLength);
+        ath::Request request {};
+        request.length = ath::TahoeABI.scanResultSize;
+        assert(ath::prepareScanResult(request, record, sizeof(record), ath::TahoeABI));
+        assert(ath::expandScanResult(request, record, sizeof(record), ath::TahoeABI));
         auto first = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
         auto second = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
         assert(first && second);
@@ -716,24 +716,24 @@ static unsigned nativeConsumer() {
     const char *roamVectors[] = {"01000000020000000100000080ffffffb5800abf0000000000000000030046000a0001000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
         "01000000040000000100000080ffffffb5800abf0000000000000000030046000a0001000a000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"};
     for (auto vector : roamVectors) {
-        uint8_t legacy[bcm::LegacyRoamBandSize];
+        uint8_t legacy[ath::LegacyRoamBandSize];
         unhex(vector, legacy, sizeof(legacy));
-        uint8_t arena[bcm::NativeRoamBandSize + 16];
+        uint8_t arena[ath::NativeRoamBandSize + 16];
         memset(arena, 0xA5, sizeof(arena));
         auto native = arena + 8;
-        bcm::Request request {};
-        request.length = bcm::LegacyRoamBandSize;
-        assert(!bcm::expandRoamBand(request, legacy, sizeof(legacy), native, bcm::NativeRoamBandSize - 1));
-        assert(bcm::expandRoamBand(request, legacy, sizeof(legacy), native, bcm::NativeRoamBandSize));
+        ath::Request request {};
+        request.length = ath::LegacyRoamBandSize;
+        assert(!ath::expandRoamBand(request, legacy, sizeof(legacy), native, ath::NativeRoamBandSize - 1));
+        assert(ath::expandRoamBand(request, legacy, sizeof(legacy), native, ath::NativeRoamBandSize));
         auto dictionary = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
         parseRoam(0, native, dictionary);
         assert(CFDictionaryGetCount(dictionary) == 3);
         CFRelease(dictionary);
-        uint8_t recovered[bcm::LegacyRoamBandSize];
-        assert(bcm::prepareRoamBand(request, recovered, sizeof(recovered), native, bcm::NativeRoamBandSize));
+        uint8_t recovered[ath::LegacyRoamBandSize];
+        assert(ath::prepareRoamBand(request, recovered, sizeof(recovered), native, ath::NativeRoamBandSize));
         assert(!memcmp(recovered, legacy, sizeof(legacy)));
         for (size_t offset = 0; offset < 8; ++offset)
-            assert(arena[offset] == 0xA5 && native[bcm::NativeRoamBandSize + offset] == 0xA5);
+            assert(arena[offset] == 0xA5 && native[ath::NativeRoamBandSize + offset] == 0xA5);
         ++nativeRoamRecords;
     }
     dlclose(library);
@@ -741,10 +741,10 @@ static unsigned nativeConsumer() {
 }
 
 static void sonomaVectors() {
-    constexpr auto abi = bcm::SonomaABI;
-    assert(bcm::userABIForKernel(23)->kernel == 23);
-    assert(abi.backend == bcm::AirPortBackend::Original && abi.selectorCount == 7);
-    assert(abi.joinEventPolicy == bcm::JoinEventPolicy::Passthrough);
+    constexpr auto abi = ath::SonomaABI;
+    assert(ath::userABIForKernel(23)->kernel == 23);
+    assert(abi.backend == ath::AirPortBackend::Original && abi.selectorCount == 7);
+    assert(abi.joinEventPolicy == ath::JoinEventPolicy::Passthrough);
     assert(abi.roamProfileSize == 0x7C && abi.scanMultipleSize == 0x14E0);
     assert(abi.scanResultSize == 0x4CC && abi.capabilitySize == 16 && abi.associateSize == 0x358);
     for (uint16_t auth : {uint16_t(0), uint16_t(1), uint16_t(8), uint16_t(0xFFFF)}) {
@@ -759,11 +759,11 @@ static void sonomaVectors() {
             buffer[0x202] = count;
             uint8_t original[sizeof(arena)];
             memcpy(original, arena, sizeof(arena));
-            bcm::Request request {};
+            ath::Request request {};
             request.length = 0x358;
-            assert(!bcm::prepareAssociate(request, buffer, 0x357, abi));
+            assert(!ath::prepareAssociate(request, buffer, 0x357, abi));
             assert(request.length == 0x358 && !memcmp(arena, original, sizeof(arena)));
-            assert(bcm::prepareAssociate(request, buffer, 0x358, abi) == (count <= 3));
+            assert(ath::prepareAssociate(request, buffer, 0x358, abi) == (count <= 3));
             assert(request.length == (count <= 3 ? 0x224U : 0x358U));
             assert(!memcmp(arena, original, sizeof(arena)));
             if (count <= 3)
@@ -772,66 +772,66 @@ static void sonomaVectors() {
     }
     uint8_t join[0x98];
     memset(join, 0xA5, sizeof(join));
-    assert(!bcm::encodeJoinStatus(0, 1, nullptr, 0, join, sizeof(join), abi));
+    assert(!ath::encodeJoinStatus(0, 1, nullptr, 0, join, sizeof(join), abi));
     for (auto byte : join)
         assert(byte == 0xA5);
-    assert(bcm::copyEventPayload(9, nullptr, 0, nullptr, 0, abi));
-    assert(bcm::eventPayloadSize(9, 0, abi) == 0);
+    assert(ath::copyEventPayload(9, nullptr, 0, nullptr, 0, abi));
+    assert(ath::eventPayloadSize(9, 0, abi) == 0);
     alignas(8) uint8_t ring[4096] {};
-    bcm::EventState state {};
+    ath::EventState state {};
     uint32_t write = 0;
     uint16_t sequence = 0;
-    assert(bcm::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0", 9,
-                                 nullptr, 0, 1, 2) == bcm::RingResult::Written);
-    const auto header = reinterpret_cast<const bcm::EventHeader *>(ring);
+    assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence, "en0", 9,
+                                 nullptr, 0, 1, 2) == ath::RingResult::Written);
+    const auto header = reinterpret_cast<const ath::EventHeader *>(ring);
     assert(header->event == 9 && header->length == 0 && header->status == 0x57 && write == 0x30);
 }
 
 static void scanMultipleVectors() {
-    for (const auto &abi : {bcm::SonomaABI, bcm::SequoiaABI, bcm::TahoeABI}) {
+    for (const auto &abi : {ath::SonomaABI, ath::SequoiaABI, ath::TahoeABI}) {
         for (unsigned mutation = 0; mutation < 6; ++mutation) {
             std::vector<uint8_t> arena(abi.scanMultipleSize + 16, 0xA5);
             auto buffer = arena.data() + 8;
             memset(buffer, 0, abi.scanMultipleSize);
-            bcm::writeUInt32(buffer, mutation == 1 ? 2 : 1);
-            bcm::writeUInt32(buffer + 8, mutation == 2 ? 11 : 10);
-            bcm::writeUInt32(buffer + 0x19C, mutation == 3 ? 17 : 16);
-            bcm::writeUInt32(buffer + 0x210, mutation == 4 ? 401 : 400);
+            ath::writeUInt32(buffer, mutation == 1 ? 2 : 1);
+            ath::writeUInt32(buffer + 8, mutation == 2 ? 11 : 10);
+            ath::writeUInt32(buffer + 0x19C, mutation == 3 ? 17 : 16);
+            ath::writeUInt32(buffer + 0x210, mutation == 4 ? 401 : 400);
             for (size_t index = 0; index < 10; ++index)
-                bcm::writeUInt32(buffer + 0x10 + index * 0x28, mutation == 5 ? 33 : 32);
+                ath::writeUInt32(buffer + 0x10 + index * 0x28, mutation == 5 ? 33 : 32);
             auto original = arena;
-            bcm::Request request {};
+            ath::Request request {};
             request.length = static_cast<uint32_t>(abi.scanMultipleSize);
-            assert(!bcm::prepareScanMultiple(request, buffer, abi.scanMultipleSize - 1, abi));
+            assert(!ath::prepareScanMultiple(request, buffer, abi.scanMultipleSize - 1, abi));
             assert(arena == original && request.length == abi.scanMultipleSize);
-            assert(bcm::prepareScanMultiple(request, buffer, abi.scanMultipleSize, abi) == (mutation == 0));
+            assert(ath::prepareScanMultiple(request, buffer, abi.scanMultipleSize, abi) == (mutation == 0));
             assert(arena == original);
             assert(request.length == (mutation ? abi.scanMultipleSize : 0x14E0));
             request.length = static_cast<uint32_t>(abi.scanMultipleSize - 1);
-            assert(!bcm::prepareScanMultiple(request, buffer, abi.scanMultipleSize, abi));
+            assert(!ath::prepareScanMultiple(request, buffer, abi.scanMultipleSize, abi));
             assert(arena == original);
         }
     }
 }
 
 static void profileBoundaries() {
-    assert(!bcm::userABIForKernel(22) && !bcm::userABIForKernel(26));
-    assert(bcm::userABIForKernel(24)->kernel == 24 && bcm::userABIForKernel(25)->kernel == 25);
-    assert(bcm::SequoiaABI.filterMonitorEvents == 0 && bcm::TahoeABI.filterMonitorEvents == 564);
-    for (const auto &abi : {bcm::SonomaABI, bcm::SequoiaABI, bcm::TahoeABI}) {
+    assert(!ath::userABIForKernel(22) && !ath::userABIForKernel(26));
+    assert(ath::userABIForKernel(24)->kernel == 24 && ath::userABIForKernel(25)->kernel == 25);
+    assert(ath::SequoiaABI.filterMonitorEvents == 0 && ath::TahoeABI.filterMonitorEvents == 564);
+    for (const auto &abi : {ath::SonomaABI, ath::SequoiaABI, ath::TahoeABI}) {
         std::vector<uint8_t> buffer(abi.scanResultSize + 8, 0xA5);
-        bcm::Request request {};
+        ath::Request request {};
         request.length = static_cast<uint32_t>(abi.kernel == 24 ? 0x8E0 : 0x8D8);
-        assert(!bcm::prepareScanResult(request, buffer.data(), buffer.size(), abi));
+        assert(!ath::prepareScanResult(request, buffer.data(), buffer.size(), abi));
         request.length = static_cast<uint32_t>(abi.kernel == 24 ? 0x38C : 0x384);
-        assert(!bcm::prepareAssociate(request, buffer.data(), buffer.size(), abi));
+        assert(!ath::prepareAssociate(request, buffer.data(), buffer.size(), abi));
         for (auto byte : buffer)
             assert(byte == 0xA5);
         for (bool scanEvents : {false, true}) {
             memset(buffer.data(), 0, buffer.size());
             buffer[0] = 0x81;
-            request.length = bcm::LegacyCapabilitySize;
-            assert(bcm::expandCapabilities(request, buffer.data(), buffer.size(), abi, scanEvents));
+            request.length = ath::LegacyCapabilitySize;
+            assert(ath::expandCapabilities(request, buffer.data(), buffer.size(), abi, scanEvents));
             assert(request.length == abi.capabilitySize && buffer[0] == 0x81);
             assert(buffer[5] == (scanEvents ? 0x40 : 0));
             for (size_t i = 12; i < abi.capabilitySize; ++i)
@@ -843,22 +843,22 @@ static void profileBoundaries() {
 static void hardwareIdentityVectors() {
     const char raw[] = "vendorid: 0x14e4\ndeviceid: 0x4353\nradiorev: 0xb2056000\n"
         "chipnum: 0xa8d8\nchiprev: 0x1\nboardid: 0xe9\nboardvendor: 0x106b\n";
-    bcm::HardwareIdentity identity {};
-    assert(bcm::decodeHardwareIdentity(raw, sizeof(raw) - 1, identity));
+    ath::HardwareIdentity identity {};
+    assert(ath::decodeHardwareIdentity(raw, sizeof(raw) - 1, identity));
     assert(identity.vendor == 0x14e4 && identity.device == 0x4353 && identity.chip == 43224);
     assert(identity.board == 0xe9 && identity.boardVendor == 0x106b);
     uint32_t value = 0x12345678;
     const char overflow[] = "vendorid: 0x1000014e4";
-    assert(!bcm::hardwareValue(overflow, sizeof(overflow) - 1, "vendorid: 0x", value));
+    assert(!ath::hardwareValue(overflow, sizeof(overflow) - 1, "vendorid: 0x", value));
     assert(value == 0x12345678);
     const char invalid[] = "vendorid: 0x14g4";
-    assert(!bcm::hardwareValue(invalid, sizeof(invalid) - 1, "vendorid: 0x", value));
-    assert(!bcm::decodeHardwareIdentity(nullptr, 1, identity));
-    assert(!bcm::decodeHardwareIdentity(raw, 2049, identity));
+    assert(!ath::hardwareValue(invalid, sizeof(invalid) - 1, "vendorid: 0x", value));
+    assert(!ath::decodeHardwareIdentity(nullptr, 1, identity));
+    assert(!ath::decodeHardwareIdentity(raw, 2049, identity));
     const char prefix[] = "xvendorid: 0x14e4";
-    assert(!bcm::hardwareValue(prefix, sizeof(prefix) - 1, "vendorid: 0x", value));
+    assert(!ath::hardwareValue(prefix, sizeof(prefix) - 1, "vendorid: 0x", value));
     for (size_t length = 0; length < sizeof(raw) - 7; ++length) {
-        assert(!bcm::decodeHardwareIdentity(raw, length, identity));
+        assert(!ath::decodeHardwareIdentity(raw, length, identity));
     }
     char description[96];
     snprintf(description, sizeof(description), "AirPort Extreme (0x%X, 0x%X)", identity.vendor, identity.board);
