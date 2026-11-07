@@ -68,7 +68,10 @@ tests under root tests/. This overrides the earlier no-test instruction only
 for isolated host tests; kext compilation, CI/tags, device/RF, EFI and installs
 remain prohibited. By later owner instruction, CLI defaults enable
 offline host tests, Clang-Tidy (only with an existing compilation database)
-and JSON output; use --no-tests/--no-tidy/--no-json for explicit opt-outs.
+and JSON output. The current canonical runner requires all three on every
+invocation: --no-tests/--no-tidy/--no-json are forbidden, positional paths
+do not narrow scope, and --no-cache only forces execution rather than
+changing which checks are requested.
 
 Commit f885b1b replaced the validator only after checking a separate staging
 copy with Ruff/BasedPyright and host regressions. The installed runner's focused
@@ -94,6 +97,35 @@ Legacy runtime-check/build scripts are lint inputs, not test entrypoints to
 execute. New useful regressions belong under tests/ and run through the
 reviewed host-test mode. Recheck actual current errors before editing because
 peers may already have resolved a listed item.
+
+## Concurrent full-repository checkpoint, 2026-11-07 14:39 CST
+
+A completed default-on `python3 -B tools/validate.py` recorded `scope=repository`
+with 159 source files, 402 checks, 227 cached checks, 175 executed checks,
+340 passes, 62 failures, and zero skips. Failed checks were Clang-Tidy (51),
+BasedPyright (7) and Ruff (4). The runner included Clang-Format, Clang-Tidy,
+Ruff check/format, BasedPyright and offline host tests. Its structured evidence
+is `.cache/validate/report.json`, with only nonpassing detail rows.
+
+This is a **concurrent, not frozen release** result: other agents were actively
+editing `tools/build.py` and related tests during the full run; `tools/check.py`
+received a narrow type/runtime correction after the scan had begun. The
+mandatory cache-invalidating `--no-cache` acceptance run has NOT been
+obtained against an immutable final source tree, and all P0 acceptance boxes
+remain open. Never interpret the counts above as clean or as a guarantee that
+every source version was stable throughout the scan.
+
+Four DCO main commits from this continuation were pushed:
+`a4545e9` (complete profile catalogs), `9278ca0` (explicit type contracts
+and native guard readiness), `1cad295` (exact user-client symbol/vtable
+catalog), and `2429a59` (keyword-only fragment invocation in `check.py`).
+`tools/check.py` individually passed Ruff, Ruff format and BasedPyright after
+the fix. In the native payload source, scoped Ruff findings decreased from
+149 to 49 and BasedPyright diagnostics from 412 to 106; both checks are
+still FAIL, not exceptions or skipped checks. New isolated native profile
+guard tests pass strict Ruff, format and BasedPyright. The final concurrent
+Python host suite run observed 284 passing tests, zero skips. No kext, device,
+CI, build/publish pipeline or downloaded dependencies were executed.
 
 ## Acceptance
 
