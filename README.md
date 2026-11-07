@@ -46,6 +46,11 @@ do not exist yet. New modules are staged in the Xcode target, but no new
 binary has been built or deployed.
 
 See [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md).
+Portable 802.11 management/data/EAPOL parsing and AR9003 TX/RX descriptor
+and DMA-validation modules are also now staged in the Xcode target. They are
+**not active** on the PCI card and do not provide WPA2 or a network device;
+see [Wi-Fi MAC and DMA source status](docs/design/WIFI-MAC-AND-DMA.md).
+
 The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
 the PCI ownership contract from a verified native adapter. The
 [EEPROM port](docs/design/EEPROM-PORT.md) reconstructs blocks and interprets

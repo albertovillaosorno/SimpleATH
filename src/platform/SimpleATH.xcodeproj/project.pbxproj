@@ -29,6 +29,13 @@
 		000000000000000000000143 = {isa = PBXBuildFile; fileRef = 00000000000000000000012F; };
 		000000000000000000000160 = {isa = PBXBuildFile; fileRef = 000000000000000000000161; };
 		000000000000000000000170 = {isa = PBXBuildFile; fileRef = 000000000000000000000171; };
+		000000000000000000000790 /* Ar9003Descriptors.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A0 /* Ar9003Descriptors.cpp */; };
+		000000000000000000000791 /* Ar9003Dma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A1 /* Ar9003Dma.cpp */; };
+		000000000000000000000792 /* Frames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A2 /* Frames.cpp */; };
+		000000000000000000000793 /* ScanCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A3 /* ScanCache.cpp */; };
+		000000000000000000000794 /* Station.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A4 /* Station.cpp */; };
+		000000000000000000000795 /* Eapol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A5 /* Eapol.cpp */; };
+		000000000000000000000796 /* DataFrames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A6 /* DataFrames.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -66,6 +73,20 @@
 		000000000000000000000171 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = NativeUserClient.cpp; sourceTree = "<group>"; };
 		000000000000000000000172 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = NativeUserClient.hpp; sourceTree = "<group>"; };
 		000000000000000000000173 = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = HardwareIdentity.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A0 /* Ar9003Descriptors.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9003Descriptors.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B0 /* Ar9003Descriptors.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9003Descriptors.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A1 /* Ar9003Dma.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9003Dma.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B1 /* Ar9003Dma.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9003Dma.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A2 /* Frames.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/Frames.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B2 /* Frames.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Frames.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A3 /* ScanCache.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/ScanCache.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B3 /* ScanCache.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/ScanCache.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A4 /* Station.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/Station.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B4 /* Station.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Station.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A5 /* Eapol.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/Eapol.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B5 /* Eapol.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Eapol.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A6 /* DataFrames.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/DataFrames.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B6 /* DataFrames.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/DataFrames.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -73,6 +94,20 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+				0000000000000000000007A0 /* Ar9003Descriptors.cpp */,
+				0000000000000000000007B0 /* Ar9003Descriptors.hpp */,
+				0000000000000000000007A1 /* Ar9003Dma.cpp */,
+				0000000000000000000007B1 /* Ar9003Dma.hpp */,
+				0000000000000000000007A2 /* Frames.cpp */,
+				0000000000000000000007B2 /* Frames.hpp */,
+				0000000000000000000007A3 /* ScanCache.cpp */,
+				0000000000000000000007B3 /* ScanCache.hpp */,
+				0000000000000000000007A4 /* Station.cpp */,
+				0000000000000000000007A5 /* Eapol.cpp */,
+				0000000000000000000007B5 /* Eapol.hpp */,
+				0000000000000000000007A6 /* DataFrames.cpp */,
+				0000000000000000000007B6 /* DataFrames.hpp */,
+				0000000000000000000007B4 /* Station.hpp */,
 				000000000000000000000194 /* Ar9565Eeprom.cpp */,
 				000000000000000000000195 /* Ar9565Eeprom.hpp */,
 				000000000000000000000191 /* Ar9565PciSession.cpp */,
@@ -190,6 +225,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+				000000000000000000000790 /* Ar9003Descriptors.cpp in Sources */,
+				000000000000000000000791 /* Ar9003Dma.cpp in Sources */,
+				000000000000000000000792 /* Frames.cpp in Sources */,
+				000000000000000000000793 /* ScanCache.cpp in Sources */,
+				000000000000000000000794 /* Station.cpp in Sources */,
+				000000000000000000000795 /* Eapol.cpp in Sources */,
+				000000000000000000000796 /* DataFrames.cpp in Sources */,
 				000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */,
 				000000000000000000000190 /* Ar9565PciSession.cpp in Sources */,
                 000000000000000000000180 /* Ar9565Core.cpp in Sources */,
