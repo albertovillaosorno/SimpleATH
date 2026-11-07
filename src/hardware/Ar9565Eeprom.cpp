@@ -21,9 +21,21 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "Ar9565Eeprom.hpp"
+#include "generated/Ar9300EepromTemplates.hpp"
 
 namespace simpleath {
 namespace {
+const uint8_t *findPinnedTemplate(void *, uint8_t reference, size_t *length) {
+    if (!length) return nullptr;
+    *length = 0;
+    for (const auto &entry : eeprom_templates::kCatalog) {
+        if (entry.id == reference) {
+            *length = entry.length;
+            return entry.bytes;
+        }
+    }
+    return nullptr;
+}
 uint16_t le16(const uint8_t *p) {
     return static_cast<uint16_t>(p[0] | (static_cast<uint16_t>(p[1]) << 8));
 }
@@ -68,6 +80,10 @@ void discardEepromImage(EepromImage &image) {
     for (size_t i = 0; i < sizeof(image.bytes); ++i) image.bytes[i] = 0;
     image.restored = false;
     image.appliedBlocks = 0;
+}
+
+EepromTemplates pinnedEepromTemplates() {
+    return {nullptr, findPinnedTemplate};
 }
 
 EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
