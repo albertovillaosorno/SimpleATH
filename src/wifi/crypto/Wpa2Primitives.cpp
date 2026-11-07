@@ -404,9 +404,17 @@ namespace simpleath
                     return Error::InvalidArgument;
                 if (!validStationMac(ap) || !validStationMac(station))
                     return Error::InvalidArgument;
+                // The MAC identities are references supplied by the caller,
+                // not necessarily detached values. Even though the derivation
+                // reads them before publishing the PTK, never overwrite an AP
+                // or station identity through an aliased output buffer.
                 if (!disjoint(pmk, 32, outputPtk, kPtkLength) ||
                     !disjoint(aNonce, 32, outputPtk, kPtkLength) ||
-                    !disjoint(sNonce, 32, outputPtk, kPtkLength))
+                    !disjoint(sNonce, 32, outputPtk, kPtkLength) ||
+                    !disjoint(ap.bytes, sizeof(ap.bytes), outputPtk,
+                              kPtkLength) ||
+                    !disjoint(station.bytes, sizeof(station.bytes), outputPtk,
+                              kPtkLength))
                     return Error::InvalidArgument;
                 uint8_t ptk[kPtkLength] {};
                 uint8_t ordered[76] {};

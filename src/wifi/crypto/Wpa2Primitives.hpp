@@ -38,7 +38,8 @@ namespace simpleath
 
             // WPA2-CCMP PRF-384 over ordered MAC addresses and nonces; 48-byte
             // PTK layout = KCK(16) || KEK(16) || TK(16). Never log/serialize
-            // the output.
+            // the output. Output must not overlap either MAC identity, the PMK
+            // or either nonce.
             Error derivePtk(const uint8_t pmk[32], const Mac &ap,
                             const Mac &station, const uint8_t aNonce[32],
                             const uint8_t sNonce[32], uint8_t outputPtk[48]);
