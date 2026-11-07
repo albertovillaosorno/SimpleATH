@@ -16,10 +16,11 @@ namespace simpleath
             bool accepted(const Bss &bss)
             {
                 const Beacon &beacon = bss.beacon;
-                if (!bss.occupied || beacon.hiddenSsid ||
-                    beacon.ssidLength == 0 || beacon.ssidLength > 32 ||
-                    beacon.channel == 0 || beacon.channel > 14 ||
-                    !beacon.infrastructure || beacon.intervalTu == 0)
+                if (!bss.occupied || !validStationMac(beacon.bssid) ||
+                    beacon.hiddenSsid || beacon.ssidLength == 0 ||
+                    beacon.ssidLength > 32 || beacon.channel == 0 ||
+                    beacon.channel > 14 || !beacon.infrastructure ||
+                    beacon.intervalTu == 0)
                     return false;
                 if (beacon.rateCount > sizeof(beacon.rates) ||
                     beacon.rsnIeLength > sizeof(beacon.rsnIe))
@@ -110,9 +111,20 @@ namespace simpleath
             for (size_t i = 0; i < available; ++i)
             {
                 Bss bss {};
-                // The synchronized source cannot have changed since preflight.
+                // The native owner promises a serialized cache. If it is
+                // nevertheless inconsistent, never expose a snapshot that
+                // mixes the prior completion with partially copied new BSSes.
                 if (!cache.snapshot(i, bss))
+                {
+                    for (size_t j = 0; j < ScanCache::kCapacity; ++j)
+                        completed_[j] = {};
+                    state_.resultCount = 0;
+                    state_.nextResult = 0;
+                    state_.completedSerial = 0;
+                    state_.rejectedEntries = 0;
+                    state_.completeSnapshotAvailable = false;
                     return ScanBridgeResult::InvalidState;
+                }
                 if (!accepted(bss))
                 {
                     ++rejected;
@@ -134,6 +146,9 @@ namespace simpleath
 
         ScanBridgeResult LegacyScanBridge::next(NativeBssSnapshot &out)
         {
+            // An exhausted or invalidated iterator cannot return a stale
+            // BSS from the previous successful call.
+            out = {};
             if (!state_.completeSnapshotAvailable)
                 return state_.radioScanRunning
                            ? ScanBridgeResult::ScanInProgress

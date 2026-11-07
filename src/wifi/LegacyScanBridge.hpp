@@ -73,7 +73,7 @@ namespace simpleath
                                               uint32_t serial, bool succeeded);
                 // Reads results from last completed snapshot, including while a
                 // new scan is in progress. This avoids disappearing results in
-                // native UI.
+                // native UI. On NoResult/ScanInProgress, out is cleared.
                 ScanBridgeResult next(NativeBssSnapshot &out);
                 void rewind();
 
