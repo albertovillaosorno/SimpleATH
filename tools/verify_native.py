@@ -33,24 +33,30 @@ from native_forwarding_probe import run_probe
 
 if __package__:
     from tools.native_invariants import read_native_artifact
+    from tools.native_invariants import reconstruct_payload_image
     from tools.native_invariants import require
 else:
     from native_invariants import read_native_artifact
+    from native_invariants import reconstruct_payload_image
     from native_invariants import require
 
 
 def verify_native(temporary, binary, system="Tahoe"):
     plan = SkywalkPlan(system)
     checks = verify_model(plan.model)
-    manifest = json.loads((ROOT / "build/Embedded/manifest.json").read_text())
+    manifest = json.loads(
+        read_native_artifact(ROOT / "build/Embedded/manifest.json")
+    )
     for payload in manifest["payloads"]:
         label = payload["label"]
         image = Mach(IMAGES[label])
-        original = bytearray(payload["size"])
-        for _, address, _, fileoff, length in image.segs:
-            original[address : address + length] = image.b[
-                image.base + fileoff : image.base + fileoff + length
-            ]
+        segments = [
+            (address, fileoff, length)
+            for _, address, _, fileoff, length in image.segs
+        ]
+        original = reconstruct_payload_image(
+            payload["size"], segments, image.b, base=image.base
+        )
         original_size = len(original)
         renamed = plan.namespace_payload(label, original, image)
         require(
@@ -60,7 +66,9 @@ def verify_native(temporary, binary, system="Tahoe"):
             (renamed == payload["namespacedClassStrings"]),
             "namespaced payload integrity #02",
         )
-        generated = (ROOT / ("build/Embedded/" + label + ".bin")).read_bytes()
+        generated = read_native_artifact(
+            ROOT / "build/Embedded" / f"{label}.bin"
+        )
         for section in image.sects:
             if section[0] == "__cstring":
                 start, length = section[2:4]
@@ -83,7 +91,7 @@ def verify_native(temporary, binary, system="Tahoe"):
     checks.append(
         "All 42 shared legacy class names are isolated in both payload CString sections"
     )
-    generated_legacy = (ROOT / "build/Embedded/Legacy.bin").read_bytes()
+    generated_legacy = read_native_artifact(ROOT / "build/Embedded/Legacy.bin")
     require(
         (plan.namespace["IO80211Controller"] == "AirPortDriver"),
         "native profile and runtime guards #05",
@@ -192,14 +200,15 @@ def verify_native(temporary, binary, system="Tahoe"):
     checks.append(
         "Both controller metaclass constructors and the module initializer use AirPortDriver with unchanged storage and class size"
     )
-    generated = (
+    generated = read_native_artifact(
         ROOT
+        / "build/Embedded"
         / (
-            "build/Embedded/"
-            + ("AirPort" if plan.profile["kernel"] == 25 else "AirPortOriginal")
-            + ".bin"
+            "AirPort.bin"
+            if plan.profile["kernel"] == 25
+            else "AirPortOriginal.bin"
         )
-    ).read_bytes()
+    )
     original_power = plan.air.read(plan.power_template, 288)
     require(
         (
@@ -409,8 +418,8 @@ def verify_native(temporary, binary, system="Tahoe"):
         "Both pool metaclass constructors and the global initializer are covered"
     )
     forwarders = (
-        (ROOT / "build/Embedded/Payloads.S")
-        .read_text()
+        read_native_artifact(ROOT / "build/Embedded/Payloads.S")
+        .decode("utf-8")
         .split(".section __TEXT,__text", 1)[1]
     )
     forwarding = run_probe(Path(temporary), forwarders, len(plan.methods))

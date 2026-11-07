@@ -15,6 +15,7 @@ from unittest import mock
 from tools import native_forwarding_probe as probe
 from tools.native_invariants import MAX_NATIVE_ARTIFACT_BYTES
 from tools.native_invariants import read_native_artifact
+from tools.native_invariants import reconstruct_payload_image
 from tools.native_invariants import require
 
 if TYPE_CHECKING:
@@ -27,7 +28,12 @@ EXPECT_FORWARD0 = 'extern "C" void athSkyForward0();'
 EXPECT_CALLBACK1 = 'extern "C" void athSkyCallback1();'
 EXPECT_FORWARD_PTR = "reinterpret_cast<uintptr_t>(athSkyForward1)"
 EXPECTED_ABI_GUARDS = 52
+EXPECTED_RECONSTRUCTED_PAYLOAD = b"\x00ab\x00cd\x00"
 REQUIRE_FUNCTION = "require"
+RAW_READ_METHOD = "read_bytes"
+CHECKED_READ_FUNCTION = "read_native_artifact"
+RECONSTRUCT_FUNCTION = "reconstruct_payload_image"
+MIN_BOUNDED_READS = 5
 FAILURE_MARKER = "synthetic failed"
 GOOD_OUTPUT = (
     '{"forwardingCalls":12,"retainedReceivers":4,"releasedReceivers":4}'
@@ -192,6 +198,31 @@ class NativeAbiInvariantTests(TestCase):
         assert len(guards) == EXPECTED_ABI_GUARDS
 
     @staticmethod
+    def test_all_generated_binary_reads_have_bounded_preflight() -> None:
+        """Keep generated payload reads on the nofollow artifact boundary."""
+        source = Path(__file__).parent.parent / "tools/verify_native.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        calls = [
+            node.func for node in ast.walk(tree) if isinstance(node, ast.Call)
+        ]
+        assert not any(
+            isinstance(callee, ast.Attribute) and callee.attr == RAW_READ_METHOD
+            for callee in calls
+        )
+        assert (
+            sum(
+                isinstance(callee, ast.Name)
+                and callee.id == CHECKED_READ_FUNCTION
+                for callee in calls
+            )
+            >= MIN_BOUNDED_READS
+        )
+        assert any(
+            isinstance(callee, ast.Name) and callee.id == RECONSTRUCT_FUNCTION
+            for callee in calls
+        )
+
+    @staticmethod
     def test_invariant_guard_rejects_false_or_nonboolean_truthy() -> None:
         """Reject false checks and malformed truthy manifest metadata."""
         verified = True
@@ -215,6 +246,61 @@ class NativeAbiInvariantTests(TestCase):
                 errors.append("Accepted malformed native ABI condition")
         assert len(errors) == len(invalid)
         assert all(FAILURE_MARKER in error for error in errors)
+
+
+class NativePayloadReconstructionTests(TestCase):
+    """Rebuild binary regions only after bounded segment validation."""
+
+    @staticmethod
+    def test_in_bounds_segments_reconstruct_with_zero_gaps() -> None:
+        """Preserve file bytes and zero-fill gaps in an exact-length image."""
+        payload = reconstruct_payload_image(
+            7, [(1, 0, 2), (4, 3, 2)], b"Xab0cd", base=1
+        )
+        assert payload == EXPECTED_RECONSTRUCTED_PAYLOAD
+
+    @staticmethod
+    def test_invalid_manifest_sizes_rejected_before_allocation() -> None:
+        """Reject bool, missing, zero, negative, and oversized dimensions."""
+        values: tuple[object, ...] = (
+            None,
+            True,
+            "4",
+            0,
+            -1,
+            MAX_NATIVE_ARTIFACT_BYTES + 1,
+        )
+        for size in values:
+            assert _reject(
+                lambda size=size: reconstruct_payload_image(size, [], b"abcd")
+            )
+
+    @staticmethod
+    def test_source_and_target_span_errors_are_fatal() -> None:
+        """Reject underflow, length overflow, truncated data and bad bases."""
+        bad_segments = (
+            (-1, 0, 1),
+            (0, -1, 1),
+            (0, 0, -1),
+            (6, 0, 1),
+            (0, 4, 1),
+            (5, 0, 2),
+        )
+        for segment in bad_segments:
+            assert _reject(
+                lambda segment=segment: reconstruct_payload_image(
+                    6, [segment], b"abcd"
+                )
+            )
+        assert _reject(
+            lambda: reconstruct_payload_image(6, [], b"abcd", base=-1)
+        )
+        assert _reject(
+            lambda: reconstruct_payload_image(6, [], b"abcd", base=5)
+        )
+        assert _reject(
+            lambda: reconstruct_payload_image(6, [(0, -1, 1)], b"abcd", base=2)
+        )
 
 
 class NativeArtifactReadTests(TestCase):
