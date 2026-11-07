@@ -16,6 +16,17 @@ namespace simpleath
             constexpr size_t kFcsBytes = 4u;
             constexpr size_t kMaximumMpduBytes = 2346u;
 
+            bool overlaps(const void *a, size_t aBytes, const void *b,
+                          size_t bBytes)
+            {
+                if (!a || !b || !aBytes || !bBytes)
+                    return false;
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return first <= second ? second - first < aBytes
+                                       : first - second < bBytes;
+            }
+
             void copyBytes(uint8_t *dest, const uint8_t *source, size_t length)
             {
                 for (size_t i = 0; i < length; ++i)
@@ -93,16 +104,13 @@ namespace simpleath
             const size_t written = kDataHeaderBytes + kSnapBytes + payloadBytes;
             if (capacity < written)
                 return DataPathResult::BufferTooSmall;
-            // Avoid corrupting a caller's Ethernet payload when the two ranges
-            // alias. Compare address distances without overflowing pointer
-            // bounds.
-            const uintptr_t inputAddress =
-                reinterpret_cast<uintptr_t>(ethernet);
-            const uintptr_t outputAddress = reinterpret_cast<uintptr_t>(out);
-            if ((inputAddress >= outputAddress &&
-                 inputAddress - outputAddress < written) ||
-                (outputAddress > inputAddress &&
-                 outputAddress - inputAddress < ethernetBytes))
+            // Do not corrupt source identity, payload or output metadata
+            // through forged aliases while preparing an on-air frame.
+            if (overlaps(out, capacity, ethernet, ethernetBytes) ||
+                overlaps(out, capacity, &link, sizeof(link)) ||
+                overlaps(out, capacity, &result, sizeof(result)) ||
+                overlaps(&result, sizeof(result), ethernet, ethernetBytes) ||
+                overlaps(&result, sizeof(result), &link, sizeof(link)))
                 return DataPathResult::OverlappingBuffers;
 
             // 0x0108: data subtype, ToDS=1, FromDS=0, no protection, no
@@ -155,7 +163,12 @@ namespace simpleath
                                         bool ccmpMicAndPnValidated,
                                         Msdu &result)
         {
-            // A failed admission must not preserve stale borrowed RX payload.
+            // A malformed result reference must not erase the selected link
+            // identity or DMA-backed input before RX validity checks.
+            if (overlaps(&result, sizeof(result), frame, frameBytes) ||
+                overlaps(&result, sizeof(result), &link, sizeof(link)))
+                return DataPathResult::OverlappingBuffers;
+            // An ordinary failed admission revokes stale borrowed RX payload.
             result = {};
             if (!frame)
                 return DataPathResult::NullBuffer;

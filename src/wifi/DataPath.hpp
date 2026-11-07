@@ -69,8 +69,8 @@ namespace simpleath
         // path and will fail closed until that exists. The result has NO FCS;
         // hardware would append it only after its PHY/crypto TX path is
         // properly implemented. This routine NEVER submits a packet to the
-        // device. Input and output storage must be disjoint; the serializer
-        // checks for overlap.
+        // device. Input, link and output/result storage must be disjoint;
+        // aliases are rejected before any output is modified.
         DataPathResult prepareStationTx(const LinkContext &link,
                                         const uint8_t *ethernet,
                                         size_t ethernetBytes, uint16_t sequence,
@@ -82,7 +82,9 @@ namespace simpleath
         // FCS and decrypted integrity/packet number using a real hardware
         // backend. Association addresses must be valid; WPA2-PSK EAPOL
         // handshake traffic must be unicast to this station. On error the
-        // output is zeroed, including its borrowed payload pointer.
+        // output is zeroed, including its borrowed payload pointer. A result
+        // overlapping the link or RX frame returns OverlappingBuffers without
+        // modifying the aliased memory.
         DataPathResult inspectStationRx(const LinkContext &link,
                                         const uint8_t *ieeeFrame,
                                         size_t ieeeFrameBytes, bool fcsIncluded,

@@ -27,8 +27,9 @@ namespace simpleath
         // hardware key miss. Crypto headers/trailers must already have been
         // removed, leaving plaintext LLC immediately after the 802.11 header.
         // Input remains owned by the caller. A-MSDU aggregation, CF variants
-        // and fragmented MSDUs are deliberately rejected. On error the output
-        // is zeroed, including its borrowed payload pointer.
+        // and fragmented MSDUs are deliberately rejected. On ordinary error
+        // the output is zeroed, including its borrowed payload pointer. An
+        // output overlapping the frame returns OverlappingBuffers untouched.
         Result decodeLlcData(const uint8_t *frame, size_t frameBytes,
                              bool containsFcs, bool verifiedDecryptionAndMic,
                              Msdu &out);

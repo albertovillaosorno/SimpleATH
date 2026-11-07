@@ -31,6 +31,12 @@ for the **next separately authorized build**.
 - **TX descriptors are not connected to a working radio.** Pointer checksums
   and most non-aggregated rate/retry/power/CCMP control fields are staged, but
   rate selection and power limits still depend on verified board/OS policy.
+  RX frame decapsulation rejects a caller-supplied MSDU result that overlaps
+  the original frame before clearing borrowed metadata, so a forged output
+  cannot corrupt the received frame in-place. The station data path also
+  rejects TX output/result overlap with Ethernet or link identity, and RX
+  result overlap with frame or link identity before any write. These source
+  checks do not replace DMA ownership or hardware MIC/PN validation.
   Pointer relinking and TX control encoding revalidate the canonical block:
   at least one contiguous nonzero segment, 12-bit lengths, no 4-GiB crossing,
   zero unused slots, aligned link, supported queue and pointer checksum.

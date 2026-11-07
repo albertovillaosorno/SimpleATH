@@ -5,13 +5,30 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        namespace
+        {
+            bool overlaps(const void *a, size_t aBytes, const void *b,
+                          size_t bBytes)
+            {
+                if (!a || !b || !aBytes || !bBytes)
+                    return false;
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return first <= second ? second - first < aBytes
+                                       : first - second < bBytes;
+            }
+        } // namespace
 
         Result decodeLlcData(const uint8_t *frame, size_t frameBytes,
                              bool containsFcs, bool verifiedDecryptionAndMic,
                              Msdu &out)
         {
+            // A malformed output reference can point into the DMA-backed
+            // frame. Never clear it and destroy RX evidence before parsing.
+            if (overlaps(&out, sizeof(out), frame, frameBytes))
+                return Result::OverlappingBuffers;
             // Never leave a borrowed pointer from a previously accepted RX
-            // buffer accessible after a failed parse.
+            // buffer accessible after an ordinary failed parse.
             out = {};
             Frame header {};
             const Result result = parseFrame(frame, frameBytes, header);

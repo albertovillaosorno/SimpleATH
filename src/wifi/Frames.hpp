@@ -23,7 +23,8 @@ namespace simpleath
             InvalidSecurity,
             BufferTooSmall,
             InvalidAddress,
-            InvalidSsid
+            InvalidSsid,
+            OverlappingBuffers
         };
 
         enum class FrameType : uint8_t
