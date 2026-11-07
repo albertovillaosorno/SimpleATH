@@ -17,7 +17,8 @@
 .DS_Store
 .idea/
 .vscode/
-linux/
+src/linux/*
+!src/linux/linux-port-ledger.jsonl
 _pycache_/
 
 # Local Python compilation caches.
