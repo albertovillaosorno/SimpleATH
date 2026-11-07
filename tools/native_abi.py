@@ -14,6 +14,7 @@ import argparse
 import collections
 from contextlib import ExitStack
 import ctypes
+from dataclasses import dataclass
 import functools
 import hashlib
 from itertools import pairwise
@@ -35,6 +36,7 @@ from typing import runtime_checkable
 import uuid
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Iterable
     from collections.abc import Iterator
     from collections.abc import Mapping
@@ -332,15 +334,27 @@ class Mach:
         return super().__new__(cls)
 
     def __init__(self, path: str | Path, entry: str | None = None) -> None:
-        """Map a bounded Mach image and parse all declared commands.
-
-        Raises:
-            ValueError: The source or requested fileset subimage is invalid.
-
-        """
+        """Map a bounded Mach image and parse all declared commands."""
         self.path = str(path)
-        # Initialize the complete instance contract before the first parse;
-        # a fileset subimage can subsequently replace all parsed catalogs.
+        self.base = 0
+        self.slice_end = 0
+        self.h = 0
+        self.fixup_base = 0
+        self._initialize_catalogs()
+        self.f = _open_mach_source(Path(path))
+        try:
+            self.b = mmap.mmap(self.f.fileno(), 0, access=mmap.ACCESS_READ)
+        except BaseException:
+            self.f.close()
+            raise
+        try:
+            self._initialize_image(entry)
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize_catalogs(self) -> None:
+        """Populate empty typed catalogs before parsing any file data."""
         self.typ = 0
         self.segs = []
         self.sects = []
@@ -351,33 +365,40 @@ class Mach:
         self.uuid = None
         self.names = {}
         self.byaddr = collections.defaultdict(list)
-        self.f = _open_mach_source(Path(path))
-        try:
-            self.b = mmap.mmap(self.f.fileno(), 0, access=mmap.ACCESS_READ)
-        except BaseException:
-            self.f.close()
-            raise
-        try:
-            self.base = 0
-            self.slice_end = len(self.b)
-            self._select_header()
-            self.h = self.base
-            self.parse()
-            bases = [va for _, va, size, _, _ in self.segs if va and size]
-            if not bases:
-                message = "Mach-O image has no mapped virtual segment"
-                raise ValueError(message)
-            self.fixup_base = min(bases)
-            if entry is not None:
-                if entry not in self.entries:
-                    message = "Mach-O fileset entry does not exist"
-                    raise ValueError(message)
-                self.h = self.base + self.entries[entry][1]
-                _require_span(self.h, 32, self.slice_end)
-                self.parse()
-        except BaseException:
-            self.close()
-            raise
+
+    def _initialize_image(self, entry: str | None) -> None:
+        """Derive the source segment base and optional fileset image.
+
+        Raises:
+            ValueError: No mapped segment or requested fileset entry exists.
+
+        """
+        self.base = 0
+        self.slice_end = len(self.b)
+        self._select_header()
+        self.h = self.base
+        self._parse()
+        bases = [va for _, va, size, _, _ in self.segs if va and size]
+        if not bases:
+            message = "Mach-O image has no mapped virtual segment"
+            raise ValueError(message)
+        self.fixup_base = min(bases)
+        if entry is not None:
+            self._select_fileset_entry(entry)
+
+    def _select_fileset_entry(self, entry: str) -> None:
+        """Select a fileset subimage only if its header is complete.
+
+        Raises:
+            ValueError: The entry is absent or escapes the mapped source.
+
+        """
+        if entry not in self.entries:
+            message = "Mach-O fileset entry does not exist"
+            raise ValueError(message)
+        self.h = self.base + self.entries[entry][1]
+        _require_span(self.h, MACHO_HEADER_BYTES, self.slice_end)
+        self._parse()
 
     def _select_header(self) -> None:
         selected = _fat_x86_64_range(self.b)
@@ -386,24 +407,24 @@ class Mach:
             self.base = offset
             self.slice_end = offset + size
 
-    def parse(self) -> None:
+    def _parse(self) -> None:
         """Parse bounded Mach-O commands and symbol names.
 
         Raises:
             ValueError: Any load command or symbol record is invalid.
 
         """
-        b = self.b
-        h = self.h
-        _require_span(h, 32, self.slice_end)
-        magic, cpu, _subtype, typ, count, command_bytes, _flags, _reserved = (
-            unpack_integers(b, "<8I", h)
+        _require_span(self.h, MACHO_HEADER_BYTES, self.slice_end)
+        magic, cpu, _, typ, count, command_bytes, _, _ = unpack_integers(
+            self.b, "<8I", self.h
         )
         if magic != MACHO_MAGIC_64 or cpu != CPU_X86_64:
             message = "Expected an x86_64 Mach-O image"
             raise ValueError(message)
-        _require_span(h + 32, command_bytes, self.slice_end)
-        if count > command_bytes // 8:
+        _require_span(
+            self.h + MACHO_HEADER_BYTES, command_bytes, self.slice_end
+        )
+        if count > command_bytes // LOAD_COMMAND_HEADER_BYTES:
             message = "Mach-O command count exceeds the command byte budget"
             raise ValueError(message)
         self.typ = typ
@@ -414,105 +435,177 @@ class Mach:
         self.symtab = None
         self.dysym = None
         self.uuid = None
-        cursor = h + 32
-        command_end = cursor + command_bytes
+        self._parse_commands(count, self.h + MACHO_HEADER_BYTES + command_bytes)
+        self._parse_symbols()
+        self._index_symbols()
+
+    def _parse_commands(self, count: int, command_end: int) -> None:
+        """Walk all declared command records before any symbol decoding.
+
+        Raises:
+            ValueError: Truncated or inconsistent load command budget.
+
+        """
+        cursor = self.h + MACHO_HEADER_BYTES
         for _ in range(count):
-            _require_span(cursor, 8, command_end)
-            command, length = unpack_integers(b, "<II", cursor)
+            _require_span(cursor, LOAD_COMMAND_HEADER_BYTES, command_end)
+            command, length = unpack_integers(self.b, "<II", cursor)
             if length < LOAD_COMMAND_HEADER_BYTES:
                 message = "Invalid Mach-O load command size"
                 raise ValueError(message)
             _require_span(cursor, length, command_end)
-            if command == LC_SEGMENT_64:
-                _require_span(cursor, 72, cursor + length)
-                segment, va, vmsize, fileoff, filesize, _, _, sections, _ = (
-                    struct.unpack_from("<16sQQQQiiII", b, cursor + 8)
-                )
-                if sections > (length - 72) // 80 or filesize > vmsize:
-                    message = "Truncated or inconsistent Mach-O segment"
-                    raise ValueError(message)
-                _require_span(self.base + fileoff, filesize, self.slice_end)
-                name = segment.rstrip(b"\x00").decode()
-                self.segs.append((name, va, vmsize, fileoff, filesize))
-                for index in range(sections):
-                    fields = struct.unpack_from(
-                        "<16s16sQQIIIIIIII", b, cursor + 72 + 80 * index
-                    )
-                    self.sects.append((
-                        fields[0].rstrip(b"\x00").decode(),
-                        fields[1].rstrip(b"\x00").decode(),
-                        *fields[2:],
-                    ))
-            elif command == LC_SYMTAB:
-                if self.symtab is not None:
-                    message = "Duplicate Mach-O symbol table command"
-                    raise ValueError(message)
-                _require_span(cursor, 24, cursor + length)
-                symboloff, symbols, stringoff, strings = unpack_integers(
-                    b, "<IIII", cursor + 8
-                )
-                _require_span(
-                    self.base + symboloff, symbols * 16, self.slice_end
-                )
-                _require_span(self.base + stringoff, strings, self.slice_end)
-                self.symtab = (symboloff, symbols, stringoff, strings)
-            elif command == LC_DYSYMTAB:
-                if self.dysym is not None:
-                    message = "Duplicate Mach-O dynamic symbol table command"
-                    raise ValueError(message)
-                _require_span(cursor, 80, cursor + length)
-                self.dysym = unpack_integers(b, "<18I", cursor + 8)
-            elif command == LC_UUID:
-                if self.uuid is not None:
-                    message = "Duplicate Mach-O UUID command"
-                    raise ValueError(message)
-                _require_span(cursor, 24, cursor + length)
-                self.uuid = str(
-                    uuid.UUID(bytes=b[cursor + 8 : cursor + 24])
-                ).upper()
-            elif command == LC_FILESET_ENTRY:
-                _require_span(cursor, 32, cursor + length)
-                _va, fileoff, offset, _reserved = struct.unpack_from(
-                    "<QQII", b, cursor + 8
-                )
-                if offset < MACHO_HEADER_BYTES:
-                    message = "Invalid Mach-O fileset name offset"
-                    raise ValueError(message)
-                _require_span(self.base + fileoff, 32, self.slice_end)
-                _require_span(cursor + offset, 1, cursor + length)
-                ending = b.find(b"\x00", cursor + offset, cursor + length)
-                if ending < 0:
-                    message = "Unterminated Mach-O fileset entry name"
-                    raise ValueError(message)
-                name = b[cursor + offset : ending].decode()
-                if not name or name in self.entries:
-                    message = "Empty or duplicate Mach-O fileset entry name"
-                    raise ValueError(message)
-                self.entries[name] = (_va, fileoff)
+            self._parse_command(command, cursor, length)
             cursor += length
         if cursor != command_end:
             message = "Mach-O command sizes do not match their byte budget"
             raise ValueError(message)
+
+    def _parse_command(self, command: int, cursor: int, length: int) -> None:
+        """Decode only relevant load-command types using bounded readers."""
+        handlers: dict[int, Callable[[int, int], None]] = {
+            LC_SEGMENT_64: self._parse_segment,
+            LC_SYMTAB: self._parse_symtab,
+            LC_DYSYMTAB: self._parse_dysym,
+            LC_UUID: self._parse_uuid,
+            LC_FILESET_ENTRY: self._parse_fileset,
+        }
+        handler = handlers.get(command)
+        if handler is not None:
+            handler(cursor, length)
+
+    def _parse_segment(self, cursor: int, length: int) -> None:
+        """Validate a segment and its entire fixed-width section catalog.
+
+        Raises:
+            ValueError: Truncated sections or inconsistent segment spans.
+
+        """
+        _require_span(cursor, 72, cursor + length)
+        segment, va, vmsize, fileoff, filesize, _, _, sections, _ = (
+            struct.unpack_from("<16sQQQQiiII", self.b, cursor + 8)
+        )
+        if sections > (length - 72) // 80 or filesize > vmsize:
+            message = "Truncated or inconsistent Mach-O segment"
+            raise ValueError(message)
+        _require_span(self.base + fileoff, filesize, self.slice_end)
+        name = segment.rstrip(b"\x00").decode()
+        self.segs.append((name, va, vmsize, fileoff, filesize))
+        for index in range(sections):
+            fields = struct.unpack_from(
+                "<16s16sQQIIIIIIII", self.b, cursor + 72 + 80 * index
+            )
+            self.sects.append((
+                fields[0].rstrip(b"\x00").decode(),
+                fields[1].rstrip(b"\x00").decode(),
+                *fields[2:],
+            ))
+
+    def _parse_symtab(self, cursor: int, length: int) -> None:
+        """Validate symbol and string table extents before indexing.
+
+        Raises:
+            ValueError: A duplicate or out-of-range symbol table.
+
+        """
         if self.symtab is not None:
-            offset, count, stringoff, stringsize = self.symtab
-            for index in range(count):
-                nameoff, kind, section, desc, address = struct.unpack_from(
-                    "<IBBHQ", b, self.base + offset + 16 * index
-                )
-                name = ""
-                if nameoff:
-                    if nameoff >= stringsize:
-                        message = "Mach-O symbol string offset is outside table"
-                        raise ValueError(message)
-                    begin = self.base + stringoff + nameoff
-                    ending = b.find(
-                        b"\x00", begin, self.base + stringoff + stringsize
-                    )
-                    if ending < 0:
-                        message = "Unterminated Mach-O symbol name"
-                        raise ValueError(message)
-                    name = b[begin:ending].decode(errors="replace")
-                self.syms.append((name, kind, section, desc, address))
+            message = "Duplicate Mach-O symbol table command"
+            raise ValueError(message)
+        _require_span(cursor, 24, cursor + length)
+        symboloff, symbols, stringoff, strings = unpack_integers(
+            self.b, "<IIII", cursor + 8
+        )
+        _require_span(self.base + symboloff, symbols * 16, self.slice_end)
+        _require_span(self.base + stringoff, strings, self.slice_end)
+        self.symtab = (symboloff, symbols, stringoff, strings)
+
+    def _parse_dysym(self, cursor: int, length: int) -> None:
+        """Record the unique complete dynamic symbol-table command.
+
+        Raises:
+            ValueError: The dynamic table is duplicate or truncated.
+
+        """
+        if self.dysym is not None:
+            message = "Duplicate Mach-O dynamic symbol table command"
+            raise ValueError(message)
+        _require_span(cursor, 80, cursor + length)
+        self.dysym = unpack_integers(self.b, "<18I", cursor + 8)
+
+    def _parse_uuid(self, cursor: int, length: int) -> None:
+        """Decode the unique UUID identity with checked command bounds.
+
+        Raises:
+            ValueError: The UUID is duplicate or truncated.
+
+        """
+        if self.uuid is not None:
+            message = "Duplicate Mach-O UUID command"
+            raise ValueError(message)
+        _require_span(cursor, 24, cursor + length)
+        self.uuid = str(
+            uuid.UUID(bytes=self.b[cursor + 8 : cursor + 24])
+        ).upper()
+
+    def _parse_fileset(self, cursor: int, length: int) -> None:
+        """Decode a bounded, uniquely named fileset image entry.
+
+        Raises:
+            ValueError: Fileset name or nested image is malformed.
+
+        """
+        _require_span(cursor, 32, cursor + length)
+        va, fileoff, offset, _ = struct.unpack_from("<QQII", self.b, cursor + 8)
+        if offset < MACHO_HEADER_BYTES:
+            message = "Invalid Mach-O fileset name offset"
+            raise ValueError(message)
+        _require_span(self.base + fileoff, MACHO_HEADER_BYTES, self.slice_end)
+        _require_span(cursor + offset, 1, cursor + length)
+        ending = self.b.find(b"\x00", cursor + offset, cursor + length)
+        if ending < 0:
+            message = "Unterminated Mach-O fileset entry name"
+            raise ValueError(message)
+        name = self.b[cursor + offset : ending].decode()
+        if not name or name in self.entries:
+            message = "Empty or duplicate Mach-O fileset entry name"
+            raise ValueError(message)
+        self.entries[name] = (va, fileoff)
+
+    def _symbol_name(self, offset: int, stringoff: int, size: int) -> str:
+        """Read one bounded nlist string from the declared table.
+
+        Returns:
+            Original symbol name, with replacement for corrupt UTF-8.
+
+        Raises:
+            ValueError: The name is outside or not terminated in the table.
+
+        """
+        if not offset:
+            return ""
+        if offset >= size:
+            message = "Mach-O symbol string offset is outside table"
+            raise ValueError(message)
+        begin = self.base + stringoff + offset
+        ending = self.b.find(b"\x00", begin, self.base + stringoff + size)
+        if ending < 0:
+            message = "Unterminated Mach-O symbol name"
+            raise ValueError(message)
+        return self.b[begin:ending].decode(errors="replace")
+
+    def _parse_symbols(self) -> None:
+        """Populate all bounded nlist records from the symbol command."""
+        if self.symtab is None:
+            return
+        offset, count, stringoff, stringsize = self.symtab
+        for index in range(count):
+            nameoff, kind, section, desc, address = struct.unpack_from(
+                "<IBBHQ", self.b, self.base + offset + 16 * index
+            )
+            name = self._symbol_name(nameoff, stringoff, stringsize)
+            self.syms.append((name, kind, section, desc, address))
+
+    def _index_symbols(self) -> None:
+        """Rebuild named and by-address views for the current parsed image."""
         self.names = {
             symbol[0]: symbol for symbol in self.syms if not symbol[1] & 224
         }
@@ -592,9 +685,6 @@ class Mach:
         Returns:
             Relocation records indexed by virtual address.
 
-        Raises:
-            ValueError: A relocation is malformed or outside the file.
-
         """
         result: dict[int, tuple[str, int, int, int]] = {}
         relocation_tables: list[tuple[int, int, int]] = []
@@ -607,26 +697,33 @@ class Mach:
         for offset, count, start in relocation_tables:
             _require_span(offset, count * 8, self.slice_end)
             for index in range(count):
-                relative, word = unpack_integers(
-                    self.b, "<iI", offset + 8 * index
-                )
-                symbol_index = word & 0xFFFFFF
-                external = bool(word >> 27 & 1)
-                if external and symbol_index >= len(self.syms):
-                    message = "Mach-O relocation refers to an absent symbol"
-                    raise ValueError(message)
-                if relative < 0:
-                    message = "Mach-O relocation has a negative address"
-                    raise ValueError(message)
-                result[start + relative] = (
-                    self.syms[symbol_index][0]
-                    if external
-                    else LOCAL_RELOCATION,
-                    word >> 28,
-                    word >> 24 & 1,
-                    word >> 25 & 3,
-                )
+                relative, relocation = self._read_relocation(offset + 8 * index)
+                result[start + relative] = relocation
         return result
+
+    def _read_relocation(
+        self, offset: int
+    ) -> tuple[int, tuple[str, int, int, int]]:
+        """Decode one checked relocation without trusting its symbol index.
+
+        Returns:
+            Relative byte offset and decoded relocation metadata.
+
+        Raises:
+            ValueError: Offset or external symbol index is invalid.
+
+        """
+        relative, word = unpack_integers(self.b, "<iI", offset)
+        symbol_index = word & 0xFFFFFF
+        external = bool(word >> 27 & 1)
+        if external and symbol_index >= len(self.syms):
+            message = "Mach-O relocation refers to an absent symbol"
+            raise ValueError(message)
+        if relative < 0:
+            message = "Mach-O relocation has a negative address"
+            raise ValueError(message)
+        name = self.syms[symbol_index][0] if external else LOCAL_RELOCATION
+        return relative, (name, word >> 28, word >> 24 & 1, word >> 25 & 3)
 
     def funcs(self) -> list[tuple[int, str]]:
         """List sorted executable section functions and their addresses.
@@ -691,7 +788,8 @@ def dem(names: Iterable[str]) -> list[str]:
 
     """
     symbols = list(names)
-    return subprocess.check_output(
+    # The installed executable and argv are fixed: no shell or user commands.
+    return subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
         [_installed_program("c++filt")],
         input="\n".join(symbols) + "\n",
         text=True,
@@ -702,7 +800,8 @@ def dem(names: Iterable[str]) -> list[str]:
 class _CreateDisassembler(Protocol):
     """Checked callable surface of LLVMCreateDisasm."""
 
-    def __call__(
+    # Preserve LLVMCreateDisasm's fixed five-argument C ABI.
+    def __call__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
         self, triple: bytes, info: None, tag: int, callback: None, symbol: None
     ) -> int | None: ...
 
@@ -711,7 +810,8 @@ class _CreateDisassembler(Protocol):
 class _DecodeInstruction(Protocol):
     """Checked callable surface of LLVMDisasmInstruction."""
 
-    def __call__(
+    # Preserve LLVMDisasmInstruction's fixed six-argument C ABI.
+    def __call__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
         self,
         context: int,
         data: object,
@@ -723,7 +823,15 @@ class _DecodeInstruction(Protocol):
 
 
 def _llvm_export(library: ctypes.CDLL, name: str) -> object:
-    """Fetch an initialized symbol from the library's loaded export map."""
+    """Fetch an initialized symbol from the library's loaded export map.
+
+    Returns:
+        The exported callable C function.
+
+    Raises:
+        TypeError: The named export is absent or not callable.
+
+    """
     exports: Mapping[str, object] = vars(library)
     symbol = exports.get(name)
     if not callable(symbol):
@@ -734,9 +842,18 @@ def _llvm_export(library: ctypes.CDLL, name: str) -> object:
 
 @functools.lru_cache(maxsize=1)
 def disassembler() -> tuple[ctypes.CDLL, int]:
-    """Load the selected Apple LLVM disassembler from its system toolchain."""
+    """Load the selected Apple LLVM disassembler from its system toolchain.
+
+    Returns:
+        LLVM library handle and its valid x86_64 decoder context.
+
+    Raises:
+        RuntimeError: The selected LLVM disassembler cannot initialize.
+        TypeError: The toolchain contains an incompatible LLVM symbol.
+
+    """
     toolchain = Path(
-        subprocess.check_output(
+        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
             [_installed_program("xcrun"), "--find", "llvm-objdump"], text=True
         ).strip()
     ).parent.parent
@@ -889,15 +1006,102 @@ def _vtable_addresses(start: int, end: int) -> range:
 
     """
     payload = end - start - VTABLE_HEADER_BYTES
-    if (
-        start < 0
-        or payload <= 0
-        or payload % VTABLE_SLOT_BYTES
+    invalid_start = start < 0 or payload <= 0
+    invalid_slots = (
+        payload % VTABLE_SLOT_BYTES
         or payload // VTABLE_SLOT_BYTES > MAX_VTABLE_SLOTS
-    ):
+    )
+    if invalid_start or invalid_slots:
         message = "Malformed or oversized native ABI vtable span"
         raise ValueError(message)
     return range(start + VTABLE_HEADER_BYTES, end, VTABLE_SLOT_BYTES)
+
+
+def _vtable_target(raw: int, kernel: Mach | ReferenceImage | None) -> int:
+    """Decode a kernel collection fixup to its address or refuse the format.
+
+    Returns:
+        Validated target address for the raw slot value.
+
+    Raises:
+        ValueError: A compact fixup has an unsupported encoding.
+        TypeError: A fixup requires a full mapped kernel image.
+
+    """
+    if kernel is None or raw >> 48 == KERNEL_FIXUP_UPPER_HALF:
+        return raw
+    if raw >> 30 & 3 or raw >> 63:
+        message = "Unsupported kernel collection fixup"
+        raise ValueError(message)
+    if not isinstance(kernel, Mach):
+        message = "Kernel fixup resolution requires a Mach-O image"
+        raise TypeError(message)
+    return (raw & 1073741823) + kernel.fixup_base
+
+
+def _vtable_slot(
+    image: Mach,
+    address: int,
+    *,
+    relocs: dict[int, tuple[str, int, int, int]],
+    kernel: Mach | ReferenceImage | None,
+) -> tuple[str | None, int | None]:
+    """Resolve one slot without assuming a relocation is an import.
+
+    Returns:
+        Method name and optional target, or two None values for an empty slot.
+
+    """
+    raw = struct.unpack("<Q", image.read(address, VTABLE_SLOT_BYTES))[0]
+    relocated = relocs.get(address)
+    if relocated is not None and relocated[0] != LOCAL_RELOCATION:
+        return relocated[0], None
+    if not raw:
+        return None, None
+    target = _vtable_target(raw, kernel)
+    names = image.byaddr.get(target, []) or (
+        kernel.byaddr.get(target, []) if kernel else []
+    )
+    return (names[0] if names else None), target
+
+
+def _table_end(image: Mach, cls: str) -> tuple[int, int]:
+    """Find a validated vtable symbol and its next closing symbol.
+
+    Returns:
+        Start and exclusive end virtual addresses for a named vtable.
+
+    Raises:
+        ValueError: No following symbol bounds the table.
+
+    """
+    sym = image.names[vtable_name(cls)]
+    start = sym[4]
+    following = [
+        symbol[4]
+        for symbol in image.syms
+        if symbol[2] == sym[2] and symbol[4] > start
+    ]
+    if not following:
+        message = "Native ABI vtable has no terminating symbol"
+        raise ValueError(message)
+    return start, min(following)
+
+
+def _nonempty_table(cls: str, values: list[str]) -> list[str]:
+    """Reject an empty table without fabricating any symbol entries.
+
+    Returns:
+        The same non-empty physical method order.
+
+    Raises:
+        ValueError: No named entry was decoded in the table.
+
+    """
+    if not values:
+        message = f"Empty vtable: {cls}"
+        raise ValueError(message)
+    return values
 
 
 def table(
@@ -916,50 +1120,21 @@ def table(
     """
     if isinstance(image, ReferenceImage):
         return list(image.tables[cls])
-    sym = image.names[vtable_name(cls)]
-    start = sym[4]
-    following = [
-        symbol[4]
-        for symbol in image.syms
-        if symbol[2] == sym[2] and symbol[4] > start
-    ]
-    if not following:
-        message = "Native ABI vtable has no terminating symbol"
-        raise ValueError(message)
-    addresses = _vtable_addresses(start, min(following))
+    start, end = _table_end(image, cls)
+    addresses = _vtable_addresses(start, end)
     relocs = image.relocs()
     result: list[str] = []
     for address in addresses:
-        raw = struct.unpack("<Q", image.read(address, 8))[0]
-        if address in relocs and relocs[address][0] != LOCAL_RELOCATION:
-            name = relocs[address][0]
-        elif raw:
-            if kernel and raw >> 48 != KERNEL_FIXUP_UPPER_HALF:
-                if raw >> 30 & 3 or raw >> 63:
-                    message = "Unsupported kernel collection fixup"
-                    raise ValueError(message)
-                if not isinstance(kernel, Mach):
-                    message = "Kernel fixup resolution requires a Mach-O image"
-                    raise TypeError(message)
-                target = (raw & 1073741823) + kernel.fixup_base
-            else:
-                target = raw
-            names = image.byaddr.get(target, []) or (
-                kernel.byaddr.get(target, []) if kernel else []
-            )
-            if not names:
-                message = (
-                    f"Unnamed vtable entry {cls}: {address:#x} -> {target:#x}"
-                )
-                raise ValueError(message)
-            name = names[0]
-        else:
+        name, target = _vtable_slot(
+            image, address, relocs=relocs, kernel=kernel
+        )
+        if name is None and target is None:
             break
+        if name is None:
+            message = f"Unnamed vtable entry {cls}: {address:#x} -> {target:#x}"
+            raise ValueError(message)
         result.append(name)
-    if not result:
-        message = f"Empty vtable: {cls}"
-        raise ValueError(message)
-    return result
+    return _nonempty_table(cls, result)
 
 
 class _Layout(TypedDict, total=False):
@@ -980,14 +1155,62 @@ class _Imports(TypedDict):
     relocations: dict[str, list[int]]
 
 
+@dataclass
+class _LegacySlots:
+    """Owned mutable native view and superclass indexing during ABI mapping."""
+
+    cls: str
+    parent: str
+    original: list[str]
+    keyed: dict[str, int]
+    new: list[str]
+    physical: list[tuple[str, str, int]]
+    logical: list[tuple[str, str, int]]
+
+
+def _place_legacy_slot(
+    slots: _LegacySlots,
+    index: int,
+    name: str,
+    *,
+    entry: tuple[str, str, int],
+) -> None:
+    """Assign a legacy override to its native slot or append a new slot.
+
+    Raises:
+        ValueError: An existing unmatched override cannot be translated.
+
+    """
+    if index < len(slots.original) and method_key(name) in slots.keyed:
+        slot = slots.keyed[method_key(name)]
+        slots.new[slot] = name
+        slots.physical[slot] = entry
+    elif index >= len(slots.original):
+        slots.new.append(name)
+        slots.physical.append(entry)
+    elif entry[0] != ABSENT_SLOT:
+        message = f"Unmapped override: {slots.cls} {name}"
+        raise ValueError(message)
+
+
 @final
 class NativeModel:
     """Derive checked Skywalk class and method slots from pinned images."""
 
     def __init__(self, system: str = "Tahoe") -> None:
-        """Read and validate all pinned images before modeling ABI slots."""
-        self.system: str = system
+        """Validate source provenance and derive all cross-release ABI views."""
+        self.system = system
         self.profile = SYSTEMS[system]
+        self._open_images(system)
+        self._initialize_tables()
+
+    def _open_images(self, system: str) -> None:
+        """Open the pinned source images after all source hashes match.
+
+        Raises:
+            ValueError: A checksum or release ABI identifier mismatches.
+
+        """
         for key, expected in EXPECTED_SOURCES.items():
             if hash_mach_source(PATHS[key]) != expected:
                 message = f"Unsupported source payload: {key}"
@@ -1007,7 +1230,7 @@ class NativeModel:
         if self.native.uuid != self.profile["skywalk"]:
             message = "Reference Skywalk UUID does not match its profile"
             raise ValueError(message)
-        self.airport_source: str = (
+        self.airport_source = (
             "BrcmTahoe"
             if self.profile["kernel"] == DARWIN_TAHOE
             else "BrcmOriginal"
@@ -1016,75 +1239,97 @@ class NativeModel:
             "Legacy": Mach(PATHS["Legacy"]),
             "BrcmTahoe": Mach(PATHS[self.airport_source]),
         }
+
+    def _initialize_tables(self) -> None:
+        """Build native and legacy method views from complete catalogs."""
         self.old_tables: dict[str, list[str]] = {}
         self.new_tables: dict[str, list[str]] = {}
         self.old_views: dict[str, list[tuple[str, str, int]]] = {}
         self.tables: dict[str, list[tuple[str, str, int]]] = {}
         self.holes: list[tuple[str, int, str]] = []
-        all_names: list[str] = []
+        names: list[str] = []
         for cls in NATIVE_CLASSES:
-            all_names.extend(table(self.old, cls))
-            all_names.extend(table(self.native, cls, self.kernel))
+            names.extend(table(self.old, cls))
+            names.extend(table(self.native, cls, self.kernel))
         for label, cls, _ in LEGACY_CLASSES:
-            all_names.extend(table(self.images[label], cls))
-        prime_method_keys(all_names)
+            names.extend(table(self.images[label], cls))
+        prime_method_keys(names)
         for cls in NATIVE_CLASSES:
-            old = table(self.old, cls)
-            new = table(self.native, cls, self.kernel)
-            self.old_tables[cls] = old
-            self.new_tables[cls] = new
-            keyed = {method_key(n): i for i, n in enumerate(new)}
-            entries: list[tuple[str, str, int]] = []
-            for offset, name in enumerate(old):
-                key = method_key(name)
-                if key in keyed:
-                    entries.append(("native", cls, keyed[key] * 8))
-                else:
-                    entries.append(("absent", name, 0))
-                    self.holes.append((cls, offset * 8, name))
-            self.old_views[cls] = entries
-            self.tables[cls] = [("native", cls, i * 8) for i in range(len(new))]
+            self._map_native_class(cls)
         for label, cls, parent in LEGACY_CLASSES:
-            image = self.images[label]
-            old = table(image, cls)
-            self.old_tables[cls] = old
-            parent_old = self.old_tables[parent]
-            parent_new = self.new_tables[parent]
-            keyed = {method_key(n): i for i, n in enumerate(parent_new)}
-            new = list(parent_new)
-            physical = list(self.tables[parent])
-            logical: list[tuple[str, str, int]] = []
-            for i, name in enumerate(old):
-                key = method_key(name)
-                if i < len(parent_old) and name == parent_old[i]:
-                    logical.append(self.old_views[parent][i])
-                    continue
-                if name in image.defined():
-                    entry = (label, name, image.names[name][4])
-                elif name in self.images["Legacy"].defined():
-                    entry = (
-                        "Legacy",
-                        name,
-                        self.images["Legacy"].names[name][4],
-                    )
-                elif key in keyed:
-                    entry = self.tables[parent][keyed[key]]
-                else:
-                    entry = ("absent", name, 0)
-                logical.append(entry)
-                if i < len(parent_old) and key in keyed:
-                    slot = keyed[key]
-                    new[slot] = name
-                    physical[slot] = entry
-                elif i >= len(parent_old):
-                    new.append(name)
-                    physical.append(entry)
-                elif entry[0] != ABSENT_SLOT:
-                    message = f"Unmapped override: {cls} {name}"
-                    raise ValueError(message)
-            self.new_tables[cls] = new
-            self.old_views[cls] = logical
-            self.tables[cls] = physical
+            self._map_legacy_class(label, cls, parent)
+
+    def _map_native_class(self, cls: str) -> None:
+        """Map one old Skywalk class onto its native method-key slots."""
+        old = table(self.old, cls)
+        new = table(self.native, cls, self.kernel)
+        self.old_tables[cls] = old
+        self.new_tables[cls] = new
+        keyed = {method_key(name): index for index, name in enumerate(new)}
+        entries: list[tuple[str, str, int]] = []
+        for offset, name in enumerate(old):
+            key = method_key(name)
+            if key in keyed:
+                entries.append(("native", cls, keyed[key] * VTABLE_SLOT_BYTES))
+            else:
+                entries.append((ABSENT_SLOT, name, 0))
+                self.holes.append((cls, offset * VTABLE_SLOT_BYTES, name))
+        self.old_views[cls] = entries
+        self.tables[cls] = [
+            ("native", cls, index * VTABLE_SLOT_BYTES)
+            for index in range(len(new))
+        ]
+
+    def _legacy_entry(
+        self, label: str, name: str, *, slots: _LegacySlots
+    ) -> tuple[str, str, int]:
+        """Resolve a legacy override from complete native/legacy sources.
+
+        Returns:
+            The physical method entry or an explicit absent-method marker.
+
+        """
+        image = self.images[label]
+        legacy = self.images["Legacy"]
+        if name in image.defined():
+            entry = (label, name, image.names[name][4])
+        elif name in legacy.defined():
+            entry = ("Legacy", name, legacy.names[name][4])
+        else:
+            key = method_key(name)
+            entry = (
+                self.tables[slots.parent][slots.keyed[key]]
+                if key in slots.keyed
+                else (ABSENT_SLOT, name, 0)
+            )
+        return entry
+
+    def _map_legacy_class(self, label: str, cls: str, parent: str) -> None:
+        """Apply all legacy override slots to their native superclass view."""
+        old = table(self.images[label], cls)
+        self.old_tables[cls] = old
+        slots = _LegacySlots(
+            cls=cls,
+            parent=parent,
+            original=self.old_tables[parent],
+            keyed={
+                method_key(method): index
+                for index, method in enumerate(self.new_tables[parent])
+            },
+            new=list(self.new_tables[parent]),
+            physical=list(self.tables[parent]),
+            logical=[],
+        )
+        for index, name in enumerate(old):
+            if index < len(slots.original) and name == slots.original[index]:
+                slots.logical.append(self.old_views[parent][index])
+                continue
+            entry = self._legacy_entry(label, name, slots=slots)
+            slots.logical.append(entry)
+            _place_legacy_slot(slots, index, name, entry=entry)
+        self.new_tables[cls] = slots.new
+        self.old_views[cls] = slots.logical
+        self.tables[cls] = slots.physical
 
     def describe(self) -> dict[str, object]:
         """Describe source provenance, class slots and absent imports.
@@ -1223,19 +1468,36 @@ def class_size(image: Mach | ReferenceImage, cls: str) -> int:
     return sizes[0]
 
 
+def _verify_tahoe_slots(
+    model: NativeModel, require: Callable[[bool, str], None]
+) -> None:
+    """Enforce the two exact-build Ethernet slot collisions, if applicable."""
+    if model.profile["kernel"] != DARWIN_TAHOE:
+        return
+    cls = "IOSkywalkEthernetInterface"
+    require(
+        OLD_INIT_BSD in model.old_tables[cls][2256 // 8]
+        and NEW_LOGICAL_LINK in model.new_tables[cls][2256 // 8],
+        "Ethernet vtable collision at 0x8d0",
+    )
+    require(
+        OLD_PROXY_METHOD in model.old_tables[cls][2736 // 8]
+        and NEW_RESERVED_METHOD in model.new_tables[cls][2736 // 8],
+        "Ethernet reserved-slot collision at 0xab0",
+    )
+
+
 def verify_model(model: NativeModel) -> list[str]:
     """Verify source ABI invariants against the pinned release profile.
 
     Returns:
         Names of the source-level ABI invariants that passed.
 
-    Raises:
-        ValueError: A source invariant differs from the pinned profile.
-
     """
     checks: list[str] = []
 
-    def require(condition: bool, name: str) -> None:
+    # Invariant pairs are supplied positionally in the pinned ABI checklist.
+    def require(condition: bool, name: str) -> None:  # ruff: ignore[boolean-type-hint-positional-argument]
         if not condition:
             message = "ABI verification failed: " + name
             raise ValueError(message)
@@ -1270,17 +1532,7 @@ def verify_model(model: NativeModel) -> list[str]:
         len(model.new_tables[cls]) == model.profile["ethernetSlots"],
         "Native Ethernet vtable length",
     )
-    if model.profile["kernel"] == DARWIN_TAHOE:
-        require(
-            OLD_INIT_BSD in model.old_tables[cls][2256 // 8]
-            and NEW_LOGICAL_LINK in model.new_tables[cls][2256 // 8],
-            "Ethernet vtable collision at 0x8d0",
-        )
-        require(
-            OLD_PROXY_METHOD in model.old_tables[cls][2736 // 8]
-            and NEW_RESERVED_METHOD in model.new_tables[cls][2736 // 8],
-            "Ethernet reserved-slot collision at 0xab0",
-        )
+    _verify_tahoe_slots(model, require)
     old = model.images["Legacy"]
     require(
         old.read(683934, 7) == bytes.fromhex("48898318010000"),
@@ -1320,11 +1572,15 @@ def verify_model(model: NativeModel) -> list[str]:
     return checks
 
 
-def main() -> None:
-    """Run an explicitly read-only native source ABI audit.
+def _audit_args() -> tuple[str, str, Path | None]:
+    """Parse and validate the native ABI audit's typed command arguments.
+
+    Returns:
+        System profile, audit action and optional output file path.
 
     Raises:
-        ValueError: Parsed arguments violate the typed audit contract.
+        ValueError: A parsed value violates the expected CLI contract.
+        TypeError: The CLI parser supplies an unexpected value type.
 
     """
     parser = argparse.ArgumentParser(
@@ -1339,35 +1595,49 @@ def main() -> None:
     system = values.get("system")
     action = values.get("action")
     output = values.get("output")
-    if (
-        not isinstance(system, str)
-        or system not in SYSTEMS
-        or action not in {"verify", "audit"}
-        or (output is not None and not isinstance(output, Path))
-    ):
+    if not isinstance(system, str):
+        message = "Invalid native ABI system profile type"
+        raise TypeError(message)
+    valid_action = isinstance(action, str) and action in {"verify", "audit"}
+    valid_output = output is None or isinstance(output, Path)
+    if system not in SYSTEMS or not valid_action or not valid_output:
         message = "Invalid native ABI audit arguments"
         raise ValueError(message)
+    if not isinstance(action, str):
+        message = "Invalid native ABI audit action type"
+        raise TypeError(message)
+    return system, action, output if isinstance(output, Path) else None
+
+
+def _print_summary(model: NativeModel, checks: list[str]) -> None:
+    """Write machine-readable ABI verification results to standard output."""
+    _ = sys.stdout.write(
+        json.dumps(
+            {
+                "nativeUUID": model.native.uuid,
+                "classes": len(model.tables),
+                "removedSlots": len(model.holes),
+                "auditChecksPassed": len(checks),
+                "outputKind": "abi-audit",
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def main() -> None:
+    """Run a read-only audit with reliable cleanup of mapped image files."""
+    system, action, output = _audit_args()
     model = NativeModel(system)
     try:
         result = model.describe()
         checks = verify_model(model) if action == VERIFY_ACTION else []
         result["auditChecks"] = checks
-        if isinstance(output, Path):
+        if output is not None:
             output.parent.mkdir(parents=True, exist_ok=True)
             _ = output.write_text(json.dumps(result, indent=2) + "\n")
-        _ = sys.stdout.write(
-            json.dumps(
-                {
-                    "nativeUUID": model.native.uuid,
-                    "classes": len(model.tables),
-                    "removedSlots": len(model.holes),
-                    "auditChecksPassed": len(checks),
-                    "outputKind": "abi-audit",
-                },
-                indent=2,
-            )
-            + "\n"
-        )
+        _print_summary(model, checks)
     finally:
         model.close()
 
