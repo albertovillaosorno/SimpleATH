@@ -9,6 +9,17 @@ namespace simpleath
         constexpr uint16_t kBusMaster = 0x0004;
         constexpr uint32_t kMinimumInspectionBar = kRtcStatusRegister + 4;
 
+        bool overlaps(const void *a, size_t aBytes, const void *b,
+                      size_t bBytes)
+        {
+            if (!a || !b || !aBytes || !bBytes)
+                return false;
+            const auto first = reinterpret_cast<uintptr_t>(a);
+            const auto second = reinterpret_cast<uintptr_t>(b);
+            return first <= second ? second - first < aBytes
+                                   : first - second < bBytes;
+        }
+
         // If anything except memory decode changes, ownership is no longer
         // proven. Never restore a stale PCI command word over those changes.
         bool commandBitsChanged(uint32_t observed, uint16_t original)
@@ -41,6 +52,14 @@ namespace simpleath
 
     PciSessionResult PciReadOnlySession::start(const PciSessionBackend &backend)
     {
+        // An opaque callback context cannot be the session or the supplied
+        // callback table. Otherwise a first claim callback can overwrite our
+        // ownership state or future function pointers. Check before clearing
+        // any state; an alias error is signaled only by its return value.
+        if (overlaps(&backend, sizeof(backend), this, sizeof(*this)) ||
+            overlaps(backend.context, 1, this, sizeof(*this)) ||
+            overlaps(backend.context, 1, &backend, sizeof(backend)))
+            return PciSessionResult::MissingBackend;
         if (status_.claimed || status_.mapped || status_.memoryDecodeChanged)
             return status_.lastResult = PciSessionResult::WrongState;
         device_.detach();

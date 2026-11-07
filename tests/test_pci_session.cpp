@@ -359,5 +359,32 @@ int main()
             session.start(fake.backend()) != PciSessionResult::WrongState)
             return 23;
     }
+    {
+        // A callback context forged from our retained session storage must
+        // not reach even claim(), because the fake callback treats it as a
+        // FakePci and would overwrite object/function-pointer state.
+        FakePci fake {};
+        PciReadOnlySession session;
+        auto backend = fake.backend();
+        backend.context = &session;
+        if (session.start(backend) != PciSessionResult::MissingBackend ||
+            fake.claims || fake.writes || fake.maps ||
+            session.status().claimed || session.status().mapped)
+            return 24;
+        backend.context = &backend;
+        if (session.start(backend) != PciSessionResult::MissingBackend ||
+            fake.claims || fake.writes || fake.maps ||
+            session.status().claimed || session.status().mapped)
+            return 25;
+        // A rejected malicious context does not poison a later legitimate
+        // claim with the same already initialized session object.
+        backend.context = &fake;
+        if (session.start(backend) != PciSessionResult::Ok ||
+            !session.status().readAccessReady || fake.claims != 1)
+            return 26;
+        session.stop(ProviderAccess::Available);
+        if (fake.claimed || fake.mapped || fake.command || fake.releases != 1)
+            return 27;
+    }
     return 0;
 }
