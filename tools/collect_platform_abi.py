@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Copy existing OS ABI evidence; no installer, build, kernel utility or PCI I/O.
+# Copyright (c) 2026 SimpleATH contributors.
+"""Copy existing OS ABI evidence, without installation or device access.
 
 Run manually on the target Mac, or supply an already accessible offline root.
 This tool is separate from collect.py: it never probes a live network driver.
@@ -8,15 +9,25 @@ It records observed files, not an attestation of what OpenCore actually loaded.
 """
 
 import argparse
+from datetime import UTC
+from datetime import datetime
 import hashlib
 import json
 import os
+from pathlib import Path
 import plistlib
 import stat
+import sys
 import tempfile
-from datetime import datetime, timezone
-from pathlib import Path
+from typing import NotRequired
+from typing import TYPE_CHECKING
+from typing import TypeIs
+from typing import TypedDict
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from io import BufferedReader
+    from io import BufferedWriter
 
 VERSION = Path("System/Library/CoreServices/SystemVersion.plist")
 FILES = (
@@ -27,117 +38,298 @@ FILES = (
 )
 FAMILIES = ("IOPCIFamily", "IO80211Family", "IOSkywalkFamily")
 MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024
+CHUNK_BYTES = 1024 * 1024
+MAX_VERSION_BYTES = CHUNK_BYTES
+STATUS_COPIED = "copied"
+REJECTED_OUTPUT_PARTS = {"EFI", "System", "Library", "Preboot"}
 
 
-def open_source(root, relative):
-    """Follow OS aliases only within the selected root, then open a regular file."""
+class _Args(argparse.Namespace):
+    def __init__(self) -> None:
+        super().__init__()
+        self.source_root: Path = Path("/")
+        self.expected_build: str = "25G332"
+        self.output: Path = Path()
+
+
+class _Record(TypedDict):
+    path: str
+    status: str
+    bytes: NotRequired[int]
+    sha256: NotRequired[str]
+    error: NotRequired[str]
+
+
+def _is_dict(value: object) -> TypeIs[dict[object, object]]:
+    return isinstance(value, dict)
+
+
+def _is_mapping(value: object) -> TypeIs[dict[str, object]]:
+    return _is_dict(value) and all(isinstance(key, str) for key in value)
+
+
+def _decode_plist(data: bytes, decoder: Callable[[bytes], object]) -> object:
+    return decoder(data)
+
+
+def _plist_dict(data: bytes) -> dict[str, object]:
+    value = _decode_plist(data, plistlib.loads)
+    if not _is_mapping(value):
+        message = "Expected a dictionary in SystemVersion.plist"
+        raise ValueError(message)
+    return value
+
+
+def _require_regular(info: os.stat_result) -> None:
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
+        message = "Source must be a bounded regular file"
+        raise ValueError(message)
+
+
+def open_source(
+    root: Path, relative: Path
+) -> tuple[BufferedReader, os.stat_result]:
+    """Follow OS aliases only within the selected root, then open a file.
+
+    Returns:
+        A bounded regular binary file handle and its initial metadata.
+
+    Raises:
+        ValueError: The path escapes the OS root or exceeds the size limit.
+        OSError: The source cannot be opened as an existing file.
+
+    """
     source = (root / relative).resolve(strict=True)
     if root not in source.parents:
-        raise ValueError("Source resolves outside the selected OS root")
+        message = "Source resolves outside the selected OS root"
+        raise ValueError(message)
     handle = source.open("rb")
-    info = os.fstat(handle.fileno())
-    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FILE_BYTES:
+    try:
+        info = os.fstat(handle.fileno())
+        _require_regular(info)
+    except OSError, ValueError:
         handle.close()
-        raise ValueError("Source must be a bounded regular file")
+        raise
     return handle, info
 
 
-def read_version(root):
+def read_version(root: Path) -> dict[str, str | None]:
+    """Decode a bounded source SystemVersion.plist and select version fields.
+
+    Returns:
+        The three observed OS version/build string fields, if present.
+
+    Raises:
+        ValueError: The plist is too large or cannot be decoded as a dict.
+
+    """
     with open_source(root, VERSION)[0] as handle:
-        data = handle.read(1024 * 1024 + 1)
-    if len(data) > 1024 * 1024:
-        raise ValueError("SystemVersion.plist exceeds limit")
-    info = plistlib.loads(data)
-    return {key: info.get(key) for key in
-            ("ProductName", "ProductVersion", "ProductBuildVersion")}
+        data = handle.read(MAX_VERSION_BYTES + 1)
+    if len(data) > MAX_VERSION_BYTES:
+        message = "SystemVersion.plist exceeds limit"
+        raise ValueError(message)
+    info = _plist_dict(data)
+    keys = ("ProductName", "ProductVersion", "ProductBuildVersion")
+    return {
+        key: value if isinstance(value := info.get(key), str) else None
+        for key in keys
+    }
 
 
-def copy_evidence(root, output, relative):
-    record = {"path": str(relative)}
-    destination = output / relative
+def _copy_bytes(
+    source: BufferedReader, target: BufferedWriter
+) -> tuple[int, str]:
+    digest = hashlib.sha256()
+    length = 0
+    for chunk in iter(lambda: source.read(CHUNK_BYTES), b""):
+        length += len(chunk)
+        if length > MAX_FILE_BYTES:
+            message = "Source grew beyond size limit"
+            raise ValueError(message)
+        written = target.write(chunk)
+        if written != len(chunk):
+            message = "Destination accepted an incomplete evidence chunk"
+            raise ValueError(message)
+        digest.update(chunk)
+    return length, digest.hexdigest()
+
+
+def _verify_source(
+    source: BufferedReader, before: os.stat_result, length: int
+) -> None:
+    after = os.fstat(source.fileno())
+    old = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+    new = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+    if old != new or length != before.st_size:
+        message = "Source changed during copy; copy discarded"
+        raise ValueError(message)
+
+
+def _copy_checked(
+    root: Path, relative: Path, destination: Path
+) -> tuple[int, str]:
     created = False
+    completed = False
     try:
         with open_source(root, relative)[0] as source:
             before = os.fstat(source.fileno())
             destination.parent.mkdir(parents=True, exist_ok=True)
-            digest = hashlib.sha256()
-            length = 0
             with destination.open("xb") as target:
                 created = True
-                while True:
-                    chunk = source.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    length += len(chunk)
-                    if length > MAX_FILE_BYTES:
-                        raise ValueError("Source grew beyond size limit")
-                    target.write(chunk)
-                    digest.update(chunk)
-            after = os.fstat(source.fileno())
-            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                    after.st_size, after.st_mtime_ns, after.st_ctime_ns) or length != before.st_size:
-                raise ValueError("Source changed during copy; copy discarded")
-        record.update(status="copied", bytes=length, sha256=digest.hexdigest())
+                length, digest = _copy_bytes(source, target)
+            _verify_source(source, before, length)
+        completed = True
+        return length, digest
+    finally:
+        if created and not completed:
+            # Only remove files created by this exclusive open, never a file
+            # that already existed at the requested evidence destination.
+            destination.unlink(missing_ok=True)
+
+
+def copy_evidence(root: Path, output: Path, relative: Path) -> _Record:
+    """Copy one bounded file, recording a failure without retaining partials.
+
+    Returns:
+        A path, byte-count and digest or the reason it was unavailable.
+
+    """
+    destination = output / relative
+    try:
+        length, digest = _copy_checked(root, relative, destination)
     except (OSError, ValueError) as error:
-        if created:
-            destination.unlink()
-        record.update(status="unavailable", error=str(error))
-    return record
+        return {
+            "path": str(relative),
+            "status": "unavailable",
+            "error": str(error),
+        }
+    return {
+        "path": str(relative),
+        "status": STATUS_COPIED,
+        "bytes": length,
+        "sha256": digest,
+    }
 
 
-def main():
+def _arguments() -> tuple[argparse.ArgumentParser, _Args]:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-root", type=Path, default=Path("/"),
-                        help="Already accessible installed OS root; never mounted by this tool")
-    parser.add_argument("--expected-build", default="25G332")
-    parser.add_argument("--output", type=Path, required=True,
-                        help="New directory under your home or temporary directory")
-    args = parser.parse_args()
-    root = args.source_root.expanduser().resolve(strict=True)
-    output = args.output.expanduser().resolve()
+    _ = parser.add_argument(
+        "--source-root",
+        type=Path,
+        default=Path("/"),
+        help="Already accessible installed OS root; never mounted by this tool",
+    )
+    _ = parser.add_argument("--expected-build", default="25G332")
+    _ = parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New directory under your home or temporary directory",
+    )
+    return parser, parser.parse_args(namespace=_Args())
+
+
+def _output_path(parser: argparse.ArgumentParser, output: Path) -> Path:
+    selected = output.expanduser().resolve()
     allowed = (Path.home().resolve(), Path(tempfile.gettempdir()).resolve())
-    if not any(parent in output.parents for parent in allowed):
-        parser.error("Output must be a new directory under your home or temporary directory")
-    # Do not accept system/EFI paths, even when an offline root is under home.
-    if any(part in ("EFI", "System", "Library", "Preboot") for part in output.parts):
-        parser.error("Output must not be a system, library, preboot or EFI path")
+    if not any(parent in selected.parents for parent in allowed):
+        message = "Output must be a new directory under your home"
+        message += " or temporary directory"
+        parser.error(message)
+    if any(part in REJECTED_OUTPUT_PARTS for part in selected.parts):
+        parser.error(
+            "Output must not be a system, library, preboot or EFI path"
+        )
+    return selected
+
+
+def _source_version(
+    parser: argparse.ArgumentParser, root: Path, expected: str
+) -> dict[str, str | None]:
     try:
         version = read_version(root)
     except (OSError, ValueError, plistlib.InvalidFileException) as error:
         parser.error("Cannot read source SystemVersion.plist: " + str(error))
-    if version["ProductBuildVersion"] != args.expected_build:
-        parser.error("Source build is %r; expected %r. Nothing copied." % (
-            version["ProductBuildVersion"], args.expected_build))
-    # Exclusive directory creation: no overwrite, resume, deletion or privilege escalation.
-    output.mkdir(mode=0o700, parents=False, exist_ok=False)
-    records = [copy_evidence(root, output, relative) for relative in FILES]
+    if version["ProductBuildVersion"] != expected:
+        message = f"Source build is {version["ProductBuildVersion"]!r}; "
+        message += f"expected {expected!r}. Nothing copied."
+        parser.error(message)
+    return version
+
+
+def _family_files() -> list[Path]:
+    files: list[Path] = []
     for family in FAMILIES:
-        contents = Path("System/Library/Extensions") / (family + ".kext") / "Contents"
-        records.extend(copy_evidence(root, output, relative) for relative in (
-            contents / "Info.plist", contents / "MacOS" / family))
-    # Missing standalone kext executables can be normal; the KC is the primary evidence.
-    complete = all(record["status"] == "copied" for record in records[:2])
+        contents = (
+            Path("System/Library/Extensions") / f"{family}.kext" / "Contents"
+        )
+        files.extend([contents / "Info.plist", contents / "MacOS" / family])
+    return files
+
+
+def _complete(output: Path, records: list[_Record], expected: str) -> bool:
+    # Missing standalone kext executables can be normal; the KC is primary.
+    complete = all(record["status"] == STATUS_COPIED for record in records[:2])
     copied_version = output / VERSION
     if copied_version.is_file():
-        observed = plistlib.loads(copied_version.read_bytes())
-        complete &= observed.get("ProductBuildVersion") == args.expected_build
-    report = {
+        observed = _plist_dict(copied_version.read_bytes())
+        complete &= observed.get("ProductBuildVersion") == expected
+    return complete
+
+
+def _manifest_payload(
+    root: Path,
+    version: dict[str, str | None],
+    records: list[_Record],
+    *,
+    complete: bool,
+) -> dict[str, object]:
+    return {
         "schemaVersion": 1,
-        "collectedUtc": datetime.now(timezone.utc).isoformat(),
+        "collectedUtc": datetime.now(UTC).isoformat(),
         "sourceRoot": str(root),
         "systemVersion": version,
-        "requiredVersionAndBootCollectionCopied": bool(complete),
-        "provenance": "Files observed under one root; loaded images not attested",
+        "requiredVersionAndBootCollectionCopied": complete,
+        "provenance": (
+            "Files observed under one root; loaded images not attested"
+        ),
         "nativePciAbiVerified": False,
         "nativeWirelessAbiVerified": False,
         "files": records,
     }
+
+
+def _write_manifest(output: Path, report: dict[str, object]) -> None:
     with (output / "manifest.json").open("x", encoding="utf-8") as target:
         json.dump(report, target, indent=2)
-        target.write("\n")
-    print(output)
+        _ = target.write("\n")
+
+
+def main() -> None:
+    """Copy preexisting ABI evidence after strict source and output checks.
+
+    Raises:
+        SystemExit: Required evidence is incomplete; the manifest is retained.
+
+    """
+    parser, args = _arguments()
+    root = args.source_root.expanduser().resolve(strict=True)
+    output = _output_path(parser, args.output)
+    version = _source_version(parser, root, args.expected_build)
+    # Exclusive directory creation; never overwrite, resume or escalate.
+    output.mkdir(mode=0o700, parents=False, exist_ok=False)
+    records = [copy_evidence(root, output, relative) for relative in FILES]
+    records.extend(
+        copy_evidence(root, output, path) for path in _family_files()
+    )
+    complete = _complete(output, records, args.expected_build)
+    report = _manifest_payload(root, version, records, complete=complete)
+    _write_manifest(output, report)
+    _ = sys.stdout.write(f"{output}\n")
     if not complete:
-        raise SystemExit("Required evidence incomplete; inspect manifest.json. No sudo retry performed.")
+        message = "Required evidence incomplete; inspect manifest.json."
+        message += " No sudo retry performed."
+        raise SystemExit(message)
 
 
 if __name__ == "__main__":
