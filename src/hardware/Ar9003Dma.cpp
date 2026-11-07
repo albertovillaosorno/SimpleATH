@@ -159,16 +159,19 @@ namespace simpleath
             return Error::Ok;
         }
 
-        void TxRing::reset()
+        Error TxRing::reset()
         {
-            // The platform MUST stop hardware DMA and reclaim buffers before
-            // reset.
+            // Even after device quiescence, the owner must retire every
+            // descriptor/mapping explicitly. Discarding live metadata here
+            // would hide unfinished DMA ownership and stale buffer lifetime.
+            if (active_ != 0)
+                return Error::UnexpectedState;
             capacity_ = 0;
-            active_ = 0;
             // Preserve the reservation-token sequence across
             // reset/reinitialization.
             for (size_t i = 0; i < kMaximumSlots; ++i)
                 slots_[i] = {};
+            return Error::Ok;
         }
 
         bool TxRing::matches(const TxSlotToken &token) const

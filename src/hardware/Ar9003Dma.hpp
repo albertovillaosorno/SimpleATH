@@ -105,7 +105,11 @@ namespace simpleath
                                        bool channelAllowed, bool keysReady);
                 Error complete(const TxSlotToken &token);
                 Error release(const TxSlotToken &token);
-                void reset();
+                // A reset must not erase tokens still tied to mapped buffers
+                // or potentially hardware-owned descriptors. The caller must
+                // prove quiescence and retire every slot first; only then may
+                // a new ring generation begin.
+                Error reset();
 
                 size_t active() const
                 {
