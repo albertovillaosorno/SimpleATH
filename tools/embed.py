@@ -26,6 +26,7 @@ from profiles import IMAGES
 from profiles import ROUTE_SYMBOLS
 from profiles import SYMBOLS
 from system_profiles import SYSTEMS
+from verification_runtime import require_assertions_active
 
 OUTPUT = ROOT / "build/Embedded"
 LABELS = ["Legacy", "AirPortOriginal", "AirPort"]
@@ -126,6 +127,7 @@ def route_prefixes(image, label):
 
 
 def generate():
+    require_assertions_active()
     validate_payloads()
     plans = [SkywalkPlan(system) for system in SYSTEMS]
     plan = plans[-1]
