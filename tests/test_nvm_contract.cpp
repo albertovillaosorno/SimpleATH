@@ -8,20 +8,26 @@ namespace
     struct FakeNvm
     {
             uint32_t statusReads = 0;
+            uint32_t registerReads = 0;
             uint32_t finalStatus = 0x3412;
             uint32_t firstStatus = 0;
             uint32_t clockReads = 0;
+            uint32_t ownerChecks = 0;
             bool backwards = false;
+            bool d0 = true;
     };
 
-    bool owned(void *)
+    bool owned(void *context)
     {
-        return true;
+        auto &fake = *static_cast<FakeNvm *>(context);
+        ++fake.ownerChecks;
+        return fake.d0;
     }
 
     bool read(void *context, uint32_t offset, uint32_t *value)
     {
         auto &fake = *static_cast<FakeNvm *>(context);
+        ++fake.registerReads;
         switch (offset)
         {
             case simpleath::kRevisionRegister:
@@ -47,7 +53,8 @@ namespace
     uint64_t clock(void *context)
     {
         auto &fake = *static_cast<FakeNvm *>(context);
-        return fake.backwards && ++fake.clockReads > 1 ? 99 : 100;
+        ++fake.clockReads;
+        return fake.backwards && fake.clockReads > 1 ? 99 : 100;
     }
 
     void delay(void *, uint32_t)
@@ -113,5 +120,15 @@ int main()
     if (capture(fake, bytes, status) != NvmResult::InvalidClock ||
         status.captureComplete || bytes[0] || bytes[1])
         return 4;
+    // A revoked owner must be checked before the clock is ever called.
+    // Even a monotonic timer callback can require the owner's live context.
+    fake = {};
+    fake.d0 = false;
+    bytes[0] = bytes[1] = 0xaa;
+    if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
+        fake.ownerChecks != 1 || fake.clockReads != 0 ||
+        fake.registerReads != 0 || status.captureComplete || bytes[0] ||
+        bytes[1])
+        return 5;
     return 0;
 }

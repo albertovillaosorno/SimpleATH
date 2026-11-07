@@ -240,6 +240,11 @@ namespace simpleath
                             physicalIdentity.deviceId) ||
             physicalIdentity.spoofPossible)
             return status.result = NvmResult::UnsupportedIdentity;
+        // The monotonic clock can belong to the same revoked PCI owner as
+        // MMIO. Do not invoke it during Capture construction before the first
+        // ownership check. Capture::budget rechecks ownership before reads.
+        if (!backend.ownerInD0(backend.context))
+            return status.result = NvmResult::SessionUnavailable;
         Capture capture(backend, status);
         uint32_t value = 0;
         NvmResult result = capture.read(kRevisionRegister, value);
