@@ -93,7 +93,8 @@ namespace simpleath
             const bool ordered = (control & 0x8000u) != 0;
             if (type == FrameType::Control || type == FrameType::Extension)
                 return Result::UnsupportedFrame;
-            if (type == FrameType::Management && (toDs || fromDs || ordered))
+            if (type == FrameType::Management &&
+                (toDs || fromDs || ordered || (control & 0x0400u) != 0))
                 return Result::UnsupportedFrame;
 
             size_t headerLength = 24;
@@ -110,6 +111,12 @@ namespace simpleath
             }
             if (length < headerLength)
                 return Result::Truncated;
+            // Management reassembly is not implemented: neither an initial
+            // More Fragments frame nor a later nonzero fragment can be
+            // interpreted as a complete beacon or handshake response.
+            if (type == FrameType::Management &&
+                (read16(bytes + 22) & 0x000fu) != 0)
+                return Result::UnsupportedFrame;
             Frame parsed {};
             parsed.type = type;
             parsed.subtype = subtype;
@@ -258,6 +265,11 @@ namespace simpleath
             if (header.type != FrameType::Management ||
                 (header.subtype != 8 && header.subtype != 5))
                 return Result::UnsupportedFrame;
+            // Only a directly transmitted infrastructure BSS is supported;
+            // nontransmitted/multiple-BSSID profiles need separate parsing.
+            if (header.protectedFrame || !validStationMac(header.source) ||
+                !sameMac(header.source, header.bssid))
+                return Result::InvalidFrame;
             if (length - header.headerLength < 12)
                 return Result::Truncated;
             const uint8_t *fixed = frame + header.headerLength;
@@ -276,6 +288,8 @@ namespace simpleath
             Element element {};
             bool seenSsid = false, seenRsn = false, seenDs = false;
             bool seenRates = false, seenExtendedRates = false;
+            bool seenHtCapabilities = false, seenHtOperation = false;
+            uint8_t dsChannel = 0, htPrimaryChannel = 0;
             for (;;)
             {
                 const CursorStatus next = cursor.next(element);
@@ -304,10 +318,13 @@ namespace simpleath
                     // number.
                     const bool base = element.id == 1;
                     if ((base && seenRates) || (!base && seenExtendedRates) ||
-                        (base && (element.length == 0 || element.length > 8)) ||
+                        element.length == 0 || (base && element.length > 8) ||
                         static_cast<size_t>(parsed.rateCount) + element.length >
                             sizeof(parsed.rates))
                         return Result::InvalidElement;
+                    for (size_t i = 0; i < element.length; ++i)
+                        if ((element.data[i] & 0x7fu) == 0)
+                            return Result::InvalidElement;
                     if (base)
                         seenRates = true;
                     else
@@ -320,14 +337,16 @@ namespace simpleath
                     if (seenDs || element.length != 1)
                         return Result::InvalidElement;
                     seenDs = true;
-                    parsed.channel = element.data[0];
-                    if (parsed.channel == 0 || parsed.channel > 14)
+                    dsChannel = element.data[0];
+                    if (dsChannel == 0 || dsChannel > 14)
                         return Result::InvalidElement;
+                    parsed.channel = dsChannel;
                 }
                 else if (element.id == 45)
                 {
-                    if (element.length < 26)
+                    if (seenHtCapabilities || element.length != 26)
                         return Result::InvalidElement;
+                    seenHtCapabilities = true;
                     parsed.htSupported = true;
                     const uint16_t htCapabilities = read16(element.data);
                     parsed.ht40Allowed = (htCapabilities & 0x2u) != 0;
@@ -350,13 +369,23 @@ namespace simpleath
                     parsed.rsnIeLength =
                         static_cast<uint16_t>(element.length + 2u);
                 }
-                else if (element.id == 61 && element.length >= 1 && !seenDs)
+                else if (element.id == 61)
                 {
-                    if (element.data[0] != 0 && element.data[0] <= 14)
-                        parsed.channel = element.data[0];
+                    // HT Operation must be complete and its advertised
+                    // primary channel must agree with the DS parameter set,
+                    // regardless of the order of the two elements.
+                    if (seenHtOperation || element.length != 22)
+                        return Result::InvalidElement;
+                    seenHtOperation = true;
+                    htPrimaryChannel = element.data[0];
+                    if (htPrimaryChannel == 0 || htPrimaryChannel > 14)
+                        return Result::InvalidElement;
+                    if (!seenDs)
+                        parsed.channel = htPrimaryChannel;
                 }
             }
-            if (!seenSsid)
+            if (!seenSsid || !seenRates ||
+                (seenDs && seenHtOperation && dsChannel != htPrimaryChannel))
                 return Result::InvalidElement;
             out = parsed;
             return Result::Ok;
@@ -535,10 +564,43 @@ namespace simpleath
                 return Result::Truncated;
             const uint8_t *body = bytes + parsed.headerLength;
             const uint16_t status = read16(body + 2);
-            const uint16_t aid =
-                static_cast<uint16_t>(read16(body + 4) & 0x3fffu);
-            if (status == 0 && (aid == 0 || aid > 2007))
+            const uint16_t rawAid = read16(body + 4);
+            const uint16_t aid = static_cast<uint16_t>(rawAid & 0x3fffu);
+            if (status == 0 &&
+                ((rawAid & 0xc000u) != 0xc000u || aid == 0 || aid > 2007))
                 return Result::InvalidFrame;
+
+            // A successful Association Response carries a Supported Rates
+            // element. Validate its complete IE list before treating the
+            // status and AID as accepted; a six-byte fixed body alone is not
+            // enough to establish usable negotiated BSS rates.
+            Elements cursor(body + 6, length - parsed.headerLength - 6);
+            Element element {};
+            bool seenRates = false;
+            bool seenExtendedRates = false;
+            for (;;)
+            {
+                const CursorStatus next = cursor.next(element);
+                if (next == CursorStatus::End)
+                    break;
+                if (next == CursorStatus::Truncated)
+                    return Result::InvalidElement;
+                if (element.id != 1 && element.id != 50)
+                    continue;
+                const bool base = element.id == 1;
+                if ((base && seenRates) || (!base && seenExtendedRates) ||
+                    element.length == 0 || (base && element.length > 8))
+                    return Result::InvalidElement;
+                for (size_t i = 0; i < element.length; ++i)
+                    if ((element.data[i] & 0x7fu) == 0)
+                        return Result::InvalidElement;
+                if (base)
+                    seenRates = true;
+                else
+                    seenExtendedRates = true;
+            }
+            if (status == 0 && !seenRates)
+                return Result::InvalidElement;
             statusCode = status;
             associationId = status == 0 ? aid : 0;
             return Result::Ok;
