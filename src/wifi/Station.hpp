@@ -17,6 +17,7 @@ enum class StationState : uint8_t {
     AssociationFramePrepared,
     AssociatedOpen,
     WaitingForWpa2Keys,
+    HardwareKeysInstalled,
     Failed
 };
 
@@ -31,6 +32,8 @@ enum class StationResult : uint8_t {
     Wpa2CryptoNotImplemented,
     NetworkInterfaceNotImplemented
 };
+
+class Wpa2Supplicant;
 
 class Station {
 public:
@@ -48,6 +51,9 @@ public:
     Result associationRequest(uint16_t sequence, uint8_t *out,
                               size_t capacity, size_t &written);
     StationResult onAssociationResponse(const uint8_t *bytes, size_t length);
+    // A separately verified EAPOL supplicant must install both PTK and GTK
+    // before the link enters its keys-installed (NOT network-ready) phase.
+    StationResult recordInstalledWpa2Keys(const Wpa2Supplicant &supplicant);
     StationState state() const { return state_; }
     uint16_t associationId() const { return associationId_; }
     const Bss &candidate() const { return chosen_; }

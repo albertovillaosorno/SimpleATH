@@ -14,9 +14,10 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | BSS cache | src/wifi/ScanCache.* | Allocation-free maximum 48 APs, expiry, visible/hidden SSID updates, channel/security filtering and RSSI preference |
 | Station protocol state | src/wifi/Station.* | Scan/candidate, authentication and association state transitions; explicit stop at unimplemented WPA2 crypto or network-interface registration |
 | EAPOL-Key parsing | src/wifi/Eapol.* | EAPOL version/length/RSN descriptor and key-info validation, message 1-4 and group 1-2 classification, replay guard requiring confirmed MIC before advancing |
+| WPA2-PSK handshake | src/wifi/Wpa2Supplicant.* | EAPOL messages 2/4, MIC verification, GTK unwrap and pairwise/group key installation through mandatory reviewed crypto callbacks; no active hardware backend |
 | Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
 
-All seven C++ translation units were added to the existing Xcode target
+All eight C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
 
 ## Critical restrictions
@@ -32,10 +33,12 @@ for the **next separately authorized build**.
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
   beacon/scan operation, association timers and packet scheduling.
-- **WPA2 code does not derive/verify keys.** Its replay guard accepts a
-  *caller-provided* MIC verdict and does not implement PBKDF2, PTK derivation,
-  HMAC-SHA1, AES key unwrap, 802.11 CCMP, key installation or replay-window
-  enforcement in the actual hardware. It must not enable encrypted traffic.
+- **WPA2 depends on unavailable crypto and keycache backends.** The
+  supplicant prepares EAPOL M2/M4 and coordinates PTK derivation, MIC
+  validation, GTK AES unwrap, and pairwise/group key installation through
+  required platform callbacks. No PBKDF2/PMK provider, HMAC-SHA1, AES unwrap,
+  CCMP, hardware keycache or EAPOL TX/RX path is integrated. It cannot
+  independently establish a secure connection or pass traffic.
 - **No association means Wi-Fi connected.** The station's source-level
   state machine explicitly refuses to report a complete network interface.
 

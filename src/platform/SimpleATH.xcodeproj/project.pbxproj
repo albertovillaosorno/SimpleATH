@@ -36,6 +36,7 @@
 		000000000000000000000794 /* Station.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A4 /* Station.cpp */; };
 		000000000000000000000795 /* Eapol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A5 /* Eapol.cpp */; };
 		000000000000000000000796 /* DataFrames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A6 /* DataFrames.cpp */; };
+		000000000000000000000797 /* Wpa2Supplicant.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A7 /* Wpa2Supplicant.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -87,6 +88,8 @@
 		0000000000000000000007B5 /* Eapol.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Eapol.hpp; sourceTree = "<group>"; };
 		0000000000000000000007A6 /* DataFrames.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/DataFrames.cpp; sourceTree = "<group>"; };
 		0000000000000000000007B6 /* DataFrames.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/DataFrames.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A7 /* Wpa2Supplicant.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/Wpa2Supplicant.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B7 /* Wpa2Supplicant.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Wpa2Supplicant.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -106,6 +109,8 @@
 				0000000000000000000007A5 /* Eapol.cpp */,
 				0000000000000000000007B5 /* Eapol.hpp */,
 				0000000000000000000007A6 /* DataFrames.cpp */,
+				0000000000000000000007A7 /* Wpa2Supplicant.cpp */,
+				0000000000000000000007B7 /* Wpa2Supplicant.hpp */,
 				0000000000000000000007B6 /* DataFrames.hpp */,
 				0000000000000000000007B4 /* Station.hpp */,
 				000000000000000000000194 /* Ar9565Eeprom.cpp */,
@@ -232,6 +237,7 @@
 				000000000000000000000794 /* Station.cpp in Sources */,
 				000000000000000000000795 /* Eapol.cpp in Sources */,
 				000000000000000000000796 /* DataFrames.cpp in Sources */,
+				000000000000000000000797 /* Wpa2Supplicant.cpp in Sources */,
 				000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */,
 				000000000000000000000190 /* Ar9565PciSession.cpp in Sources */,
                 000000000000000000000180 /* Ar9565Core.cpp in Sources */,
