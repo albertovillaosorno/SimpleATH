@@ -13,11 +13,58 @@ import hashlib
 import json
 from pathlib import Path
 import struct
+from typing import NotRequired
+from typing import TypedDict
 
 if __package__:
+    from tools.abi_types import unpack_integers
     from tools.macho import Image
 else:
+    from abi_types import unpack_integers
     from macho import Image
+
+
+class ScalarGetRecord(TypedDict):
+    """One scalar ioctl request with a pinned ABI address."""
+
+    request: int
+    address: str
+    symbol: str
+
+
+class GuardRecord(TypedDict):
+    """One checked source image byte guard location."""
+
+    address: str
+    symbol: str
+
+
+class CopyRecord(TypedDict):
+    """Direct callsite position with its input/output direction."""
+
+    address: str
+    output: bool
+
+
+class ImageRecord(TypedDict):
+    """Stable provenance and guarded symbol inventory for one image."""
+
+    path: str
+    uuid: str | None
+    sha256: str
+    guards: list[GuardRecord]
+    copySites: list[CopyRecord]
+    scalarGetRequests: NotRequired[list[ScalarGetRecord]]
+    rejectsOtherBackendAt: NotRequired[list[str]]
+
+
+class ProfileManifest(TypedDict):
+    """Generated profile manifest with checked per-image records."""
+
+    copyright: str
+    supportedKernel: str
+    images: dict[str, ImageRecord]
+
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / ".research/binaries"
@@ -176,12 +223,26 @@ def relocations(image: Image) -> list[tuple[int, int, str, int]]:
     return result
 
 
-def numbers(data):
+def numbers(data: bytes | bytearray) -> str:
+    """Format a finite byte buffer as native C++ initializer numbers."""
     return ", ".join(f"0x{x:02X}" for x in data)
 
 
-def main():
-    lines = [
+def guard_mask(
+    relocations: list[tuple[int, int, str, int]], address: int
+) -> bytearray:
+    """Mask unstable relocation slots within one bounded guard window."""
+    mask = bytearray([255] * 32)
+    for start, size, _, _ in relocations:
+        for offset in range(
+            max(start, address), min(start + size, address + 32)
+        ):
+            mask[offset - address] = 0
+    return mask
+
+
+def main() -> None:
+    lines: list[str] = [
         "//",
         "//  Profiles.hpp",
         "//  SimpleATH",
@@ -200,7 +261,7 @@ def main():
         "struct CopySite { uint32_t offset; bool output; };",
         "",
     ]
-    manifest = {
+    manifest: ProfileManifest = {
         "copyright": "Copyright © 2026 laobamac. All rights reserved.",
         "supportedKernel": "23.x / 24.x / 25.x",
         "images": {},
@@ -210,14 +271,15 @@ def main():
             continue
         image = Image(path)
         relocs = relocations(image)
-        guards = []
+        guards: list[tuple[int, str]] = []
         for name in SYMBOLS[label]:
             address = image.symbols[name]
             guards.append((address, name))
-        scalar = []
+        scalar: list[ScalarGetRecord] = []
         if label == "Legacy":
-            table = struct.unpack(
-                "<417Q", image.read(image.symbols["_gGetHandlerTable"], 417 * 8)
+            table = unpack_integers(
+                image.read(image.symbols["_gGetHandlerTable"], 417 * 8),
+                "<417Q",
             )
             for request in SCALAR_GET_REQUESTS:
                 address = table[request - 1]
@@ -236,7 +298,7 @@ def main():
             lines.append(
                 f"static const uint16_t ScalarGetRequests[] = {{{", ".join(str(x) for x in SCALAR_GET_REQUESTS)}}};"
             )
-        copies = [
+        copies: list[tuple[int, bool]] = [
             (a - 1, n == "_copyout")
             for a, _, n, kind in relocs
             if n in ("_copyin", "_copyout") and kind == 2
@@ -256,12 +318,7 @@ def main():
             ]
         lines.append(f"static const ByteGuard {label}Guards[] = {{")
         for address, _ in guards:
-            mask = bytearray([255] * 32)
-            for start, size, _, _ in relocs:
-                for offset in range(
-                    max(start, address), min(start + size, address + 32)
-                ):
-                    mask[offset - address] = 0
+            mask = guard_mask(relocs, address)
             lines.append(
                 f"    {{0x{address:X}, {{{numbers(image.read(address, 32))}}}, {{{numbers(mask)}}}}},"
             )
@@ -291,7 +348,7 @@ def main():
     ]:
         image, alternative = Image(IMAGES[label]), Image(IMAGES[other])
         relocs = relocations(image) + relocations(alternative)
-        mismatches = []
+        mismatches: list[str] = []
         for guard in manifest["images"][label]["guards"]:
             address = int(guard["address"], 16)
             ignored = {
@@ -304,7 +361,11 @@ def main():
             if any(
                 a != b and address + index not in ignored
                 for index, (a, b) in enumerate(
-                    zip(image.read(address, 32), alternative.read(address, 32))
+                    zip(
+                        image.read(address, 32),
+                        alternative.read(address, 32),
+                        strict=True,
+                    )
                 )
             ):
                 mismatches.append(hex(address))
@@ -323,7 +384,7 @@ def main():
     }
     for path, content in outputs.items():
         if not path.exists() or path.read_text() != content:
-            path.write_text(content)
+            _ = path.write_text(content)
 
 
 if __name__ == "__main__":
