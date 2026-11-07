@@ -46,6 +46,8 @@ namespace simpleath
                 void reset();
                 StationResult enterScanning(bool radioInitialized,
                                             bool countryChannelAllowed);
+                // Reject nonviable or inconsistent BSS snapshots even when
+                // called without ScanCache as the source of candidates.
                 StationResult select(const Mac &station, const Bss &candidate);
                 // These only serialize bytes. The future radio backend must
                 // safely send them after obtaining the right channel and owning

@@ -37,20 +37,50 @@ namespace simpleath
         {
             if (state_ != StationState::Scanning)
                 return StationResult::InvalidState;
+            const Beacon &beacon = candidate.beacon;
             if (!validStationMac(station) || !candidate.occupied ||
-                !validStationMac(candidate.beacon.bssid) ||
-                !candidate.beacon.infrastructure ||
-                candidate.beacon.hiddenSsid ||
-                candidate.beacon.ssidLength == 0 ||
-                candidate.beacon.channel == 0)
+                !validStationMac(beacon.bssid) ||
+                sameMac(station, beacon.bssid) || !beacon.infrastructure ||
+                beacon.hiddenSsid || beacon.ssidLength == 0 ||
+                beacon.ssidLength > sizeof(beacon.ssid) ||
+                beacon.channel == 0 || beacon.channel > 14 ||
+                beacon.intervalTu == 0 || beacon.rateCount == 0 ||
+                beacon.rateCount > sizeof(beacon.rates))
                 return StationResult::UnsupportedNetwork;
-            const Security security = candidate.beacon.rsn.security;
-            if (security != Security::Open &&
-                !(security == Security::Wpa2Personal &&
-                  candidate.beacon.rsn.pairwiseCcmp &&
-                  candidate.beacon.rsn.groupCcmp &&
-                  candidate.beacon.rsn.akmPsk &&
-                  !candidate.beacon.rsn.pmfRequired))
+            for (size_t i = 0; i < beacon.rateCount; ++i)
+                if ((beacon.rates[i] & 0x7fu) == 0)
+                    return StationResult::UnsupportedNetwork;
+
+            // Station::select is public, not only called through ScanCache.
+            // Refuse a forged BSS snapshot that disagrees with its own
+            // privacy/RSNE advertisement before preparing any TX bytes.
+            const Security security = beacon.rsn.security;
+            if (security == Security::Open)
+            {
+                if ((beacon.capabilities & 0x10u) != 0 || beacon.rsn.present ||
+                    beacon.rsnIeLength != 0)
+                    return StationResult::UnsupportedNetwork;
+            }
+            else if (security == Security::Wpa2Personal)
+            {
+                if ((beacon.capabilities & 0x10u) == 0 || !beacon.rsn.present ||
+                    !beacon.rsn.valid || !beacon.rsn.pairwiseCcmp ||
+                    !beacon.rsn.groupCcmp || !beacon.rsn.akmPsk ||
+                    beacon.rsn.pmfRequired || beacon.rsnIeLength < 20 ||
+                    beacon.rsnIeLength > sizeof(beacon.rsnIe) ||
+                    beacon.rsnIe[0] != 48 ||
+                    static_cast<size_t>(beacon.rsnIe[1]) + 2 !=
+                        beacon.rsnIeLength)
+                    return StationResult::UnsupportedNetwork;
+                Rsn validated {};
+                if (parseRsn(beacon.rsnIe + 2, beacon.rsnIeLength - 2,
+                             validated) != Result::Ok ||
+                    validated.security != Security::Wpa2Personal ||
+                    validated.pmfRequired || !validated.groupCcmp ||
+                    !validated.pairwiseCcmp || !validated.akmPsk)
+                    return StationResult::UnsupportedNetwork;
+            }
+            else
                 return StationResult::UnsupportedNetwork;
             chosen_ = candidate;
             stationMac_ = station;
