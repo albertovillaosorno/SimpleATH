@@ -14,6 +14,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000194 /* Ar9565Eeprom.cpp */; };
 		000000000000000000000190 /* Ar9565PciSession.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000191 /* Ar9565PciSession.cpp */; };
 		000000000000000000000096 /* SimpleATH.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000064 /* SimpleATH.cpp */; };
         000000000000000000000180 /* Ar9565Core.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000182 /* Ar9565Core.cpp */; };
@@ -31,6 +32,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		000000000000000000000194 /* Ar9565Eeprom.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Eeprom.cpp; sourceTree = "<group>"; };
+		000000000000000000000195 /* Ar9565Eeprom.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Eeprom.hpp; sourceTree = "<group>"; };
 		000000000000000000000191 /* Ar9565PciSession.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/Ar9565PciSession.cpp; sourceTree = "<group>"; };
 		000000000000000000000192 /* Ar9565PciSession.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/Ar9565PciSession.hpp; sourceTree = "<group>"; };
 		000000000000000000000064 /* SimpleATH.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SimpleATH.cpp; sourceTree = "<group>"; };
@@ -70,6 +73,8 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+				000000000000000000000194 /* Ar9565Eeprom.cpp */,
+				000000000000000000000195 /* Ar9565Eeprom.hpp */,
 				000000000000000000000191 /* Ar9565PciSession.cpp */,
 				000000000000000000000192 /* Ar9565PciSession.hpp */,
                 000000000000000000000182 /* Ar9565Core.cpp */,
@@ -185,6 +190,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+				000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */,
 				000000000000000000000190 /* Ar9565PciSession.cpp in Sources */,
                 000000000000000000000180 /* Ar9565Core.cpp in Sources */,
                 000000000000000000000181 /* Ar9565InitCatalog.cpp in Sources */,
