@@ -34,6 +34,20 @@ until those exist and are tested on real AR9565 hardware.
 - `linux/`: owner-provided Linux reference tree, unmodified and excluded
   from the binary; file-level Linux licenses remain applicable.
 
+## Hardware source development (not compiled yet)
+
+The source tree now includes a native C++ AR9565 hardware core, chipset
+revision decoder, EEPROM/RTC status reader, guarded initialization plan,
+and real 2.4 GHz register tables generated from Linux ath9k.
+
+The hardware port is **incomplete**: PCI BAR transport, DMA, PHY
+calibration, 802.11 association, encryption, and a macOS Wi-Fi interface
+do not exist yet. New modules are staged in the Xcode target, but no new
+binary has been built or deployed.
+
+See [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md).
+The user must explicitly authorize the next CI build and boot test.
+
 ## Local macOS build
 
 Requires Intel macOS with Xcode and Python 3.

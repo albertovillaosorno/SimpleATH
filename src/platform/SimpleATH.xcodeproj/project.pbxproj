@@ -15,6 +15,8 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000000000096 /* SimpleATH.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000064 /* SimpleATH.cpp */; };
+        000000000000000000000180 /* Ar9565Core.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000182 /* Ar9565Core.cpp */; };
+        000000000000000000000181 /* Ar9565InitCatalog.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000183 /* Ar9565InitCatalog.cpp */; };
 		000000000000000000000097 /* Bridge.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000065 /* Bridge.cpp */; };
 		000000000000000000000098 /* UserClient.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000066 /* UserClient.cpp */; };
 		000000000000000000000099 /* Loader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000007A /* Loader.cpp */; };
@@ -29,6 +31,10 @@
 
 /* Begin PBXFileReference section */
 		000000000000000000000064 /* SimpleATH.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SimpleATH.cpp; sourceTree = "<group>"; };
+        000000000000000000000182 /* Ar9565Core.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Core.cpp; sourceTree = "<group>"; };
+        000000000000000000000183 /* Ar9565InitCatalog.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565InitCatalog.cpp; sourceTree = "<group>"; };
+        000000000000000000000184 /* Ar9565Core.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Core.hpp; sourceTree = "<group>"; };
+        000000000000000000000185 /* Ar9565InitCatalog.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565InitCatalog.hpp; sourceTree = "<group>"; };
 		000000000000000000000065 /* Bridge.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Bridge.cpp; sourceTree = "<group>"; };
 		000000000000000000000066 /* UserClient.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = UserClient.cpp; sourceTree = "<group>"; };
 		00000000000000000000006E /* Bridge.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = Bridge.hpp; sourceTree = "<group>"; };
@@ -61,6 +67,10 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+                000000000000000000000182 /* Ar9565Core.cpp */,
+                000000000000000000000183 /* Ar9565InitCatalog.cpp */,
+                000000000000000000000184 /* Ar9565Core.hpp */,
+                000000000000000000000185 /* Ar9565InitCatalog.hpp */,
 				000000000000000000000065 /* Bridge.cpp */,
 				000000000000000000000066 /* UserClient.cpp */,
 				00000000000000000000006E /* Bridge.hpp */,
@@ -170,6 +180,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+                000000000000000000000180 /* Ar9565Core.cpp in Sources */,
+                000000000000000000000181 /* Ar9565InitCatalog.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
