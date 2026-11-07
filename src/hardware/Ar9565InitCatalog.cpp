@@ -69,6 +69,10 @@ namespace simpleath
         if (createInitRecipe(recipe.silicon, recipe.channel, recipe.width,
                              recipe.txGain, recipe.rxGain, requirements,
                              expected) != Result::Ok ||
+            // This source does not implement active radio initialization.
+            // No caller may turn a source-disabled recipe into an executable
+            // one simply by modifying its implementationComplete flag.
+            !expected.implementationComplete ||
             !expected.regulatoryAuthorized || recipe.count != expected.count ||
             recipe.registerWrites != expected.registerWrites)
             return false;

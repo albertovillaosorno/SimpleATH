@@ -97,8 +97,10 @@ namespace simpleath
     // table pointers, row counts, and register count for the requested silicon,
     // width, gain and channel. This does not establish runtime PCI ownership,
     // trusted source of the prerequisites or a working calibration backend.
-    // Current source always emits implementationComplete=false, so it cannot
-    // declare any recipe executable. "Prepared" never means TX permission.
+    // The guard independently checks the source-created recipe's readiness,
+    // not just the caller's mutable implementationComplete flag. Current
+    // source always emits false, so it cannot declare any recipe executable.
+    // "Prepared" never means TX permission.
     bool canBeginHardwareInitialization(
         const RegisterRecipe &recipe,
         const CalibrationAndRegulatory &preconditions);
