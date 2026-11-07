@@ -85,6 +85,8 @@ SYSTEMS: dict[str, _SystemProfile] = {
 }
 MACOS = "Darwin"
 INTEL = "x86_64"
+SOURCE_SNAPSHOT = "snapshot"
+SOURCE_SYSTEM = "system"
 VERSION_PLIST = Path("System/Library/CoreServices/SystemVersion.plist")
 
 
@@ -228,6 +230,37 @@ def _check_profile(
         collection.close()
 
 
+def native_source_paths(
+    directory: Path, volume_provider: Callable[[], dict[str, Path]]
+) -> dict[str, Path]:
+    """Resolve pinned ABI snapshot paths without a reverse module import.
+
+    Returns:
+        Complete pinned snapshot paths or matching offline volume paths.
+
+    Raises:
+        ValueError: The source mode or available volume set is unsupported.
+
+    """
+    source = os.environ.get("SIMPLEATH_NATIVE_SOURCE", SOURCE_SNAPSHOT)
+    if source == SOURCE_SNAPSHOT:
+        return {name: directory / (name + ".json") for name in SYSTEMS}
+    if source != SOURCE_SYSTEM:
+        message = "SIMPLEATH_NATIVE_SOURCE must be snapshot or system"
+        raise ValueError(message)
+    volumes = volume_provider()
+    if set(volumes) != set(SYSTEMS):
+        message = (
+            "All three reference system volumes are required for system mode"
+        )
+        raise ValueError(message)
+    return {
+        name: volumes[name]
+        / "System/Library/KernelCollections/BootKernelExtensions.kc"
+        for name in SYSTEMS
+    }
+
+
 def validate_reference_systems() -> dict[str, dict[str, str]]:
     """Validate three pinned Intel Mac OS image profiles before build use.
 
@@ -238,15 +271,16 @@ def validate_reference_systems() -> dict[str, dict[str, str]]:
         RuntimeError: Host or reference images do not match their pins.
 
     """
-    # Runtime imports are essential to avoid the intentional cycle through
-    # native_references -> system_profiles when using snapshot mode.
-    from kernel_collection import KernelCollection  # ruff: ignore[import-outside-top-level] - Breaks native_references import cycle.
-    from native_references import reference_paths  # ruff: ignore[import-outside-top-level] - Delayed to avoid import cycle.
+    # The collection reader is loaded only for explicit system validation.
+    from kernel_collection import KernelCollection  # ruff: ignore[import-outside-top-level] - Avoid eager binary-reader imports.
 
     if platform.system() != MACOS or platform.machine() != INTEL:
         message = "Build validation requires an Intel Mac"
         raise RuntimeError(message)
-    references = _reference_paths(reference_paths)
+    directory = Path(__file__).resolve().parent.parent / "src/platform/abi"
+    references = _reference_paths(
+        lambda: native_source_paths(directory, system_volumes)
+    )
     report: dict[str, dict[str, str]] = {}
     for name, profile in SYSTEMS.items():
         report[name] = _check_profile(
