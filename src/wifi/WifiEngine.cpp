@@ -114,9 +114,10 @@ namespace simpleath
                     return EngineResult::CryptoUnavailable;
                 const Wpa2Crypto callbacks = crypto_.callbacks();
                 if (!callbacks.context ||
-                    supplicant_.begin(callbacks, station,
-                                      candidate.beacon.bssid,
-                                      pmk) != Wpa2Result::Ok)
+                    supplicant_.begin(
+                        callbacks, station, candidate.beacon.bssid, pmk,
+                        candidate.beacon.rsnIe,
+                        candidate.beacon.rsnIeLength) != Wpa2Result::Ok)
                     return EngineResult::CryptoFailure;
             }
             else if (security != Security::Open)

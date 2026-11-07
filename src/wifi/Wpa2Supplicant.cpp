@@ -82,57 +82,75 @@ namespace simpleath
                          static_cast<uint16_t>(length - kMessage4Length));
             }
 
-            bool parseGtkKde(const uint8_t *plaintext, size_t length,
-                             uint8_t &keyId, uint8_t gtk[16])
+            Wpa2Result parseM3KeyData(const uint8_t *plaintext, size_t length,
+                                      const uint8_t *expectedRsnIe,
+                                      size_t expectedRsnIeLength,
+                                      uint8_t &keyId, uint8_t gtk[16])
             {
-                bool found = false;
+                bool foundGtk = false;
+                bool foundRsn = false;
                 size_t offset = 0;
                 while (offset < length)
                 {
-                    // AES-wrap padding is 0xdd followed only by zero octets.
-                    // A vendor KDE can also start with 0xdd, so treat it as
-                    // padding only when every remaining octet is zero.
+                    // IEEE 802.11 AES-wrap padding is 0xdd, then zero octets.
+                    // Do not confuse a vendor KDE with nonzero data for
+                    // padding.
                     if (plaintext[offset] == 0xdd)
                     {
                         bool padding = true;
                         for (size_t i = offset + 1; i < length; ++i)
                             padding = padding && plaintext[i] == 0;
                         if (padding)
-                            return found;
+                            break;
                     }
                     if (length - offset < 2)
-                        return false;
+                        return Wpa2Result::GtkMissingOrMalformed;
                     const uint8_t tag = plaintext[offset];
                     const size_t size = plaintext[offset + 1];
                     offset += 2;
                     if (size > length - offset)
-                        return false;
+                        return Wpa2Result::GtkMissingOrMalformed;
                     const uint8_t *element = plaintext + offset;
-                    if (tag == 221 && size >= 4 && element[0] == 0 &&
-                        element[1] == 0x0f && element[2] == 0xac &&
-                        element[3] == 1)
+                    if (tag == 48)
                     {
-                        // CCMP group key KDE: OUI(3) type(1) key-id(1)
-                        // reserved(1)
-                        // + 16-byte GTK. No shorter/longer or duplicate KDE
-                        // accepted.
-                        if (found || size != 22 || element[5] != 0)
-                            return false;
+                        // M3 must reproduce the associated BSS's RSNE; do not
+                        // install keys for a changed suite/AKM/PMF policy.
+                        if (foundRsn || size + 2u != expectedRsnIeLength ||
+                            expectedRsnIe[0] != tag ||
+                            expectedRsnIe[1] != size ||
+                            !constantTimeEqual(element, expectedRsnIe + 2u,
+                                               size))
+                            return Wpa2Result::RsnMismatch;
+                        foundRsn = true;
+                    }
+                    else if (tag == 221 && size >= 4 && element[0] == 0 &&
+                             element[1] == 0x0f && element[2] == 0xac &&
+                             element[3] == 1)
+                    {
+                        // CCMP GTK KDE: OUI(3), type(1), key-id(1),
+                        // reserved(1), 16-byte GTK. Reject
+                        // duplicate/short/malformed KDEs.
+                        if (foundGtk || size != 22 || element[5] != 0)
+                            return Wpa2Result::GtkMissingOrMalformed;
                         keyId = static_cast<uint8_t>(element[4] & 3u);
                         if ((element[4] & 0xfcu) != 0)
-                            return false;
+                            return Wpa2Result::GtkMissingOrMalformed;
                         copyBytes(gtk, element + 6, 16);
-                        found = true;
+                        foundGtk = true;
                     }
                     offset += size;
                 }
-                return found;
+                if (!foundRsn)
+                    return Wpa2Result::RsnMismatch;
+                return foundGtk ? Wpa2Result::Ok
+                                : Wpa2Result::GtkMissingOrMalformed;
             }
         } // namespace
 
         Wpa2Supplicant::Wpa2Supplicant()
             : state_(Wpa2State::Inactive), crypto_ {}, replay_ {}, station_ {},
-              ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, eapolVersion_(0),
+              ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, expectedRsnIe_ {},
+              expectedRsnIeLength_(0), eapolVersion_(0),
               keyInstallAttempted_(false)
         {
         }
@@ -162,6 +180,8 @@ namespace simpleath
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
+            secureClear(expectedRsnIe_, sizeof(expectedRsnIe_));
+            expectedRsnIeLength_ = 0;
             state_ = Wpa2State::Failed;
             return error;
         }
@@ -173,6 +193,8 @@ namespace simpleath
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
+            secureClear(expectedRsnIe_, sizeof(expectedRsnIe_));
+            expectedRsnIeLength_ = 0;
             crypto_ = {};
             replay_.reset();
             station_ = {};
@@ -184,12 +206,27 @@ namespace simpleath
 
         Wpa2Result Wpa2Supplicant::begin(const Wpa2Crypto &crypto,
                                          const Mac &station, const Mac &ap,
-                                         const uint8_t pmk[32])
+                                         const uint8_t pmk[32],
+                                         const uint8_t *expectedRsnIe,
+                                         size_t expectedRsnIeLength)
         {
             if (state_ != Wpa2State::Inactive)
                 return Wpa2Result::InvalidState;
             if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
                 !nonzero(pmk, 32))
+                return Wpa2Result::InvalidArgument;
+            // This snapshot came from a validated Beacon/Probe Response.
+            // A missing or unsupported RSNE cannot be treated as WPA2-PSK.
+            if (!expectedRsnIe || expectedRsnIeLength < 2u ||
+                expectedRsnIeLength > sizeof(expectedRsnIe_) ||
+                expectedRsnIe[0] != 48 ||
+                expectedRsnIe[1] != expectedRsnIeLength - 2u)
+                return Wpa2Result::InvalidArgument;
+            Rsn advertised {};
+            if (parseRsn(expectedRsnIe + 2u, expectedRsnIeLength - 2u,
+                         advertised) != Result::Ok ||
+                !advertised.groupCcmp || !advertised.pairwiseCcmp ||
+                !advertised.akmPsk || advertised.pmfRequired)
                 return Wpa2Result::InvalidArgument;
             if (!crypto.context || !crypto.generateNonce || !crypto.derivePtk ||
                 !crypto.micSha1 || !crypto.unwrapGtk ||
@@ -200,6 +237,8 @@ namespace simpleath
             station_ = station;
             ap_ = ap;
             copyBytes(pmk_, pmk, sizeof(pmk_));
+            copyBytes(expectedRsnIe_, expectedRsnIe, expectedRsnIeLength);
+            expectedRsnIeLength_ = expectedRsnIeLength;
             state_ = Wpa2State::AwaitingMessage1;
             return Wpa2Result::Ok;
         }
@@ -307,13 +346,14 @@ namespace simpleath
             }
             uint8_t gtk[16] {};
             uint8_t keyId = 0;
-            const bool validKde =
-                parseGtkKde(decrypted, decryptedLength, keyId, gtk);
+            const Wpa2Result keyData =
+                parseM3KeyData(decrypted, decryptedLength, expectedRsnIe_,
+                               expectedRsnIeLength_, keyId, gtk);
             secureClear(decrypted, sizeof(decrypted));
-            if (!validKde)
+            if (keyData != Wpa2Result::Ok)
             {
                 secureClear(gtk, sizeof(gtk));
-                return fail(Wpa2Result::GtkMissingOrMalformed);
+                return fail(keyData);
             }
             uint8_t response[kMessage4Length] {};
             populateEapolKey(response, sizeof(response), eapolVersion_, 0x030au,

@@ -82,3 +82,17 @@ Public evidence (reviewed 2026-11-06):
   https://people.iith.ac.in/tbr/teaching/docs/802.11-2007.pdf
 - hostapd authenticator reference, `src/ap/wpa_auth.c` (BSD terms):
   https://github.com/wertarbyte/hostap/blob/master/src/ap/wpa_auth.c
+
+## Binding M3 security to the chosen BSS (2026-11-06)
+
+- `WifiEngine` supplies the selected Beacon/Probe Response's exact RSNE
+  to `Wpa2Supplicant::begin`. The supplicant rejects missing, malformed,
+  non-CCMP/PSK, or PMF-required RSNE input before starting the handshake.
+- After authenticated M3 decryption, its RSNE must match that saved IE
+  byte-for-byte and occur exactly once. Missing, changed or duplicate
+  RSNEs prevent GTK/PTK keycache installation and clear handshake secrets.
+  An unsupported optional second RSNE also fails closed rather than
+  silently overriding the negotiated security policy.
+- IEEE 802.11-2007, clause 8.5 (4-Way Handshake M3), requires the
+  supplicant to validate the AP's RSNE against the Beacon/Probe Response.
+  These are source-level constraints, not hardware verification.

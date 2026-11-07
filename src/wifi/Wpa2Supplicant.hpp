@@ -27,6 +27,7 @@ namespace simpleath
             MicMismatch,
             GtkUnwrapFailure,
             GtkMissingOrMalformed,
+            RsnMismatch,
             HardwareKeyInstallFailure,
             BufferTooSmall
         };
@@ -90,8 +91,12 @@ namespace simpleath
                 Wpa2Supplicant(const Wpa2Supplicant &) = delete;
                 Wpa2Supplicant &operator=(const Wpa2Supplicant &) = delete;
 
+                // Use the exact validated BSS RSNE (ID, length, payload)
+                // from Beacon/Probe Response to bind M3 to the association.
                 Wpa2Result begin(const Wpa2Crypto &crypto, const Mac &station,
-                                 const Mac &ap, const uint8_t pmk[32]);
+                                 const Mac &ap, const uint8_t pmk[32],
+                                 const uint8_t *expectedRsnIe,
+                                 size_t expectedRsnIeLength);
                 // AP source/BSSID and 802.11 decryption/CRC must be verified
                 // externally.
                 Wpa2Result onMessage1(const uint8_t *eapol, size_t length,
@@ -125,6 +130,8 @@ namespace simpleath
                 uint8_t pmk_[32];
                 uint8_t ptk_[48];
                 uint8_t snonce_[32];
+                uint8_t expectedRsnIe_[257];
+                size_t expectedRsnIeLength_;
                 uint8_t eapolVersion_;
                 bool keyInstallAttempted_;
         };
