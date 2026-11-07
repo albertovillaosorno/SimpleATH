@@ -185,9 +185,13 @@ namespace simpleath
     NativeDmaResult NativeDmaBuffer::publishGated(uint64_t epoch,
                                                   NativeDmaLayout &out)
     {
-        // A forged layout reference into this object would erase our live
-        // state before context/epoch checks. Reject prior to any output write.
-        if (!disjointMemory(&out, sizeof(out), this, sizeof(*this)))
+        // A forged layout reference into the owner or live DMA storage
+        // would erase internal state or packet bytes before epoch checks.
+        // Reject prior to any output write, even if the caller is not gated.
+        if (!disjointMemory(&out, sizeof(out), this, sizeof(*this)) ||
+            (buffer_ && buffer_->getBytesNoCopy() &&
+             !disjointMemory(&out, sizeof(out), buffer_->getBytesNoCopy(),
+                             request_.length)))
             return NativeDmaResult::InvalidArgument;
         out = {};
         if (!loop_ || !loop_->inGate())

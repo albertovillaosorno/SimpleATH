@@ -121,8 +121,8 @@ namespace simpleath
             // Mark ownership BEFORE programming a queue. Failure/uncertain
             // programming leaves DeviceOwned until the owner proves completion
             // or hardware isolation.
-            // Reject a layout reference overlapping this owner object before
-            // zeroing output or assigning a device-owned submission token.
+            // Reject a layout overlapping owner state or mapped DMA storage
+            // before zeroing output or assigning a device-owned token.
             NativeDmaResult publishGated(uint64_t currentOwnerEpoch,
                                          NativeDmaLayout &layout);
             // Caller must prove no further DMA to THIS packet: real transfer

@@ -68,7 +68,8 @@ the original descriptor. Client copy inputs/outputs are required to be disjoint
 from the buffer's live CPU DMA storage and owner object. RX output zeroing only
 occurs **after** those alias checks; otherwise a forged output could erase DMA
 data or live mapping ownership before synchronization. Likewise a gated publish
-rejects an output reference into the buffer object before clearing its layout.
+rejects an output reference into the owner object or mapped CPU DMA backing
+store before clearing its layout.
 After validated arguments, RX reads clear caller output before synchronization
 and again after a short copy, so a failed operation cannot leave a stale or
 partial packet in that output. Caller lengths must come from verified RX status,
