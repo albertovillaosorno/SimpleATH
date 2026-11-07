@@ -20,6 +20,9 @@ not establish that those modules are compiled, wired to hardware or validated.
 | 121c5fa | Read-only retained-reference/collection symbol inventory and explicit ABI-evidence gaps | Retained JSON inspected; binary-input reader source not exercised |
 | 6bfda6d | Five pinned ath9k EEPROM reconstruction dictionaries and explicit lookup catalog | C++ source generation from pinned packed layouts/initializers; no C/C++ compilation or runtime vectors |
 | 16d791a | Active EEPROM/OTP transaction reader with BAR, identity, word/capture timeout and output checks | Static comparison to permissive ath9k protocols; no backend attached or hardware transaction |
+| 2f971e6 | EEPROM target/CTL power candidates, signed interpolation, HT/rate constraints and EIRP/antenna intersection | Static source comparison only; no calibration, legal-power approval, hardware TPC conversion or TX |
+| 58ccdc7 | Manual copy-only collector for exact installed OS ABI files | Source review only; not executed on the Dell or tested |
+| a3bbad8 | Exact 25G332 KDK acquisition, PCI nlist/export intersection, full wireless candidates and static PCI dSYM observations | Download hash matched published manifest; actual package files statically inspected; no installer, build, tests, process launch or device access |
 
 Both PCI-session and EEPROM implementations are in the SimpleATH Xcode Sources
 phase. **Neither has been compiled or tested.** No build was made in this work.
@@ -34,15 +37,20 @@ regulatory approval, association and traffic remain unverified/not implemented.
 
 ## Open blockers in dependency order
 
-1. **Exact Tahoe PCI ABI:** the existing three-image profile omits IOPCIFamily.
-   Obtain exact-build image UUID/version, exports and dependency information
-   for IOPCIFamily and the KPI libraries. Do not classify missing profile
-   entries as missing OS APIs. Confirm all new compiled imports and relocations
+1. **Exact Tahoe PCI ABI:** the three-image retained profile omits IOPCIFamily,
+   but the later exact 25G332 KDK supplies PCI 2.9, its UUID/dependencies,
+   matching dSYM type observations and both old unresolved names in its
+   packaged export list and x86_64 nlist. See TAHOE-25G332-KDK.md. Complete
+   production collection provenance, pinned-SDK/virtual-method comparison,
+   kernel/KPI eligibility and mapper/power contracts. Do not classify missing
+   profile entries as missing OS APIs. Confirm all new compiled imports and relocations
    only after build authorization. The old RIP-relative/prelink failure is not
    evidence of a successful load or an explanation of every possible cause.
-2. **Native wireless ABI:** prove constructors, superclass layouts, mandatory
-   virtuals, control selectors/events, packet queues, key paths and lifetimes
-   for the intended Tahoe IO80211/Skywalk interface. The retained Broadcom
+2. **Native wireless ABI:** the full KDK now supplies constructor/init/vtable
+   symbol candidates absent from the retained snapshot. Establish effective
+   exports, complete superclass layouts, mandatory virtuals, control
+   selectors/events, packet queues, key paths and lifetimes for the intended
+   Tahoe IO80211/Skywalk interface. The retained Broadcom
    Ethernet wrapper is not this implementation. No verified Atheros adapter
    exists. NetworkingDriverKit's Ethernet interface does not close this gap.
 3. **Native PCI owner:** implement the serialized IOPCIFamily adapter for
@@ -60,7 +68,9 @@ regulatory approval, association and traffic remain unverified/not implemented.
    separate 1.1 radio postamble; these remain data, not executed bring-up.
 6. **Regulatory:** intersect verified board restrictions with a legitimate
    country/channel policy; implement CTL/target-power interpolation and
-   per-rate conducted/EIRP limits before ANY transmission. A parsed country
+   per-rate conducted/EIRP limits before ANY transmission. Numerical target/
+   CTL/EIRP candidates are staged in Ar9565Power; board/country authority,
+   descriptor-power conversion and actual TPC remain missing. A parsed country
    field, recipe boolean or selected gain table does not establish permission.
 7. **Data path:** implement actual IOMMU-backed descriptors/buffers, queue
    programming, interrupts, completions, recovery, bounded quiesce, suspend

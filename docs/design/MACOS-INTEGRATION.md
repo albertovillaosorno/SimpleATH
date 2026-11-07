@@ -25,6 +25,21 @@ and [NetworkingDriverKit](https://developer.apple.com/documentation/networkingdr
 
 ## What the local ABI evidence establishes
 
+The later [25G332 KDK inspection](TAHOE-25G332-KDK.md) supplies exact-build
+package evidence beyond the retained snapshot described below. The x86_64
+IOPCIFamily 2.9 UUID is `227771C6-ADC2-30C7-8408-263F723CF81C`. Both old
+unresolved imports, metaClass and extendedConfigRead16, occur in its nlist
+and packaged export list. The package's kernel, IO80211 and Skywalk UUIDs
+match their retained-reference UUIDs. Static PCI dSYM inspection also supplies
+type observations. This narrows the missing evidence; it neither proves the
+Dell loaded those files nor identifies the old artifact's complete failure.
+
+Full wireless nlists now supply constructors and vtable names missing from
+the snapshot. For example native attachInterface takes OSObject/IOService,
+which differs from the legacy interface-pointer/bool signature. Effective
+wireless exports, full types/virtual contracts and packet/key lifetimes still
+need verification. No native adapter is enabled and no runtime gate is relaxed.
+
 `src/platform/abi/Tahoe.json` has SHA-256
 `611b50f109954bb7eda873c40dccf7f6d3ff57a994a156ede9550d9ac9ce82cd`,
 matching its manifest. This is a retained SimpleBCM reference, not a fresh
@@ -54,15 +69,17 @@ packet queues, events or key installation contract for an Atheros controller.
 interface; it and `WirelessABI.hpp` remain outside the SimpleATH source phase.
 Do not activate them by renaming classes or importing profile addresses.
 
-Before enabling a PCI backend, inspect the exact target's IOPCIFamily image,
-UUID, version, exported symbols and dependency versions, plus the kernel/KPI
-export sets. After separate build authorization, inspect every undefined
+Before enabling a PCI backend, correlate the package evidence with the exact
+target's installed/loaded collections, complete the SDK/virtual-method and
+kernel/KPI dependency comparison, and establish ownership/power/mapper
+contracts. After separate build authorization, inspect every undefined
 symbol and relocation in the resulting Mach-O against that dependency graph.
 Symbol presence alone does not establish C++ layout or successful OpenCore
 injection. Do not use the stored absolute addresses as callable addresses.
 
 The [ABI evidence acquisition record](ABI-EVIDENCE-ACQUISITION.md) now provides
-a read-only inventory tool and a checked-in report for the retained reference.
+a read-only inventory tool and checked-in reports for the retained reference
+and extracted KDK files.
 It distinguishes missing images and snapshot export claims from global nlist
 candidates; it deliberately cannot approve the native PCI or wireless ABI.
 

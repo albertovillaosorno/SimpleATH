@@ -25,6 +25,7 @@ for the bounded source parser and the board acquisition still required.
 | PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Verified native PCI-family adapter; not connected to the passive IOService |
 | Board data parser | `Ar9565Eeprom.*` | Checked compression blocks/dump chains, five pinned dictionaries, 1088-byte image storage, raw board summary and gain-index mapping | Native acquisition/origin discovery, serialization/reconstruction verification, actual calibration/regulatory validation |
 | NVM read protocol | `Ar9565NvmReader.*` | Active EEPROM/OTP trigger/poll/byte-normalization source with word/capture bounds | Verified exclusive PCI/power backend and separate hardware authorization; no live reader connected |
+| Power candidate calculation | `Ar9565Power.*` | EEPROM target interpolation, explicit CTL coverage, antenna/EIRP intersection and single-stream rate selection | Actual board/country approval, TPC conversion and calibrated/programmed/measured power; no TX enabled |
 | PCI DMA and interrupts | `Ar9003Descriptors.*`, `Ar9003Dma.*` | Pointer/status codecs and generation-checked ring metadata only | Actual DMA mapping, hardware rings, interrupts, completions and recovery |
 | 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
@@ -40,10 +41,12 @@ overflow, an Invalid Parameter injection error, and unresolved kernel
 IOPCIDevice C++ symbols. That boot did NOT prove the driver was loaded.
 
 The source was corrected to use IOKit's matching properties without directly
-importing the previously unresolved IOPCIDevice methods. Exact Tahoe PCI-family
-exports are still unverified; the stored ABI profile omits IOPCIFamily. Its
-last authorized Xcode build was successful, but there is no target-kernel
-load confirmation yet.
+importing the previously unresolved IOPCIDevice methods. The later exact-build
+[KDK inspection](TAHOE-25G332-KDK.md) finds both names in the x86_64 PCI image
+and its packaged export list. The stored ABI profile alone omits IOPCIFamily.
+Production collection provenance, full ABI/import/relocation validation and
+the active native adapter remain outstanding. The last authorized Xcode build
+was successful, but there is no target-kernel load confirmation yet.
 
 The newer hardware core, initialization tables, PCI-session contract and
 EEPROM parser are SOURCE ONLY and
