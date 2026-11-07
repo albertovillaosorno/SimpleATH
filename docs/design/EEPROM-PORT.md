@@ -19,15 +19,19 @@ unless a future caller supplies the exact pinned template. A template alone
 cannot identify this board. No factory MAC, antenna or regulatory defaults
 are substituted.
 
-The parser consumes header/payload/checksum in descending NVM address order,
-as produced by ath9k's ar9300_read_eeprom/read_otp. It does not read hardware,
-discover a block chain, normalize EEPROM/OTP word streams, or implement the
-OTP and EEPROM access/polling protocols. A storage reader still needs to
-handle the 0x3ff/0xfff/0x1ff candidate origins, available storage bounds,
-end-of-chain semantics and cumulative restoration in upstream order. The
-AR9565 chain scanner also needs upstream's below-1024-byte compressed block
-constraint; the block primitive independently supports full uncompressed
-1088-byte images. Flash-format images require a separate validated path.
+The block parser consumes header/payload/checksum in descending NVM address
+order, as produced by ath9k's ar9300_read_eeprom/read_otp. It does not read
+hardware or implement OTP/EEPROM access/polling. `restoreEepromDump` accepts an
+already acquired ascending-address byte dump and an explicit 0x3ff/0xfff/0x1ff
+origin. It reverses each block, applies the chain in upstream order, recognizes
+erased terminators, bounds storage/frames and enforces upstream's below-1024-byte
+AR9565 payload limit. It wipes the recovered image on a malformed chain and
+never silently falls back to another origin or default image. The caller
+supplies bounded scratch storage, avoiding a frame-sized kernel-stack
+allocation. Acquisition still needs correct EEPROM/OTP word normalization and
+origin discovery. The block primitive independently supports full uncompressed
+1088-byte images; these do not fit the AR9565 compressed storage-chain limit.
+Flash-format images require a separate validated path.
 
 ## Layout evidence
 
