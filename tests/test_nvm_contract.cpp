@@ -75,10 +75,11 @@ int main()
         !status.captureComplete || status.bytesAcquired != sizeof(bytes) ||
         fake.statusReads != 2 || bytes[0] != 0x12 || bytes[1] != 0x34)
         return 1;
-    const uint32_t faults[] = {0x80000, 0x40000, 0x10000, 0xffffffffu};
+    const uint32_t faults[] = {0x80000, 0x40000, 0x10000, 0x20000, 0xffffffffu};
     const NvmResult expected[] = {
         NvmResult::StorageAbsent, NvmResult::ProtectedAccess,
-        NvmResult::UnstableStatus, NvmResult::RegisterReadFailed};
+        NvmResult::UnstableStatus, NvmResult::UnstableStatus,
+        NvmResult::RegisterReadFailed};
     for (size_t i = 0; i < sizeof(faults) / sizeof(faults[0]); ++i)
     {
         fake = {};

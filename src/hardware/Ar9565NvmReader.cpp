@@ -33,6 +33,7 @@ namespace simpleath
         constexpr uint32_t kEepromWindow = 0x2000;
         constexpr uint32_t kEepromData = 0x4084;
         constexpr uint32_t kEepromBusy = 0x10000;
+        constexpr uint32_t kEepromBusyAccess = 0x20000;
         constexpr uint32_t kEepromProtected = 0x40000;
         constexpr uint32_t kEepromAbsentAccess = 0x80000;
         constexpr uint32_t kOtpWindow = 0x14000;
@@ -252,7 +253,9 @@ namespace simpleath
                     result = NvmResult::StorageAbsent;
                 else if ((value & kEepromProtected) != 0)
                     result = NvmResult::ProtectedAccess;
-                else if ((value & kEepromBusy) != 0)
+                else if ((value & (kEepromBusy | kEepromBusyAccess)) != 0)
+                    // BUSY_ACCESS is separate from the upstream wait mask.
+                    // Never accept a still-active second sample as data.
                     result = NvmResult::UnstableStatus;
                 if (result != NvmResult::Ok)
                     break;
