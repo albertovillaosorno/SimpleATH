@@ -112,6 +112,9 @@ namespace simpleath
                 EngineResult checkBeaconTimeout(uint64_t nowMs,
                                                 EngineAction &action);
                 void radioStopped(uint64_t nowMs, bool suspended);
+                // Generic Ethernet-II transmission only. This never sends
+                // cleartext EAPOL after WPA2 key install; the private M2/M4
+                // handshake serializer is the only cleartext exception.
                 EngineResult
                 encodeOutgoingEthernet(const uint8_t *ethernet, size_t length,
                                        uint16_t sequence,

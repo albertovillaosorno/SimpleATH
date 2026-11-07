@@ -118,3 +118,14 @@ References:
   https://chromium.googlesource.com/chromiumos/third_party/hostap/+/refs/heads/firmware-R130-16032.B-wpa_supplicant-2.10.0/src/rsn_supp/wpa.c
 - hostapd wireless test monitor `wlantest/rx_eapol.c`:
   https://fuchsia.googlesource.com/third_party/hostap/+/3aed10f3b7f643f288f6aa1c5aef223c5c679b9e/wlantest/rx_eapol.c
+
+## Outbound EAPOL boundary (2026-11-06)
+
+- `WifiEngine::encodeOutgoingEthernet` refuses WPA2 EAPOL EtherType
+  `0x888e` after keys are installed. The generic data serializer emits
+  unprotected frames and must never substitute for an authenticated
+  group-rekey or other post-key EAPOL transport.
+- Only the engine's private `packageEapol` path may prepare M2/M4 in the
+  clear during this limited initial 4-way handshake. Explicit group
+  rekey, protected EAPOL and hardware TX ordering remain unimplemented.
+- Source-level guard only; no test, build, or network exchange performed.

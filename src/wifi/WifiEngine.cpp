@@ -409,6 +409,14 @@ namespace simpleath
             context.rfReady = trust.radioReady;
             context.channelPermitted = trust.channelAuthorized;
             context.pairwiseAndGroupKeysInstalled = supplicant_.keysInstalled();
+            // Only packageEapol() may emit cleartext M2/M4 during the 4-way
+            // handshake. Generic outbound EAPOL after key installation needs
+            // a separately reviewed, policy-checked rekey transport, not the
+            // unprotected Ethernet-II serializer.
+            if (context.security == LinkSecurity::Wpa2Ccmp && ethernet &&
+                length >= kEthernetHeader && ethernet[12] == 0x88u &&
+                ethernet[13] == 0x8eu)
+                return EngineResult::CryptoUnavailable;
             SerializedData serialized {};
             const DataPathResult result = prepareStationTx(
                 context, ethernet, length, sequence, out, capacity, serialized);
