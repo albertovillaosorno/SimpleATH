@@ -66,6 +66,16 @@ def _symtab(*, offset: int = SYMBOL_OFFSET, count: int = 1) -> bytes:
     )
 
 
+def _uuid_command() -> bytes:
+    """Produce a complete synthetic Mach-O UUID load command.
+
+    Returns:
+        A fixed UUID command with no platform-specific dependencies.
+
+    """
+    return struct.pack("<II16s", 27, 24, bytes(range(16)))
+
+
 def _dysym(*, offset: int = RELOCATION_OFFSET, count: int = 1) -> bytes:
     fields = [0] * 18
     fields[14:16] = [offset, count]
@@ -237,6 +247,22 @@ class NativeAbiFatArchitectureTests(TestCase):
         data = bytearray(_fat_two())
         struct.pack_into(">I", data, 4, native_abi.MAX_FAT_ARCHITECTURES + 1)
         assert _reject(data)
+
+
+class NativeAbiMetadataCommandTests(TestCase):
+    """Reject duplicate metadata records before a later row overrides one."""
+
+    @staticmethod
+    def test_duplicate_metadata_load_commands_are_fatal() -> None:
+        """Never accept ambiguous tables or a second image identity UUID."""
+        symbols = _symtab(count=0)
+        dynamic = _dysym(count=0)
+        image_uuid = _uuid_command()
+        assert _open(_thin(symbols), lambda image: image.symtab is not None)
+        assert _open(_thin(dynamic), lambda image: image.dysym is not None)
+        assert _open(_thin(image_uuid), lambda image: image.uuid is not None)
+        for command in (symbols, dynamic, image_uuid):
+            assert _reject(_thin(command, command))
 
 
 class NativeAbiMachoBoundsTests(TestCase):

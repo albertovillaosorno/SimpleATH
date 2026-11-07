@@ -344,6 +344,9 @@ class Mach:
                         *fields[2:],
                     ))
             elif command == 2:
+                if self.symtab is not None:
+                    message = "Duplicate Mach-O symbol table command"
+                    raise ValueError(message)
                 _require_span(cursor, 24, cursor + length)
                 symboloff, symbols, stringoff, strings = struct.unpack_from(
                     "<IIII", b, cursor + 8
@@ -354,9 +357,15 @@ class Mach:
                 _require_span(self.base + stringoff, strings, self.slice_end)
                 self.symtab = (symboloff, symbols, stringoff, strings)
             elif command == 11:
+                if self.dysym is not None:
+                    message = "Duplicate Mach-O dynamic symbol table command"
+                    raise ValueError(message)
                 _require_span(cursor, 80, cursor + length)
                 self.dysym = struct.unpack_from("<18I", b, cursor + 8)
             elif command == 27:
+                if self.uuid is not None:
+                    message = "Duplicate Mach-O UUID command"
+                    raise ValueError(message)
                 _require_span(cursor, 24, cursor + length)
                 self.uuid = str(
                     uuid.UUID(bytes=b[cursor + 8 : cursor + 24])
