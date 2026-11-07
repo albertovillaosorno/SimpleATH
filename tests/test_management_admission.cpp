@@ -235,6 +235,106 @@ namespace
         return true;
     }
 
+    bool rejectOverlappingManagementRx()
+    {
+        Frame parsedFrame {};
+        uint8_t previousFrame[sizeof(parsedFrame)] {};
+        std::memcpy(previousFrame, &parsedFrame, sizeof(parsedFrame));
+        if (parseFrame(reinterpret_cast<const uint8_t *>(&parsedFrame),
+                       sizeof(parsedFrame),
+                       parsedFrame) != Result::OverlappingBuffers ||
+            std::memcmp(&parsedFrame, previousFrame, sizeof(parsedFrame)) != 0)
+            return false;
+
+        struct RsnStorage
+        {
+                Rsn result;
+                uint8_t trailing[32];
+        } rsnStorage {};
+
+        constexpr uint8_t rsnBody[20] {1, 0,    0,    0x0f, 0xac, 4, 1,
+                                       0, 0,    0x0f, 0xac, 4,    1, 0,
+                                       0, 0x0f, 0xac, 2,    0,    0};
+        std::memcpy(&rsnStorage, rsnBody, sizeof(rsnBody));
+        uint8_t previousRsn[sizeof(rsnStorage)] {};
+        std::memcpy(previousRsn, &rsnStorage, sizeof(rsnStorage));
+        if (parseRsn(reinterpret_cast<const uint8_t *>(&rsnStorage),
+                     sizeof(rsnBody),
+                     rsnStorage.result) != Result::OverlappingBuffers ||
+            std::memcmp(&rsnStorage, previousRsn, sizeof(rsnStorage)) != 0)
+            return false;
+
+        Beacon parsedBeacon {};
+        uint8_t beacon[kBeaconBytes] {};
+        makeBeacon(beacon);
+        std::memcpy(&parsedBeacon, beacon, sizeof(beacon));
+        uint8_t previousBeacon[sizeof(parsedBeacon)] {};
+        std::memcpy(previousBeacon, &parsedBeacon, sizeof(parsedBeacon));
+        if (parseBeacon(reinterpret_cast<const uint8_t *>(&parsedBeacon),
+                        sizeof(beacon),
+                        parsedBeacon) != Result::OverlappingBuffers ||
+            std::memcmp(&parsedBeacon, previousBeacon, sizeof(parsedBeacon)) !=
+                0)
+            return false;
+
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+
+        struct ResponseBuffer
+        {
+                uint16_t status;
+                uint8_t rest[32];
+        } response {};
+
+        auto *responseBytes = reinterpret_cast<uint8_t *>(&response);
+        responseBytes[0] = 0xb0; // Authentication response subtype.
+        std::memcpy(responseBytes + 4, kStation, 6);
+        std::memcpy(responseBytes + 10, kAp, 6);
+        std::memcpy(responseBytes + 16, kAp, 6);
+        responseBytes[26] = 2; // Open-system response transaction.
+        uint8_t previousResponse[sizeof(response)] {};
+        std::memcpy(previousResponse, &response, sizeof(response));
+        if (parseAuthenticationResponse(responseBytes, 30, station, ap,
+                                        response.status) !=
+                Result::OverlappingBuffers ||
+            std::memcmp(&response, previousResponse, sizeof(response)) != 0)
+            return false;
+
+        uint8_t association[kAssocBytes] {};
+        makeAssoc(association);
+        uint16_t sharedResult = 543;
+        if (parseAssociationResponse(association, sizeof(association), station,
+                                     ap, sharedResult, sharedResult) !=
+                Result::OverlappingBuffers ||
+            sharedResult != 543)
+            return false;
+        return true;
+    }
+
+    bool rejectNonInfrastructureAssociation()
+    {
+        uint8_t frame[kAssocBytes] {};
+        makeAssoc(frame);
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint16_t status = 999;
+        uint16_t aid = 999;
+        frame[24] = 0; // No ESS capability bit.
+        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
+                                     aid) != Result::InvalidFrame ||
+            status != 999 || aid != 999)
+            return false;
+        frame[24] = 3; // ESS and IBSS must not both be set.
+        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
+                                     aid) != Result::InvalidFrame)
+            return false;
+        frame[24] = 0;
+        frame[26] = 1; // Failed association is still a valid rejection.
+        return parseAssociationResponse(frame, sizeof(frame), station, ap,
+                                        status, aid) == Result::Ok &&
+               status == 1 && aid == 0;
+    }
+
     bool enforceAssociationAdmission()
     {
         uint8_t frame[kAssocBytes] {};
@@ -285,5 +385,9 @@ int main()
         return 6;
     if (!rejectOverlappingManagementTx())
         return 7;
+    if (!rejectOverlappingManagementRx())
+        return 8;
+    if (!rejectNonInfrastructureAssociation())
+        return 9;
     return 0;
 }

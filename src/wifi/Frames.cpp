@@ -102,6 +102,9 @@ namespace simpleath
         {
             if (!bytes)
                 return Result::NullBuffer;
+            // Never overwrite a borrowed RX frame through the result object.
+            if (overlaps(&out, sizeof(out), bytes, length))
+                return Result::OverlappingBuffers;
             if (length < 2)
                 return Result::Truncated;
             const uint16_t control = read16(bytes);
@@ -205,6 +208,8 @@ namespace simpleath
         {
             if (!data)
                 return Result::NullBuffer;
+            if (overlaps(&out, sizeof(out), data, length))
+                return Result::OverlappingBuffers;
             // RSN version(2), group suite(4), pairwise count(2), suites,
             // AKM count(2), suites, optional RSN capabilities(2).
             if (length < 2 + 4 + 2 + 4 + 2 + 4)
@@ -282,6 +287,8 @@ namespace simpleath
 
         Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out)
         {
+            if (overlaps(&out, sizeof(out), frame, length))
+                return Result::OverlappingBuffers;
             Frame header {};
             Result result = parseFrame(frame, length, header);
             if (result != Result::Ok)
@@ -576,6 +583,12 @@ namespace simpleath
                                            const Mac &station, const Mac &bssid,
                                            uint16_t &statusCode)
         {
+            if (overlaps(&statusCode, sizeof(statusCode), bytes, length) ||
+                overlaps(&statusCode, sizeof(statusCode), &station,
+                         sizeof(station)) ||
+                overlaps(&statusCode, sizeof(statusCode), &bssid,
+                         sizeof(bssid)))
+                return Result::OverlappingBuffers;
             Frame parsed {};
             Result result = parseFrame(bytes, length, parsed);
             if (result != Result::Ok)
@@ -599,6 +612,20 @@ namespace simpleath
                                         uint16_t &statusCode,
                                         uint16_t &associationId)
         {
+            if (overlaps(&statusCode, sizeof(statusCode), &associationId,
+                         sizeof(associationId)) ||
+                overlaps(&statusCode, sizeof(statusCode), bytes, length) ||
+                overlaps(&associationId, sizeof(associationId), bytes,
+                         length) ||
+                overlaps(&statusCode, sizeof(statusCode), &station,
+                         sizeof(station)) ||
+                overlaps(&associationId, sizeof(associationId), &station,
+                         sizeof(station)) ||
+                overlaps(&statusCode, sizeof(statusCode), &bssid,
+                         sizeof(bssid)) ||
+                overlaps(&associationId, sizeof(associationId), &bssid,
+                         sizeof(bssid)))
+                return Result::OverlappingBuffers;
             Frame parsed {};
             Result result = parseFrame(bytes, length, parsed);
             if (result != Result::Ok)
@@ -611,7 +638,13 @@ namespace simpleath
             if (length - parsed.headerLength < 6)
                 return Result::Truncated;
             const uint8_t *body = bytes + parsed.headerLength;
+            const uint16_t capabilities = read16(body);
             const uint16_t status = read16(body + 2);
+            // An infrastructure station cannot accept a successful IBSS or
+            // non-ESS response even when its AID and rate IEs look valid.
+            if (status == 0 && ((capabilities & 0x0001u) == 0 ||
+                                (capabilities & 0x0002u) != 0))
+                return Result::InvalidFrame;
             const uint16_t rawAid = read16(body + 4);
             const uint16_t aid = static_cast<uint16_t>(rawAid & 0x3fffu);
             if (status == 0 &&
