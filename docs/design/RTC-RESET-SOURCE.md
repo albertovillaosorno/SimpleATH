@@ -30,6 +30,10 @@ unreused nonzero power/ownership epoch. It must serialize all callbacks on
 one work loop, with no reentry or hard interrupt context. Interrupts, MAC
 automatic replies, DMA, RX and TX must already be quiesced before reset.
 A provider token MUST NOT be reused for a different PCI function.
+The caller's context and status storage must be disjoint from each other,
+from the backend and from the identity. These aliases are rejected before
+zeroing status or invoking any callback, and neither output is touched on
+that error. Other failures still report through the status object.
 
 `write32` must order and drain *device* posted writes before reporting
 success. A CPU fence alone does not establish delivery. `nowMicros` is

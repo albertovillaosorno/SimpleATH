@@ -33,6 +33,17 @@ namespace simpleath
         constexpr uint32_t kAr9565Workaround = 1u << 22;
         constexpr uint64_t kOperationMicros = 250000;
 
+        // Reject overlapping caller-owned objects before clearing status.
+        // Difference-based arithmetic avoids overflow at address-space limits.
+        bool overlaps(const void *a, size_t aBytes, const void *b,
+                      size_t bBytes)
+        {
+            const auto first = reinterpret_cast<uintptr_t>(a);
+            const auto second = reinterpret_cast<uintptr_t>(b);
+            return first <= second ? second - first < aBytes
+                                   : first - second < bBytes;
+        }
+
         class RtcRun final
         {
             public:
@@ -289,6 +300,15 @@ namespace simpleath
                                   RtcPowerContext &context,
                                   RtcPowerStatus &status)
     {
+        // Do not write even an error code through an aliased output: that
+        // could corrupt a function pointer, retained context, or identity
+        // before the input validation and any ownership callback runs.
+        if (overlaps(&status, sizeof(status), &context, sizeof(context)) ||
+            overlaps(&status, sizeof(status), &backend, sizeof(backend)) ||
+            overlaps(&status, sizeof(status), &identity, sizeof(identity)) ||
+            overlaps(&context, sizeof(context), &backend, sizeof(backend)) ||
+            overlaps(&context, sizeof(context), &identity, sizeof(identity)))
+            return RtcResult::InvalidArgument;
         status = {};
         if (!backend.context || !backend.providerToken || !backend.ownerEpoch ||
             !backend.canReset || !backend.read32 || !backend.write32 ||

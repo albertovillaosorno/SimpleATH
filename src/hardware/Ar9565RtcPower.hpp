@@ -115,9 +115,10 @@ namespace simpleath
     // RTC/MAC reset only. Does not initialize PLL/PHY/RF, clear STA_ID1
     // power-save, configure antenna/regulatory/TPC, start RX, enable DMA or
     // authorize ANY TX. On failure do not restore guessed register values or
-    // free hardware-owned DMA. Disjoint context/status/backend storage is
-    // required. Total callbacks are bounded even with a stalled monotonic
-    // clock; wall time includes callback cost.
+    // free hardware-owned DMA. Context and status must not overlap one
+    // another, the backend or identity. Aliasing returns InvalidArgument
+    // WITHOUT writing either output. Total callbacks are bounded even with a
+    // stalled monotonic clock; wall time includes callback cost.
     RtcResult transitionAr9565Rtc(const RtcPowerBackend &backend,
                                   const Identity &physicalIdentity,
                                   RtcOperation operation,
