@@ -1,0 +1,13 @@
+domain = "documentation"
+schema_version = 1
+paragraph_sentence_limit = 8
+path_style = "repository"
+required_paths = []
+roots = ["docs/"]
+
+[profile.implementation-notes]
+kind = "adr"
+paths = ["docs/design/","docs/agents/"]
+decision_id = "none"
+section_mode = "required"
+sections = []

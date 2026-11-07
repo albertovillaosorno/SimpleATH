@@ -30,3 +30,8 @@ build/
 
 # Downloaded macOS CI artifacts (not source).
 .build-artifacts/
+
+# Jig local graph data (never commit).
+.jig/graph/jig.db
+.jig/graph/jig.db-shm
+.jig/graph/jig.db-wal

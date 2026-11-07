@@ -1,0 +1,7 @@
+domain = "languages"
+schema_version = 1
+analyzed = []
+present = ["c", "cpp", "python"]
+# Jig 26.3.0 currently has no canonical C/C++/Python analysis adapter;
+# installed local clang-format, clang-tidy, Ruff and BasedPyright remain
+# the authoritative language tools until native Jig adapters exist.

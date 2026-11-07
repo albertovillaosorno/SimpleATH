@@ -1,0 +1,41 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "language": "en-US",
+  "readonly": true,
+  "useGitignore": true,
+  "enableGlobDot": true,
+  "validateDirectives": false,
+  "caseSensitive": true,
+  "allowCompoundWords": false,
+  "minWordLength": 3,
+  "usePnP": false,
+  "files": [
+    "../../**/*.{md,ts,toml,json,jsonc,yml,yaml}",
+    "../../.editorconfig",
+    "../../.gitignore"
+  ],
+  "ignoreRegExpList": [
+    "/\\b[0-9a-f]{7,64}\\b/g"
+  ],
+  "ignoreWords": [],
+  "dictionaryDefinitions": [
+    {
+      "name": "blooket-api-technical",
+      "path": "./technical.txt",
+      "addWords": true
+    }
+  ],
+  "dictionaries": [
+    "blooket-api-technical"
+  ],
+  "ignorePaths": [
+    "../../.cache/**",
+    "../../.dependencies/**",
+    "../../.git/**",
+    "../../.logs/**",
+    "../../.temp/**",
+    "../../node_modules/**",
+    "../../pnpm-lock.yaml"
+  ]
+}

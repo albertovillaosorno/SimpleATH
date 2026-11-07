@@ -1,0 +1,5 @@
+domain = "portability"
+schema_version = 1
+forbidden_roots = [".jig-cache", "node_modules", "target", "temp", "tmp"]
+required_roots = [".cache", ".dependencies", ".logs", ".temp"]
+runtime_roots = [".cache", ".dependencies", ".logs", ".temp"]

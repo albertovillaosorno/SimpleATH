@@ -1,0 +1,25 @@
+domain = "taxonomy"
+schema_version = 1
+required = true
+one_role_per_path = true
+overlapping_roles = "deny"
+spaces_in_paths = "deny"
+unknown_paths = "deny"
+
+[role.authored_source]
+paths = ["src/"]
+
+[role.development_tools]
+paths = ["tools/"]
+
+[role.documentation]
+paths = ["docs/"]
+
+[role.github_workflows]
+paths = [".github/"]
+
+[role.jig_configuration]
+paths = [".jig/"]
+
+[role.repository_policy]
+paths = [".clang-format", ".clang-tidy", ".editorconfig", ".gitattributes", ".gitignore", "AGENTS.md", "TODO.md", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "msvc-cpp.editorconfig", "ruff.toml", "pyrightconfig.json"]

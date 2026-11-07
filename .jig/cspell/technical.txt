@@ -1,0 +1,15 @@
+Atheros
+AR9565
+QCA9565
+IOKit
+Skywalk
+IO80211
+Tahoe
+OpenCore
+Hackintosh
+WPA2
+EAPOL
+ath9k
+RF
+EEPROM
+Alberto
