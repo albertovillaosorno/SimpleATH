@@ -4,6 +4,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -96,6 +97,22 @@ def _hash_rejects(source: Path) -> bool:
     return False
 
 
+def _unsafe_file_rejected(source: Path, directory: Path) -> bool:
+    """Exercise an unsafe JSON source only within a disposable directory.
+
+    Returns:
+        True when the checked loader refuses the unsafe file.
+
+    """
+    references.load_reference.cache_clear()
+    with mock.patch.object(references, "DIRECTORY", directory):
+        try:
+            _ = references.load_reference(source)
+        except OSError, ValueError:
+            return True
+    return False
+
+
 def _system_rejects() -> bool:
     try:
         _ = references.reference_paths()
@@ -146,6 +163,34 @@ class SnapshotIntegrityTests(unittest.TestCase):
             references.load_reference.cache_clear()
             with mock.patch.object(references, "DIRECTORY", folder):
                 assert _hash_rejects(source)
+
+    @staticmethod
+    def test_symlink_and_fifo_snapshot_sources_fail_closed() -> None:
+        """Refuse linked and pipe sources without blocking or large reads."""
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            source = _write_snapshot(folder, _document())
+            original = folder / "original.json"
+            _ = source.rename(original)
+            source.symlink_to(original)
+            assert _unsafe_file_rejected(source, folder)
+            source.unlink()
+            os.mkfifo(source)
+            assert _unsafe_file_rejected(source, folder)
+
+    @staticmethod
+    def test_sparse_oversize_snapshot_and_manifest_fail_closed() -> None:
+        """Reject declared oversized JSON input without reading its bytes."""
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            source = _write_snapshot(folder, _document())
+            with source.open("wb") as handle:
+                _ = handle.truncate(references.MAX_REFERENCE_BYTES + 1)
+            assert _unsafe_file_rejected(source, folder)
+            _ = _write_snapshot(folder, _document())
+            with (folder / "manifest.json").open("wb") as handle:
+                _ = handle.truncate(references.MAX_REFERENCE_MANIFEST_BYTES + 1)
+            assert _unsafe_file_rejected(source, folder)
 
     @staticmethod
     def test_unknown_profile_and_wrong_schema_rejected() -> None:

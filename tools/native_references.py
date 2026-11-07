@@ -24,6 +24,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Export-only nm with a fixed argv and no shell.
 import sys
 from typing import Protocol
@@ -52,6 +53,8 @@ WIRELESS = "com.apple.iokit.IO80211Family"
 
 
 TEXT_SECTION = "__text"
+MAX_REFERENCE_BYTES = 8 * 1024 * 1024
+MAX_REFERENCE_MANIFEST_BYTES = 1024 * 1024
 EXPORT_ACTION = "export"
 VERIFY_ACTION = "verify"
 NM_PROGRAM = "nm"
@@ -236,6 +239,38 @@ def _decode_reference(value: object) -> _NativeReference:
     }
 
 
+def _read_reference_file(path: Path, limit: int) -> bytes:
+    """Read a complete regular JSON file without following its final link.
+
+    Returns:
+        Immutable bytes from an unchanged, size-bounded regular file.
+
+    Raises:
+        ValueError: The source is empty, oversized, nonregular or changed.
+
+    """
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    with os.fdopen(os.open(path, flags), "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= limit:
+            message = "Native reference file is not a bounded regular file"
+            raise ValueError(message)
+        data = stream.read(limit + 1)
+        after = os.fstat(stream.fileno())
+    stable_identity = (
+        after.st_dev == before.st_dev
+        and after.st_ino == before.st_ino
+        and after.st_size == before.st_size
+    )
+    stable_content = (
+        len(data) == before.st_size and after.st_mtime_ns == before.st_mtime_ns
+    )
+    if not stable_identity or not stable_content:
+        message = "Native reference changed while being read"
+        raise ValueError(message)
+    return data
+
+
 @functools.cache
 def load_reference(path: str | Path) -> _NativeReference:
     """Read only type-checked, checksum-matching pinned snapshot metadata.
@@ -248,9 +283,13 @@ def load_reference(path: str | Path) -> _NativeReference:
 
     """
     source = Path(path)
-    index = json_object((DIRECTORY / "manifest.json").read_bytes())
+    index = json_object(
+        _read_reference_file(
+            DIRECTORY / "manifest.json", MAX_REFERENCE_MANIFEST_BYTES
+        )
+    )
     expected = _string(_mapping(_mapping(index).get("files")).get(source.name))
-    data = source.read_bytes()
+    data = _read_reference_file(source, MAX_REFERENCE_BYTES)
     if hashlib.sha256(data).hexdigest() != expected:
         message = "Native ABI reference checksum mismatch: " + source.name
         raise ValueError(message)
