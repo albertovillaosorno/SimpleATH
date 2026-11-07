@@ -9,6 +9,7 @@ namespace
     {
             uint32_t statusReads = 0;
             uint32_t finalStatus = 0x3412;
+            uint32_t firstStatus = 0;
             uint32_t clockReads = 0;
             bool backwards = false;
     };
@@ -34,7 +35,8 @@ namespace
                 *value = 0;
                 break;
             case 0x4084: // Ready sample followed by payload/status re-read.
-                *value = ++fake.statusReads == 1 ? 0 : fake.finalStatus;
+                *value = ++fake.statusReads == 1 ? fake.firstStatus
+                                                 : fake.finalStatus;
                 break;
             default:
                 return false;
@@ -90,11 +92,26 @@ int main()
             bytes[1])
             return 2;
     }
+    // Protected or absent access at the FIRST status sample is terminal:
+    // neither fault may be polled until a timeout or read as payload.
+    const uint32_t earlyFaults[] = {0x40000, 0x80000};
+    const NvmResult earlyExpected[] = {NvmResult::ProtectedAccess,
+                                       NvmResult::StorageAbsent};
+    for (size_t i = 0; i < sizeof(earlyFaults) / sizeof(earlyFaults[0]); ++i)
+    {
+        fake = {};
+        fake.firstStatus = earlyFaults[i];
+        bytes[0] = bytes[1] = 0xaa;
+        if (capture(fake, bytes, status) != earlyExpected[i] ||
+            fake.statusReads != 1 || status.polls != 1 ||
+            status.captureComplete || bytes[0] || bytes[1])
+            return 3;
+    }
     fake = {};
     fake.backwards = true;
     bytes[0] = bytes[1] = 0xaa;
     if (capture(fake, bytes, status) != NvmResult::InvalidClock ||
         status.captureComplete || bytes[0] || bytes[1])
-        return 3;
+        return 4;
     return 0;
 }

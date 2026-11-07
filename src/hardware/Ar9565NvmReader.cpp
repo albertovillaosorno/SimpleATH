@@ -116,8 +116,16 @@ namespace simpleath
                         result = clock(now);
                         if (result != NvmResult::Ok)
                             return result;
-                        if (reg == kEepromData && (value & kEepromAbsentAccess))
-                            return NvmResult::StorageAbsent;
+                        if (reg == kEepromData)
+                        {
+                            if (value & kEepromAbsentAccess)
+                                return NvmResult::StorageAbsent;
+                            // Protection is a terminal access fault, not a
+                            // transient busy condition. Repeatedly polling a
+                            // denied EEPROM word cannot make it readable.
+                            if (value & kEepromProtected)
+                                return NvmResult::ProtectedAccess;
+                        }
                         if (now - wordStarted >= timeoutMicros)
                             break;
                         if ((value & mask) == expected)
@@ -126,9 +134,7 @@ namespace simpleath
                             break;
                         backend_.delayMicros(backend_.context, kPollMicros);
                     }
-                    return reg == kEepromData && (value & kEepromProtected)
-                               ? NvmResult::ProtectedAccess
-                               : NvmResult::WordTimeout;
+                    return NvmResult::WordTimeout;
                 }
 
             private:
