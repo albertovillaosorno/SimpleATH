@@ -141,6 +141,44 @@ class Ar9300TemplateParserTests(TestCase):
             )
 
     @staticmethod
+    def test_serializer_refuses_out_of_destination_writes() -> None:
+        """Malformed size/offset cannot extend or wrap an output bytearray."""
+        for offset, size in ((0, 5), (-1, 1), (5, 1)):
+            target = bytearray(b"ABCD")
+            before = bytes(target)
+            assert _rejected(
+                lambda target=target, offset=offset, size=size: (
+                    generator.serialize(
+                        generator.Layout(size), 65, target, offset=offset
+                    )
+                )
+            )
+            assert target == before
+
+    @staticmethod
+    def test_serializer_rejects_invalid_nested_spans() -> None:
+        """A malformed child declaration cannot write beyond its parent."""
+        invalid_struct = generator.Layout(
+            1, fields=(("bad", 0, generator.Layout(2)),)
+        )
+        invalid_array = generator.Layout(
+            1, element=generator.Layout(1), count=2
+        )
+        cases: tuple[tuple[generator.Layout, generator.InitValue], ...] = (
+            (invalid_struct, [("bad", 256)]),
+            (invalid_array, [(None, 1), (None, 2)]),
+        )
+        for layout, value in cases:
+            target = bytearray(b"ABCD")
+            before = bytes(target)
+            assert _rejected(
+                lambda layout=layout, value=value, target=target: (
+                    generator.serialize(layout, value, target)
+                )
+            )
+            assert target == before
+
+    @staticmethod
     def test_header_render_does_not_write_output() -> None:
         """Generate only in-memory C++ lines with deterministic inventory."""
         images = {

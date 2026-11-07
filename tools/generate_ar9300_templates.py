@@ -455,6 +455,39 @@ def _serialize_scalar(
     )
 
 
+def _verify_destination_span(
+    layout: Layout, destination: bytearray, offset: int
+) -> None:
+    """Require a complete, internally consistent span before mutating bytes.
+
+    Raises:
+        ValueError: The declared region or any child exceeds its parent.
+
+    """
+    invalid_offset = offset < 0 or offset > len(destination)
+    if (
+        invalid_offset
+        or layout.size <= 0
+        or layout.size > len(destination) - offset
+    ):
+        message = "Initializer exceeds destination bounds"
+        raise ValueError(message)
+    if layout.element is not None:
+        invalid_element = layout.element.size <= 0 or layout.count <= 0
+        if invalid_element or layout.size != layout.element.size * layout.count:
+            message = "Inconsistent array initializer layout"
+            raise ValueError(message)
+    if any(
+        relative < 0
+        or child.size <= 0
+        or relative > layout.size
+        or child.size > layout.size - relative
+        for _, relative, child in layout.fields
+    ):
+        message = "Structure initializer field exceeds parent layout"
+        raise ValueError(message)
+
+
 def serialize(
     layout: Layout,
     value: InitValue,
@@ -466,6 +499,7 @@ def serialize(
 
     Invalid value/layout combinations fail with ValueError.
     """
+    _verify_destination_span(layout, destination, offset)
     if layout.element is not None:
         _serialize_array(layout, value, destination, offset=offset)
     elif layout.fields:
