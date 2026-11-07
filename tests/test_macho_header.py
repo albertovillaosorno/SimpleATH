@@ -2,6 +2,9 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic, bounded Mach-O header and load-command parsing tests."""
 
+from contextlib import redirect_stdout
+import hashlib
+import io
 import os
 from pathlib import Path
 import struct
@@ -9,6 +12,7 @@ import tempfile
 from unittest import TestCase
 from unittest import mock
 
+from tools import macho
 from tools.macho import Image
 from tools.macho import MAX_MACHO_BYTES
 
@@ -134,9 +138,11 @@ class MachoLoadCommandSafety(TestCase):
             ">IIQQII", FAT_CPU, 3, FAT_TABLE_BYTES, len(thin), 2, 0
         )
         fat = b"\xca\xfe\xba\xbf" + struct.pack(">I", 1)
-        image = _parse(fat + architecture + thin)
+        source = fat + architecture + thin
+        image = _parse(source)
         assert image.uuid == UUID_BYTES.hex()
         assert image.data == thin
+        assert image.source_sha256 == hashlib.sha256(source).hexdigest()
 
     @staticmethod
     def test_truncated_fat64_and_slice_bounds_rejected() -> None:
@@ -211,6 +217,32 @@ class MachoLoadCommandSafety(TestCase):
     def test_truncated_or_oversized_leb_rejected() -> None:
         """Bound malformed LEB128 decoding without hanging the parser."""
         assert all(_leb_rejected(data) for data in (b"\x80", b"\x80" * 16))
+
+
+class MachoSnapshotHashSafety(TestCase):
+    """Use hashes of bounded source bytes, never later path reopens."""
+
+    @staticmethod
+    def test_cli_hash_uses_verified_bytes_without_path_reread() -> None:
+        """Print only the snapshot hash; never reopen the path for reporting."""
+        contents = _thin((_uuid_command(),))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.macho"
+            _ = path.write_bytes(contents)
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    Path,
+                    "read_bytes",
+                    side_effect=AssertionError("unsafe second read"),
+                ),
+                mock.patch("sys.argv", ["macho.py", str(path)]),
+                redirect_stdout(output),
+            ):
+                macho.main()
+        assert "SHA256=" + hashlib.sha256(contents).hexdigest() in (
+            output.getvalue()
+        )
 
 
 def _unsafe_input_rejected(path: Path) -> bool:

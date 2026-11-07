@@ -76,6 +76,8 @@ class Image:
         """Read and validate the selected x86_64 Mach-O byte stream."""
         self.path: Path = Path(path)
         self.data: bytes = read_macho_source(self.path)
+        # Hash the original bounded stream before selecting an x86_64 fat slice.
+        self.source_sha256: str = hashlib.sha256(self.data).hexdigest()
         if self.data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
             if len(self.data) < 8:
                 raise ValueError("Truncated Mach-O fat header")
@@ -469,9 +471,7 @@ def main() -> None:
                 f"{address + index:016x} {part.hex(" "):47s} {"".join(chr(c) if 32 <= c < 127 else "." for c in part)}"
             )
     else:
-        print(
-            f"UUID={image.uuid} SHA256={hashlib.sha256(image.path.read_bytes()).hexdigest()}"
-        )
+        print(f"UUID={image.uuid} SHA256={image.source_sha256}")
 
 
 if __name__ == "__main__":

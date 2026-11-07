@@ -2,8 +2,13 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Pure disassembly inventory tests, never invoking xcrun or audit output."""
 
+from pathlib import Path
+import tempfile
 from unittest import TestCase
+from unittest import mock
 
+from tools import audit_codecs
+from tools.abi_types import json_object
 from tools.audit_codecs import analyze_scalar_handler
 from tools.audit_codecs import disassembly_blocks
 from tools.audit_codecs import verify_copy_counts
@@ -178,3 +183,36 @@ class CodecScalarAndCopyGuards(TestCase):
             sum(e["image"] in {"Legacy", "AirPort"} for e in copies)
             == BACKEND_EXPECTED
         )
+
+
+class PinnedCodecSnapshotHash(TestCase):
+    """Keep codec evidence tied to already inspected bounded source bytes."""
+
+    @staticmethod
+    def test_report_does_not_reopen_original_image_path() -> None:
+        """Persist the Image snapshot fingerprint without reading it again."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "docs").mkdir()
+            image = _fake_image()
+            image.path = root / "missing-image"
+            image.source_sha256 = "pinned-fixture-checksum"
+            with (
+                mock.patch.object(audit_codecs, "ROOT", root),
+                mock.patch.object(
+                    audit_codecs,
+                    "_load_legacy_handlers",
+                    return_value=(image, (), {}),
+                ),
+                mock.patch.object(
+                    audit_codecs, "_scalar_gets", return_value=[]
+                ),
+                mock.patch.object(audit_codecs, "_copy_sites", return_value=[]),
+                mock.patch.object(audit_codecs, "_verify_get_layout"),
+                mock.patch.object(audit_codecs, "_verify_set_layout"),
+            ):
+                audit_codecs.main()
+            payload = json_object(
+                (root / "docs/Control-Codecs.json").read_bytes()
+            )
+            assert payload["legacySHA256"] == image.source_sha256

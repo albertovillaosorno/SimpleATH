@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sys
@@ -265,7 +264,7 @@ def main() -> None:
     _verify_set_layout(image)
     report: dict[str, JsonValue] = mapping({
         "copyright": "Copyright © 2026 laobamac. All rights reserved.",
-        "legacySHA256": hashlib.sha256(image.path.read_bytes()).hexdigest(),
+        "legacySHA256": image.source_sha256,
         "getTableCapacity": 417,
         "populatedGetEntries": sum(bool(x) for x in table),
         "uniqueGetCodecs": len(set(table) - {0}),
