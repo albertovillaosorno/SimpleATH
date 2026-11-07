@@ -1,442 +1,548 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Frames.hpp"
 
-namespace simpleath {
-namespace ieee80211 {
-namespace {
-uint16_t read16(const uint8_t *p) {
-    return static_cast<uint16_t>(p[0]) |
-           static_cast<uint16_t>(static_cast<uint16_t>(p[1]) << 8u);
-}
-uint64_t read64(const uint8_t *p) {
-    uint64_t result = 0;
-    for (size_t i = 0; i < 8; ++i)
-        result |= static_cast<uint64_t>(p[i]) << (8u * i);
-    return result;
-}
-void write16(uint8_t *p, uint16_t value) {
-    p[0] = static_cast<uint8_t>(value);
-    p[1] = static_cast<uint8_t>(value >> 8u);
-}
-void copyBytes(uint8_t *dest, const uint8_t *source, size_t size) {
-    for (size_t i = 0; i < size; ++i)
-        dest[i] = source[i];
-}
-Mac address(const uint8_t *p) {
-    Mac out {};
-    copyBytes(out.bytes, p, 6);
-    return out;
-}
-bool suite(const uint8_t *p, uint8_t id) {
-    return p[0] == 0x00 && p[1] == 0x0f &&
-           p[2] == 0xac && p[3] == id;
-}
-bool allZero(const Mac &mac) {
-    uint8_t aggregate = 0;
-    for (uint8_t byte : mac.bytes) aggregate |= byte;
-    return aggregate == 0;
-}
-const uint8_t kBroadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-const uint8_t kRates[8] = {0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24};
-const uint8_t kExtendedRates[4] = {0x30, 0x48, 0x60, 0x6c};
-}
-
-bool sameMac(const Mac &left, const Mac &right) {
-    uint8_t difference = 0;
-    for (size_t index = 0; index < 6; ++index)
-        difference |= static_cast<uint8_t>(left.bytes[index] ^ right.bytes[index]);
-    return difference == 0;
-}
-
-bool validStationMac(const Mac &mac) {
-    return !allZero(mac) && (mac.bytes[0] & 1u) == 0;
-}
-
-Result parseFrame(const uint8_t *bytes, size_t length, Frame &out) {
-    if (!bytes) return Result::NullBuffer;
-    if (length < 2) return Result::Truncated;
-    const uint16_t control = read16(bytes);
-    if ((control & 0x3u) != 0)
-        return Result::UnsupportedFrame;
-
-    const FrameType type = static_cast<FrameType>((control >> 2u) & 0x3u);
-    const uint8_t subtype = static_cast<uint8_t>((control >> 4u) & 0xfu);
-    const bool toDs = (control & 0x0100u) != 0;
-    const bool fromDs = (control & 0x0200u) != 0;
-    const bool ordered = (control & 0x8000u) != 0;
-    if (type == FrameType::Control || type == FrameType::Extension)
-        return Result::UnsupportedFrame;
-    if (type == FrameType::Management && (toDs || fromDs || ordered))
-        return Result::UnsupportedFrame;
-
-    size_t headerLength = 24;
-    if (type == FrameType::Data) {
-        if (toDs && fromDs) headerLength += 6;
-        if ((subtype & 0x8u) != 0) {
-            headerLength += 2; // QoS control.
-            if (ordered) headerLength += 4; // HT control.
-        }
-    }
-    if (length < headerLength) return Result::Truncated;
-    Frame parsed {};
-    parsed.type = type;
-    parsed.subtype = subtype;
-    parsed.protectedFrame = (control & 0x4000u) != 0;
-    parsed.moreFragments = (control & 0x0400u) != 0;
-    parsed.toDs = toDs;
-    parsed.fromDs = fromDs;
-    const uint16_t sequenceControl = read16(bytes + 22);
-    parsed.sequence = sequenceControl >> 4u;
-    parsed.fragment = static_cast<uint8_t>(sequenceControl & 0xfu);
-    parsed.headerLength = headerLength;
-    parsed.destination = address(bytes + 4);
-    parsed.source = address(bytes + 10);
-    parsed.bssid = address(bytes + 16);
-    if (type == FrameType::Data) {
-        if (fromDs && !toDs) {
-            parsed.destination = address(bytes + 4);
-            parsed.bssid = address(bytes + 10);
-            parsed.source = address(bytes + 16);
-        } else if (toDs && !fromDs) {
-            parsed.bssid = address(bytes + 4);
-            parsed.source = address(bytes + 10);
-            parsed.destination = address(bytes + 16);
-        } else if (toDs && fromDs) {
-            parsed.destination = address(bytes + 16);
-            parsed.source = address(bytes + 24);
-            parsed.bssid = {}; // WDS has no BSSID in standard three addresses.
-        }
-    }
-    out = parsed;
-    return Result::Ok;
-}
-
-Elements::Elements(const uint8_t *data, size_t length)
-    : data_(data), length_(length), offset_(0) {}
-
-CursorStatus Elements::next(Element &out) {
-    if (offset_ == length_) return CursorStatus::End;
-    if (!data_ || length_ - offset_ < 2) return CursorStatus::Truncated;
-    const uint8_t id = data_[offset_];
-    const uint8_t size = data_[offset_ + 1];
-    if (static_cast<size_t>(size) > length_ - offset_ - 2)
-        return CursorStatus::Truncated;
-    out = {id, data_ + offset_ + 2, size};
-    offset_ += static_cast<size_t>(size) + 2;
-    return CursorStatus::Element;
-}
-
-Result parseRsn(const uint8_t *data, size_t length, Rsn &out) {
-    if (!data) return Result::NullBuffer;
-    // RSN version(2), group suite(4), pairwise count(2), suites,
-    // AKM count(2), suites, optional RSN capabilities(2).
-    if (length < 2 + 4 + 2 + 4 + 2 + 4)
-        return Result::InvalidSecurity;
-    size_t offset = 0;
-    if (read16(data) != 1) return Result::InvalidSecurity;
-    offset += 2;
-    const bool groupCcmp = suite(data + offset, 4);
-    offset += 4;
-    const uint16_t pairwiseCount = read16(data + offset);
-    offset += 2;
-    if (pairwiseCount == 0 || pairwiseCount > 32 ||
-        static_cast<size_t>(pairwiseCount) * 4 > length - offset)
-        return Result::InvalidSecurity;
-    Rsn parsed {};
-    parsed.present = true;
-    parsed.groupCcmp = groupCcmp;
-    for (uint16_t n = 0; n < pairwiseCount; ++n, offset += 4) {
-        parsed.pairwiseCcmp |= suite(data + offset, 4);
-        parsed.pairwiseTkip |= suite(data + offset, 2);
-    }
-    if (length - offset < 2) return Result::InvalidSecurity;
-    const uint16_t akmCount = read16(data + offset);
-    offset += 2;
-    if (akmCount == 0 || akmCount > 32 ||
-        static_cast<size_t>(akmCount) * 4 > length - offset)
-        return Result::InvalidSecurity;
-    for (uint16_t n = 0; n < akmCount; ++n, offset += 4) {
-        parsed.akmEnterprise |= suite(data + offset, 1);
-        parsed.akmPsk |= suite(data + offset, 2);
-        parsed.akmSae |= suite(data + offset, 8);
-    }
-    if (length - offset == 1) return Result::InvalidSecurity;
-    if (length - offset >= 2) {
-        const uint16_t capabilities = read16(data + offset);
-        parsed.pmfRequired = (capabilities & 0x0040u) != 0;
-        parsed.pmfCapable = (capabilities & 0x0080u) != 0;
-        if (parsed.pmfRequired && !parsed.pmfCapable)
-            return Result::InvalidSecurity;
-        offset += 2;
-    }
-    // Optional PMKID count and PMKIDs, then optional group management suite.
-    if (length - offset != 0) {
-        if (length - offset < 2) return Result::InvalidSecurity;
-        const uint16_t pmkidCount = read16(data + offset);
-        offset += 2;
-        if (static_cast<size_t>(pmkidCount) > (length - offset) / 16)
-            return Result::InvalidSecurity;
-        offset += static_cast<size_t>(pmkidCount) * 16;
-        if (length - offset == 4)
-            offset += 4;
-        if (offset != length)
-            return Result::InvalidSecurity;
-    }
-    parsed.valid = true;
-    parsed.security = Security::UnsupportedRsn;
-    if (parsed.pairwiseCcmp && parsed.akmPsk && !parsed.pmfRequired)
-        parsed.security = Security::Wpa2Personal;
-    else if (parsed.pairwiseCcmp && parsed.akmEnterprise)
-        parsed.security = Security::Wpa2Enterprise;
-    else if (parsed.pairwiseCcmp && parsed.akmSae && parsed.pmfCapable)
-        parsed.security = Security::Wpa3Personal;
-    out = parsed;
-    return Result::Ok;
-}
-
-Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out) {
-    Frame header {};
-    Result result = parseFrame(frame, length, header);
-    if (result != Result::Ok) return result;
-    if (header.type != FrameType::Management ||
-        (header.subtype != 8 && header.subtype != 5))
-        return Result::UnsupportedFrame;
-    if (length - header.headerLength < 12)
-        return Result::Truncated;
-    const uint8_t *fixed = frame + header.headerLength;
-    Beacon parsed {};
-    parsed.bssid = header.bssid;
-    parsed.timestamp = read64(fixed);
-    parsed.intervalTu = read16(fixed + 8);
-    parsed.capabilities = read16(fixed + 10);
-    parsed.infrastructure = (parsed.capabilities & 1u) != 0;
-    parsed.hiddenSsid = true;
-    parsed.rsn.security = (parsed.capabilities & 0x10u) != 0
-        ? Security::LegacyProtected : Security::Open;
-
-    Elements cursor(fixed + 12, length - header.headerLength - 12);
-    Element element {};
-    bool seenSsid = false, seenRsn = false, seenDs = false;
-    bool seenRates = false, seenExtendedRates = false;
-    for (;;) {
-        const CursorStatus next = cursor.next(element);
-        if (next == CursorStatus::End) break;
-        if (next == CursorStatus::Truncated) return Result::InvalidElement;
-        if (element.id == 0) {
-            if (seenSsid || element.length > 32)
-                return Result::InvalidElement;
-            seenSsid = true;
-            parsed.ssidLength = element.length;
-            parsed.hiddenSsid = element.length == 0;
-            for (size_t i = 0; i < element.length; ++i) {
-                parsed.ssid[i] = element.data[i];
-                if (element.data[i] != 0) parsed.hiddenSsid = false;
+namespace simpleath
+{
+    namespace ieee80211
+    {
+        namespace
+        {
+            uint16_t read16(const uint8_t *p)
+            {
+                return static_cast<uint16_t>(p[0]) |
+                       static_cast<uint16_t>(static_cast<uint16_t>(p[1]) << 8u);
             }
-        } else if (element.id == 1 || element.id == 50) {
-            // The basic-rate flag (MSB) must be carried to the macOS
-            // network stack, not interpreted as part of the rate number.
-            const bool base = element.id == 1;
-            if ((base && seenRates) || (!base && seenExtendedRates) ||
-                (base && (element.length == 0 || element.length > 8)) ||
-                static_cast<size_t>(parsed.rateCount) +
-                    element.length > sizeof(parsed.rates))
-                return Result::InvalidElement;
-            if (base) seenRates = true;
-            else seenExtendedRates = true;
-            for (size_t i = 0; i < element.length; ++i)
-                parsed.rates[parsed.rateCount++] = element.data[i];
-        } else if (element.id == 3) {
-            if (seenDs || element.length != 1)
-                return Result::InvalidElement;
-            seenDs = true;
-            parsed.channel = element.data[0];
-            if (parsed.channel == 0 || parsed.channel > 14)
-                return Result::InvalidElement;
-        } else if (element.id == 45) {
-            if (element.length < 26)
-                return Result::InvalidElement;
-            parsed.htSupported = true;
-            const uint16_t htCapabilities = read16(element.data);
-            parsed.ht40Allowed = (htCapabilities & 0x2u) != 0;
-        } else if (element.id == 48) {
-            if (seenRsn || (parsed.capabilities & 0x10u) == 0)
-                return Result::InvalidSecurity;
-            seenRsn = true;
-            result = parseRsn(element.data, element.length, parsed.rsn);
-            if (result != Result::Ok) return result;
-            // Keep the exact validated IE byte-for-byte for native scan
-            // reporting. This is received data, not a trusted association IE.
-            parsed.rsnIe[0] = element.id;
-            parsed.rsnIe[1] = element.length;
-            for (size_t i = 0; i < element.length; ++i)
-                parsed.rsnIe[i + 2] = element.data[i];
-            parsed.rsnIeLength = static_cast<uint16_t>(element.length + 2u);
-        } else if (element.id == 61 && element.length >= 1 &&
-                   !seenDs) {
-            if (element.data[0] != 0 && element.data[0] <= 14)
-                parsed.channel = element.data[0];
+
+            uint64_t read64(const uint8_t *p)
+            {
+                uint64_t result = 0;
+                for (size_t i = 0; i < 8; ++i)
+                    result |= static_cast<uint64_t>(p[i]) << (8u * i);
+                return result;
+            }
+
+            void write16(uint8_t *p, uint16_t value)
+            {
+                p[0] = static_cast<uint8_t>(value);
+                p[1] = static_cast<uint8_t>(value >> 8u);
+            }
+
+            void copyBytes(uint8_t *dest, const uint8_t *source, size_t size)
+            {
+                for (size_t i = 0; i < size; ++i)
+                    dest[i] = source[i];
+            }
+
+            Mac address(const uint8_t *p)
+            {
+                Mac out {};
+                copyBytes(out.bytes, p, 6);
+                return out;
+            }
+
+            bool suite(const uint8_t *p, uint8_t id)
+            {
+                return p[0] == 0x00 && p[1] == 0x0f && p[2] == 0xac &&
+                       p[3] == id;
+            }
+
+            bool allZero(const Mac &mac)
+            {
+                uint8_t aggregate = 0;
+                for (uint8_t byte : mac.bytes)
+                    aggregate |= byte;
+                return aggregate == 0;
+            }
+
+            const uint8_t kBroadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+            const uint8_t kRates[8] = {0x82, 0x84, 0x8b, 0x96,
+                                       0x0c, 0x12, 0x18, 0x24};
+            const uint8_t kExtendedRates[4] = {0x30, 0x48, 0x60, 0x6c};
+        } // namespace
+
+        bool sameMac(const Mac &left, const Mac &right)
+        {
+            uint8_t difference = 0;
+            for (size_t index = 0; index < 6; ++index)
+                difference |= static_cast<uint8_t>(left.bytes[index] ^
+                                                   right.bytes[index]);
+            return difference == 0;
         }
-    }
-    if (!seenSsid) return Result::InvalidElement;
-    out = parsed;
-    return Result::Ok;
-}
 
-Result makeProbeRequest(const Mac &station, const uint8_t *ssid,
-                        size_t ssidLength, uint16_t sequence,
-                        uint8_t *output, size_t capacity, size_t &written) {
-    written = 0;
-    if (!output) return Result::NullBuffer;
-    if (!validStationMac(station)) return Result::InvalidAddress;
-    if (ssidLength > 32 || (ssidLength && !ssid))
-        return Result::InvalidSsid;
-    const size_t needed = 24 + 2 + ssidLength + 2 + 8 + 2 + 4;
-    if (capacity < needed) return Result::BufferTooSmall;
-    for (size_t i = 0; i < needed; ++i) output[i] = 0;
-    write16(output, 0x0040u); // Management: probe request.
-    copyBytes(output + 4, kBroadcast, 6);
-    copyBytes(output + 10, station.bytes, 6);
-    copyBytes(output + 16, kBroadcast, 6);
-    write16(output + 22, static_cast<uint16_t>((sequence & 0xfffu) << 4u));
-    size_t offset = 24;
-    output[offset++] = 0;
-    output[offset++] = static_cast<uint8_t>(ssidLength);
-    if (ssidLength) copyBytes(output + offset, ssid, ssidLength);
-    offset += ssidLength;
-    output[offset++] = 1;
-    output[offset++] = 8;
-    copyBytes(output + offset, kRates, 8);
-    offset += 8;
-    output[offset++] = 50;
-    output[offset++] = 4;
-    copyBytes(output + offset, kExtendedRates, 4);
-    offset += 4;
-    written = offset;
-    return Result::Ok;
-}
+        bool validStationMac(const Mac &mac)
+        {
+            return !allZero(mac) && (mac.bytes[0] & 1u) == 0;
+        }
 
-Result makeOpenAuthenticationRequest(const Mac &station, const Mac &bssid,
-                                     uint16_t sequence, uint8_t *output,
-                                     size_t capacity, size_t &written) {
-    written = 0;
-    if (!output) return Result::NullBuffer;
-    if (!validStationMac(station) || !validStationMac(bssid))
-        return Result::InvalidAddress;
-    constexpr size_t needed = 24 + 6; // Fixed auth algorithm/sequence/status.
-    if (capacity < needed) return Result::BufferTooSmall;
-    for (size_t i = 0; i < needed; ++i) output[i] = 0;
-    write16(output, 0x00b0u); // Management: authentication.
-    copyBytes(output + 4, bssid.bytes, 6);
-    copyBytes(output + 10, station.bytes, 6);
-    copyBytes(output + 16, bssid.bytes, 6);
-    write16(output + 22, static_cast<uint16_t>((sequence & 0xfffu) << 4u));
-    write16(output + 24, 0); // Open-system authentication algorithm.
-    write16(output + 26, 1); // Transaction sequence 1.
-    write16(output + 28, 0);
-    written = needed;
-    return Result::Ok;
-}
+        Result parseFrame(const uint8_t *bytes, size_t length, Frame &out)
+        {
+            if (!bytes)
+                return Result::NullBuffer;
+            if (length < 2)
+                return Result::Truncated;
+            const uint16_t control = read16(bytes);
+            if ((control & 0x3u) != 0)
+                return Result::UnsupportedFrame;
 
-Result makeAssociationRequest(const Mac &station, const Beacon &network,
-                              uint16_t sequence, uint8_t *output,
-                              size_t capacity, size_t &written) {
-    written = 0;
-    if (!output) return Result::NullBuffer;
-    if (!validStationMac(station) || !validStationMac(network.bssid))
-        return Result::InvalidAddress;
-    if (network.ssidLength == 0 || network.ssidLength > 32 ||
-        !network.infrastructure)
-        return Result::InvalidSsid;
+            const FrameType type =
+                static_cast<FrameType>((control >> 2u) & 0x3u);
+            const uint8_t subtype =
+                static_cast<uint8_t>((control >> 4u) & 0xfu);
+            const bool toDs = (control & 0x0100u) != 0;
+            const bool fromDs = (control & 0x0200u) != 0;
+            const bool ordered = (control & 0x8000u) != 0;
+            if (type == FrameType::Control || type == FrameType::Extension)
+                return Result::UnsupportedFrame;
+            if (type == FrameType::Management && (toDs || fromDs || ordered))
+                return Result::UnsupportedFrame;
 
-    const bool secure = network.rsn.security == Security::Wpa2Personal;
-    if (network.rsn.security != Security::Open && !secure)
-        return Result::InvalidSecurity;
-    if (secure && (!network.rsn.valid || !network.rsn.pairwiseCcmp ||
-                   !network.rsn.groupCcmp || !network.rsn.akmPsk ||
-                   network.rsn.pmfRequired))
-        return Result::InvalidSecurity;
-    const size_t needed = 28 + 2 + network.ssidLength + 10 + 6 +
-                          (secure ? 22u : 0u);
-    if (capacity < needed) return Result::BufferTooSmall;
-    for (size_t i = 0; i < needed; ++i) output[i] = 0;
-    write16(output, 0x0000u); // Management: association request.
-    copyBytes(output + 4, network.bssid.bytes, 6);
-    copyBytes(output + 10, station.bytes, 6);
-    copyBytes(output + 16, network.bssid.bytes, 6);
-    write16(output + 22, static_cast<uint16_t>((sequence & 0xfffu) << 4u));
-    write16(output + 24, static_cast<uint16_t>(1u | (secure ? 0x10u : 0u)));
-    write16(output + 26, 10); // Listen interval in beacon units.
-    size_t offset = 28;
-    output[offset++] = 0;
-    output[offset++] = network.ssidLength;
-    copyBytes(output + offset, network.ssid, network.ssidLength);
-    offset += network.ssidLength;
-    output[offset++] = 1;
-    output[offset++] = 8;
-    copyBytes(output + offset, kRates, 8);
-    offset += 8;
-    output[offset++] = 50;
-    output[offset++] = 4;
-    copyBytes(output + offset, kExtendedRates, 4);
-    offset += 4;
-    if (secure) {
-        // Version 1, CCMP group/pairwise, PSK AKM, no negotiated PMF.
-        constexpr uint8_t rsn[] = {
-            0x01, 0x00,
-            0x00, 0x0f, 0xac, 0x04,
-            0x01, 0x00,
-            0x00, 0x0f, 0xac, 0x04,
-            0x01, 0x00,
-            0x00, 0x0f, 0xac, 0x02,
-            0x00, 0x00
-        };
-        output[offset++] = 48;
-        output[offset++] = sizeof(rsn);
-        copyBytes(output + offset, rsn, sizeof(rsn));
-        offset += sizeof(rsn);
-    }
-    written = offset;
-    return Result::Ok;
-}
+            size_t headerLength = 24;
+            if (type == FrameType::Data)
+            {
+                if (toDs && fromDs)
+                    headerLength += 6;
+                if ((subtype & 0x8u) != 0)
+                {
+                    headerLength += 2; // QoS control.
+                    if (ordered)
+                        headerLength += 4; // HT control.
+                }
+            }
+            if (length < headerLength)
+                return Result::Truncated;
+            Frame parsed {};
+            parsed.type = type;
+            parsed.subtype = subtype;
+            parsed.protectedFrame = (control & 0x4000u) != 0;
+            parsed.moreFragments = (control & 0x0400u) != 0;
+            parsed.toDs = toDs;
+            parsed.fromDs = fromDs;
+            const uint16_t sequenceControl = read16(bytes + 22);
+            parsed.sequence = sequenceControl >> 4u;
+            parsed.fragment = static_cast<uint8_t>(sequenceControl & 0xfu);
+            parsed.headerLength = headerLength;
+            parsed.destination = address(bytes + 4);
+            parsed.source = address(bytes + 10);
+            parsed.bssid = address(bytes + 16);
+            if (type == FrameType::Data)
+            {
+                if (fromDs && !toDs)
+                {
+                    parsed.destination = address(bytes + 4);
+                    parsed.bssid = address(bytes + 10);
+                    parsed.source = address(bytes + 16);
+                }
+                else if (toDs && !fromDs)
+                {
+                    parsed.bssid = address(bytes + 4);
+                    parsed.source = address(bytes + 10);
+                    parsed.destination = address(bytes + 16);
+                }
+                else if (toDs && fromDs)
+                {
+                    parsed.destination = address(bytes + 16);
+                    parsed.source = address(bytes + 24);
+                    parsed.bssid =
+                        {}; // WDS has no BSSID in standard three addresses.
+                }
+            }
+            out = parsed;
+            return Result::Ok;
+        }
 
-Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
-                                   const Mac &station, const Mac &bssid,
-                                   uint16_t &statusCode) {
-    Frame parsed {};
-    Result result = parseFrame(bytes, length, parsed);
-    if (result != Result::Ok) return result;
-    if (parsed.type != FrameType::Management || parsed.subtype != 11 ||
-        !sameMac(parsed.source, bssid) || !sameMac(parsed.bssid, bssid) ||
-        !sameMac(parsed.destination, station) || parsed.protectedFrame)
-        return Result::InvalidFrame;
-    if (length - parsed.headerLength < 6) return Result::Truncated;
-    const uint8_t *body = bytes + parsed.headerLength;
-    if (read16(body) != 0 || read16(body + 2) != 2)
-        return Result::UnsupportedFrame;
-    statusCode = read16(body + 4);
-    return Result::Ok;
-}
+        Elements::Elements(const uint8_t *data, size_t length)
+            : data_(data), length_(length), offset_(0)
+        {
+        }
 
-Result parseAssociationResponse(const uint8_t *bytes, size_t length,
-                                const Mac &station, const Mac &bssid,
-                                uint16_t &statusCode, uint16_t &associationId) {
-    Frame parsed {};
-    Result result = parseFrame(bytes, length, parsed);
-    if (result != Result::Ok) return result;
-    if (parsed.type != FrameType::Management || parsed.subtype != 1 ||
-        !sameMac(parsed.source, bssid) || !sameMac(parsed.bssid, bssid) ||
-        !sameMac(parsed.destination, station) || parsed.protectedFrame)
-        return Result::InvalidFrame;
-    if (length - parsed.headerLength < 6) return Result::Truncated;
-    const uint8_t *body = bytes + parsed.headerLength;
-    const uint16_t status = read16(body + 2);
-    const uint16_t aid = static_cast<uint16_t>(read16(body + 4) & 0x3fffu);
-    if (status == 0 && (aid == 0 || aid > 2007))
-        return Result::InvalidFrame;
-    statusCode = status;
-    associationId = status == 0 ? aid : 0;
-    return Result::Ok;
-}
+        CursorStatus Elements::next(Element &out)
+        {
+            if (offset_ == length_)
+                return CursorStatus::End;
+            if (!data_ || length_ - offset_ < 2)
+                return CursorStatus::Truncated;
+            const uint8_t id = data_[offset_];
+            const uint8_t size = data_[offset_ + 1];
+            if (static_cast<size_t>(size) > length_ - offset_ - 2)
+                return CursorStatus::Truncated;
+            out = {id, data_ + offset_ + 2, size};
+            offset_ += static_cast<size_t>(size) + 2;
+            return CursorStatus::Element;
+        }
 
-} // namespace ieee80211
+        Result parseRsn(const uint8_t *data, size_t length, Rsn &out)
+        {
+            if (!data)
+                return Result::NullBuffer;
+            // RSN version(2), group suite(4), pairwise count(2), suites,
+            // AKM count(2), suites, optional RSN capabilities(2).
+            if (length < 2 + 4 + 2 + 4 + 2 + 4)
+                return Result::InvalidSecurity;
+            size_t offset = 0;
+            if (read16(data) != 1)
+                return Result::InvalidSecurity;
+            offset += 2;
+            const bool groupCcmp = suite(data + offset, 4);
+            offset += 4;
+            const uint16_t pairwiseCount = read16(data + offset);
+            offset += 2;
+            if (pairwiseCount == 0 || pairwiseCount > 32 ||
+                static_cast<size_t>(pairwiseCount) * 4 > length - offset)
+                return Result::InvalidSecurity;
+            Rsn parsed {};
+            parsed.present = true;
+            parsed.groupCcmp = groupCcmp;
+            for (uint16_t n = 0; n < pairwiseCount; ++n, offset += 4)
+            {
+                parsed.pairwiseCcmp |= suite(data + offset, 4);
+                parsed.pairwiseTkip |= suite(data + offset, 2);
+            }
+            if (length - offset < 2)
+                return Result::InvalidSecurity;
+            const uint16_t akmCount = read16(data + offset);
+            offset += 2;
+            if (akmCount == 0 || akmCount > 32 ||
+                static_cast<size_t>(akmCount) * 4 > length - offset)
+                return Result::InvalidSecurity;
+            for (uint16_t n = 0; n < akmCount; ++n, offset += 4)
+            {
+                parsed.akmEnterprise |= suite(data + offset, 1);
+                parsed.akmPsk |= suite(data + offset, 2);
+                parsed.akmSae |= suite(data + offset, 8);
+            }
+            if (length - offset == 1)
+                return Result::InvalidSecurity;
+            if (length - offset >= 2)
+            {
+                const uint16_t capabilities = read16(data + offset);
+                parsed.pmfRequired = (capabilities & 0x0040u) != 0;
+                parsed.pmfCapable = (capabilities & 0x0080u) != 0;
+                if (parsed.pmfRequired && !parsed.pmfCapable)
+                    return Result::InvalidSecurity;
+                offset += 2;
+            }
+            // Optional PMKID count and PMKIDs, then optional group management
+            // suite.
+            if (length - offset != 0)
+            {
+                if (length - offset < 2)
+                    return Result::InvalidSecurity;
+                const uint16_t pmkidCount = read16(data + offset);
+                offset += 2;
+                if (static_cast<size_t>(pmkidCount) > (length - offset) / 16)
+                    return Result::InvalidSecurity;
+                offset += static_cast<size_t>(pmkidCount) * 16;
+                if (length - offset == 4)
+                    offset += 4;
+                if (offset != length)
+                    return Result::InvalidSecurity;
+            }
+            parsed.valid = true;
+            parsed.security = Security::UnsupportedRsn;
+            if (parsed.pairwiseCcmp && parsed.akmPsk && !parsed.pmfRequired)
+                parsed.security = Security::Wpa2Personal;
+            else if (parsed.pairwiseCcmp && parsed.akmEnterprise)
+                parsed.security = Security::Wpa2Enterprise;
+            else if (parsed.pairwiseCcmp && parsed.akmSae && parsed.pmfCapable)
+                parsed.security = Security::Wpa3Personal;
+            out = parsed;
+            return Result::Ok;
+        }
+
+        Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out)
+        {
+            Frame header {};
+            Result result = parseFrame(frame, length, header);
+            if (result != Result::Ok)
+                return result;
+            if (header.type != FrameType::Management ||
+                (header.subtype != 8 && header.subtype != 5))
+                return Result::UnsupportedFrame;
+            if (length - header.headerLength < 12)
+                return Result::Truncated;
+            const uint8_t *fixed = frame + header.headerLength;
+            Beacon parsed {};
+            parsed.bssid = header.bssid;
+            parsed.timestamp = read64(fixed);
+            parsed.intervalTu = read16(fixed + 8);
+            parsed.capabilities = read16(fixed + 10);
+            parsed.infrastructure = (parsed.capabilities & 1u) != 0;
+            parsed.hiddenSsid = true;
+            parsed.rsn.security = (parsed.capabilities & 0x10u) != 0
+                                      ? Security::LegacyProtected
+                                      : Security::Open;
+
+            Elements cursor(fixed + 12, length - header.headerLength - 12);
+            Element element {};
+            bool seenSsid = false, seenRsn = false, seenDs = false;
+            bool seenRates = false, seenExtendedRates = false;
+            for (;;)
+            {
+                const CursorStatus next = cursor.next(element);
+                if (next == CursorStatus::End)
+                    break;
+                if (next == CursorStatus::Truncated)
+                    return Result::InvalidElement;
+                if (element.id == 0)
+                {
+                    if (seenSsid || element.length > 32)
+                        return Result::InvalidElement;
+                    seenSsid = true;
+                    parsed.ssidLength = element.length;
+                    parsed.hiddenSsid = element.length == 0;
+                    for (size_t i = 0; i < element.length; ++i)
+                    {
+                        parsed.ssid[i] = element.data[i];
+                        if (element.data[i] != 0)
+                            parsed.hiddenSsid = false;
+                    }
+                }
+                else if (element.id == 1 || element.id == 50)
+                {
+                    // The basic-rate flag (MSB) must be carried to the macOS
+                    // network stack, not interpreted as part of the rate
+                    // number.
+                    const bool base = element.id == 1;
+                    if ((base && seenRates) || (!base && seenExtendedRates) ||
+                        (base && (element.length == 0 || element.length > 8)) ||
+                        static_cast<size_t>(parsed.rateCount) + element.length >
+                            sizeof(parsed.rates))
+                        return Result::InvalidElement;
+                    if (base)
+                        seenRates = true;
+                    else
+                        seenExtendedRates = true;
+                    for (size_t i = 0; i < element.length; ++i)
+                        parsed.rates[parsed.rateCount++] = element.data[i];
+                }
+                else if (element.id == 3)
+                {
+                    if (seenDs || element.length != 1)
+                        return Result::InvalidElement;
+                    seenDs = true;
+                    parsed.channel = element.data[0];
+                    if (parsed.channel == 0 || parsed.channel > 14)
+                        return Result::InvalidElement;
+                }
+                else if (element.id == 45)
+                {
+                    if (element.length < 26)
+                        return Result::InvalidElement;
+                    parsed.htSupported = true;
+                    const uint16_t htCapabilities = read16(element.data);
+                    parsed.ht40Allowed = (htCapabilities & 0x2u) != 0;
+                }
+                else if (element.id == 48)
+                {
+                    if (seenRsn || (parsed.capabilities & 0x10u) == 0)
+                        return Result::InvalidSecurity;
+                    seenRsn = true;
+                    result = parseRsn(element.data, element.length, parsed.rsn);
+                    if (result != Result::Ok)
+                        return result;
+                    // Keep the exact validated IE byte-for-byte for native scan
+                    // reporting. This is received data, not a trusted
+                    // association IE.
+                    parsed.rsnIe[0] = element.id;
+                    parsed.rsnIe[1] = element.length;
+                    for (size_t i = 0; i < element.length; ++i)
+                        parsed.rsnIe[i + 2] = element.data[i];
+                    parsed.rsnIeLength =
+                        static_cast<uint16_t>(element.length + 2u);
+                }
+                else if (element.id == 61 && element.length >= 1 && !seenDs)
+                {
+                    if (element.data[0] != 0 && element.data[0] <= 14)
+                        parsed.channel = element.data[0];
+                }
+            }
+            if (!seenSsid)
+                return Result::InvalidElement;
+            out = parsed;
+            return Result::Ok;
+        }
+
+        Result makeProbeRequest(const Mac &station, const uint8_t *ssid,
+                                size_t ssidLength, uint16_t sequence,
+                                uint8_t *output, size_t capacity,
+                                size_t &written)
+        {
+            written = 0;
+            if (!output)
+                return Result::NullBuffer;
+            if (!validStationMac(station))
+                return Result::InvalidAddress;
+            if (ssidLength > 32 || (ssidLength && !ssid))
+                return Result::InvalidSsid;
+            const size_t needed = 24 + 2 + ssidLength + 2 + 8 + 2 + 4;
+            if (capacity < needed)
+                return Result::BufferTooSmall;
+            for (size_t i = 0; i < needed; ++i)
+                output[i] = 0;
+            write16(output, 0x0040u); // Management: probe request.
+            copyBytes(output + 4, kBroadcast, 6);
+            copyBytes(output + 10, station.bytes, 6);
+            copyBytes(output + 16, kBroadcast, 6);
+            write16(output + 22,
+                    static_cast<uint16_t>((sequence & 0xfffu) << 4u));
+            size_t offset = 24;
+            output[offset++] = 0;
+            output[offset++] = static_cast<uint8_t>(ssidLength);
+            if (ssidLength)
+                copyBytes(output + offset, ssid, ssidLength);
+            offset += ssidLength;
+            output[offset++] = 1;
+            output[offset++] = 8;
+            copyBytes(output + offset, kRates, 8);
+            offset += 8;
+            output[offset++] = 50;
+            output[offset++] = 4;
+            copyBytes(output + offset, kExtendedRates, 4);
+            offset += 4;
+            written = offset;
+            return Result::Ok;
+        }
+
+        Result makeOpenAuthenticationRequest(const Mac &station,
+                                             const Mac &bssid,
+                                             uint16_t sequence, uint8_t *output,
+                                             size_t capacity, size_t &written)
+        {
+            written = 0;
+            if (!output)
+                return Result::NullBuffer;
+            if (!validStationMac(station) || !validStationMac(bssid))
+                return Result::InvalidAddress;
+            constexpr size_t needed =
+                24 + 6; // Fixed auth algorithm/sequence/status.
+            if (capacity < needed)
+                return Result::BufferTooSmall;
+            for (size_t i = 0; i < needed; ++i)
+                output[i] = 0;
+            write16(output, 0x00b0u); // Management: authentication.
+            copyBytes(output + 4, bssid.bytes, 6);
+            copyBytes(output + 10, station.bytes, 6);
+            copyBytes(output + 16, bssid.bytes, 6);
+            write16(output + 22,
+                    static_cast<uint16_t>((sequence & 0xfffu) << 4u));
+            write16(output + 24, 0); // Open-system authentication algorithm.
+            write16(output + 26, 1); // Transaction sequence 1.
+            write16(output + 28, 0);
+            written = needed;
+            return Result::Ok;
+        }
+
+        Result makeAssociationRequest(const Mac &station, const Beacon &network,
+                                      uint16_t sequence, uint8_t *output,
+                                      size_t capacity, size_t &written)
+        {
+            written = 0;
+            if (!output)
+                return Result::NullBuffer;
+            if (!validStationMac(station) || !validStationMac(network.bssid))
+                return Result::InvalidAddress;
+            if (network.ssidLength == 0 || network.ssidLength > 32 ||
+                !network.infrastructure)
+                return Result::InvalidSsid;
+
+            const bool secure = network.rsn.security == Security::Wpa2Personal;
+            if (network.rsn.security != Security::Open && !secure)
+                return Result::InvalidSecurity;
+            if (secure && (!network.rsn.valid || !network.rsn.pairwiseCcmp ||
+                           !network.rsn.groupCcmp || !network.rsn.akmPsk ||
+                           network.rsn.pmfRequired))
+                return Result::InvalidSecurity;
+            const size_t needed =
+                28 + 2 + network.ssidLength + 10 + 6 + (secure ? 22u : 0u);
+            if (capacity < needed)
+                return Result::BufferTooSmall;
+            for (size_t i = 0; i < needed; ++i)
+                output[i] = 0;
+            write16(output, 0x0000u); // Management: association request.
+            copyBytes(output + 4, network.bssid.bytes, 6);
+            copyBytes(output + 10, station.bytes, 6);
+            copyBytes(output + 16, network.bssid.bytes, 6);
+            write16(output + 22,
+                    static_cast<uint16_t>((sequence & 0xfffu) << 4u));
+            write16(output + 24,
+                    static_cast<uint16_t>(1u | (secure ? 0x10u : 0u)));
+            write16(output + 26, 10); // Listen interval in beacon units.
+            size_t offset = 28;
+            output[offset++] = 0;
+            output[offset++] = network.ssidLength;
+            copyBytes(output + offset, network.ssid, network.ssidLength);
+            offset += network.ssidLength;
+            output[offset++] = 1;
+            output[offset++] = 8;
+            copyBytes(output + offset, kRates, 8);
+            offset += 8;
+            output[offset++] = 50;
+            output[offset++] = 4;
+            copyBytes(output + offset, kExtendedRates, 4);
+            offset += 4;
+            if (secure)
+            {
+                // Version 1, CCMP group/pairwise, PSK AKM, no negotiated PMF.
+                constexpr uint8_t rsn[] = {
+                    0x01, 0x00, 0x00, 0x0f, 0xac, 0x04, 0x01, 0x00, 0x00, 0x0f,
+                    0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00};
+                output[offset++] = 48;
+                output[offset++] = sizeof(rsn);
+                copyBytes(output + offset, rsn, sizeof(rsn));
+                offset += sizeof(rsn);
+            }
+            written = offset;
+            return Result::Ok;
+        }
+
+        Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
+                                           const Mac &station, const Mac &bssid,
+                                           uint16_t &statusCode)
+        {
+            Frame parsed {};
+            Result result = parseFrame(bytes, length, parsed);
+            if (result != Result::Ok)
+                return result;
+            if (parsed.type != FrameType::Management || parsed.subtype != 11 ||
+                !sameMac(parsed.source, bssid) ||
+                !sameMac(parsed.bssid, bssid) ||
+                !sameMac(parsed.destination, station) || parsed.protectedFrame)
+                return Result::InvalidFrame;
+            if (length - parsed.headerLength < 6)
+                return Result::Truncated;
+            const uint8_t *body = bytes + parsed.headerLength;
+            if (read16(body) != 0 || read16(body + 2) != 2)
+                return Result::UnsupportedFrame;
+            statusCode = read16(body + 4);
+            return Result::Ok;
+        }
+
+        Result parseAssociationResponse(const uint8_t *bytes, size_t length,
+                                        const Mac &station, const Mac &bssid,
+                                        uint16_t &statusCode,
+                                        uint16_t &associationId)
+        {
+            Frame parsed {};
+            Result result = parseFrame(bytes, length, parsed);
+            if (result != Result::Ok)
+                return result;
+            if (parsed.type != FrameType::Management || parsed.subtype != 1 ||
+                !sameMac(parsed.source, bssid) ||
+                !sameMac(parsed.bssid, bssid) ||
+                !sameMac(parsed.destination, station) || parsed.protectedFrame)
+                return Result::InvalidFrame;
+            if (length - parsed.headerLength < 6)
+                return Result::Truncated;
+            const uint8_t *body = bytes + parsed.headerLength;
+            const uint16_t status = read16(body + 2);
+            const uint16_t aid =
+                static_cast<uint16_t>(read16(body + 4) & 0x3fffu);
+            if (status == 0 && (aid == 0 || aid > 2007))
+                return Result::InvalidFrame;
+            statusCode = status;
+            associationId = status == 0 ? aid : 0;
+            return Result::Ok;
+        }
+
+    } // namespace ieee80211
 } // namespace simpleath

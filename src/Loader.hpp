@@ -11,10 +11,11 @@
 
 #include <IOKit/IOService.h>
 
-namespace ath {
-bool preparePayloads();
-bool startPayloads();
-void publishLoader(IOService *service);
-}
+namespace ath
+{
+    bool preparePayloads();
+    bool startPayloads();
+    void publishLoader(IOService *service);
+} // namespace ath
 
 #endif

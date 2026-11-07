@@ -7,141 +7,170 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace simpleath {
-namespace ieee80211 {
+namespace simpleath
+{
+    namespace ieee80211
+    {
 
-enum class Result : uint8_t {
-    Ok,
-    NullBuffer,
-    Truncated,
-    InvalidFrame,
-    UnsupportedFrame,
-    InvalidElement,
-    InvalidSecurity,
-    BufferTooSmall,
-    InvalidAddress,
-    InvalidSsid
-};
+        enum class Result : uint8_t
+        {
+            Ok,
+            NullBuffer,
+            Truncated,
+            InvalidFrame,
+            UnsupportedFrame,
+            InvalidElement,
+            InvalidSecurity,
+            BufferTooSmall,
+            InvalidAddress,
+            InvalidSsid
+        };
 
-enum class FrameType : uint8_t {
-    Management,
-    Control,
-    Data,
-    Extension
-};
+        enum class FrameType : uint8_t
+        {
+            Management,
+            Control,
+            Data,
+            Extension
+        };
 
-enum class Security : uint8_t {
-    Open,
-    LegacyProtected,
-    Wpa2Personal,
-    Wpa2Enterprise,
-    Wpa3Personal,
-    UnsupportedRsn
-};
+        enum class Security : uint8_t
+        {
+            Open,
+            LegacyProtected,
+            Wpa2Personal,
+            Wpa2Enterprise,
+            Wpa3Personal,
+            UnsupportedRsn
+        };
 
-struct Mac {
-    uint8_t bytes[6];
-};
-bool sameMac(const Mac &left, const Mac &right);
-bool validStationMac(const Mac &address);
+        struct Mac
+        {
+                uint8_t bytes[6];
+        };
 
-struct Frame {
-    FrameType type;
-    uint8_t subtype;
-    bool protectedFrame;
-    bool moreFragments;
-    bool toDs;
-    bool fromDs;
-    uint16_t sequence;
-    uint8_t fragment;
-    size_t headerLength;
-    Mac destination;
-    Mac source;
-    Mac bssid; // Only defined for management or single-DS data frames.
-};
+        bool sameMac(const Mac &left, const Mac &right);
+        bool validStationMac(const Mac &address);
 
-Result parseFrame(const uint8_t *bytes, size_t length, Frame &out);
+        struct Frame
+        {
+                FrameType type;
+                uint8_t subtype;
+                bool protectedFrame;
+                bool moreFragments;
+                bool toDs;
+                bool fromDs;
+                uint16_t sequence;
+                uint8_t fragment;
+                size_t headerLength;
+                Mac destination;
+                Mac source;
+                Mac bssid; // Only defined for management or single-DS data
+                           // frames.
+        };
 
-// The caller checks the parser result; malformed or unrecognized RSN suites
-// must never be silently converted into a trusted open network.
-struct Rsn {
-    bool present;
-    bool valid;
-    bool pairwiseCcmp;
-    bool groupCcmp;
-    bool pairwiseTkip;
-    bool akmPsk;
-    bool akmEnterprise;
-    bool akmSae;
-    bool pmfCapable;
-    bool pmfRequired;
-    Security security;
-};
+        Result parseFrame(const uint8_t *bytes, size_t length, Frame &out);
 
-struct Beacon {
-    Mac bssid;
-    uint8_t ssid[32];
-    uint8_t ssidLength; // Binary SSID, not necessarily printable or null terminated.
-    bool hiddenSsid;
-    bool infrastructure;
-    uint8_t channel; // 0 if the beacon does not advertise a channel.
-    bool htSupported;
-    bool ht40Allowed;
-    uint64_t timestamp;
-    uint16_t intervalTu;
-    uint16_t capabilities;
-    // Preserve advertised (including basic-rate marker) BSS rate codes.
-    uint8_t rates[32];
-    uint8_t rateCount;
-    // Full RSN information element including ID+length, for future
-    // CoreWLAN scan-result presentation without reconstructing security IE.
-    uint8_t rsnIe[257];
-    uint16_t rsnIeLength;
-    Rsn rsn;
-};
+        // The caller checks the parser result; malformed or unrecognized RSN
+        // suites must never be silently converted into a trusted open network.
+        struct Rsn
+        {
+                bool present;
+                bool valid;
+                bool pairwiseCcmp;
+                bool groupCcmp;
+                bool pairwiseTkip;
+                bool akmPsk;
+                bool akmEnterprise;
+                bool akmSae;
+                bool pmfCapable;
+                bool pmfRequired;
+                Security security;
+        };
 
-struct Element {
-    uint8_t id;
-    const uint8_t *data;
-    uint8_t length;
-};
+        struct Beacon
+        {
+                Mac bssid;
+                uint8_t ssid[32];
+                uint8_t ssidLength; // Binary SSID, not necessarily printable or
+                                    // null terminated.
+                bool hiddenSsid;
+                bool infrastructure;
+                uint8_t
+                    channel; // 0 if the beacon does not advertise a channel.
+                bool htSupported;
+                bool ht40Allowed;
+                uint64_t timestamp;
+                uint16_t intervalTu;
+                uint16_t capabilities;
+                // Preserve advertised (including basic-rate marker) BSS rate
+                // codes.
+                uint8_t rates[32];
+                uint8_t rateCount;
+                // Full RSN information element including ID+length, for future
+                // CoreWLAN scan-result presentation without reconstructing
+                // security IE.
+                uint8_t rsnIe[257];
+                uint16_t rsnIeLength;
+                Rsn rsn;
+        };
 
-enum class CursorStatus : uint8_t { Element, End, Truncated };
-class Elements {
-public:
-    Elements(const uint8_t *data, size_t length);
-    CursorStatus next(Element &out);
-private:
-    const uint8_t *data_;
-    size_t length_;
-    size_t offset_;
-};
+        struct Element
+        {
+                uint8_t id;
+                const uint8_t *data;
+                uint8_t length;
+        };
 
-Result parseRsn(const uint8_t *data, size_t length, Rsn &out);
-Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out);
+        enum class CursorStatus : uint8_t
+        {
+            Element,
+            End,
+            Truncated
+        };
 
-// Serializers generate frame payloads only. The radio transport is NOT
-// authorized to send them without EEPROM, regulatory and PHY initialization.
-// They omit FCS, which the hardware TX chain is expected to generate.
-Result makeProbeRequest(const Mac &station, const uint8_t *ssid,
-                        size_t ssidLength, uint16_t sequence,
-                        uint8_t *output, size_t capacity, size_t &written);
-Result makeOpenAuthenticationRequest(const Mac &station, const Mac &bssid,
-                                     uint16_t sequence, uint8_t *output,
-                                     size_t capacity, size_t &written);
+        class Elements
+        {
+            public:
+                Elements(const uint8_t *data, size_t length);
+                CursorStatus next(Element &out);
 
-// Only open and WPA2-PSK (CCMP group and pairwise) association templates.
-// No credentials or traffic keys are installed by this serializer.
-Result makeAssociationRequest(const Mac &station, const Beacon &network,
-                              uint16_t sequence, uint8_t *output,
-                              size_t capacity, size_t &written);
-Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
-                                   const Mac &station, const Mac &bssid,
-                                   uint16_t &statusCode);
-Result parseAssociationResponse(const uint8_t *bytes, size_t length,
-                                const Mac &station, const Mac &bssid,
-                                uint16_t &statusCode, uint16_t &associationId);
+            private:
+                const uint8_t *data_;
+                size_t length_;
+                size_t offset_;
+        };
 
-} // namespace ieee80211
+        Result parseRsn(const uint8_t *data, size_t length, Rsn &out);
+        Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out);
+
+        // Serializers generate frame payloads only. The radio transport is NOT
+        // authorized to send them without EEPROM, regulatory and PHY
+        // initialization. They omit FCS, which the hardware TX chain is
+        // expected to generate.
+        Result makeProbeRequest(const Mac &station, const uint8_t *ssid,
+                                size_t ssidLength, uint16_t sequence,
+                                uint8_t *output, size_t capacity,
+                                size_t &written);
+        Result makeOpenAuthenticationRequest(const Mac &station,
+                                             const Mac &bssid,
+                                             uint16_t sequence, uint8_t *output,
+                                             size_t capacity, size_t &written);
+
+        // Only open and WPA2-PSK (CCMP group and pairwise) association
+        // templates. No credentials or traffic keys are installed by this
+        // serializer.
+        Result makeAssociationRequest(const Mac &station, const Beacon &network,
+                                      uint16_t sequence, uint8_t *output,
+                                      size_t capacity, size_t &written);
+        Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
+                                           const Mac &station, const Mac &bssid,
+                                           uint16_t &statusCode);
+        Result parseAssociationResponse(const uint8_t *bytes, size_t length,
+                                        const Mac &station, const Mac &bssid,
+                                        uint16_t &statusCode,
+                                        uint16_t &associationId);
+
+    } // namespace ieee80211
 } // namespace simpleath
 #endif

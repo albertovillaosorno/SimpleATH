@@ -9,111 +9,126 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace simpleath {
-namespace edma {
+namespace simpleath
+{
+    namespace edma
+    {
 
-enum class TxCrypto : uint8_t {
-    Clear = 0,
-    Wep = 1,
-    Ccmp = 2,
-    Tkip = 3
-};
+        enum class TxCrypto : uint8_t
+        {
+            Clear = 0,
+            Wep = 1,
+            Ccmp = 2,
+            Tkip = 3
+        };
 
-enum class TxPacketType : uint8_t {
-    Normal = 0,
-    Beacon = 3,
-    ProbeResponse = 4
-};
+        enum class TxPacketType : uint8_t
+        {
+            Normal = 0,
+            Beacon = 3,
+            ProbeResponse = 4
+        };
 
-enum class TxControlError : uint8_t {
-    Ok,
-    UninitializedPointerDescriptor,
-    FrameLengthInvalid,
-    RegulatoryNotVerified,
-    RadioNotReady,
-    InvalidPower,
-    UnsupportedCipher,
-    KeyUnavailable,
-    InvalidRate,
-    InvalidChain,
-    InvalidDuration,
-    UnsupportedControl
-};
+        enum class TxControlError : uint8_t
+        {
+            Ok,
+            UninitializedPointerDescriptor,
+            FrameLengthInvalid,
+            RegulatoryNotVerified,
+            RadioNotReady,
+            InvalidPower,
+            UnsupportedCipher,
+            KeyUnavailable,
+            InvalidRate,
+            InvalidChain,
+            InvalidDuration,
+            UnsupportedControl
+        };
 
-struct TxRate {
-    uint8_t attempts; // Hardware 4-bit field, maximum 15.
-    uint8_t rateCode; // AR9003 rate-code mapping must be checked upstream.
-    uint16_t rtsCtsDuration; // Up to 0x7fff.
-    uint8_t antennaChainMask; // Nonzero 3-bit chain selector.
-    uint8_t powerIndex; // Hardware units; must not exceed per-channel limit.
-    bool ht40;
-    bool shortGuardInterval;
-    bool stbc;
-    bool rtsCtsQualified;
-};
+        struct TxRate
+        {
+                uint8_t attempts; // Hardware 4-bit field, maximum 15.
+                uint8_t rateCode; // AR9003 rate-code mapping must be checked
+                                  // upstream.
+                uint16_t rtsCtsDuration;  // Up to 0x7fff.
+                uint8_t antennaChainMask; // Nonzero 3-bit chain selector.
+                uint8_t powerIndex;       // Hardware units; must not exceed
+                                          // per-channel limit.
+                bool ht40;
+                bool shortGuardInterval;
+                bool stbc;
+                bool rtsCtsQualified;
+        };
 
-struct TxControlRequest {
-    uint16_t onAirFrameLength; // Includes FCS, 1..4095.
-    TxPacketType packetType;
-    TxCrypto crypto;
-    uint8_t keyCacheIndex; // 0xff when no key.
-    bool noAck;
-    bool rts;
-    bool cts;
-    bool durationUpdate;
-    uint8_t rtsCtsRateCode;
-    TxRate rate[4];
-};
+        struct TxControlRequest
+        {
+                uint16_t onAirFrameLength; // Includes FCS, 1..4095.
+                TxPacketType packetType;
+                TxCrypto crypto;
+                uint8_t keyCacheIndex; // 0xff when no key.
+                bool noAck;
+                bool rts;
+                bool cts;
+                bool durationUpdate;
+                uint8_t rtsCtsRateCode;
+                TxRate rate[4];
+        };
 
-struct TxSafetyPolicy {
-    bool siliconIdentified;
-    bool boardCalibrationValidated;
-    bool channelRegulatoryAuthorized;
-    bool transmitPowerLimitsValidated;
-    bool radioAwake;
-    bool rfKillUnblocked;
-    bool dmaMappingValid;
-    bool hardwareKeyInstalled;
-    bool ht40Authorized;
-    bool shortGuardIntervalAuthorized;
-    bool stbcSupported;
-    uint8_t maximumTxPowerIndex[4];
-};
+        struct TxSafetyPolicy
+        {
+                bool siliconIdentified;
+                bool boardCalibrationValidated;
+                bool channelRegulatoryAuthorized;
+                bool transmitPowerLimitsValidated;
+                bool radioAwake;
+                bool rfKillUnblocked;
+                bool dmaMappingValid;
+                bool hardwareKeyInstalled;
+                bool ht40Authorized;
+                bool shortGuardIntervalAuthorized;
+                bool stbcSupported;
+                uint8_t maximumTxPowerIndex[4];
+        };
 
-// Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields) into
-// an existing validated pointer descriptor. This does not make a packet safe
-// to send until the macOS PCI owner and DMA completion path are implemented.
-TxControlError encodeTxControls(const TxControlRequest &request,
-                                const TxSafetyPolicy &policy,
-                                TxDescriptor &descriptor);
+        // Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields)
+        // into an existing validated pointer descriptor. This does not make a
+        // packet safe to send until the macOS PCI owner and DMA completion path
+        // are implemented.
+        TxControlError encodeTxControls(const TxControlRequest &request,
+                                        const TxSafetyPolicy &policy,
+                                        TxDescriptor &descriptor);
 
-struct TxCompletionWords {
-    uint32_t word[9];
-};
-static_assert(sizeof(TxCompletionWords) == 36,
-              "AR9003 TX completion status size");
+        struct TxCompletionWords
+        {
+                uint32_t word[9];
+        };
 
-struct TxCompletion {
-    uint8_t queue;
-    uint8_t finalRateSeries;
-    uint16_t sequenceNumber;
-    uint32_t timestamp;
-    bool frameAcked;
-    bool excessiveRetries;
-    bool filtered;
-    bool fifoUnderrun;
-    bool configError;
-    bool expired;
-    bool txOpportunityExceeded;
-    uint8_t shortRetries;
-    uint8_t longRetries;
-};
+        static_assert(sizeof(TxCompletionWords) == 36,
+                      "AR9003 TX completion status size");
 
-// Caller performs DMA synchronization before reading TX completion status.
-// The status ring must not be recycled until the owner confirms no DMA access.
-DescriptorError decodeTxCompletion(const TxCompletionWords &status,
-                                   TxCompletion &out);
+        struct TxCompletion
+        {
+                uint8_t queue;
+                uint8_t finalRateSeries;
+                uint16_t sequenceNumber;
+                uint32_t timestamp;
+                bool frameAcked;
+                bool excessiveRetries;
+                bool filtered;
+                bool fifoUnderrun;
+                bool configError;
+                bool expired;
+                bool txOpportunityExceeded;
+                uint8_t shortRetries;
+                uint8_t longRetries;
+        };
 
-} // namespace edma
+        // Caller performs DMA synchronization before reading TX completion
+        // status. The status ring must not be recycled until the owner confirms
+        // no DMA access.
+        DescriptorError decodeTxCompletion(const TxCompletionWords &status,
+                                           TxCompletion &out);
+
+    } // namespace edma
 } // namespace simpleath
 #endif

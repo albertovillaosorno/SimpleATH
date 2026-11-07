@@ -9,20 +9,21 @@
 #ifndef SIMPLEATH_NATIVE_SKYWALK_HPP
 #define SIMPLEATH_NATIVE_SKYWALK_HPP
 
-#include "Payload.hpp"
 #include "NativeProfile.hpp"
+#include "Payload.hpp"
 #include <IOKit/IOService.h>
 
-namespace ath {
+namespace ath
+{
 
-bool validateNativeSkywalk();
-bool prepareNativeSkywalk(LinkedImage *, size_t);
-void publishNativeSkywalk(IOService *);
-IOReturn nativeSkywalkUserClient(IOService *, task_t, void *, uint32_t,
-                                OSDictionary *, IOUserClient **);
-IOReturn createSkywalkUserClient(IOService *, task_t, void *, uint32_t,
-                                OSDictionary *, IOUserClient **);
+    bool validateNativeSkywalk();
+    bool prepareNativeSkywalk(LinkedImage *, size_t);
+    void publishNativeSkywalk(IOService *);
+    IOReturn nativeSkywalkUserClient(IOService *, task_t, void *, uint32_t,
+                                     OSDictionary *, IOUserClient **);
+    IOReturn createSkywalkUserClient(IOService *, task_t, void *, uint32_t,
+                                     OSDictionary *, IOUserClient **);
 
-}
+} // namespace ath
 
 #endif

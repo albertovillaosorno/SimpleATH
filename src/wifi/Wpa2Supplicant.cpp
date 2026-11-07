@@ -1,299 +1,355 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Wpa2Supplicant.hpp"
 
-namespace simpleath {
-namespace ieee80211 {
-namespace {
-constexpr size_t kEapolHeaderBytes = 4;
-constexpr size_t kKeyFixedBytes = 95;
-constexpr size_t kMessage4Length = kEapolHeaderBytes + kKeyFixedBytes;
-constexpr size_t kRsnIeBytes = 22;
-constexpr size_t kMessage2Length = kMessage4Length + kRsnIeBytes;
-constexpr size_t kMaximumMessage3Bytes = 1024;
-constexpr size_t kMaximumGtkPlaintext = 512;
-const uint8_t kRsnCcmpPskIe[kRsnIeBytes] = {
-    48, 20, // RSN element header; version 1.
-    1, 0, 0, 0x0f, 0xac, 4, // Group cipher: CCMP.
-    1, 0, 0, 0x0f, 0xac, 4, // Pairwise cipher: CCMP.
-    1, 0, 0, 0x0f, 0xac, 2, // Key management: PSK.
-    0, 0 // RSN capabilities: PMF not negotiated.
-};
+namespace simpleath
+{
+    namespace ieee80211
+    {
+        namespace
+        {
+            constexpr size_t kEapolHeaderBytes = 4;
+            constexpr size_t kKeyFixedBytes = 95;
+            constexpr size_t kMessage4Length =
+                kEapolHeaderBytes + kKeyFixedBytes;
+            constexpr size_t kRsnIeBytes = 22;
+            constexpr size_t kMessage2Length = kMessage4Length + kRsnIeBytes;
+            constexpr size_t kMaximumMessage3Bytes = 1024;
+            constexpr size_t kMaximumGtkPlaintext = 512;
+            const uint8_t kRsnCcmpPskIe[kRsnIeBytes] = {
+                48, 20,                   // RSN element header; version 1.
+                1,  0,  0, 0x0f, 0xac, 4, // Group cipher: CCMP.
+                1,  0,  0, 0x0f, 0xac, 4, // Pairwise cipher: CCMP.
+                1,  0,  0, 0x0f, 0xac, 2, // Key management: PSK.
+                0,  0 // RSN capabilities: PMF not negotiated.
+            };
 
-void copyBytes(uint8_t *destination, const uint8_t *source, size_t count) {
-    for (size_t i = 0; i < count; ++i) destination[i] = source[i];
-}
-void putBig16(uint8_t *buffer, uint16_t value) {
-    buffer[0] = static_cast<uint8_t>(value >> 8u);
-    buffer[1] = static_cast<uint8_t>(value);
-}
-void putBig64(uint8_t *buffer, uint64_t value) {
-    for (size_t i = 0; i < 8; ++i) {
-        buffer[7u - i] = static_cast<uint8_t>(value);
-        value >>= 8u;
-    }
-}
-bool constantTimeEqual(const uint8_t *left, const uint8_t *right,
-                       size_t count) {
-    uint8_t mismatch = 0;
-    for (size_t i = 0; i < count; ++i)
-        mismatch |= static_cast<uint8_t>(left[i] ^ right[i]);
-    return mismatch == 0;
-}
-bool nonzero(const uint8_t *value, size_t count) {
-    uint8_t aggregate = 0;
-    for (size_t i = 0; i < count; ++i) aggregate |= value[i];
-    return aggregate != 0;
-}
-void populateEapolKey(uint8_t *message, size_t length,
-                       uint8_t version, uint16_t keyInfo,
-                       uint64_t replayCounter, const uint8_t *nonce) {
-    for (size_t i = 0; i < length; ++i) message[i] = 0;
-    message[0] = version;
-    message[1] = 3; // IEEE 802.1X EAPOL-Key.
-    putBig16(message + 2, static_cast<uint16_t>(length - 4u));
-    uint8_t *body = message + kEapolHeaderBytes;
-    body[0] = 2; // RSN key descriptor.
-    putBig16(body + 1, keyInfo);
-    putBig16(body + 3, 16); // CCMP temporal key length.
-    putBig64(body + 5, replayCounter);
-    if (nonce) copyBytes(body + 13, nonce, 32);
-    putBig16(body + 93, static_cast<uint16_t>(length - kMessage4Length));
-}
-bool parseGtkKde(const uint8_t *plaintext, size_t length,
-                 uint8_t &keyId, uint8_t gtk[16]) {
-    bool found = false;
-    size_t offset = 0;
-    while (offset < length) {
-        // WPA2 key data may end with 0xdd padding for AES wrapping.
-        if (plaintext[offset] == 0xdd && length - offset < 2)
-            break;
-        if (length - offset < 2) return false;
-        const uint8_t tag = plaintext[offset];
-        const size_t size = plaintext[offset + 1];
-        offset += 2;
-        if (size > length - offset) return false;
-        const uint8_t *element = plaintext + offset;
-        if (tag == 221 && size >= 4 && element[0] == 0 &&
-            element[1] == 0x0f && element[2] == 0xac && element[3] == 1) {
-            // CCMP group key KDE: OUI(3) type(1) key-id(1) reserved(1)
-            // + 16-byte GTK. No shorter/longer or duplicate KDE accepted.
-            if (found || size != 22 || element[5] != 0)
-                return false;
-            keyId = static_cast<uint8_t>(element[4] & 3u);
-            if ((element[4] & 0xfcu) != 0)
-                return false;
-            copyBytes(gtk, element + 6, 16);
-            found = true;
+            void copyBytes(uint8_t *destination, const uint8_t *source,
+                           size_t count)
+            {
+                for (size_t i = 0; i < count; ++i)
+                    destination[i] = source[i];
+            }
+
+            void putBig16(uint8_t *buffer, uint16_t value)
+            {
+                buffer[0] = static_cast<uint8_t>(value >> 8u);
+                buffer[1] = static_cast<uint8_t>(value);
+            }
+
+            void putBig64(uint8_t *buffer, uint64_t value)
+            {
+                for (size_t i = 0; i < 8; ++i)
+                {
+                    buffer[7u - i] = static_cast<uint8_t>(value);
+                    value >>= 8u;
+                }
+            }
+
+            bool constantTimeEqual(const uint8_t *left, const uint8_t *right,
+                                   size_t count)
+            {
+                uint8_t mismatch = 0;
+                for (size_t i = 0; i < count; ++i)
+                    mismatch |= static_cast<uint8_t>(left[i] ^ right[i]);
+                return mismatch == 0;
+            }
+
+            bool nonzero(const uint8_t *value, size_t count)
+            {
+                uint8_t aggregate = 0;
+                for (size_t i = 0; i < count; ++i)
+                    aggregate |= value[i];
+                return aggregate != 0;
+            }
+
+            void populateEapolKey(uint8_t *message, size_t length,
+                                  uint8_t version, uint16_t keyInfo,
+                                  uint64_t replayCounter, const uint8_t *nonce)
+            {
+                for (size_t i = 0; i < length; ++i)
+                    message[i] = 0;
+                message[0] = version;
+                message[1] = 3; // IEEE 802.1X EAPOL-Key.
+                putBig16(message + 2, static_cast<uint16_t>(length - 4u));
+                uint8_t *body = message + kEapolHeaderBytes;
+                body[0] = 2; // RSN key descriptor.
+                putBig16(body + 1, keyInfo);
+                putBig16(body + 3, 16); // CCMP temporal key length.
+                putBig64(body + 5, replayCounter);
+                if (nonce)
+                    copyBytes(body + 13, nonce, 32);
+                putBig16(body + 93,
+                         static_cast<uint16_t>(length - kMessage4Length));
+            }
+
+            bool parseGtkKde(const uint8_t *plaintext, size_t length,
+                             uint8_t &keyId, uint8_t gtk[16])
+            {
+                bool found = false;
+                size_t offset = 0;
+                while (offset < length)
+                {
+                    // WPA2 key data may end with 0xdd padding for AES wrapping.
+                    if (plaintext[offset] == 0xdd && length - offset < 2)
+                        break;
+                    if (length - offset < 2)
+                        return false;
+                    const uint8_t tag = plaintext[offset];
+                    const size_t size = plaintext[offset + 1];
+                    offset += 2;
+                    if (size > length - offset)
+                        return false;
+                    const uint8_t *element = plaintext + offset;
+                    if (tag == 221 && size >= 4 && element[0] == 0 &&
+                        element[1] == 0x0f && element[2] == 0xac &&
+                        element[3] == 1)
+                    {
+                        // CCMP group key KDE: OUI(3) type(1) key-id(1)
+                        // reserved(1)
+                        // + 16-byte GTK. No shorter/longer or duplicate KDE
+                        // accepted.
+                        if (found || size != 22 || element[5] != 0)
+                            return false;
+                        keyId = static_cast<uint8_t>(element[4] & 3u);
+                        if ((element[4] & 0xfcu) != 0)
+                            return false;
+                        copyBytes(gtk, element + 6, 16);
+                        found = true;
+                    }
+                    offset += size;
+                }
+                return found;
+            }
+        } // namespace
+
+        Wpa2Supplicant::Wpa2Supplicant()
+            : state_(Wpa2State::Inactive), crypto_ {}, replay_ {}, station_ {},
+              ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, eapolVersion_(0),
+              installed_(false)
+        {
         }
-        offset += size;
-    }
-    return found;
-}
-}
 
-Wpa2Supplicant::Wpa2Supplicant()
-    : state_(Wpa2State::Inactive), crypto_ {}, replay_ {},
-      station_ {}, ap_ {}, pmk_ {}, ptk_ {}, snonce_ {},
-      eapolVersion_(0), installed_(false) {}
+        Wpa2Supplicant::~Wpa2Supplicant()
+        {
+            // Owner MUST call reset() before the backend context is destroyed.
+            // Destructor only wipes local secrets and never dereferences
+            // callbacks.
+            secureClear(pmk_, sizeof(pmk_));
+            secureClear(ptk_, sizeof(ptk_));
+            secureClear(snonce_, sizeof(snonce_));
+        }
 
-Wpa2Supplicant::~Wpa2Supplicant() {
-    // Owner MUST call reset() before the backend context is destroyed.
-    // Destructor only wipes local secrets and never dereferences callbacks.
-    secureClear(pmk_, sizeof(pmk_));
-    secureClear(ptk_, sizeof(ptk_));
-    secureClear(snonce_, sizeof(snonce_));
-}
+        void Wpa2Supplicant::secureClear(uint8_t *ptr, size_t length)
+        {
+            volatile uint8_t *bytes = ptr;
+            for (size_t i = 0; i < length; ++i)
+                bytes[i] = 0;
+        }
 
-void Wpa2Supplicant::secureClear(uint8_t *ptr, size_t length) {
-    volatile uint8_t *bytes = ptr;
-    for (size_t i = 0; i < length; ++i) bytes[i] = 0;
-}
+        Wpa2Result Wpa2Supplicant::fail(Wpa2Result error)
+        {
+            if (installed_ && crypto_.removeInstalledKeys)
+                crypto_.removeInstalledKeys(crypto_.context);
+            installed_ = false;
+            secureClear(pmk_, sizeof(pmk_));
+            secureClear(ptk_, sizeof(ptk_));
+            secureClear(snonce_, sizeof(snonce_));
+            state_ = Wpa2State::Failed;
+            return error;
+        }
 
-Wpa2Result Wpa2Supplicant::fail(Wpa2Result error) {
-    if (installed_ && crypto_.removeInstalledKeys)
-        crypto_.removeInstalledKeys(crypto_.context);
-    installed_ = false;
-    secureClear(pmk_, sizeof(pmk_));
-    secureClear(ptk_, sizeof(ptk_));
-    secureClear(snonce_, sizeof(snonce_));
-    state_ = Wpa2State::Failed;
-    return error;
-}
+        void Wpa2Supplicant::reset()
+        {
+            if (installed_ && crypto_.removeInstalledKeys)
+                crypto_.removeInstalledKeys(crypto_.context);
+            secureClear(pmk_, sizeof(pmk_));
+            secureClear(ptk_, sizeof(ptk_));
+            secureClear(snonce_, sizeof(snonce_));
+            crypto_ = {};
+            replay_.reset();
+            station_ = {};
+            ap_ = {};
+            eapolVersion_ = 0;
+            installed_ = false;
+            state_ = Wpa2State::Inactive;
+        }
 
-void Wpa2Supplicant::reset() {
-    if (installed_ && crypto_.removeInstalledKeys)
-        crypto_.removeInstalledKeys(crypto_.context);
-    secureClear(pmk_, sizeof(pmk_));
-    secureClear(ptk_, sizeof(ptk_));
-    secureClear(snonce_, sizeof(snonce_));
-    crypto_ = {};
-    replay_.reset();
-    station_ = {};
-    ap_ = {};
-    eapolVersion_ = 0;
-    installed_ = false;
-    state_ = Wpa2State::Inactive;
-}
+        Wpa2Result Wpa2Supplicant::begin(const Wpa2Crypto &crypto,
+                                         const Mac &station, const Mac &ap,
+                                         const uint8_t pmk[32])
+        {
+            if (state_ != Wpa2State::Inactive)
+                return Wpa2Result::InvalidState;
+            if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
+                !nonzero(pmk, 32))
+                return Wpa2Result::InvalidArgument;
+            if (!crypto.context || !crypto.generateNonce || !crypto.derivePtk ||
+                !crypto.micSha1 || !crypto.unwrapGtk ||
+                !crypto.installPairwiseTk || !crypto.installGroupGtk ||
+                !crypto.removeInstalledKeys)
+                return Wpa2Result::CryptoProviderMissing;
+            crypto_ = crypto;
+            station_ = station;
+            ap_ = ap;
+            copyBytes(pmk_, pmk, sizeof(pmk_));
+            state_ = Wpa2State::AwaitingMessage1;
+            return Wpa2Result::Ok;
+        }
 
-Wpa2Result Wpa2Supplicant::begin(const Wpa2Crypto &crypto,
-                                  const Mac &station, const Mac &ap,
-                                  const uint8_t pmk[32]) {
-    if (state_ != Wpa2State::Inactive)
-        return Wpa2Result::InvalidState;
-    if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
-        !nonzero(pmk, 32))
-        return Wpa2Result::InvalidArgument;
-    if (!crypto.context || !crypto.generateNonce || !crypto.derivePtk ||
-        !crypto.micSha1 || !crypto.unwrapGtk ||
-        !crypto.installPairwiseTk || !crypto.installGroupGtk ||
-        !crypto.removeInstalledKeys)
-        return Wpa2Result::CryptoProviderMissing;
-    crypto_ = crypto;
-    station_ = station;
-    ap_ = ap;
-    copyBytes(pmk_, pmk, sizeof(pmk_));
-    state_ = Wpa2State::AwaitingMessage1;
-    return Wpa2Result::Ok;
-}
+        Wpa2Result Wpa2Supplicant::onMessage1(const uint8_t *eapol,
+                                              size_t length,
+                                              uint8_t *outMessage2,
+                                              size_t capacity, size_t &written)
+        {
+            written = 0;
+            if (state_ != Wpa2State::AwaitingMessage1)
+                return Wpa2Result::InvalidState;
+            if (!outMessage2 || capacity < kMessage2Length)
+                return Wpa2Result::BufferTooSmall;
+            KeyFrame parsed {};
+            if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
+                return Wpa2Result::MalformedEapol;
+            if (parsed.message != KeyMessage::Pairwise1 ||
+                parsed.keyLength != 16)
+                return Wpa2Result::WrongMessage;
+            if (replay_.acceptMessage1(parsed) != EapolResult::Ok)
+                return Wpa2Result::InvalidReplayCounter;
+            if (!crypto_.generateNonce(crypto_.context, snonce_) ||
+                !nonzero(snonce_, sizeof(snonce_)))
+                return fail(Wpa2Result::RandomFailure);
+            if (!crypto_.derivePtk(crypto_.context, pmk_, ap_, station_,
+                                   parsed.nonce, snonce_, ptk_))
+                return fail(Wpa2Result::KeyDerivationFailure);
 
-Wpa2Result Wpa2Supplicant::onMessage1(const uint8_t *eapol, size_t length,
-                                      uint8_t *outMessage2, size_t capacity,
-                                      size_t &written) {
-    written = 0;
-    if (state_ != Wpa2State::AwaitingMessage1)
-        return Wpa2Result::InvalidState;
-    if (!outMessage2 || capacity < kMessage2Length)
-        return Wpa2Result::BufferTooSmall;
-    KeyFrame parsed {};
-    if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
-        return Wpa2Result::MalformedEapol;
-    if (parsed.message != KeyMessage::Pairwise1 || parsed.keyLength != 16)
-        return Wpa2Result::WrongMessage;
-    if (replay_.acceptMessage1(parsed) != EapolResult::Ok)
-        return Wpa2Result::InvalidReplayCounter;
-    if (!crypto_.generateNonce(crypto_.context, snonce_) ||
-        !nonzero(snonce_, sizeof(snonce_)))
-        return fail(Wpa2Result::RandomFailure);
-    if (!crypto_.derivePtk(crypto_.context, pmk_, ap_, station_,
-                           parsed.nonce, snonce_, ptk_))
-        return fail(Wpa2Result::KeyDerivationFailure);
+            uint8_t response[kMessage2Length] {};
+            eapolVersion_ = parsed.eapolBytes[0];
+            populateEapolKey(response, sizeof(response), eapolVersion_, 0x010au,
+                             parsed.replayCounter, snonce_);
+            copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
+            uint8_t calculatedMic[16] {};
+            if (!crypto_.micSha1(crypto_.context, ptk_, response,
+                                 sizeof(response), calculatedMic))
+            {
+                secureClear(calculatedMic, sizeof(calculatedMic));
+                return fail(Wpa2Result::MicCalculationFailure);
+            }
+            copyBytes(response + kEapolHeaderBytes + 77u, calculatedMic,
+                      sizeof(calculatedMic));
+            secureClear(calculatedMic, sizeof(calculatedMic));
+            copyBytes(outMessage2, response, sizeof(response));
+            secureClear(response, sizeof(response));
+            written = kMessage2Length;
+            state_ = Wpa2State::AwaitingMessage3;
+            return Wpa2Result::Ok;
+        }
 
-    uint8_t response[kMessage2Length] {};
-    eapolVersion_ = parsed.eapolBytes[0];
-    populateEapolKey(response, sizeof(response), eapolVersion_,
-                     0x010au, parsed.replayCounter, snonce_);
-    copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
-    uint8_t calculatedMic[16] {};
-    if (!crypto_.micSha1(crypto_.context, ptk_, response,
-                         sizeof(response), calculatedMic)) {
-        secureClear(calculatedMic, sizeof(calculatedMic));
-        return fail(Wpa2Result::MicCalculationFailure);
-    }
-    copyBytes(response + kEapolHeaderBytes + 77u,
-              calculatedMic, sizeof(calculatedMic));
-    secureClear(calculatedMic, sizeof(calculatedMic));
-    copyBytes(outMessage2, response, sizeof(response));
-    secureClear(response, sizeof(response));
-    written = kMessage2Length;
-    state_ = Wpa2State::AwaitingMessage3;
-    return Wpa2Result::Ok;
-}
+        Wpa2Result Wpa2Supplicant::onMessage3(const uint8_t *eapol,
+                                              size_t length,
+                                              uint8_t *outMessage4,
+                                              size_t capacity, size_t &written)
+        {
+            written = 0;
+            if (state_ != Wpa2State::AwaitingMessage3)
+                return Wpa2Result::InvalidState;
+            if (!outMessage4 || capacity < kMessage4Length)
+                return Wpa2Result::BufferTooSmall;
+            KeyFrame parsed {};
+            if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
+                return Wpa2Result::MalformedEapol;
+            if (parsed.message != KeyMessage::Pairwise3 ||
+                parsed.keyLength != 16 ||
+                parsed.eapolLength > kMaximumMessage3Bytes ||
+                parsed.keyDataLength < 24 ||
+                parsed.keyDataLength > kMaximumGtkPlaintext)
+                return Wpa2Result::WrongMessage;
 
-Wpa2Result Wpa2Supplicant::onMessage3(const uint8_t *eapol, size_t length,
-                                      uint8_t *outMessage4, size_t capacity,
-                                      size_t &written) {
-    written = 0;
-    if (state_ != Wpa2State::AwaitingMessage3)
-        return Wpa2Result::InvalidState;
-    if (!outMessage4 || capacity < kMessage4Length)
-        return Wpa2Result::BufferTooSmall;
-    KeyFrame parsed {};
-    if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
-        return Wpa2Result::MalformedEapol;
-    if (parsed.message != KeyMessage::Pairwise3 ||
-        parsed.keyLength != 16 ||
-        parsed.eapolLength > kMaximumMessage3Bytes ||
-        parsed.keyDataLength < 24 ||
-        parsed.keyDataLength > kMaximumGtkPlaintext)
-        return Wpa2Result::WrongMessage;
+            // MIC is computed with the received MIC field zeroed, in a bounded
+            // private buffer. Never modify the caller's potentially DMA-backed
+            // data.
+            uint8_t signedEapol[kMaximumMessage3Bytes] {};
+            copyBytes(signedEapol, parsed.eapolBytes, parsed.eapolLength);
+            for (size_t i = 0; i < 16; ++i)
+                signedEapol[kEapolHeaderBytes + 77u + i] = 0;
+            uint8_t expectedMic[16] {};
+            if (!crypto_.micSha1(crypto_.context, ptk_, signedEapol,
+                                 parsed.eapolLength, expectedMic))
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
+                secureClear(expectedMic, sizeof(expectedMic));
+                return fail(Wpa2Result::MicCalculationFailure);
+            }
+            const bool micValid =
+                constantTimeEqual(parsed.mic, expectedMic, 16);
+            secureClear(signedEapol, sizeof(signedEapol));
+            secureClear(expectedMic, sizeof(expectedMic));
+            if (!micValid)
+                return fail(Wpa2Result::MicMismatch);
+            if (replay_.acceptVerifiedMessage3(parsed, true) != EapolResult::Ok)
+                return fail(Wpa2Result::InvalidReplayCounter);
 
-    // MIC is computed with the received MIC field zeroed, in a bounded
-    // private buffer. Never modify the caller's potentially DMA-backed data.
-    uint8_t signedEapol[kMaximumMessage3Bytes] {};
-    copyBytes(signedEapol, parsed.eapolBytes, parsed.eapolLength);
-    for (size_t i = 0; i < 16; ++i)
-        signedEapol[kEapolHeaderBytes + 77u + i] = 0;
-    uint8_t expectedMic[16] {};
-    if (!crypto_.micSha1(crypto_.context, ptk_, signedEapol,
-                         parsed.eapolLength, expectedMic)) {
-        secureClear(signedEapol, sizeof(signedEapol));
-        secureClear(expectedMic, sizeof(expectedMic));
-        return fail(Wpa2Result::MicCalculationFailure);
-    }
-    const bool micValid = constantTimeEqual(parsed.mic, expectedMic, 16);
-    secureClear(signedEapol, sizeof(signedEapol));
-    secureClear(expectedMic, sizeof(expectedMic));
-    if (!micValid)
-        return fail(Wpa2Result::MicMismatch);
-    if (replay_.acceptVerifiedMessage3(parsed, true) != EapolResult::Ok)
-        return fail(Wpa2Result::InvalidReplayCounter);
+            uint8_t decrypted[kMaximumGtkPlaintext] {};
+            size_t decryptedLength = 0;
+            if (!crypto_.unwrapGtk(crypto_.context, ptk_ + 16u, parsed.keyData,
+                                   parsed.keyDataLength, decrypted,
+                                   sizeof(decrypted), &decryptedLength) ||
+                decryptedLength == 0 || decryptedLength > sizeof(decrypted))
+            {
+                secureClear(decrypted, sizeof(decrypted));
+                return fail(Wpa2Result::GtkUnwrapFailure);
+            }
+            uint8_t gtk[16] {};
+            uint8_t keyId = 0;
+            const bool validKde =
+                parseGtkKde(decrypted, decryptedLength, keyId, gtk);
+            secureClear(decrypted, sizeof(decrypted));
+            if (!validKde)
+            {
+                secureClear(gtk, sizeof(gtk));
+                return fail(Wpa2Result::GtkMissingOrMalformed);
+            }
+            uint8_t response[kMessage4Length] {};
+            populateEapolKey(response, sizeof(response), eapolVersion_, 0x030au,
+                             parsed.replayCounter, nullptr);
+            uint8_t calculatedMic[16] {};
+            const bool signedResponse =
+                crypto_.micSha1(crypto_.context, ptk_, response,
+                                sizeof(response), calculatedMic);
+            if (!signedResponse)
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(calculatedMic, sizeof(calculatedMic));
+                return fail(Wpa2Result::MicCalculationFailure);
+            }
+            copyBytes(response + kEapolHeaderBytes + 77u, calculatedMic,
+                      sizeof(calculatedMic));
+            secureClear(calculatedMic, sizeof(calculatedMic));
 
-    uint8_t decrypted[kMaximumGtkPlaintext] {};
-    size_t decryptedLength = 0;
-    if (!crypto_.unwrapGtk(crypto_.context, ptk_ + 16u,
-                           parsed.keyData, parsed.keyDataLength,
-                           decrypted, sizeof(decrypted), &decryptedLength) ||
-        decryptedLength == 0 || decryptedLength > sizeof(decrypted)) {
-        secureClear(decrypted, sizeof(decrypted));
-        return fail(Wpa2Result::GtkUnwrapFailure);
-    }
-    uint8_t gtk[16] {};
-    uint8_t keyId = 0;
-    const bool validKde = parseGtkKde(decrypted, decryptedLength,
-                                      keyId, gtk);
-    secureClear(decrypted, sizeof(decrypted));
-    if (!validKde) {
-        secureClear(gtk, sizeof(gtk));
-        return fail(Wpa2Result::GtkMissingOrMalformed);
-    }
-    uint8_t response[kMessage4Length] {};
-    populateEapolKey(response, sizeof(response), eapolVersion_,
-                     0x030au, parsed.replayCounter, nullptr);
-    uint8_t calculatedMic[16] {};
-    const bool signedResponse = crypto_.micSha1(
-        crypto_.context, ptk_, response, sizeof(response), calculatedMic);
-    if (!signedResponse) {
-        secureClear(gtk, sizeof(gtk));
-        secureClear(calculatedMic, sizeof(calculatedMic));
-        return fail(Wpa2Result::MicCalculationFailure);
-    }
-    copyBytes(response + kEapolHeaderBytes + 77u,
-              calculatedMic, sizeof(calculatedMic));
-    secureClear(calculatedMic, sizeof(calculatedMic));
+            // Software confirmation only. The platform callbacks must actually
+            // install CCMP keys and persist them to valid hardware keycache
+            // slots.
+            if (!crypto_.installPairwiseTk(crypto_.context, ap_, ptk_ + 32u))
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
+                return fail(Wpa2Result::HardwareKeyInstallFailure);
+            }
+            installed_ = true;
+            if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk))
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
+                return fail(Wpa2Result::HardwareKeyInstallFailure);
+            }
+            secureClear(gtk, sizeof(gtk));
+            copyBytes(outMessage4, response, sizeof(response));
+            secureClear(response, sizeof(response));
+            written = kMessage4Length;
+            secureClear(pmk_, sizeof(pmk_));
+            secureClear(ptk_, sizeof(ptk_));
+            secureClear(snonce_, sizeof(snonce_));
+            state_ = Wpa2State::HardwareKeysInstalled;
+            return Wpa2Result::Ok;
+        }
 
-    // Software confirmation only. The platform callbacks must actually
-    // install CCMP keys and persist them to valid hardware keycache slots.
-    if (!crypto_.installPairwiseTk(crypto_.context, ap_, ptk_ + 32u)) {
-        secureClear(gtk, sizeof(gtk));
-        secureClear(response, sizeof(response));
-        return fail(Wpa2Result::HardwareKeyInstallFailure);
-    }
-    installed_ = true;
-    if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk)) {
-        secureClear(gtk, sizeof(gtk));
-        secureClear(response, sizeof(response));
-        return fail(Wpa2Result::HardwareKeyInstallFailure);
-    }
-    secureClear(gtk, sizeof(gtk));
-    copyBytes(outMessage4, response, sizeof(response));
-    secureClear(response, sizeof(response));
-    written = kMessage4Length;
-    secureClear(pmk_, sizeof(pmk_));
-    secureClear(ptk_, sizeof(ptk_));
-    secureClear(snonce_, sizeof(snonce_));
-    state_ = Wpa2State::HardwareKeysInstalled;
-    return Wpa2Result::Ok;
-}
-
-} // namespace ieee80211
+    } // namespace ieee80211
 } // namespace simpleath

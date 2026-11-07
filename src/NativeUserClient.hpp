@@ -11,12 +11,13 @@
 
 #include <IOKit/IOUserClient.h>
 
-namespace ath {
+namespace ath
+{
 
-bool prepareNativeUserClients();
-IOReturn wrapNativeUserClient(IOReturn, task_t, void *, uint32_t,
-                              OSDictionary *, IOUserClient **);
+    bool prepareNativeUserClients();
+    IOReturn wrapNativeUserClient(IOReturn, task_t, void *, uint32_t,
+                                  OSDictionary *, IOUserClient **);
 
-}
+} // namespace ath
 
 #endif
