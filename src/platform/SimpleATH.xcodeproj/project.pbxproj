@@ -37,6 +37,7 @@
 		000000000000000000000795 /* Eapol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A5 /* Eapol.cpp */; };
 		000000000000000000000796 /* DataFrames.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A6 /* DataFrames.cpp */; };
 		000000000000000000000797 /* Wpa2Supplicant.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A7 /* Wpa2Supplicant.cpp */; };
+		000000000000000000000798 /* Ar9003TxControl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A8 /* Ar9003TxControl.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -90,6 +91,8 @@
 		0000000000000000000007B6 /* DataFrames.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/DataFrames.hpp; sourceTree = "<group>"; };
 		0000000000000000000007A7 /* Wpa2Supplicant.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/Wpa2Supplicant.cpp; sourceTree = "<group>"; };
 		0000000000000000000007B7 /* Wpa2Supplicant.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/Wpa2Supplicant.hpp; sourceTree = "<group>"; };
+		0000000000000000000007A8 /* Ar9003TxControl.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9003TxControl.cpp; sourceTree = "<group>"; };
+		0000000000000000000007B8 /* Ar9003TxControl.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9003TxControl.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -98,6 +101,8 @@
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
 				0000000000000000000007A0 /* Ar9003Descriptors.cpp */,
+				0000000000000000000007A8 /* Ar9003TxControl.cpp */,
+				0000000000000000000007B8 /* Ar9003TxControl.hpp */,
 				0000000000000000000007B0 /* Ar9003Descriptors.hpp */,
 				0000000000000000000007A1 /* Ar9003Dma.cpp */,
 				0000000000000000000007B1 /* Ar9003Dma.hpp */,
@@ -231,6 +236,7 @@
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				000000000000000000000790 /* Ar9003Descriptors.cpp in Sources */,
+				000000000000000000000798 /* Ar9003TxControl.cpp in Sources */,
 				000000000000000000000791 /* Ar9003Dma.cpp in Sources */,
 				000000000000000000000792 /* Frames.cpp in Sources */,
 				000000000000000000000793 /* ScanCache.cpp in Sources */,
