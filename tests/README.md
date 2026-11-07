@@ -5,15 +5,17 @@ execution. Use synthetic frames, EEPROM bytes and fake transports. Tests must
 not open PCI, enable RF, access EFI/SSD, install software, download data or
 build/load a kext. A host pass does not verify Tahoe's kernel ABI or Wi-Fi.
 
-Run the existing validator with the optional flag:
+Run the existing validator (host tests are enabled by default):
 
 ```sh
-python3 -B tools/validate.py --tests
+python3 -B tools/validate.py
 ```
 
-The default remains lint-only. Explicit source arguments restrict lint scope;
-`--tests` still discovers all supported tests below root tests/. A focused
-runner/fixture check is:
+The default includes offline host tests and JSON output. Explicit source
+arguments restrict lint scope only; tests still discover all supported files
+below root tests/. Use `--no-tests` to run only lint, `--no-json` for a text
+summary, and `--no-tidy` when no prior Clang-Tidy compilation database exists.
+A scoped lint + all-host-test check is:
 
 ```sh
 python3 -B tools/validate.py --no-cache --tests tools/validate.py \

@@ -101,36 +101,44 @@ standard-library orchestrator** that calls system-installed linters and
 uses the existing rules in the repository root:
 
 - C, Objective-C and C++: Clang Format using .clang-format.
-- C, Objective-C and C++ optionally: Clang-Tidy using .clang-tidy,
-  **only** with an existing compile_commands.json.
+- C, Objective-C and C++: Clang-Tidy by default using .clang-tidy,
+  **only** with an existing compile_commands.json (or opt out).
 - Python: Ruff lint + Ruff format using ruff.toml and BasedPyright
   using pyrightconfig.json.
 
-    python3 tools/validate.py
-    python3 tools/validate.py tools/validate.py
-    python3 tools/validate.py --json tools/validate.py
-    python3 tools/validate.py --no-cache src/wifi/Frames.cpp
-    python3 tools/validate.py --tidy src/wifi/Frames.cpp
+    python3 -B tools/validate.py
+    python3 -B tools/validate.py tools/validate.py
+    python3 -B tools/validate.py --no-tidy src/wifi/Frames.cpp
+    python3 -B tools/validate.py --no-tests --no-json tools/validate.py
+    python3 -B tools/validate.py --no-cache --no-tidy tools/validate.py
 
 **Incremental cache:** .cache/validate/cache.json holds separate results
 per file and linter. Unchanged files are not rechecked; changes to source,
 root rule files, or installed linter version invalidate the cache.
 Use --no-cache when changes to imported headers/modules may affect an
 unchanged file. The latest structured agent/CLI report is always written
-to .cache/validate/report.json after a completed run; --json emits the
-same report on stdout. Read its scope and the CLI exit status before
-interpreting a pass count; another agent may overwrite the shared report.
+to .cache/validate/report.json after a completed run; JSON is emitted on
+stdout by default (--no-json selects human-readable results). Read its scope
+and the CLI exit status before interpreting a pass count; another agent may
+overwrite the shared report.
 Pass/fail/cached/skipped counts and bounded diagnostics are explicit;
 a cached failure stays a failure.
 
-The default remains lint-only. The owner also authorized necessary offline
-host tests under root tests/: use `python3 -B tools/validate.py --tests`.
-Python uses standard-library unittest; C++ and Objective-C++ test programs
-use the installed host compiler and temporary executables. No test framework
-is downloaded. See [tests/README.md](tests/README.md) for naming, companion
-.sources files, bounded execution, failure/skipped semantics and examples.
-Tests run only when explicitly requested and their results are not cached.
-They exercise synthetic data/fakes, never actual PCI/RF or kernel objects.
+By owner instruction, Clang-Tidy, offline host tests and JSON output are
+**enabled by default**. Missing Clang-Tidy or `compile_commands.json` is an
+explicit skipped check that fails validation, never a fabricated pass. Use
+`--no-tidy` for a machine without a previously created compilation database;
+`--no-tests` and `--no-json` opt out of host tests and JSON output. Positive
+`--tidy`, `--tests` and `--json` flags remain supported.
+
+Offline host tests use root `tests/`: Python standard-library unittest and
+C++/Objective-C++ host-only compilation/execution in temporary directories.
+No kext compilation, device test or tool installation is authorized. Host
+results are never cached, and file arguments limit only lint scope. See
+[tests/README.md](tests/README.md) for supported test fixtures and errors.
+These tests exercise synthetic data/fakes, never actual PCI/RF or kernel
+objects. The local `linux/` reference tree is ignored by Git and by this
+validator; explicit Linux source arguments are refused instead of passing.
 
 The script never formats files in place, builds a kext, generates a
 compilation database, installs software or touches hardware. Existing lint

@@ -168,9 +168,11 @@ and optional Clang-Tidy (C/Objective-C/C++), Ruff and BasedPyright
 pyrightconfig.json and .editorconfig. Unchanged files reuse
 content-addressed results in .cache/validate/; report.json gives
 machine-readable findings for coordinating agents. Use --no-cache
-when imported dependencies change. Default execution is lint-only. The
-optional --tests mode runs authorized offline tests under tests/ and may
-compile standalone host test programs. Never build/link a kext, access
+when imported dependencies change. The owner now requires Clang-Tidy,
+authorized offline tests under tests/, and JSON output by default. Clang-Tidy
+requires an existing compilation database; missing prerequisites fail as
+skipped checks. Use --no-tidy, --no-tests, or --no-json to opt out explicitly.
+Host tests may compile standalone programs. Never build/link a kext, access
 hardware, fetch/install tools or create compilation databases.
 
 TODO.md indexes the canonical typed records in docs/todo/open/.

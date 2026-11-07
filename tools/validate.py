@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 Alberto Villa Osorno.
-"""Check source with installed linters; optionally run offline host tests."""
+"""Check source with installed linters and default-on offline host tests."""
 
 import argparse
 from contextlib import suppress
@@ -103,12 +103,12 @@ class Process:
 
 @dataclass(frozen=True)
 class Options:
-    """Select lint options separately from opt-in host test execution."""
+    """Select lint checks, host tests and report presentation independently."""
 
     files: tuple[str, ...] = ()
-    tidy: bool = False
-    tests: bool = False
-    json_output: bool = False
+    tidy: bool = True
+    tests: bool = True
+    json_output: bool = True
     no_cache: bool = False
 
 
@@ -297,7 +297,30 @@ def source_files(root: Path, names: tuple[str, ...]) -> list[Path]:
     paths = (
         _checked_path(root, name) for name in (names or tuple(_inventory(root)))
     )
-    return sorted({p for p in paths if p.suffix.lower() in SUPPORTED})
+    ignored = (root / "linux").resolve()
+    return sorted({
+        path
+        for path in paths
+        if _source_candidate(path, ignored, explicit=bool(names))
+    })
+
+
+def _source_candidate(path: Path, ignored: Path, *, explicit: bool) -> bool:
+    """Exclude local Linux references from source checks.
+
+    Returns:
+        True only for a supported, non-reference source file.
+
+    Raises:
+        ValueError: An explicitly requested Linux reference was ignored.
+
+    """
+    if path.is_relative_to(ignored):
+        if explicit:
+            message = "Ignored Linux reference directory: linux/"
+            raise ValueError(message)
+        return False
+    return path.suffix.lower() in SUPPORTED
 
 
 def _tools(file: Path, options: Options) -> list[str]:
@@ -656,22 +679,36 @@ def _display(results: list[Finding]) -> None:
                 _ = sys.stdout.write(f"  {line[:DISPLAY_WIDTH]}\n")
 
 
-def _options() -> Options:
+def parse_options() -> Options:
+    """Parse the default-on CLI, preserving explicit check opt-outs.
+
+    Returns:
+        Validated CLI choices for lint, host tests and JSON reports.
+
+    """
+    defaults = Options()
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
         "files", nargs="*", help="Optional lint source paths"
     )
     _ = parser.add_argument(
         "--tidy",
-        action="store_true",
-        help="Use an existing compilation database",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.tidy,
+        help="Check Clang-Tidy with an existing compilation database",
     )
     _ = parser.add_argument(
         "--tests",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.tests,
         help="Run offline host tests under tests/; never build the kext",
     )
-    _ = parser.add_argument("--json", dest="json_output", action="store_true")
+    _ = parser.add_argument(
+        "--json",
+        dest="json_output",
+        action=argparse.BooleanOptionalAction,
+        default=defaults.json_output,
+    )
     _ = parser.add_argument("--no-cache", action="store_true")
     namespace = parser.parse_args()
     values: dict[str, object] = vars(namespace)
@@ -686,13 +723,13 @@ def _options() -> Options:
 
 
 def main() -> int:
-    """Run selected lint checks and optional offline host tests.
+    """Run selected lint checks and default-on offline host tests.
 
     Returns:
         Zero only when all requested checks pass; skipped checks fail closed.
 
     """
-    options = _options()
+    options = parse_options()
     try:
         return _validate(options)
     except (OSError, ValueError) as error:

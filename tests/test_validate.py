@@ -248,3 +248,100 @@ class NativeExecution(unittest.TestCase):
             results = validator.run_tests(root)
             assert results[0]["status"] == EXPECTED_FAIL
             assert OUTSIDE in results[0]["diagnostics"][0]
+
+
+class DefaultCliOptions(unittest.TestCase):
+    """Keep CLI defaults aligned with the configured validation policy."""
+
+    @staticmethod
+    def test_all_checks_and_json_are_enabled_without_flags() -> None:
+        """The CLI must not override true Options defaults with false flags."""
+        with mock.patch.object(sys, "argv", ["validate.py"]):
+            options = validator.parse_options()
+        assert options.tidy
+        assert options.tests
+        assert options.json_output
+        assert options.files == ()
+        assert not options.no_cache
+
+    @staticmethod
+    def test_opt_out_flags_are_explicit_and_independent() -> None:
+        """Permit each opt-out without silently disabling another check."""
+        for flag, field in (
+            ("--no-tidy", "tidy"),
+            ("--no-tests", "tests"),
+            ("--no-json", "json_output"),
+        ):
+            with mock.patch.object(sys, "argv", ["validate.py", flag]):
+                options = validator.parse_options()
+            assert getattr(options, field) is False
+            assert all(
+                getattr(options, other)
+                for other in ("tidy", "tests", "json_output")
+                if other != field
+            )
+        with mock.patch.object(
+            sys,
+            "argv",
+            ["validate.py", "--no-tidy", "--no-tests", "--no-json"],
+        ):
+            options = validator.parse_options()
+        assert not options.tidy
+        assert not options.tests
+        assert not options.json_output
+
+    @staticmethod
+    def test_explicit_flags_and_files_preserve_cli_contract() -> None:
+        """The previous positive flags remain accepted alongside file paths."""
+        with mock.patch.object(
+            sys,
+            "argv",
+            [
+                "validate.py",
+                "--tidy",
+                "--tests",
+                "--json",
+                "--no-cache",
+                "tools/validate.py",
+            ],
+        ):
+            options = validator.parse_options()
+        assert options.files == ("tools/validate.py",)
+        assert options.tidy
+        assert options.tests
+        assert options.json_output
+        assert options.no_cache
+
+
+class LinuxReferenceExclusion(unittest.TestCase):
+    """Exclude the local Linux source snapshot from all validator inputs."""
+
+    @staticmethod
+    def test_auto_discovery_does_not_lint_linux_reference_sources() -> None:
+        """Never count vendor/reference Linux sources as validated files."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            linux = root / "linux"
+            linux.mkdir()
+            _ = (linux / "reference.py").write_text("not owned source")
+            owned = root / "src" / "owned.py"
+            _ = owned.write_text("import sys")
+            with mock.patch.object(
+                validator,
+                "_inventory",
+                return_value=["src/owned.py", "linux/reference.py"],
+            ):
+                assert validator.source_files(root, ()) == [owned]
+
+    @staticmethod
+    def test_explicit_linux_path_is_not_silent_success() -> None:
+        """Reject even an explicit source path beneath ignored linux/."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            linux = root / "linux"
+            linux.mkdir()
+            _ = (linux / "reference.py").write_text("not owned source")
+            assert _rejects(
+                lambda: validator.source_files(root, ("linux/reference.py",)),
+                "Ignored Linux reference directory",
+            )

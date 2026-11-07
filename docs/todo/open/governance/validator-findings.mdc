@@ -66,7 +66,9 @@ file runs, so inspect its scope before citing it as a repository result.
 The owner subsequently authorized necessary offline Python/C++/Objective-C++
 tests under root tests/. This overrides the earlier no-test instruction only
 for isolated host tests; kext compilation, CI/tags, device/RF, EFI and installs
-remain prohibited. Keep default validation lint-only; use --tests explicitly.
+remain prohibited. By later owner instruction, CLI defaults enable
+offline host tests, Clang-Tidy (only with an existing compilation database)
+and JSON output; use --no-tests/--no-tidy/--no-json for explicit opt-outs.
 
 Commit f885b1b replaced the validator only after checking a separate staging
 copy with Ruff/BasedPyright and host regressions. The installed runner's focused
@@ -105,10 +107,10 @@ peers may already have resolved a listed item.
       type check, Any/cast shortcut or weakened root configuration.
 - [ ] Keep the validator small, static and standard-library based; no new
       framework, installs, downloads, kext compiler invocation or database
-      generation. Optional --tests supports necessary offline host tests
-      in Python/C++/Objective-C++ under root tests/, including isolated host
-      compilation. Do not execute the kext build or device-check scripts.
-      Optional Clang-Tidy needs an existing compilation database.
+      generation. Default-on tests (or explicit --tests) support offline host
+      tests in Python/C++/Objective-C++ under root tests/, including isolated
+      host compilation. Do not execute the kext build or device-check scripts.
+      Default-on Clang-Tidy needs an existing compilation database.
 - [ ] Finish formatting/type work before claiming a source task is clean.
       Missing tools or skipped requested checks are limitations, not passes.
 - [ ] Commit reviewed changes in focused main commits, then obtain a fresh
