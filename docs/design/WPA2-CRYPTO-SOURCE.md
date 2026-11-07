@@ -146,3 +146,15 @@ References:
   https://www.normsplash.com/Samples/ISO/914742298/ISO-IEC-8802-11-2005-Amd-6-2006-en-2.pdf
 - This remains an unimplemented hardware callback contract: no installed
   AR9565 GTK/PN state or actual replay resistance has been demonstrated.
+
+## Link-loss packet gates (2026-11-06)
+
+- `LinkMonitor` changes to `ReconnectPending` on beacon timeout or
+  accepted AP deauthentication/disassociation. Its state can change before
+  the native owner quiesces DMA or clears the separate station state.
+- The portable Wi-Fi engine now refuses both decoded data delivery and
+  generic Ethernet TX unless **both** station association state and
+  `LinkMonitor::Associated` remain valid. It does not remove keys or touch
+  hardware in the link-loss event path; the owner must still quiesce and
+  call the appropriate reset/reconnect entrypoints in order.
+- Source-only state coupling; no runtime event or actual recovery tested.

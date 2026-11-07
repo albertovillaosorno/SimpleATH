@@ -270,7 +270,10 @@ namespace simpleath
                 state == StationState::AssociatedOpen ||
                 state == StationState::WaitingForWpa2Keys ||
                 state == StationState::HardwareKeysInstalled;
-            if (!associated)
+            // A lost link remains in the Station state until the native owner
+            // has quiesced DMA and removed keys. No payload may pass through
+            // that gap, even if the station still remembers the association.
+            if (!associated || link_.status().state != LinkState::Associated)
                 return EngineResult::InvalidState;
             const Bss &candidate = station_.candidate();
             LinkContext link {};
@@ -395,8 +398,9 @@ namespace simpleath
             EngineAction &action)
         {
             const StationState state = station_.state();
-            if (state != StationState::AssociatedOpen &&
-                state != StationState::HardwareKeysInstalled)
+            if ((state != StationState::AssociatedOpen &&
+                 state != StationState::HardwareKeysInstalled) ||
+                link_.status().state != LinkState::Associated)
                 return EngineResult::InvalidState;
             const Bss &bss = station_.candidate();
             LinkContext context {};

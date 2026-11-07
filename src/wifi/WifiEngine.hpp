@@ -104,6 +104,8 @@ namespace simpleath
                                                    uint8_t *out,
                                                    size_t capacity,
                                                    EngineAction &action);
+                // Data payloads are rejected when LinkMonitor has moved to
+                // ReconnectPending, even before native key/DMA teardown.
                 EngineResult acceptRx(const uint8_t *frame, size_t length,
                                       int8_t rssi, uint64_t nowMs,
                                       const InputTrust &trust, uint8_t *out,
@@ -114,7 +116,8 @@ namespace simpleath
                 void radioStopped(uint64_t nowMs, bool suspended);
                 // Generic Ethernet-II transmission only. This never sends
                 // cleartext EAPOL after WPA2 key install; the private M2/M4
-                // handshake serializer is the only cleartext exception.
+                // handshake serializer is the only cleartext exception. A
+                // lost link also blocks TX until native owner cleanup.
                 EngineResult
                 encodeOutgoingEthernet(const uint8_t *ethernet, size_t length,
                                        uint16_t sequence,
