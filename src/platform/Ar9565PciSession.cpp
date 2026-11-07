@@ -121,9 +121,17 @@ namespace simpleath
             (command & kBusMaster) ||
             commandBitsChanged(command, status_.originalCommand))
             return failStart(PciSessionResult::CommandReadbackFailed);
+        // A configuration-read callback may revoke D0 after returning
+        // success. BAR mapping must not run against a revoked provider.
+        if (!backend_.inD0(backend_.context))
+            return failStart(PciSessionResult::NotInD0);
         if (!backend_.mapBar0(backend_.context, &status_.barLengthBytes))
             return failStart(PciSessionResult::MappingFailed);
         status_.mapped = true;
+        // A successful map can also coincide with provider revocation.
+        // Do not publish a read-ready session after losing ownership.
+        if (!backend_.inD0(backend_.context))
+            return failStart(PciSessionResult::NotInD0);
         if (status_.barLengthBytes < kMinimumInspectionBar)
             return failStart(PciSessionResult::InvalidBar);
 

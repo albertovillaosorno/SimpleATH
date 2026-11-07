@@ -21,6 +21,8 @@ namespace
             bool disableWriteFails = false;
             bool commandMutatedOnEnable = false;
             bool powerDropsOnReadback = false;
+            bool powerDropsAfterReadback = false;
+            bool powerDropsDuringMap = false;
             bool registerReadFails = false;
             uint32_t eepromStatus = 0;
             unsigned claims = 0;
@@ -86,6 +88,8 @@ namespace
                             return false;
                         }
                         *value = 0xa5a50000u | self.command; // Preserve status.
+                        if (self.powerDropsAfterReadback && (self.command & 2u))
+                            self.powered = false;
                         return true;
                     case 0x10:
                         *value = 0x80001000u; // Assigned 32-bit MMIO BAR.
@@ -124,6 +128,8 @@ namespace
                     return false;
                 self.mapped = true;
                 *length = self.barLength;
+                if (self.powerDropsDuringMap)
+                    self.powered = false;
                 return true;
             }
 
@@ -385,6 +391,36 @@ int main()
         session.stop(ProviderAccess::Available);
         if (fake.claimed || fake.mapped || fake.command || fake.releases != 1)
             return 27;
+    }
+    {
+        // Readback succeeds just as D0 is revoked. Mapping may use a provider
+        // context that is no longer valid, so do not call mapBar0 at all.
+        FakePci fake {};
+        fake.powerDropsAfterReadback = true;
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::NotInD0 ||
+            fake.powered || fake.maps || fake.unmaps || fake.writes != 1 ||
+            fake.releases != 1 || fake.claimed ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 28;
+    }
+    {
+        // BAR mapping can succeed just before provider access is revoked.
+        // A successful map is not a license to publish a ready session.
+        FakePci fake {};
+        fake.powerDropsDuringMap = true;
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::NotInD0 ||
+            fake.powered || fake.maps != 1 || fake.unmaps != 1 ||
+            fake.writes != 1 || fake.releases != 1 || fake.mapped ||
+            fake.claimed || session.status().readAccessReady ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged)
+            return 29;
     }
     return 0;
 }
