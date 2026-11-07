@@ -61,6 +61,11 @@ symbol and relocation in the resulting Mach-O against that dependency graph.
 Symbol presence alone does not establish C++ layout or successful OpenCore
 injection. Do not use the stored absolute addresses as callable addresses.
 
+The [ABI evidence acquisition record](ABI-EVIDENCE-ACQUISITION.md) now provides
+a read-only inventory tool and a checked-in report for the retained reference.
+It distinguishes missing images and snapshot export claims from global nlist
+candidates; it deliberately cannot approve the native PCI or wireless ABI.
+
 ## Ownership, configuration and BAR contract
 
 1. One controlling IOService owns the PCI function. A custom IOMatchCategory

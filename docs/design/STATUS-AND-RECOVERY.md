@@ -17,6 +17,9 @@ not establish that those modules are compiled, wired to hardware or validated.
 | 8035879 | Reject first-fragment decapsulation; fix WDS SA/DA and 4 GiB segment crossing | Static comparison to frame/address rules and descriptor bounds |
 | da50d1e | Unique reservation generations reject stale DMA metadata completions | Static ownership/lifetime review; no hardware completion path |
 | bedeba6 | Preserve Atheros descriptor notices and Linux source hashes | File-specific permissive-license and provenance inspection |
+| 121c5fa | Read-only retained-reference/collection symbol inventory and explicit ABI-evidence gaps | Retained JSON inspected; binary-input reader source not exercised |
+| 6bfda6d | Five pinned ath9k EEPROM reconstruction dictionaries and explicit lookup catalog | C++ source generation from pinned packed layouts/initializers; no C/C++ compilation or runtime vectors |
+| 16d791a | Active EEPROM/OTP transaction reader with BAR, identity, word/capture timeout and output checks | Static comparison to permissive ath9k protocols; no backend attached or hardware transaction |
 
 Both PCI-session and EEPROM implementations are in the SimpleATH Xcode Sources
 phase. **Neither has been compiled or tested.** No build was made in this work.
@@ -46,11 +49,11 @@ regulatory approval, association and traffic remain unverified/not implemented.
    PciSessionBackend, including provider retention/open, D0, live config,
    BAR0 mapping, ordered access and termination/power handling. No boot option
    currently enables a backend. Native exports must be verified first.
-4. **Board acquisition and reconstruction:** implement bounded EEPROM/OTP word
-   acquisition, origin discovery and pinned template provision. Offline dump
-   chain restoration is now staged; compare a recovered full image to ath9k.
-   The source parser alone does not
-   establish a physical MAC, calibration validity or a regulatory domain.
+4. **Board acquisition and reconstruction:** connect the staged bounded
+   EEPROM/OTP reader to the verified PCI owner, implement source/origin
+   discovery, and validate the staged dictionary serialization and dump-chain
+   reconstruction against ath9k. No physical dump exists. The parser/catalog
+   alone establishes no physical MAC, calibration validity or regulatory domain.
 5. **Radio:** port reset/wake/PLL, PHY/RF sequencing, delays, synth/channel,
    board calibration, ANI/noise, antenna/RF-kill and Bluetooth coexistence.
    The 2,174 generated INI entries preserve HT20/HT40, gain variants and the
