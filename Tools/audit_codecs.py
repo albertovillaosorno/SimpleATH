@@ -26,7 +26,7 @@ def main():
         if match:
             blocks[int(match[1], 16)] = block
     if not (set(table) - {0}) <= blocks.keys():
-        raise RuntimeError("GET 表含未反汇编入口")
+        raise RuntimeError("The GET handler table contains entries that were not disassembled")
     scalar = []
     for request, address in enumerate(table, 1):
         if not address:
@@ -36,13 +36,13 @@ def main():
         if "copyOut" in block or not stores:
             continue
         if re.search(r"0x20\(%r(?:bx|1[2345]|8)\)", block):
-            raise RuntimeError("标量入口包含数据指针访问，需重新分析")
+            raise RuntimeError("A scalar GET handler accesses a data pointer; inspect it again")
         register = re.search(r"0x14\(%(r\w+)\)", stores[0])[1]
         if register != "r8" and not re.search(r"movq\s+%r8, %" + register + r"\b", block):
-            raise RuntimeError("未确认标量目标为 apple80211req")
+            raise RuntimeError("The scalar output target was not confirmed to be apple80211req")
         scalar.append({"request": request, "symbol": image.name(address), "address": hex(address), "stores": stores})
     if [entry["request"] for entry in scalar] != SCALAR_GET_REQUESTS:
-        raise RuntimeError("标量 GET 映射与真实代码不一致")
+        raise RuntimeError("The scalar GET mapping does not match the actual machine code")
     copies = []
     for label in ["Legacy", "AirPort", "AirPortOriginal"]:
         binary = Image(IMAGES[label])
@@ -54,15 +54,15 @@ def main():
         assert len([entry for entry in copies if entry["image"] in ("Legacy", backend)]) == 16
     scan = blocks[table[10]]
     if not re.search(r"cmpl\s+\$0x48c, 0x18\(%rbx\)", scan):
-        raise RuntimeError("扫描结果旧结构长度检查发生变化")
+        raise RuntimeError("The legacy scan-result structure length check has changed")
     capabilities = blocks[table[11]]
     if not re.search(r"cmpl\s+\$0xc, %eax", capabilities) or not re.search(r"leaq\s+-0x24\(%rbp\), %rsi", capabilities):
-        raise RuntimeError("能力位图旧结构发生变化")
+        raise RuntimeError("The legacy capability bitmap structure has changed")
     set_entries = {request: struct.unpack("<Q", image.read(image.symbols["_gSetHandlerTable"] + (request - 1) * 8, 8))[0]
                    for request in [20, 216]}
     set_assembly = image.disassemble(r"^__ZL19setAssociateRequest|^__ZL14setRoamProfile")
     if set_entries != {20: 0x84430, 216: 0x8B211} or not re.search(r"movl\s+\$0x224, %ecx", set_assembly) or not re.search(r"cmpl\s+\$0x7c, 0x18\(%r8\)", set_assembly):
-        raise RuntimeError("关联或漫游配置旧结构发生变化")
+        raise RuntimeError("The legacy association or roaming profile structure has changed")
     report = {"copyright": "Copyright © 2026 laobamac. All rights reserved.", "legacySHA256": hashlib.sha256(image.path.read_bytes()).hexdigest(),
               "getTableCapacity": 417, "populatedGetEntries": sum(bool(x) for x in table), "uniqueGetCodecs": len(set(table) - {0}),
               "scalarGetRequests": scalar, "adaptedCopySites": copies,
@@ -119,7 +119,7 @@ def main():
     content = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if not destination.exists() or destination.read_text() != content:
         destination.write_text(content)
-    print(f"GET 表核对：{report['populatedGetEntries']} 项 / {report['uniqueGetCodecs']} 个编解码入口，{len(scalar)} 项标量结果，每个后端 16 处受限拷贝入口。")
+    print(f"GET handler table verified: {report['populatedGetEntries']} entries / {report['uniqueGetCodecs']} unique codec entry points, {len(scalar)} scalar results, and 16 guarded copy sites per backend.")
 
 
 if __name__ == "__main__":

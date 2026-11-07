@@ -28,31 +28,35 @@ def prerelease_body(repository, commits):
         subject = commit['commit']['message'].splitlines()[0]
         subject = re.sub(r'([\\`*_{}\[\]<>#|])', r'\\\1', subject)
         changes.append(f'- [`{commit["sha"][:7]}`]({repository_url}/commit/{commit["sha"]}) {subject}')
-    return ('Universal native Skywalk development build for macOS Sonoma, Sequoia and Tahoe.\n\n'
-            'Keep native IOSkywalkFamily and IO80211Family enabled; remove old Skywalk Block/Exclude rules.\n'
+    return ('Experimental SimpleATH kernel bootstrap build (no active Wi-Fi backend).\n\n'
+            'Stage 1 deliberately omits the original Broadcom payload and Skywalk bridge.\n'
             f'Installation: [README]({repository_url}/blob/{os.environ["GITHUB_SHA"]}/README.en.md).\n\n' +
             '\n'.join(changes) + '\n')
 
 
 def release_body():
-    return '''一个 SimpleATH.kext 支持 macOS Sonoma、Sequoia 和 Tahoe，通过 OpenCore 注入恢复 Broadcom Wi-Fi，使用系统原生 Skywalk，无需修改系统卷。
+    # Historical upstream Broadcom release template, retained for reference.
+    # The current SimpleATH bootstrap does not implement a Wi-Fi backend.
+    return """The original SimpleBCM architecture supports macOS Sonoma, Sequoia, and Tahoe
+    with native Skywalk using OpenCore injection, without modifying the system volume.
 
-- 内置 Legacy 和两个 AirPort 载荷，每次启动只加载 Legacy 与当前系统对应的 AirPort；不含旧 Skywalk 驱动。
-- **删除或禁用 IOSkywalkFamily 的 Block/Exclude 规则，保持原生 IOSkywalkFamily 和 IO80211Family 启用。** 禁用独立的旧驱动注入项，使用包内配置片段。
-- 支持 Sonoma 14、Sequoia 15、Tahoe 26 的 x86_64 系统，不限制小版本。
-- 提供 DEBUG 和 RELEASE 包，日常使用请选择 RELEASE 包。AirportBrcmFixup 仍由需要的用户自行加载。
+- The original Broadcom implementation embeds a Legacy payload and two AirPort
+  backends. It registers only the Legacy payload and the backend selected for
+  the running macOS version. Old Skywalk code is not embedded.
+- Remove or disable IOSkywalkFamily Block/Exclude rules when using that original
+  Broadcom implementation. Keep native IOSkywalkFamily and IO80211Family enabled.
+  Disable separately injected legacy drivers and use the original configuration
+  fragment.
+- The original implementation targets x86_64 Sonoma 14, Sequoia 15, and
+  Tahoe 26, without restricting minor OS versions.
+- The original project provides DEBUG and RELEASE packages; choose RELEASE for
+  everyday use. AirportBrcmFixup must be supplied separately if needed.
 
-<details>
-<summary>English</summary>
-
-One SimpleATH.kext supports macOS Sonoma, Sequoia and Tahoe with native Skywalk through OpenCore injection, without modifying the system volume.
-
-- Legacy and two AirPort variants are embedded; each boot loads only Legacy and its selected AirPort backend. Old Skywalk code is not included.
-- **Remove or disable IOSkywalkFamily Block/Exclude rules. Keep native IOSkywalkFamily and IO80211Family enabled.** Disable separately injected old drivers and use the supplied configuration fragment.
-- Supports x86_64 Sonoma 14, Sequoia 15 and Tahoe 26 without restricting minor versions.
-- DEBUG and RELEASE packages are available. Choose RELEASE for everyday use. Supply AirportBrcmFixup separately if needed.
-
-</details>'''
+**SimpleATH status:** Experimental minimal kernel bootstrap only. It does not
+implement Broadcom or Atheros Wi-Fi connectivity. This upstream release template
+is retained for development reference; the tag-only SimpleATH CI workflow does
+not run this publishing script.
+"""
 
 
 def main():

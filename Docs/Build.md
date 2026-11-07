@@ -2,15 +2,30 @@
   Build.md
   SimpleATH
 
-  Created by laobamac on 2026/11/2.
-  Copyright © 2026 laobamac. All rights reserved.
+  Based on the original SimpleBCM build documentation by laobamac.
+  Copyright (c) 2026 laobamac. All rights reserved.
 -->
 
-# 构建与 CI
+# Building and CI
 
-构建需要 Intel Mac、完整 Xcode 和 Python 3。`Resources/NativeABI` 提供 Sonoma、Sequoia、Tahoe 的 ABI 参考数据，包含符号、虚表、布局指令和注册入口片段；普通构建不需要挂载其他系统盘。参考数据只用于生成和校验，不加入驱动载荷。
+SimpleATH requires an Intel Mac, a complete installation of Xcode, and Python 3 to compile a macOS kernel extension. `Resources/NativeABI` contains reference symbols, virtual tables, class layout descriptions, and registration-entry instruction signatures for Sonoma, Sequoia, and Tahoe. Reference data is used for code generation and verification and is not embedded in the current bootstrap driver.
 
-## 构建
+**Current build target:** Stage 1 is a minimal `IOService` bootstrap intended for safe kernel-load testing. The Broadcom payload sources remain available as upstream reference code but are not compiled into this target. Stage 1 is not a working Atheros Wi-Fi driver.
+
+## Build the current minimal kernel target
+
+```sh
+python3 Tools/check.py
+python3 Tools/native_references.py verify
+python3 Tools/bootstrap.py
+xcodebuild -project SimpleATH.xcodeproj -scheme SimpleATH -configuration Release -derivedDataPath build/DerivedData -arch x86_64 CODE_SIGNING_ALLOWED=NO build
+```
+
+The release output is `build/DerivedData/Build/Products/Release/SimpleATH.kext`. Successful compilation does not prove the kernel extension will load or boot.
+
+## Original full-adapter development commands (reference only)
+
+The original SimpleBCM build pipeline used these commands for the **Broadcom** runtime:
 
 ```sh
 python3 -B Tools/bootstrap.py
@@ -22,15 +37,15 @@ python3 -B Tools/build.py package --configuration Debug --channel pre
 python3 -B Tools/build.py package --configuration Release --channel pre
 ```
 
-`bootstrap.py` 获取固定提交的 MacKernelSDK 和 OCLP 驱动归档。构建通过参考数据核对原生导出和虚表，并在 ASan/UBSan 下执行重定位、转发和编解码检查；Release 另执行 Clang 静态分析。针对特定 Apple 私有函数布局的附加检查，只在宿主框架匹配时执行。
+`bootstrap.py` fetches a pinned MacKernelSDK revision and the wireless driver archives from OpenCore Legacy Patcher. The full adapter build checks native exports and virtual tables against ABI references. It exercises relocation, call forwarding, and control-message codecs under ASan/UBSan. Release builds additionally run Clang static analysis. Optional checks for Apple private-function layouts run only when the host frameworks match.
 
-打包要求构建、校验和静态分析对应当前源码指纹。`--channel pre` 使用提交号命名 alpha 包，`--channel rel` 使用正式版本号。构建输出在 `build`，压缩包在 `dist`。
+Packaging normally requires matching build, verification, and static-analysis source fingerprints. The `--channel pre` option names alpha packages using a commit identifier, while `--channel rel` uses the formal release version. Build outputs are written to `build` and packages to `dist`. These original tools are retained for future development; the current tag-triggered workflow does not invoke them.
 
-## 更新 ABI 参考数据
+## Updating native ABI references
 
-维护适配配置时，可设置 `SIMPLEATH_NATIVE_SOURCE=system` 直接读取原生内核集合。默认读取当前系统及 `/Volumes/Macintosh HD 1`、`/Volumes/Macintosh HD 2`，按实际版本与 UUID 匹配 [Native-Universal.md](Native-Universal.md) 中的参考系统。
+Adapter maintainers can set `SIMPLEATH_NATIVE_SOURCE=system` to read the actual kernel collections from local system volumes. By default, the tools examine the current system and `/Volumes/Macintosh HD 1` and `/Volumes/Macintosh HD 2`, matching actual OS versions and UUIDs against the systems documented in [Native-Universal.md](Native-Universal.md).
 
-自定义路径使用 `SIMPLEATH_REFERENCE_ROOT`，每个系统目录需要原始 `SystemVersion.plist` 和 `BootKernelExtensions.kc`：
+Set `SIMPLEATH_REFERENCE_ROOT` to use custom reference directories. Each system directory must contain the original `SystemVersion.plist` and `BootKernelExtensions.kc`:
 
 ```text
 <SIMPLEATH_REFERENCE_ROOT>/<Sonoma|Sequoia|Tahoe>/System/Library/CoreServices/SystemVersion.plist
@@ -43,19 +58,21 @@ python3 -B Tools/native_references.py export
 python3 -B Tools/native_references.py verify
 ```
 
-导出工具从原始 KC 读取参考数据，检查注册入口在完整代码段中的唯一性，并更新文件校验和。运行时仍按大版本与实际 ABI 选择适配，不以参考构建号或 UUID 限制加载。
+The exporter reads native reference data from the original kernel collection, checks that registration-entry patterns are unique within the complete code segment, and updates file checksums. The original adapter selects runtime compatibility using the Darwin major version and actual ABI instead of restricting loading to reference build numbers or UUIDs.
 
-## GitHub Actions
+## GitHub Actions: tag-only builds
 
-- `Source checks` 使用 GitHub 托管的 `ubuntu-latest`，检查源码、版本、配置和参考数据校验和。
-- `Native Build and Publish` 使用 GitHub 托管的 `macos-26-intel`，自动准备依赖，构建 Debug/Release、执行校验与静态分析并打包。无需自建 runner 或配置系统盘路径。
-- push 在构建通过后更新 alpha release；正式 release 标签需匹配项目版本。pull request 和手动触发只上传 Actions artifacts。
-- 发布任务使用 `ubuntu-latest`，只有该任务获得 `contents: write` 权限。
+The repository contains **one** workflow: `.github/workflows/build.yml`, using the GitHub-hosted `macos-26-intel` runner. It checks the source and ABI references, prepares dependencies, builds the minimal bootstrap with Xcode, and uploads the kernel extension and logs.
 
-## English
+**The sole trigger is a pushed Git tag matching `build-v*`.** The workflow intentionally has no branch-push, pull-request, release, schedule, or manual-dispatch trigger, and the build job independently checks the `refs/tags/build-v` prefix.
 
-Build with Python 3 and full Xcode on an Intel Mac. ABI references are included under `Resources/NativeABI`; no additional system volumes are required. Run the build commands above. Reference data is checked before generation and is not embedded in the driver.
+An ordinary commit or branch push **never starts CI**. Build tags must not be created or pushed until the user explicitly authorizes a compilation. Once authorized, select a unique tag (for example `build-v1.2.0-stage1.1`) and push it deliberately:
 
-GitHub Actions uses hosted `macos-26-intel` for builds and hosted `ubuntu-latest` for source checks and publishing. No self-hosted runner or custom volume setup is needed. Pushes publish alpha packages after validation; release tags must match the project version. Pull requests and manual runs only upload artifacts.
+```sh
+git tag build-v1.2.0-stage1.1
+git push origin build-v1.2.0-stage1.1
+```
 
-Maintainers can use `SIMPLEATH_NATIVE_SOURCE=system` to validate directly against the original kernel collections, then run `Tools/native_references.py export` to refresh the committed references and checksums. `SIMPLEATH_REFERENCE_ROOT` selects custom reference paths for that mode only.
+This is a documented procedure, not an instruction to run it now. The localization commit creates no tag and starts no build.
+
+The workflow grants only `contents: read` permissions. It does not create GitHub releases, push tags, or publish packages automatically.

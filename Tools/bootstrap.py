@@ -38,12 +38,12 @@ def validate_payloads(extract=False):
     for relative, digest in ARCHIVES.items():
         archive = ROOT / ".research/OpenCore-Legacy-Patcher/payloads/Kexts" / relative
         if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
-            raise RuntimeError(f"归档校验失败：{archive}")
+            raise RuntimeError(f"Archive checksum verification failed: {archive}")
         destination = ROOT / ".research/binaries" / archive.stem
         with zipfile.ZipFile(archive) as bundle:
             for item in bundle.infolist():
                 if ".." in Path(item.filename).parts or item.filename.startswith("/"):
-                    raise RuntimeError("非法归档路径")
+                    raise RuntimeError("Unsafe archive entry path")
                 if item.is_dir() or "__MACOSX" in Path(item.filename).parts:
                     continue
                 target = destination / item.filename
@@ -52,7 +52,7 @@ def validate_payloads(extract=False):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(original)
                 if not target.is_file() or target.read_bytes() != original:
-                    raise RuntimeError(f"解包文件与固定归档不一致：{target}")
+                    raise RuntimeError(f"Extracted file differs from the pinned archive: {target}")
 
 
 def main():
@@ -63,18 +63,18 @@ def main():
     for name, (url, revision, sparse) in REPOSITORIES.items():
         path = research / name
         if not path.exists():
-            print(f"获取构建所需上游：{url} @ {revision}", flush=True)
+            print(f"Fetching pinned upstream build dependency: {url} @ {revision}", flush=True)
             subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", url, str(path)], check=True)
             subprocess.run(["git", "-C", str(path), "fetch", "--depth=1", "origin", revision], check=True)
             subprocess.run(["git", "-C", str(path), "sparse-checkout", "set", "--no-cone", "--stdin"], input="\n".join(sparse), text=True, check=True)
             subprocess.run(["git", "-C", str(path), "checkout", "--detach", revision], check=True)
         if git(path, "rev-parse", "HEAD") != revision:
-            raise RuntimeError(f"上游版本不匹配：{path}")
+            raise RuntimeError(f"Upstream checkout revision does not match the pinned commit: {path}")
         if git(path, "status", "--porcelain", "--untracked-files=no"):
-            raise RuntimeError(f"上游工作树已修改：{path}")
+            raise RuntimeError(f"Upstream working tree contains modifications: {path}")
         subprocess.run(["git", "-C", str(path), "sparse-checkout", "set", "--no-cone", "--stdin"], input="\n".join(sparse), text=True, check=True)
     validate_payloads(extract=True)
-    print("所需上游提交、驱动归档及解包文件的逐字节校验通过。")
+    print("All required upstream revisions, driver archives, and extracted files passed byte-for-byte verification.")
 
 
 if __name__ == "__main__":
