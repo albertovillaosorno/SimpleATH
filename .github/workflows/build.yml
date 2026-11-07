@@ -28,9 +28,10 @@ jobs:
         run: |
           xcodebuild \
             -project src/platform/SimpleATH.xcodeproj \
-            -scheme SimpleATH \
+            -target SimpleATH \
             -configuration Release \
-            -derivedDataPath build/DerivedData \
+            SYMROOT="$PWD/build/Products" \
+            OBJROOT="$PWD/build/Objects" \
             -arch x86_64 \
             CODE_SIGNING_ALLOWED=NO \
             build > build-xcode.log 2>&1 || {
@@ -40,15 +41,15 @@ jobs:
           tail -n 18 build-xcode.log
       - name: Verify actual build bundle
         run: |
-          test -s build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
-          file build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
-          plutil -p build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/Info.plist
+          test -s build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
+          file build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
+          plutil -p build/Products/Release/SimpleATH.kext/Contents/Info.plist
       - name: Upload kext and build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: SimpleATH-v1-Intel
           path: |
-            build/DerivedData/Build/Products/Release/SimpleATH.kext/**
+            build/Products/Release/SimpleATH.kext/**
             build-xcode.log
           if-no-files-found: warn
