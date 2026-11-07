@@ -26,9 +26,9 @@ for the **next separately authorized build**.
   are not encoded. They are *not* ready to submit to the AR9565.
 - **DMA ring is metadata only.** There is no IODMACommand allocation,
   IOMMU mapping, physical device access, interrupt acknowledgement or
-  hardware doorbell. The existing src/platform/Ar9565PciSession.* belongs
-  to a separate agent and is read-only; it remains the single source of
-  PCI ownership. Do not create an independent PCI owner.
+  hardware doorbell. The existing src/platform/Ar9565PciSession.* provides
+  a portable read-only inspection contract; its native platform adapter is
+  still missing. All hardware access must use one verified PCI owner.
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
   beacon/scan operation, association timers and packet scheduling.

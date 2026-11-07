@@ -12,6 +12,11 @@ not establish that those modules are compiled, wired to hardware or validated.
 | 34d1941 | Portable exclusive PCI session orchestration, read-only register allowlist, cleanup paths and honest registry diagnostics | Static source/diff review; no native adapter or hardware access |
 | d0b9176 | Bounded EEPROM block reconstruction, complete image storage and raw board summary | Static comparison to local permissive ath9k format/algorithms |
 | 56c4564 | AR9565 board gain-index selection without generic chipset fallbacks | Static comparison to ar9003_hw.c and 1.1 aliases |
+| 61a9dd0 | Concurrent descriptor/DMA metadata and management/EAPOL/data-frame modules | Source staged in target; no active DMA, crypto provider or OS interface |
+| b0d729e | Bounded EEPROM chain restoration from an already acquired byte dump | Static bounds/order review; no EEPROM acquisition or runtime tests |
+| 8035879 | Reject first-fragment decapsulation; fix WDS SA/DA and 4 GiB segment crossing | Static comparison to frame/address rules and descriptor bounds |
+| da50d1e | Unique reservation generations reject stale DMA metadata completions | Static ownership/lifetime review; no hardware completion path |
+| bedeba6 | Preserve Atheros descriptor notices and Linux source hashes | File-specific permissive-license and provenance inspection |
 
 Both PCI-session and EEPROM implementations are in the SimpleATH Xcode Sources
 phase. **Neither has been compiled or tested.** No build was made in this work.
@@ -42,8 +47,9 @@ regulatory approval, association and traffic remain unverified/not implemented.
    BAR0 mapping, ordered access and termination/power handling. No boot option
    currently enables a backend. Native exports must be verified first.
 4. **Board acquisition and reconstruction:** implement bounded EEPROM/OTP word
-   acquisition, chain discovery/restoration and pinned template provision.
-   Compare a recovered full image to ath9k. The block parser alone does not
+   acquisition, origin discovery and pinned template provision. Offline dump
+   chain restoration is now staged; compare a recovered full image to ath9k.
+   The source parser alone does not
    establish a physical MAC, calibration validity or a regulatory domain.
 5. **Radio:** port reset/wake/PLL, PHY/RF sequencing, delays, synth/channel,
    board calibration, ANI/noise, antenna/RF-kill and Bluetooth coexistence.

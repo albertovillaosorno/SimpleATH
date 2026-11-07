@@ -23,9 +23,9 @@ for the bounded source parser and the board acquisition still required.
 | RF configuration data | `generated/Ar9565InitTables.hpp` | 2,174 2.4GHz HT20/HT40 entries derived from 15 Linux ath9k source arrays | BAR writes, complete EEPROM validation, safe reset and delays |
 | Radio configuration planning | `Ar9565InitCatalog.*` | Revision-specific radio postamble, RX/TX gain profiles, channel 14 and regulatory preconditions | Calibration and board data |
 | PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Verified native PCI-family adapter; not connected to the passive IOService |
-| Board data parser | `Ar9565Eeprom.*` | Checked compression blocks, 1088-byte image storage, raw board summary and gain-index mapping | Hardware storage access, chain restoration/templates, actual calibration/regulatory validation |
-| PCI DMA and interrupts | Not yet written | NOT IMPLEMENTED | DMA mapping, rings, completions and recovery |
-| 802.11 MAC and security | Not yet written | NOT IMPLEMENTED | Scan, beacons, association, WPA/RSN, rate control |
+| Board data parser | `Ar9565Eeprom.*` | Checked compression blocks/dump chains, 1088-byte image storage, raw board summary and gain-index mapping | Hardware storage access/origin discovery, pinned templates, actual calibration/regulatory validation |
+| PCI DMA and interrupts | `Ar9003Descriptors.*`, `Ar9003Dma.*` | Pointer/status codecs and generation-checked ring metadata only | Actual DMA mapping, hardware rings, interrupts, completions and recovery |
+| 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
 
 The generated Linux-derived arrays retain the original Atheros/Qualcomm
@@ -40,8 +40,9 @@ IOPCIDevice C++ symbols. That boot did NOT prove the driver was loaded.
 
 The source was corrected to use IOKit's matching properties without directly
 importing the previously unresolved IOPCIDevice methods. Exact Tahoe PCI-family
-exports are still unverified; the stored ABI profile omits IOPCIFamily. Its last authorized Xcode
-build was successful, but there is no target-kernel load confirmation yet.
+exports are still unverified; the stored ABI profile omits IOPCIFamily. Its
+last authorized Xcode build was successful, but there is no target-kernel
+load confirmation yet.
 
 The newer hardware core, initialization tables, PCI-session contract and
 EEPROM parser are SOURCE ONLY and
