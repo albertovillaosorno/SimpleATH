@@ -1,8 +1,12 @@
-# WPA2-PSK cryptographic source — uncompiled and not validated
+# WPA2-PSK cryptographic source — limited portable host validation
 
-**Status (2026-11-06): source only.** Algorithms in src/wifi/crypto/
-have not been compiled, run, tested against known-answer vectors,
-audited for timing behavior, or installed on the target Dell.
+**Status (2026-11-07): source and isolated host test only.** The
+`tests/test_wpa2_public_alias.cpp` fixture compiles portable
+`Wpa2Primitives.cpp` and `Frames.cpp` with host Clang, verifies the RFC3394
+AES-128 unwrap 128-bit known-answer vector, checks a corrupted integrity
+value does not publish plaintext, and exercises output/key/identity alias
+rejection. It is neither a complete cryptographic or timing audit nor a
+Tahoe kext build. No kernel Wi-Fi, DMA or Dell hardware was exercised.
 
 Do not use the new code as a verified cryptographic provider. Do not
 claim that the device has a usable WPA2 association.
@@ -40,9 +44,13 @@ The code wipes PMK/PTK, digest scratch, AES round keys and intermediate GTK
 when possible. The source is unaudited: volatile wiping cannot guarantee
 elimination from registers, duplicate OS buffers or compiler temporaries.
 
-## Unexecuted known-answer vectors
+## Known-answer vectors and validation scope
 
-Do not execute this validation until the owner authorizes tests.
+The current project instructions authorize isolated host tests through
+`python3 -B tools/validate.py --tests`, not kext builds or device activity.
+Of the following vectors, only the RFC3394 AES unwrap vector was executed by
+our portable host fixture (and passed) in this continuation. The others
+remain proposals; one unwrap vector cannot establish a secure WPA2 stack.
 
 - WPA2 passphrase password, SSID IEEE -> PMK:
   f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e
@@ -67,9 +75,10 @@ There is no platform-backed CSPRNG, actual AR9565 CCMP keycache
 programming, hardware replay/PN management, compatible Tahoe native Wi-Fi
 interface, operational RF/DMA TX/RX, or usable WPA2 connection.
 
-Build, tests, EFI installation and physical verification remain prohibited
-without explicit owner authorization. The vectors above are specifications
-for later validation, not recorded test results.
+Kext compilation, CI, EFI installation and physical verification remain
+prohibited without separate owner authorization. Isolated host fixtures are
+permitted by the project's current `AGENTS.md` and `TODO.md`; the RFC3394
+host pass is not a native ABI, RF, association or kernel-security result.
 
 ## Source-only EAPOL hardening (2026-11-06)
 

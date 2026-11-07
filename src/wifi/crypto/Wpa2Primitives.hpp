@@ -2,8 +2,9 @@
 // Portable WPA2-PSK cryptographic primitives. This is not an entropy source,
 // keychain, negotiated RSN policy, CCMP packet engine or hardware key backend.
 //
-// These algorithms have not been built, run, vector-verified, or integrated
-// with the target macOS Tahoe kernel. No RF or DMA calls are made.
+// The portable host suite verifies an RFC3394 AES unwrap vector and output
+// alias guards. This is not a full cryptographic/timing audit or a build of
+// the target macOS Tahoe kernel extension. No RF or DMA calls are made.
 #ifndef SIMPLEATH_WIFI_WPA2_PRIMITIVES_HPP
 #define SIMPLEATH_WIFI_WPA2_PRIMITIVES_HPP
 
