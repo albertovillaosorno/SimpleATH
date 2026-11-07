@@ -8,6 +8,7 @@
 #
 
 import bisect
+from collections.abc import Callable
 import re
 import struct
 
@@ -53,8 +54,86 @@ INTERFACE_CLASSES = (
 PACKET_CLASS = "AirPort_Brcm43xxSkywalkPacket"
 POOL_CLASS = "AirPort_Brcm43xxSkywalkPacketBufferPool"
 
+# Source-only offsets pinned to the retained original AirPort image. They
+# must be checked against the disassembled function and encoded slot before
+# generating any replacement; no device or kernel access occurs here.
+PACKET_CALL_SITES: tuple[tuple[int, int, str], ...] = (
+    (0x25BF6, 0x1D0, "__ZN15AirPort_BrcmNIC11llTxDequeue"),
+    (0x25D43, 0x1E8, "__ZN15AirPort_BrcmNIC11llTxEnqueue"),
+    (0x25E70, 0x1D8, "__ZN15AirPort_BrcmNIC11llRxEnqueue"),
+    (
+        0x26658,
+        0x1E0,
+        "__ZN34AirPort_Brcm43xxLLSkywalkInterface11logTxPacket",
+    ),
+    (
+        0x266CE,
+        0x1E0,
+        "__ZN34AirPort_Brcm43xxLLSkywalkInterface11inputPacket",
+    ),
+    (0x287EF, 0x1F0, "__ZN15AirPort_BrcmNIC14llTxCompletion"),
+    (0x2884B, 0x1F0, "__ZN15AirPort_BrcmNIC14llTxCompletion"),
+)
+PATCH_INSTRUCTION_BYTES = 6
+PATCH_NATIVE_SLOT_DELTA = 24
+PATCH_OPCODE = 0xFF
+PATCH_MODRM_MASK = 0xF8
+PATCH_MODRM = 0x90
 
-def interface_method(name):
+
+def _matches_patch_instruction(function: str, prefix: str, raw: bytes) -> bool:
+    """Check the named x86 virtual dispatch instruction shape.
+
+    Returns:
+        True only for the expected complete indirect call encoding.
+
+    """
+    if not function.startswith(prefix) or len(raw) != PATCH_INSTRUCTION_BYTES:
+        return False
+    return raw[0] == PATCH_OPCODE and raw[1] & PATCH_MODRM_MASK == PATCH_MODRM
+
+
+def checked_packet_call_patches(
+    functions: list[tuple[int, str]], read: Callable[[int, int], bytes]
+) -> list[tuple[int, int, int]]:
+    """Verify the complete packet virtual-call catalog without execution.
+
+    Returns:
+        Patch offset, old slot and translated native slot triples.
+
+    Raises:
+        ValueError: Missing functions, truncated code or unexpected slots.
+
+    """
+    addresses = [address for address, _ in functions]
+    result: list[tuple[int, int, int]] = []
+    if addresses != sorted(addresses) or len(addresses) != len(set(addresses)):
+        message = "Unsorted or duplicate packet function addresses"
+        raise ValueError(message)
+    for address, slot, prefix in PACKET_CALL_SITES:
+        index = bisect.bisect_right(addresses, address)
+        if index == 0:
+            message = f"Missing packet dispatch function: {address:#x}"
+            raise ValueError(message)
+        function = functions[index - 1][1]
+        raw = read(address, PATCH_INSTRUCTION_BYTES)
+        if not _matches_patch_instruction(function, prefix, raw):
+            message = f"Unrecognized packet virtual call: {address:#x}"
+            raise ValueError(message)
+        if struct.unpack("<I", raw[2:])[0] != slot:
+            message = f"Packet virtual slot mismatch: {address:#x}"
+            raise ValueError(message)
+        result.append((address + 2, slot, slot + PATCH_NATIVE_SLOT_DELTA))
+    return result
+
+
+def interface_method(name: str) -> bool:
+    """Return whether a mangled method belongs to a Skywalk interface.
+
+    Returns:
+        True only for one of the declared interface classes.
+
+    """
     return any(
         name.startswith((
             "__ZN" + str(len(cls)) + cls,
@@ -64,7 +143,13 @@ def interface_method(name):
     )
 
 
-def normalized(name):
+def normalized(name: str) -> str:
+    """Normalize the known ether_addr_t mangling alias.
+
+    Returns:
+        Canonical symbol name used by the compatibility map.
+
+    """
     return name.replace("12ether_addr_t", "10ether_addr")
 
 
@@ -290,42 +375,14 @@ class SkywalkPlan:
         ]:
             raise ValueError("Unrecognized Broadcom power domain")
 
-    def packet_call_patches(self):
-        rows = [
-            (0x25BF6, 0x1D0, "__ZN15AirPort_BrcmNIC11llTxDequeue"),
-            (0x25D43, 0x1E8, "__ZN15AirPort_BrcmNIC11llTxEnqueue"),
-            (0x25E70, 0x1D8, "__ZN15AirPort_BrcmNIC11llRxEnqueue"),
-            (
-                0x26658,
-                0x1E0,
-                "__ZN34AirPort_Brcm43xxLLSkywalkInterface11logTxPacket",
-            ),
-            (
-                0x266CE,
-                0x1E0,
-                "__ZN34AirPort_Brcm43xxLLSkywalkInterface11inputPacket",
-            ),
-            (0x287EF, 0x1F0, "__ZN15AirPort_BrcmNIC14llTxCompletion"),
-            (0x2884B, 0x1F0, "__ZN15AirPort_BrcmNIC14llTxCompletion"),
-        ]
-        functions = self.air.funcs()
-        addresses = [a for a, name in functions]
-        result = []
-        for address, slot, prefix in rows:
-            function = functions[bisect.bisect_right(addresses, address) - 1][1]
-            raw = self.air.read(address, 6)
-            if (
-                not function.startswith(prefix)
-                or raw[:1] != b"\xff"
-                or raw[1] & 0xF8 != 0x90
-            ):
-                raise ValueError(
-                    f"Unrecognized packet virtual call: {address:#x}"
-                )
-            if struct.unpack("<I", raw[2:])[0] != slot:
-                raise ValueError(f"Packet virtual slot mismatch: {address:#x}")
-            result.append((address + 2, slot, slot + 24))
-        return result
+    def packet_call_patches(self) -> list[tuple[int, int, int]]:
+        """Check each pinned packet dispatch site against the image bytes.
+
+        Returns:
+            Offset, old virtual slot and native slot for each verified call.
+
+        """
+        return checked_packet_call_patches(self.air.funcs(), self.air.read)
 
     def packet_vptr_sites(self):
         destination = self.air.names[vtable_name(PACKET_CLASS)][4] + 16
