@@ -164,5 +164,33 @@ int main()
             PowerResult::MissingCtlCoverage ||
         output.controlMhz || output.cck[0])
         return 14;
+
+    // An out-of-band target bin is not a usable 2.4 GHz interpolation pier.
+    // Restore valid CTL rows so the failure is specifically the target curve.
+    image.bytes[322] = 112;
+    image.bytes[323] = 137;
+    image.bytes[324] = 162;
+    image.bytes[195] = 100; // 2400 MHz, not a 2.4 GHz channel center.
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidCurve ||
+        output.controlMhz || output.cck[0])
+        return 15;
+    image.bytes[195] = 112;
+
+    // Out-of-band live CTL bins cannot silently authorize a 2.4 GHz channel.
+    image.bytes[322] = 185;
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidCtlEdges ||
+        output.controlMhz || output.cck[0])
+        return 16;
+    image.bytes[322] = 112;
+    image.bytes[323] = 100;
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidCtlEdges ||
+        output.controlMhz || output.cck[0])
+        return 17;
     return 0;
 }

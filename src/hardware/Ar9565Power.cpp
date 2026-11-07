@@ -68,7 +68,11 @@ namespace simpleath
                     ended = true;
                     continue;
                 }
-                if (ended || (pier && bin <= bytes[binsOffset + pier - 1]))
+                // Target piers must be actual 2.4 GHz frequencies. A
+                // malformed 5 GHz or zero bin must not become an implicit
+                // extrapolation endpoint for a 2.4 GHz power budget.
+                if (ended || bin < 112 || bin > 184 ||
+                    (pier && bin <= bytes[binsOffset + pier - 1]))
                     return PowerResult::InvalidCurve;
                 for (size_t rate = 0; rate < rates; ++rate)
                     if (bytes[powerOffset + pier * rates + rate] > 63)
@@ -131,7 +135,10 @@ namespace simpleath
                     ended = true;
                     continue;
                 }
-                if (ended || (i && bins[i] <= bins[i - 1]))
+                // Zero/0xff padding is handled above. All live CTL edges
+                // must be in the 2.4 GHz bin range, not a different band.
+                if (ended || bins[i] < 112 || bins[i] > 184 ||
+                    (i && bins[i] <= bins[i - 1]))
                     return PowerResult::InvalidCtlEdges;
                 ++count;
             }
