@@ -8,12 +8,11 @@
 
 #include "Bridge.hpp"
 #include "HardwareIdentity.hpp"
-#include "NativeSkywalk.hpp"
-#include "NativeUserClient.hpp"
 #include "Profiles.hpp"
 #include "UserClient.hpp"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
+#include <cstdint>
 #include <kern/clock.h>
 #include <kern/thread_call.h>
 #include <libkern/c++/OSData.h>
