@@ -15,6 +15,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from typing import TypeIs
 from unittest import TestCase
 from unittest import mock
 
@@ -26,6 +27,7 @@ from tools.native_invariants import require
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from collections.abc import Mapping
     from types import ModuleType
 
 FAKE_XCRUN = "/offline-fixture/xcrun"
@@ -65,6 +67,170 @@ def _verifier_module() -> ModuleType:
         [str(Path(__file__).parent.parent / "tools"), *sys.path],
     ):
         return importlib.import_module("tools.verify_native")
+
+
+def _is_dict(value: object) -> TypeIs[dict[object, object]]:
+    """Narrow the supported mutable mapping without unknown key types.
+
+    Returns:
+        Whether the value is an ordinary Python dictionary.
+
+    """
+    return isinstance(value, dict)
+
+
+def _is_record(value: object) -> TypeIs[dict[str, object]]:
+    """Recognize a mutable string-keyed synthetic JSON object.
+
+    Returns:
+        Whether the value can safely support checked field updates.
+
+    """
+    return _is_dict(value) and all(isinstance(key, str) for key in value)
+
+
+def _is_list(value: object) -> TypeIs[list[object]]:
+    """Recognize a synthetic JSON array without assuming element types.
+
+    Returns:
+        Whether positional indexing is valid on the supplied object.
+
+    """
+    return isinstance(value, list)
+
+
+def _fixture_path(value: object, *path: str | int) -> object:
+    """Resolve a typed path inside synthetic metadata without blind indexing.
+
+    Returns:
+        The value at the indicated dictionary key or list index.
+
+    Raises:
+        TypeError: The path shape no longer matches the synthetic fixture.
+
+    """
+    for key in path:
+        if isinstance(key, str):
+            if not _is_record(value):
+                message = "Unexpected synthetic manifest object field"
+                raise TypeError(message)
+            value = value[key]
+        elif _is_list(value):
+            value = value[key]
+        else:
+            message = "Unexpected synthetic manifest array field"
+            raise TypeError(message)
+    return value
+
+
+def _replace_fixture_path(
+    source: dict[str, object], path: tuple[str | int, ...], value: object
+) -> None:
+    """Mutate only a verified nested test field, preserving source identity.
+
+    Raises:
+        TypeError: The fixture has an unexpected nested container shape.
+        ValueError: The update path is empty.
+
+    """
+    if not path:
+        message = "Missing synthetic manifest field path"
+        raise ValueError(message)
+    container = _fixture_path(source, *path[:-1])
+    key = path[-1]
+    if isinstance(key, str) and _is_record(container):
+        container[key] = value
+        return
+    if isinstance(key, int) and _is_list(container):
+        container[key] = value
+        return
+    message = "Unexpected synthetic manifest update container"
+    raise TypeError(message)
+
+
+def _load_manifest(source: bytes) -> object:
+    """Call the isolated source verifier's checked manifest parser.
+
+    Returns:
+        Its structurally validated metadata, without compiling code.
+
+    Raises:
+        TypeError: The loaded verifier does not expose its parser.
+
+    """
+    exports: dict[str, object] = vars(_verifier_module())
+    reader = exports.get("_read_manifest")
+    if not callable(reader):
+        message = "Source verifier manifest parser missing"
+        raise TypeError(message)
+    return reader(source)
+
+
+def _verifier_type() -> type[object]:
+    """Require the private verifier class from the isolated source module.
+
+    Returns:
+        The real verifier class, not a reimplemented test double.
+
+    Raises:
+        TypeError: The module does not expose the expected class.
+
+    """
+    exports: dict[str, object] = vars(_verifier_module())
+    verifier_class = exports.get("_NativeVerifier")
+    if not isinstance(verifier_class, type):
+        message = "Source verifier class missing"
+        raise TypeError(message)
+    return verifier_class
+
+
+def _fake_verifier_runner(plan: SimpleNamespace) -> object:
+    """Allocate the real offline verifier without loading an external image.
+
+    Returns:
+        An uninitialized source verifier with synthetic typed plan state.
+
+    """
+    runner = object.__new__(_verifier_type())
+    vars(runner)["plan"] = plan
+    vars(runner)["checks"] = ["synthetic ABI contract"]
+    return runner
+
+
+def _run_patched_verifier(
+    verifier_class: type[object],
+    runner: object,
+    ordered: tuple[str, ...],
+    *,
+    outputs: dict[str, object],
+) -> tuple[object, list[tuple[str, tuple[object, ...]]]]:
+    """Run the real verifier's stage order with synthetic byte-only stages.
+
+    Returns:
+        The actual run report and observed stage arguments.
+
+    Raises:
+        TypeError: A source verifier is missing its callable run method.
+
+    """
+    visited: list[tuple[str, tuple[object, ...]]] = []
+    with ExitStack() as patches:
+        for name in ordered:
+
+            def stub(*args: object, stage: str = name) -> object:
+                visited.append((stage, args[1:]))
+                return outputs.get(stage)
+
+            _ = patches.enter_context(
+                mock.patch.object(verifier_class, name, new=stub)
+            )
+        methods: Mapping[str, object] = vars(verifier_class)
+        run = methods.get("run")
+        if not callable(run):
+            message = "Source verifier run method missing"
+            raise TypeError(message)
+        report: object = run(runner)
+    return report, visited
 
 
 def _manifest_fixture() -> dict[str, object]:
@@ -127,23 +293,30 @@ class NativeVerifierManifestTests(TestCase):
     @staticmethod
     def test_parse_typed_complete_metadata() -> None:
         """Keep exact source fields and preserve the nested output shape."""
-        loader = vars(_verifier_module())["_read_manifest"]
-        document = loader(json.dumps(_manifest_fixture()).encode("utf-8"))
-        assert document["payloads"][0]["size"] == SYNTHETIC_PAYLOAD_SIZE
-        assert document["payloads"][0]["namespacedClassStrings"] == {
-            "IO80211Controller": [4, 12]
-        }
+        document = _load_manifest(
+            json.dumps(_manifest_fixture()).encode("utf-8")
+        )
+        assert _fixture_path(document, "payloads", 0, "size") == (
+            SYNTHETIC_PAYLOAD_SIZE
+        )
+        assert _fixture_path(
+            document, "payloads", 0, "namespacedClassStrings"
+        ) == {"IO80211Controller": [4, 12]}
         assert (
-            document["nativeAdapter"]["powerDomain"]["airPortTablePreserved"]
+            _fixture_path(
+                document,
+                "nativeAdapter",
+                "powerDomain",
+                "airPortTablePreserved",
+            )
             is True
         )
-        assert document["nativeRuntimeGuards"]["Tahoe"]["classes"] == [
-            ("__ZN4Mock10gMetaClassE", 224)
-        ]
+        assert _fixture_path(
+            document, "nativeRuntimeGuards", "Tahoe", "classes"
+        ) == [("__ZN4Mock10gMetaClassE", 224)]
 
     def test_reject_malformed_payload_and_runtime_metadata(self) -> None:
         """Require exact integer, array, mapping and class pair shapes."""
-        loader = vars(_verifier_module())["_read_manifest"]
         valid = _manifest_fixture()
         bad_values: tuple[tuple[str, object], ...] = (
             ("size", True),
@@ -154,33 +327,38 @@ class NativeVerifierManifestTests(TestCase):
         for field, value in bad_values:
             with self.subTest(field=field, value=str(value)):
                 source = deepcopy(valid)
-                source["payloads"][0][field] = value
+                _replace_fixture_path(source, ("payloads", 0, field), value)
                 assert _reject(
-                    lambda source=source: loader(
-                        json.dumps(source).encode("utf-8")
+                    lambda current=source: _load_manifest(
+                        json.dumps(current).encode("utf-8")
                     ),
                     (TypeError, ValueError),
                 )
 
         invalid_runtime = deepcopy(valid)
-        invalid_runtime["nativeRuntimeGuards"]["Tahoe"]["classes"] = [
-            ["__ZN4Mock10gMetaClassE", 224, 999]
-        ]
+        _replace_fixture_path(
+            invalid_runtime,
+            ("nativeRuntimeGuards", "Tahoe", "classes"),
+            [["__ZN4Mock10gMetaClassE", 224, 999]],
+        )
         assert _reject(
-            lambda: loader(json.dumps(invalid_runtime).encode("utf-8"))
+            lambda: _load_manifest(json.dumps(invalid_runtime).encode("utf-8"))
         )
 
     @staticmethod
     def test_reject_nonboolean_adapter_and_invalid_root() -> None:
         """Reject truthy impostors and non-object JSON manifests."""
-        loader = vars(_verifier_module())["_read_manifest"]
         source = _manifest_fixture()
-        source["nativeAdapter"]["powerDomain"]["airPortTablePreserved"] = "true"
+        _replace_fixture_path(
+            source,
+            ("nativeAdapter", "powerDomain", "airPortTablePreserved"),
+            "true",
+        )
         assert _reject(
-            lambda: loader(json.dumps(source).encode("utf-8")),
+            lambda: _load_manifest(json.dumps(source).encode("utf-8")),
             (TypeError,),
         )
-        assert _reject(lambda: loader(b"[]"))
+        assert _reject(lambda: _load_manifest(b"[]"))
 
 
 class NativeForwardingProbeTests(TestCase):
@@ -393,33 +571,49 @@ class NativeAbiInvariantTests(TestCase):
 
     @staticmethod
     def test_reference_only_image_cannot_reach_forwarding_probe() -> None:
-        """Reject a metadata-only image before launching a host ABI probe."""
+        """Reject a metadata-only image before launching a host ABI probe.
+
+        Raises:
+            TypeError: The source verifier has no callable forwarding stage.
+
+        """
         verifier = _verifier_module()
-        verifier_class = vars(verifier)["_NativeVerifier"]
-        runner = object.__new__(verifier_class)
-        runner.plan = SimpleNamespace(old=object())
-        forwarding_stage = vars(verifier_class)["_check_forwarding"]
+        verifier_class = _verifier_type()
+        runner = _fake_verifier_runner(SimpleNamespace(old=object()))
+        attributes: Mapping[str, object] = vars(verifier_class)
+        forwarding_stage = attributes.get("_check_forwarding")
+        if not callable(forwarding_stage):
+            message = "Source forwarding verifier stage missing"
+            raise TypeError(message)
+
+        def invoke() -> object:
+            """Run the exact unbound verifier method on a fake source owner.
+
+            Returns:
+                The offline stage result if it unexpectedly succeeds.
+
+            """
+            return forwarding_stage(runner)
+
         with mock.patch.object(verifier, "run_probe") as launch:
-            assert _reject(
-                lambda: forwarding_stage(runner),
-                (TypeError,),
-            )
+            assert _reject(invoke, (TypeError,))
             launch.assert_not_called()
 
     @staticmethod
     def test_verifier_stages_keep_ordered_fail_closed_execution() -> None:
         """Preserve stages, output shape and offline resource teardown."""
-        verifier_class = vars(_verifier_module())["_NativeVerifier"]
-        runner = object.__new__(verifier_class)
-        runner.plan = SimpleNamespace(
-            packet_calls=[1, 2],
-            vptr_sites=[1],
-            pool_meta=[1, 2, 3],
-            callbacks=[("native", "legacy", [1, 2])],
-            wireless=mock.Mock(),
-            model=mock.Mock(),
+        wireless_close = mock.Mock()
+        model_close = mock.Mock()
+        runner = _fake_verifier_runner(
+            SimpleNamespace(
+                packet_calls=[1, 2],
+                vptr_sites=[1],
+                pool_meta=[1, 2, 3],
+                callbacks=[("native", "legacy", [1, 2])],
+                wireless=SimpleNamespace(close=wireless_close),
+                model=SimpleNamespace(close=model_close),
+            )
         )
-        runner.checks = ["synthetic ABI contract"]
         ordered = (
             "_check_payloads",
             "_check_profile",
@@ -440,19 +634,9 @@ class NativeAbiInvariantTests(TestCase):
             "_check_facade": product,
             "_check_forwarding": evidence,
         }
-        visited: list[tuple[str, tuple[object, ...]]] = []
-        with ExitStack() as patches:
-            for name in ordered:
-
-                def stub(*args: object, stage: str = name) -> object:
-                    visited.append((stage, args[1:]))
-                    return outputs.get(stage)
-
-                patches.enter_context(
-                    mock.patch.object(verifier_class, name, new=stub)
-                )
-            report = runner.run()
-
+        report, visited = _run_patched_verifier(
+            _verifier_type(), runner, ordered, outputs=outputs
+        )
         assert tuple(name for name, _ in visited) == ordered
         assert visited[2][1] == (legacy,)
         assert visited[5][1] == (product,)
@@ -466,8 +650,8 @@ class NativeAbiInvariantTests(TestCase):
             "kernelExecution": False,
             "hardwareValidation": "not-run-by-build",
         }
-        runner.plan.wireless.close.assert_called_once_with()
-        runner.plan.model.close.assert_called_once_with()
+        wireless_close.assert_called_once_with()
+        model_close.assert_called_once_with()
 
     @staticmethod
     def test_invariant_guard_rejects_false_or_nonboolean_truthy() -> None:

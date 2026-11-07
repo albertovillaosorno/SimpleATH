@@ -618,9 +618,9 @@ class _NativeVerifier:
     def _check_clients(self, product: Mach | ReferenceImage) -> None:
         """Verify the clients source invariants."""
         source = (ROOT / "src/NativeUserClient.cpp").read_text()
+        slot_pattern = re.compile(r"view\[2 \+ (0x[0-9a-f]+) / 8\]")
         override_slots = {0, 8} | {
-            int(value, 16)
-            for value in re.findall(r"view\[2 \+ (0x[0-9a-f]+) / 8\]", source)
+            int(match.group(1), 16) for match in slot_pattern.finditer(source)
         }
         expected = {
             0x90: "free()",
@@ -769,7 +769,7 @@ class _NativeVerifier:
         self.checks.append(
             "All packet vptr replacements are complete constructor instructions"
         )
-        expected_sizes = []
+        expected_sizes: list[int] = []
         for address, relocation in air.relocs().items():
             if relocation[0] == OS_META_CLASS_CONSTRUCTOR and air.read(
                 address - 6, 5
