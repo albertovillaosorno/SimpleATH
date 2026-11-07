@@ -72,9 +72,11 @@ namespace simpleath
     // failures leave an existing image intact; caller must discard the
     // entire restore chain on ANY failure. Frame and template storage must
     // be immutable and disjoint from image/info; the caller owns their
-    // lifetime for the duration of this serialized call. If info aliases
-    // frame/image/templates or image aliases templates, InvalidArgument is
-    // returned before mutating image/info.
+    // lifetime for the duration of this serialized call. The opaque template
+    // callback context must not point inside writable output and its complete
+    // allocation must remain disjoint. If info aliases frame/image/templates,
+    // image aliases templates or the context starts in image/info,
+    // InvalidArgument is returned before mutating image/info.
     EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info);
@@ -99,9 +101,10 @@ namespace simpleath
     // is used. Scratch is caller-owned (at least kAr9565EepromScratchBytes),
     // and all mutable buffers and template metadata must be disjoint from
     // each other and the input storage. Malformed chains invalidate/wipe the
-    // image. Storage/scratch/image/status/template aliasing returns
-    // InvalidArgument without modifying any aliased output; the return code
-    // is authoritative and the caller must separately discard the image.
+    // image. Storage/scratch/image/status/template aliasing, including a
+    // callback context pointing into writable outputs, returns InvalidArgument
+    // without modifying any aliased output. Keep the full opaque context
+    // allocation disjoint. The caller must separately discard the image.
     // No hardware operations, storage acquisition or regulatory approval.
     EepromResult restoreEepromDump(const uint8_t *storage, size_t storageBytes,
                                    uint16_t origin,

@@ -134,11 +134,15 @@ namespace simpleath
     {
         // Check aliases before clearing diagnostics: an overlapping info
         // reference could otherwise clobber the frame or board image first.
+        // The opaque template context must also start outside writable output;
+        // its complete allocation must remain disjoint by caller contract.
         // The returned error itself is authoritative on this contract breach.
         if (overlaps(&info, sizeof(info), frame, frameBytes) ||
             overlaps(&info, sizeof(info), &image, sizeof(image)) ||
             overlaps(&info, sizeof(info), &templates, sizeof(templates)) ||
-            overlaps(&image, sizeof(image), &templates, sizeof(templates)))
+            overlaps(&image, sizeof(image), &templates, sizeof(templates)) ||
+            overlaps(&info, sizeof(info), templates.context, 1) ||
+            overlaps(&image, sizeof(image), templates.context, 1))
             return EepromResult::InvalidArgument;
         info = {};
         if (!frame)
@@ -229,6 +233,8 @@ namespace simpleath
         // Check all mutable buffers against input and callback metadata
         // BEFORE initializing diagnostics or discarding the image. Otherwise,
         // even an error cleanup could overwrite an aliased source dump.
+        // The template callback's opaque context must not begin inside any
+        // writable output; the caller keeps its entire allocation disjoint.
         // On a contract breach only the return code reports the failure.
         if (overlaps(&status, sizeof(status), storage, storageBytes) ||
             overlaps(&status, sizeof(status), scratch, scratchBytes) ||
@@ -238,7 +244,10 @@ namespace simpleath
             overlapsImage(scratch, scratchBytes, image) ||
             overlaps(&image, sizeof(image), &templates, sizeof(templates)) ||
             overlaps(storage, storageBytes, scratch, scratchBytes) ||
-            overlaps(scratch, scratchBytes, &templates, sizeof(templates)))
+            overlaps(scratch, scratchBytes, &templates, sizeof(templates)) ||
+            overlaps(&status, sizeof(status), templates.context, 1) ||
+            overlaps(&image, sizeof(image), templates.context, 1) ||
+            overlaps(scratch, scratchBytes, templates.context, 1))
             return EepromResult::InvalidArgument;
         // No frame-sized allocation is made on the kernel stack.
         status = {};

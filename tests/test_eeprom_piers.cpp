@@ -87,10 +87,48 @@ int main()
         !board.calibrationPierBinsPlausible ||
         board.calibrationPiers2G[2].centerMhz != 2484)
         return 5;
+    // Template callback context is opaque, but must never begin in mutable
+    // block output: an aliased callback could corrupt the image or metadata.
+    EepromTemplates templates = pinnedEepromTemplates();
+    EepromBlockInfo blockInfo {};
+    blockInfo.major = 99;
+    image.bytes[0] = 2;
+    templates.context = &image.bytes[sizeof(image.bytes) - 1];
+    const uint8_t frame[] = {0x62, 0, 0x10, 1, 0, 0, 0};
+    if (applyEepromBlock(frame, sizeof(frame), templates, image, blockInfo) !=
+            EepromResult::InvalidArgument ||
+        image.bytes[0] != 2 || blockInfo.major != 99)
+        return 6;
+    templates.context = &blockInfo.major;
+    if (applyEepromBlock(frame, sizeof(frame), templates, image, blockInfo) !=
+            EepromResult::InvalidArgument ||
+        blockInfo.major != 99)
+        return 7;
+
+    // Fail before clearing any scratch/status or erasing a recovered board.
+    uint8_t storage[1024] {};
+    uint8_t scratch[kAr9565EepromScratchBytes] {};
+    scratch[0] = 0xa5;
+    EepromRestoreStatus restoreStatus {};
+    restoreStatus.result = EepromResult::BadChecksum;
+    templates.context = &scratch[sizeof(scratch) - 1];
+    if (restoreEepromDump(storage, sizeof(storage), 0x3ff, templates, scratch,
+                          sizeof(scratch), image,
+                          restoreStatus) != EepromResult::InvalidArgument ||
+        scratch[0] != 0xa5 || image.restored != true ||
+        restoreStatus.result != EepromResult::BadChecksum)
+        return 8;
+    templates.context = &restoreStatus.result;
+    if (restoreEepromDump(storage, sizeof(storage), 0x3ff, templates, scratch,
+                          sizeof(scratch), image,
+                          restoreStatus) != EepromResult::InvalidArgument ||
+        restoreStatus.result != EepromResult::BadChecksum)
+        return 9;
+
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||
         board.eepromVersion != 0 || board.calibrationPierBinsPlausible ||
         board.calibrationValidated || board.regulatoryAuthorized)
-        return 6;
+        return 10;
     return 0;
 }
