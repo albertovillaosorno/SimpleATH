@@ -11,6 +11,7 @@ import collections
 import ctypes
 import functools
 import hashlib
+from itertools import pairwise
 import mmap
 import os
 from pathlib import Path
@@ -25,11 +26,13 @@ if TYPE_CHECKING:
     from typing import BinaryIO
 
 if __package__:
+    from tools.abi_types import unpack_integers
     from tools.native_references import ReferenceImage
     from tools.native_references import reference_paths
     from tools.profiles import IMAGES
     from tools.system_profiles import SYSTEMS
 else:
+    from abi_types import unpack_integers
     from native_references import ReferenceImage
     from native_references import reference_paths
     from profiles import IMAGES
@@ -54,6 +57,13 @@ PATHS = {
 
 MAX_NATIVE_MACHO_BYTES = 2 * 1024 * 1024 * 1024
 HASH_CHUNK_BYTES = 1024 * 1024
+FAT32_MAGIC = b"\xca\xfe\xba\xbe"
+FAT64_MAGIC = b"\xca\xfe\xba\xbf"
+FAT_HEADER_BYTES = 8
+MAX_FAT_ARCHITECTURES = 256
+MAX_FAT_ALIGNMENT = 62
+CPU_X86_64 = 0x01000007
+MACHO_HEADER_BYTES = 32
 
 
 def _open_mach_source(path: Path) -> BinaryIO:
@@ -131,6 +141,114 @@ def _require_span(start: int, size: int, limit: int) -> None:
         raise ValueError(message)
 
 
+def _fat_architecture(
+    data: mmap.mmap, index: int, table_end: int, *, wide: bool
+) -> tuple[int, int, int]:
+    """Validate one FAT entry including non-selected architecture slices.
+
+    Returns:
+        CPU type, slice offset and size, all checked against the file.
+
+    Raises:
+        ValueError: A slice overlaps the table or has invalid bounds.
+
+    """
+    entry = FAT_HEADER_BYTES + index * (32 if wide else 20)
+    cpu = unpack_integers(data, ">I", entry)[0]
+    offset, size = unpack_integers(data, ">QQ" if wide else ">II", entry + 8)
+    alignment = unpack_integers(data, ">I", entry + (24 if wide else 16))[0]
+    if (
+        not size
+        or offset < table_end
+        or alignment > MAX_FAT_ALIGNMENT
+        or offset % (1 << alignment)
+    ):
+        message = "Malformed FAT architecture slice alignment or bounds"
+        raise ValueError(message)
+    _require_span(offset, size, len(data))
+    return cpu, offset, size
+
+
+def _fat_table_metadata(data: mmap.mmap, *, wide: bool) -> tuple[int, int]:
+    """Check the FAT table's complete bounded architecture record budget.
+
+    Returns:
+        Architecture count and table end offset.
+
+    Raises:
+        ValueError: Header or record budget is invalid or truncated.
+
+    """
+    _require_span(0, FAT_HEADER_BYTES, len(data))
+    count = unpack_integers(data, ">I", 4)[0]
+    row_size = 32 if wide else 20
+    if (
+        not 0 < count <= MAX_FAT_ARCHITECTURES
+        or count > (len(data) - FAT_HEADER_BYTES) // row_size
+    ):
+        message = "Truncated or excessive FAT architecture table"
+        raise ValueError(message)
+    return count, FAT_HEADER_BYTES + count * row_size
+
+
+def _require_disjoint_fat_ranges(ranges: list[tuple[int, int]]) -> None:
+    """Reject any pair of intersecting FAT architecture file spans.
+
+    Raises:
+        ValueError: Overlapping FAT slices.
+
+    """
+    if any(left[1] > right[0] for left, right in pairwise(sorted(ranges))):
+        message = "Overlapping FAT architecture slices"
+        raise ValueError(message)
+
+
+def _unique_fat_x86_64(
+    data: mmap.mmap, count: int, table_end: int, *, wide: bool
+) -> tuple[int, int]:
+    """Check all FAT records and select only one complete x86_64 image.
+
+    Returns:
+        The unique slice offset and length in the full mapped file.
+
+    Raises:
+        ValueError: Missing, ambiguous or overlapping architectures.
+
+    """
+    ranges: list[tuple[int, int]] = []
+    selected: tuple[int, int] | None = None
+    for index in range(count):
+        cpu, offset, size = _fat_architecture(data, index, table_end, wide=wide)
+        ranges.append((offset, offset + size))
+        if cpu == CPU_X86_64:
+            if selected is not None or size < MACHO_HEADER_BYTES:
+                message = "Ambiguous or truncated x86_64 FAT architecture"
+                raise ValueError(message)
+            selected = (offset, size)
+    _require_disjoint_fat_ranges(ranges)
+    if selected is None:
+        message = "FAT Mach-O has no x86_64 image"
+        raise ValueError(message)
+    return selected
+
+
+def _fat_x86_64_range(data: mmap.mmap) -> tuple[int, int] | None:
+    """Select a unique bounded FAT32/FAT64 x86_64 slice, or keep thin.
+
+    Returns:
+        Offset and length of the selected architecture, or None for thin.
+
+    Invalid FAT tables are rejected by the bounded catalog reader.
+
+    """
+    magic = data[:4]
+    if magic not in {FAT32_MAGIC, FAT64_MAGIC}:
+        return None
+    wide = magic == FAT64_MAGIC
+    count, table_end = _fat_table_metadata(data, wide=wide)
+    return _unique_fat_x86_64(data, count, table_end, wide=wide)
+
+
 class Mach:
     def __new__(cls, path, entry=None):
         if Path(path).suffix == ".json":
@@ -168,27 +286,11 @@ class Mach:
             raise
 
     def _select_header(self):
-        if self.b[:4] != b"\xca\xfe\xba\xbe":
-            return
-        _require_span(0, 8, len(self.b))
-        count = struct.unpack_from(">I", self.b, 4)[0]
-        _require_span(8, count * 20, len(self.b))
-        for index in range(count):
-            cpu, _subtype, offset, size, _alignment = struct.unpack_from(
-                ">IIIII", self.b, 8 + 20 * index
-            )
-            if cpu == 16777223:
-                if size < 32:
-                    message = (
-                        "FAT Mach-O x86_64 slice is smaller than its header"
-                    )
-                    raise ValueError(message)
-                _require_span(offset, size, len(self.b))
-                self.base = offset
-                self.slice_end = offset + size
-                return
-        message = "FAT Mach-O has no x86_64 image"
-        raise ValueError(message)
+        selected = _fat_x86_64_range(self.b)
+        if selected is not None:
+            offset, size = selected
+            self.base = offset
+            self.slice_end = offset + size
 
     def parse(self):
         b = self.b

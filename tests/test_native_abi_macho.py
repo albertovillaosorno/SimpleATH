@@ -101,6 +101,48 @@ def _with_symbols(*extra_commands: bytes, section: bytes = b"") -> bytearray:
     return image
 
 
+def _fat_two(
+    *,
+    second_cpu: int = 12,
+    first_offset: int = 128,
+    second_offset: int = 640,
+    wide: bool = False,
+) -> bytes:
+    """Create two complete synthetic FAT32/FAT64 architectures.
+
+    Returns:
+        FAT bytes with a valid x86_64 image and an unselected image.
+
+    """
+    thin = _thin()
+    magic = b"\xca\xfe\xba\xbf" if wide else b"\xca\xfe\xba\xbe"
+    if wide:
+        rows = b"".join(
+            (
+                struct.pack(">IIQQII", cpu, 3, offset, size, 4, 0)
+                for cpu, offset, size in (
+                    (CPU_X86_64, first_offset, len(thin)),
+                    (second_cpu, second_offset, FILE_SIZE),
+                )
+            )
+        )
+    else:
+        rows = b"".join(
+            (
+                struct.pack(">IIIII", cpu, 3, offset, size, 4)
+                for cpu, offset, size in (
+                    (CPU_X86_64, first_offset, len(thin)),
+                    (second_cpu, second_offset, FILE_SIZE),
+                )
+            )
+        )
+    end = max(first_offset + len(thin), second_offset + len(thin))
+    data = bytearray((magic + struct.pack(">I", 2) + rows).ljust(end, b"\0"))
+    data[first_offset : first_offset + len(thin)] = thin
+    data[second_offset : second_offset + len(thin)] = thin
+    return bytes(data)
+
+
 def _open(
     data: bytes | bytearray, action: Callable[[native_abi.Mach], object]
 ) -> object:
@@ -153,6 +195,48 @@ def _reject_named_entry(data: bytes | bytearray, name: str) -> bool:
             return True
         image.close()
     return False
+
+
+def _zero_second_fat_size(data: bytes, *, wide: bool) -> bytes:
+    """Clear the size of the nonselected FAT architecture.
+
+    Returns:
+        A malformed architecture catalog with the original image intact.
+
+    """
+    corrupted = bytearray(data)
+    struct.pack_into(">Q" if wide else ">I", corrupted, 56 if wide else 40, 0)
+    return bytes(corrupted)
+
+
+class NativeAbiFatArchitectureTests(TestCase):
+    """Ensure all architecture rows are validated before FAT selection."""
+
+    @staticmethod
+    def test_reject_ambiguous_and_overlapping_fat_architectures() -> None:
+        """Never select from a malformed FAT table, even if x86_64 is first."""
+        for wide in (False, True):
+            valid = _fat_two(wide=wide)
+            assert (
+                _open(valid, lambda image: image.read(VM_BASE, 4))
+                == _thin()[:4]
+            )
+            for data in (
+                _fat_two(wide=wide, second_cpu=CPU_X86_64),
+                _fat_two(wide=wide, second_offset=624),
+                _fat_two(wide=wide, second_offset=625),
+                _fat_two(wide=wide, first_offset=130),
+                _zero_second_fat_size(valid, wide=wide),
+                valid[:700],
+            ):
+                assert _reject(data)
+
+    @staticmethod
+    def test_reject_excessive_fat_rows_before_slice_selection() -> None:
+        """Reject an excessive FAT table even with a good first slice."""
+        data = bytearray(_fat_two())
+        struct.pack_into(">I", data, 4, native_abi.MAX_FAT_ARCHITECTURES + 1)
+        assert _reject(data)
 
 
 class NativeAbiMachoBoundsTests(TestCase):
