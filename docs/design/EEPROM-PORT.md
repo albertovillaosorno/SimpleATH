@@ -64,6 +64,13 @@ transmit. Calibration application, legal country intersection, CTL interpolation
 per-rate conducted/EIRP limits, RF-kill sampling, gain selection and coexistence
 remain required. An OS locale or user-entered country alone is insufficient.
 
+`selectBoardGainProfiles` maps the AR9565-specific ath9k TX indexes 0/2 to
+low-OB, 1 to high-OB and 3 to high-power; RX 0/1 selects standard/without-LNA.
+It rejects higher indexes rather than borrowing generic AR9300 settings.
+The 1.1 header aliases these gain arrays to the 1.0 arrays; its radio postamble
+remains distinct in the generated catalog. Selecting a gain profile does not
+apply calibration or program per-rate transmit-power limits.
+
 ## Licensing and reference integrity
 
 The algorithms and format come from the local Linux ath9k references. Their
