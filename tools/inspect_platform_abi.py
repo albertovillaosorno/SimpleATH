@@ -22,6 +22,9 @@ import plistlib
 import stat
 import struct
 import uuid
+from typing import Never
+from typing import cast
+from typing import TypeIs
 
 GROUPS = {
     "pci": ("com.apple.iokit.IOPCIFamily", ("IOPCIDevice",)),
@@ -174,52 +177,131 @@ def load_collection(path):
     return digest, {"collectionUUID": root["uuid"]}, images
 
 
-def load_reference(path):
-    data = path.read_bytes()
-    digest = hashlib.sha256(data).hexdigest()
-    reference = json.loads(data)
-    if reference.get("schemaVersion") != 1 or not isinstance(
-        reference.get("images"), dict
-    ):
-        raise ValueError("Unsupported reference schema")
+def _decode_snapshot(data: bytes) -> object:
+    return cast(
+        "object",
+        json.loads(
+            data,
+            object_pairs_hook=_unique_snapshot_pairs,
+            parse_constant=_reject_snapshot,
+        ),
+    )
+
+
+def _unique_snapshot_pairs(
+    pairs: list[tuple[str, object]],
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            _reject_snapshot(f"Duplicate reference JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _is_object_mapping(value: object) -> TypeIs[dict[object, object]]:
+    return isinstance(value, dict)
+
+
+def _is_mapping(value: object) -> TypeIs[dict[str, object]]:
+    return _is_object_mapping(value) and all(
+        isinstance(key, str) for key in value
+    )
+
+
+def _is_object_list(value: object) -> TypeIs[list[object]]:
+    return isinstance(value, list)
+
+
+def _is_string_list(value: object) -> TypeIs[list[str]]:
+    return _is_object_list(value) and all(
+        isinstance(item, str) for item in value
+    )
+
+
+def _reject_snapshot(reason: str) -> Never:
+    raise ValueError(reason)
+
+
+def _snapshot_mapping(value: object, description: str) -> dict[str, object]:
+    if not _is_mapping(value):
+        _reject_snapshot(f"Expected dictionary with string keys: {description}")
+    return value
+
+
+def _snapshot_string_list(value: object, description: str) -> list[str]:
+    if not _is_string_list(value):
+        _reject_snapshot(f"Expected list of strings: {description}")
+    return value
+
+
+def _manifest_match(path: Path, digest: str) -> str | None:
     manifest_path = path.with_name("manifest.json")
-    expected = None
-    if manifest_path.is_file():
-        expected = json.loads(manifest_path.read_text())["files"].get(path.name)
-        if expected is not None and digest != expected:
-            raise ValueError(
-                "Retained reference does not match its manifest hash"
-            )
-    images = {}
-    for name, image in reference["images"].items():
-        symbols = image["symbols"]
-        listed_exports = image["exports"]
-        if not isinstance(symbols, dict) or not isinstance(
-            listed_exports, list
-        ):
-            raise ValueError("Invalid snapshot symbol/export inventory")
-        if not all(
-            isinstance(symbol, str) for symbol in (*symbols, *listed_exports)
-        ):
-            raise ValueError("Non-string snapshot symbol name")
-        exports = set(listed_exports)
-        images[name] = {
-            "uuid": image["uuid"],
-            "symbolEvidence": "retained_snapshot_reported_exports",
-            "symbols": {
-                symbol: "snapshot_reported_export"
-                if symbol in exports
-                else "snapshot_symbol_not_reported_export"
-                for symbol in set(symbols) | exports
-            },
-            "recordedTableNames": sorted(image.get("tables", {})),
-            "recordedFunctionNames": sorted(image.get("functions", {})),
-        }
-    metadata = {
+    if not manifest_path.is_file():
+        return None
+    manifest = _snapshot_mapping(
+        _decode_snapshot(read_kdk_file(path.parent, manifest_path.name)),
+        "reference manifest",
+    )
+    records = _snapshot_mapping(
+        manifest.get("files"), "reference manifest files"
+    )
+    expected = records.get(path.name)
+    if expected is None:
+        return None
+    if not isinstance(expected, str) or digest != expected:
+        _reject_snapshot("Retained reference does not match manifest hash")
+    return expected
+
+
+def _snapshot_image(value: object) -> dict[str, object]:
+    image = _snapshot_mapping(value, "image record")
+    symbols = _snapshot_mapping(image.get("symbols"), "image symbols")
+    exports = _snapshot_string_list(image.get("exports"), "image exports")
+    tables = _snapshot_mapping(image.get("tables", {}), "image tables")
+    functions = _snapshot_mapping(image.get("functions", {}), "image functions")
+    image_uuid = image.get("uuid")
+    if image_uuid is not None and not isinstance(image_uuid, str):
+        _reject_snapshot("Invalid snapshot image UUID")
+    reported = set(exports)
+    return {
+        "uuid": image_uuid,
+        "symbolEvidence": "retained_snapshot_reported_exports",
+        "symbols": {
+            symbol: "snapshot_reported_export"
+            if symbol in reported
+            else "snapshot_symbol_not_reported_export"
+            for symbol in symbols.keys() | reported
+        },
+        "recordedTableNames": sorted(tables),
+        "recordedFunctionNames": sorted(functions),
+    }
+
+
+def load_reference(
+    path: Path,
+) -> tuple[str, dict[str, object], dict[str, dict[str, object]]]:
+    """Read a bounded offline snapshot without following symlinks.
+
+    Returns:
+        The content digest, contextual metadata and candidate-only inventory.
+
+    Invalid snapshot or manifest evidence raises ValueError.
+    """
+    data = read_kdk_file(path.parent, path.name)
+    digest = hashlib.sha256(data).hexdigest()
+    reference = _snapshot_mapping(_decode_snapshot(data), "snapshot root")
+    if reference.get("schemaVersion") != 1:
+        _reject_snapshot("Unsupported reference schema")
+    recorded_images = _snapshot_mapping(reference.get("images"), "images")
+    images = {
+        name: _snapshot_image(image) for name, image in recorded_images.items()
+    }
+    metadata: dict[str, object] = {
         "profile": reference.get("profile"),
         "kernelVersion": reference.get("kernelVersion"),
         "collectionUUID": reference.get("collectionUUID"),
-        "manifestHashMatched": expected is not None,
+        "manifestHashMatched": _manifest_match(path, digest) is not None,
     }
     return digest, metadata, images
 
