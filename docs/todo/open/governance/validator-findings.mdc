@@ -287,6 +287,37 @@ the fix (exit 25) and passed afterwards under strict C++14 and C++17 with
 AddressSanitizer and UndefinedBehaviorSanitizer, plus Clang-Format.
 Only synthetic host frames were used; no kext, RF, PCI or DMA execution.
 
+## Owner-revocation NVM callback checkpoint, 2026-11-07 17:24 CST
+
+On **clean main `547f913`**, after DCO source-only fix `547f913`
+(guard each NVM clock callback and post-poll delay against revoked D0
+ownership), a fresh mandatory `python3 -B tools/validate.py --no-cache`
+completed with exit 1: **161 source files, 410 checks, zero cached,
+410 executed, 359 passed, 51 failed, zero skipped**. `scope=repository`,
+`source_only=true`, `tests_requested=true` were all confirmed. **Every
+nonpassing result is Clang-Tidy**. Clang-Format 23.1.2, Clang-Tidy 23.1.2,
+Ruff 0.16.10 check/format and BasedPyright 1.40.1 were inventoried;
+none was silently omitted. The process stdout and saved
+`.cache/validate/report.json` matched byte-for-byte. There was no
+source-snapshot drift, and `main` was synced and clean when the report
+was inspected. **P0 remains OPEN**.
+
+Two synthetic, host-only regressions reproduce unsafe callback use against
+the old source: ownership loss during the post-trigger clock caused a
+subsequent timer call after revocation (test exit 6), and ownership loss
+from the status timestamp caused a delay callback after revocation
+(independent test exit 7). Both now fail closed with
+`NvmResult::SessionUnavailable`, wipe acquired bytes and never invoke the
+callback on the revoked owner. Strict C++14 and C++17 host tests passed,
+including AddressSanitizer/UndefinedBehaviorSanitizer on C++17; the
+NVM discovery host regression, Clang-Format and all **306 Python unit
+tests** also passed. The owner/power backend still requires an actual
+serialized native implementation. These tests do **not** authorize a
+kext build, OS integration, physical EEPROM access or RF transmission.
+
+This checkpoint supersedes the `6eeb21e` snapshot for source revisions;
+it is not a green Clang-Tidy result or a physical hardware verdict.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
