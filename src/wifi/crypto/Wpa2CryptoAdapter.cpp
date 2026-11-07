@@ -105,15 +105,15 @@ namespace simpleath
             }
 
             bool Adapter::group(void *context, uint8_t keyId,
-                                const uint8_t key[16])
+                                const uint8_t key[16], const uint8_t keyRsc[8])
             {
-                if (!context || !key)
+                if (!context || !key || !keyRsc)
                     return false;
                 auto *adapter = static_cast<Adapter *>(context);
                 return adapter->configured_ &&
                        adapter->hardware_.installGroup &&
                        adapter->hardware_.installGroup(
-                           adapter->hardware_.context, keyId, key);
+                           adapter->hardware_.context, keyId, key, keyRsc);
             }
 
             void Adapter::remove(void *context)

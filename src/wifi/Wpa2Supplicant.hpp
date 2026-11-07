@@ -28,6 +28,7 @@ namespace simpleath
             GtkUnwrapFailure,
             GtkMissingOrMalformed,
             RsnMismatch,
+            InvalidKeySequenceCounter,
             HardwareKeyInstallFailure,
             BufferTooSmall
         };
@@ -73,8 +74,11 @@ namespace simpleath
                                   size_t *resultLength);
                 bool (*installPairwiseTk)(void *context, const Mac &ap,
                                           const uint8_t tk[16]);
+                // M3's MIC-authenticated Key RSC must seed the GTK receive
+                // PN/replay state; refuse success if hardware cannot do so.
                 bool (*installGroupGtk)(void *context, uint8_t keyId,
-                                        const uint8_t gtk[16]);
+                                        const uint8_t gtk[16],
+                                        const uint8_t keyRsc[8]);
                 // Must roll back even partially programmed pairwise/group
                 // slots when an install callback returns false. Idempotent
                 // after partial writes, before the first successful install.

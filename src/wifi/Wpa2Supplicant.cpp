@@ -329,12 +329,22 @@ namespace simpleath
             }
             const bool micValid =
                 constantTimeEqual(parsed.mic, expectedMic, 16);
+            // Copy the group receive PN from the same immutable snapshot
+            // whose MIC was just verified, not the original DMA-backed input.
+            uint8_t authenticatedRsc[8] {};
+            if (micValid)
+                copyBytes(authenticatedRsc,
+                          signedEapol + kEapolHeaderBytes + 61u,
+                          sizeof(authenticatedRsc));
             secureClear(signedEapol, sizeof(signedEapol));
             secureClear(expectedMic, sizeof(expectedMic));
             if (!micValid)
                 return fail(Wpa2Result::MicMismatch);
             if (replay_.acceptVerifiedMessage3(parsed, true) != EapolResult::Ok)
                 return fail(Wpa2Result::InvalidReplayCounter);
+            // IEEE 802.11 CCMP Key RSC has six PN octets then two zero octets.
+            if (authenticatedRsc[6] != 0 || authenticatedRsc[7] != 0)
+                return fail(Wpa2Result::InvalidKeySequenceCounter);
 
             uint8_t decrypted[kMaximumGtkPlaintext] {};
             size_t decryptedLength = 0;
@@ -386,7 +396,8 @@ namespace simpleath
                 secureClear(response, sizeof(response));
                 return fail(Wpa2Result::HardwareKeyInstallFailure);
             }
-            if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk))
+            if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk,
+                                         authenticatedRsc))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));

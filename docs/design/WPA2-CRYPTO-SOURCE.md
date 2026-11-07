@@ -129,3 +129,20 @@ References:
   clear during this limited initial 4-way handshake. Explicit group
   rekey, protected EAPOL and hardware TX ordering remain unimplemented.
 - Source-level guard only; no test, build, or network exchange performed.
+
+## MIC-bound group replay initialization (2026-11-06)
+
+- EAPOL parsing now exposes the 8-octet Key RSC from the fixed descriptor.
+  After M3 MIC verification, the supplicant snapshots that RSC from the
+  MIC-verified local EAPOL copy, not the caller-owned RX/DMA buffer.
+- For CCMP, octets 0..5 carry the received GTK packet number, least
+  significant octet first; octets 6 and 7 must be zero. Nonzero high
+  octets fail the handshake before any key is programmed.
+- The group-key callback now **requires** the original authenticated RSC
+  and must atomically install the GTK plus the hardware RX replay/PN
+  baseline. If it cannot program that state, it must fail, allowing the
+  supplicant's rollback callback to remove all attempted key installs.
+- IEEE Std 802.11i-2004, EAPOL-Key Key RSC field and GTK installation:
+  https://www.normsplash.com/Samples/ISO/914742298/ISO-IEC-8802-11-2005-Amd-6-2006-en-2.pdf
+- This remains an unimplemented hardware callback contract: no installed
+  AR9565 GTK/PN state or actual replay resistance has been demonstrated.

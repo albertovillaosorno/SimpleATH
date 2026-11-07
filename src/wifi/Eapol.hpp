@@ -45,6 +45,9 @@ namespace simpleath
                 const uint8_t *eapolBytes;
                 size_t eapolLength;
                 const uint8_t *nonce;
+                // Eight Key RSC octets borrowed from eapolBytes; CCMP GTK
+                // receive PN is in octets 0..5, least significant first.
+                const uint8_t *keyRsc;
                 const uint8_t *mic;
                 const uint8_t *keyData;
                 uint16_t keyDataLength;

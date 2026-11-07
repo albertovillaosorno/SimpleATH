@@ -28,8 +28,13 @@ namespace simpleath
                     // and PN state.
                     bool (*installPairwise)(void *context, const Mac &ap,
                                             const uint8_t key[16]);
+                    // keyRsc is the MIC-authenticated EAPOL M3 RSC:
+                    // CCMP receive PN bytes 0..5 (least-significant first),
+                    // followed by two zeros. Install GTK and receive PN/replay
+                    // floor as one fail-closed operation. Never reset PN to 0.
                     bool (*installGroup)(void *context, uint8_t keyId,
-                                         const uint8_t key[16]);
+                                         const uint8_t key[16],
+                                         const uint8_t keyRsc[8]);
                     void (*removeKeys)(void *context);
             };
 
@@ -66,7 +71,8 @@ namespace simpleath
                     static bool pairwise(void *context, const Mac &ap,
                                          const uint8_t key[16]);
                     static bool group(void *context, uint8_t keyId,
-                                      const uint8_t key[16]);
+                                      const uint8_t key[16],
+                                      const uint8_t keyRsc[8]);
                     static void remove(void *context);
                     KeyHardware hardware_;
                     bool configured_;

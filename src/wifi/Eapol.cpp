@@ -114,6 +114,7 @@ namespace simpleath
             parsed.eapolBytes = frame;
             parsed.eapolLength = bodyLength + 4;
             parsed.nonce = nonce;
+            parsed.keyRsc = body + 61u;
             parsed.mic = mic;
             parsed.keyData = body + 95;
             parsed.keyDataLength = keyDataLength;
