@@ -30,7 +30,8 @@ namespace simpleath
             CryptoFailure,
             BufferTooSmall,
             InvalidReceivedFrame,
-            NoAction
+            NoAction,
+            AccessPointRejected
         };
 
         enum class ActionKind : uint8_t
@@ -167,6 +168,9 @@ namespace simpleath
                                           size_t messageBytes, uint8_t *out,
                                           size_t capacity,
                                           EngineAction &action);
+                // Rejecting an auth/association response is recoverable only
+                // after forgetting the rejected candidate and supplicant.
+                void abandonCandidate();
 
                 ScanCache cache_;
                 Station station_;

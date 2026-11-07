@@ -137,6 +137,18 @@ namespace simpleath
             return EngineResult::Ok;
         }
 
+        void WifiEngine::abandonCandidate()
+        {
+            // AP rejection can occur on a still-running radio. Forget only
+            // the association attempt; keep the verified crypto provider
+            // configured so a subsequent explicit scan can select a new BSS.
+            supplicant_.reset();
+            station_.reset();
+            link_.clear();
+            stationAddress_ = {};
+            selected_ = false;
+        }
+
         EngineResult WifiEngine::emitPrepared(ActionKind kind, size_t written,
                                               EngineAction &action)
         {
@@ -188,8 +200,14 @@ namespace simpleath
                     (network.rsn.security == Security::Wpa2Personal ? 22u : 0u);
                 if (!out || capacity < associationBytes)
                     return EngineResult::BufferTooSmall;
-                if (station_.onAuthenticationResponse(frame, length) !=
-                    StationResult::Ok)
+                const StationResult authenticated =
+                    station_.onAuthenticationResponse(frame, length);
+                if (authenticated == StationResult::AssociationRejected)
+                {
+                    abandonCandidate();
+                    return EngineResult::AccessPointRejected;
+                }
+                if (authenticated != StationResult::Ok)
                     return EngineResult::InvalidReceivedFrame;
                 size_t written = 0;
                 const Result prepared = station_.associationRequest(
@@ -206,6 +224,11 @@ namespace simpleath
             {
                 const StationResult response =
                     station_.onAssociationResponse(frame, length);
+                if (response == StationResult::AssociationRejected)
+                {
+                    abandonCandidate();
+                    return EngineResult::AccessPointRejected;
+                }
                 if (response != StationResult::Wpa2CryptoNotImplemented &&
                     response != StationResult::NetworkInterfaceNotImplemented)
                     return EngineResult::InvalidReceivedFrame;
