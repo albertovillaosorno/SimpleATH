@@ -318,6 +318,28 @@ kext build, OS integration, physical EEPROM access or RF transmission.
 This checkpoint supersedes the `6eeb21e` snapshot for source revisions;
 it is not a green Clang-Tidy result or a physical hardware verdict.
 
+## Revoked RTC owner before initial clock, 2026-11-07 17:31 CST
+
+Source DCO `650fb8a` adds `canReset`/epoch preflight **before** `RtcRun`
+reads its very first provider clock sample. Previously a revoked owner
+could reach `nowMicros` before the first ownership check. Synthetic
+regressions for a missing owner and a stale ownership epoch now assert
+`AccessRevoked`, **zero clock/MMIO calls** and no modified board readiness.
+The previously unguarded RTC test fails against the prior implementation
+(exit 20); the guarded version passes strict C++14/C++17 host compiles,
+AddressSanitizer/UndefinedBehaviorSanitizer, Clang-Format and the separate
+306-test Python suite. No PCI/RF/kext or native reset was executed.
+
+A full `python3 -B tools/validate.py --no-cache` on **clean main
+`650fb8a`** then executed the complete mandatory repository scope:
+**161 files, 410 checks, zero cached, 410 executed, 359 passed, 51
+failed, zero skipped**, with `source_only=true` and
+`tests_requested=true`. All 51 failures remain Clang-Tidy; no other tool
+failed, and no source snapshot drift appeared. Process stdout and saved
+`.cache/validate/report.json` were byte-identical. This is the latest
+fully uncached source checkpoint, not a passing acceptance result. The
+root linter policy has not been weakened. **P0 remains OPEN**.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
