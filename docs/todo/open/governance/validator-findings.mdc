@@ -267,6 +267,26 @@ unavailable macOS CoreWLAN SDK header on this Linux host. Do not remove
 those checks, mislabel the unsupported host environment as a pass, or infer
 hardware readiness. **P0 stays OPEN** until those findings are resolved.
 
+## Clean EAPOL parser checkpoint, 2026-11-07 17:17 CST
+
+After source-only DCO `6eeb21e`, a fresh full
+`python3 -B tools/validate.py --no-cache` on **clean main `6eeb21e`**
+recorded `scope=repository`, `source_only=true`,
+`tests_requested=true`, **161 files, 410 checks, 0 cached, 410 executed,
+359 passed, 51 failed, 0 skipped**. All 51 failures remain Clang-Tidy;
+no source/configuration/test-manifest drift was detected and stdout and
+`.cache/validate/report.json` were byte-identical. This supersedes the
+preceding checkpoint as the latest tested source commit, but it does NOT
+satisfy P0 acceptance or establish native hardware readiness.
+
+The EAPOL-Key parser previously preserved borrowed RX pointers from a
+successful parse after ordinary malformed or null input on reparse. The
+new contract clears those stale outputs on failure while rejecting
+input/output overlap without any mutation. Its regression failed before
+the fix (exit 25) and passed afterwards under strict C++14 and C++17 with
+AddressSanitizer and UndefinedBehaviorSanitizer, plus Clang-Format.
+Only synthetic host frames were used; no kext, RF, PCI or DMA execution.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
