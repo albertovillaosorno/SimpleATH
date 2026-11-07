@@ -90,7 +90,10 @@ def _validate_records(encoded: bytes, target_size: int) -> None:
         offset, length = struct.unpack_from("<II", encoded, position)
         position += RECORD_HEADER_SIZE
         _validate_record(
-            offset, length, end, target_size, len(encoded) - position
+            (offset, length),
+            end=end,
+            target_size=target_size,
+            remaining=len(encoded) - position,
         )
         end = offset + length
         position += length

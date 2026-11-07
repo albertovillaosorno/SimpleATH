@@ -114,6 +114,18 @@ class EmbedPayloadDeltaTests(TestCase):
         assert _invalid(prefix + struct.pack("<II", 0, 1) + b"X")
 
     @staticmethod
+    def test_two_adjacent_records_and_trailing_header_preflight() -> None:
+        """Accept disjoint adjacent spans and reject a malformed later one."""
+        records = (
+            struct.pack("<II", 1, 2) + b"XY" + struct.pack("<II", 3, 1) + b"Z"
+        )
+        expected = bytearray(BASE)
+        expected[1:4] = b"XYZ"
+        assert decode_payload_delta(BASE, records, len(BASE)) == expected
+        assert _invalid(records + struct.pack("<II", len(BASE), 1) + b"X")
+        assert _invalid(records + b"\x00")
+
+    @staticmethod
     def test_out_of_bounds_target_and_alignment_fail_closed() -> None:
         """Never allocate beyond the uint32 native payload size contract."""
         assert _invalid_target(b"")
