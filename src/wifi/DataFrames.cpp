@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "DataFrames.hpp"
+#include "Frames.hpp"
+
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
     namespace ieee80211
     {
-        namespace
+        static bool overlaps(const void *const first_buffer, size_t first_bytes,
+                             const void *const second_buffer,
+                             size_t second_bytes)
         {
-            bool overlaps(const void *a, size_t aBytes, const void *b,
-                          size_t bBytes)
-            {
-                if (!a || !b || !aBytes || !bBytes)
-                    return false;
-                const auto first = reinterpret_cast<uintptr_t>(a);
-                const auto second = reinterpret_cast<uintptr_t>(b);
-                return first <= second ? second - first < aBytes
-                                       : first - second < bBytes;
-            }
-        } // namespace
+            if (first_buffer == nullptr || second_buffer == nullptr ||
+                first_bytes == 0 || second_bytes == 0)
+                return false;
+            const auto first = reinterpret_cast<uintptr_t>(first_buffer);
+            const auto second = reinterpret_cast<uintptr_t>(second_buffer);
+            return first <= second ? second - first < first_bytes
+                                   : first - second < second_bytes;
+        }
 
         Result decodeLlcData(const uint8_t *frame, size_t frameBytes,
                              bool containsFcs, bool verifiedDecryptionAndMic,

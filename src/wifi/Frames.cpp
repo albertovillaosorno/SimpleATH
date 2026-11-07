@@ -1,64 +1,65 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Frames.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace simpleath
 {
     namespace ieee80211
     {
-        namespace
+        static uint16_t read16(const uint8_t *p)
         {
-            uint16_t read16(const uint8_t *p)
-            {
-                return static_cast<uint16_t>(p[0]) |
-                       static_cast<uint16_t>(static_cast<uint16_t>(p[1]) << 8u);
-            }
+            return static_cast<uint16_t>(p[0]) |
+                   static_cast<uint16_t>(static_cast<uint16_t>(p[1]) << 8u);
+        }
 
-            uint64_t read64(const uint8_t *p)
-            {
-                uint64_t result = 0;
-                for (size_t i = 0; i < 8; ++i)
-                    result |= static_cast<uint64_t>(p[i]) << (8u * i);
-                return result;
-            }
+        static uint64_t read64(const uint8_t *p)
+        {
+            uint64_t result = 0;
+            for (size_t i = 0; i < 8; ++i)
+                result |= static_cast<uint64_t>(p[i]) << (8u * i);
+            return result;
+        }
 
-            void write16(uint8_t *p, uint16_t value)
-            {
-                p[0] = static_cast<uint8_t>(value);
-                p[1] = static_cast<uint8_t>(value >> 8u);
-            }
+        static void write16(uint8_t *p, uint16_t value)
+        {
+            p[0] = static_cast<uint8_t>(value);
+            p[1] = static_cast<uint8_t>(value >> 8u);
+        }
 
-            void copyBytes(uint8_t *dest, const uint8_t *source, size_t size)
-            {
-                for (size_t i = 0; i < size; ++i)
-                    dest[i] = source[i];
-            }
+        static void copy_bytes(uint8_t *dest, const uint8_t *source,
+                               size_t size)
+        {
+            for (size_t i = 0; i < size; ++i)
+                dest[i] = source[i];
+        }
 
-            Mac address(const uint8_t *p)
-            {
-                Mac out {};
-                copyBytes(out.bytes, p, 6);
-                return out;
-            }
+        static Mac address(const uint8_t *p)
+        {
+            Mac out {};
+            copy_bytes(out.bytes, p, 6);
+            return out;
+        }
 
-            bool suite(const uint8_t *p, uint8_t id)
-            {
-                return p[0] == 0x00 && p[1] == 0x0f && p[2] == 0xac &&
-                       p[3] == id;
-            }
+        static bool suite(const uint8_t *p, uint8_t id)
+        {
+            return p[0] == 0x00 && p[1] == 0x0f && p[2] == 0xac && p[3] == id;
+        }
 
-            bool allZero(const Mac &mac)
-            {
-                uint8_t aggregate = 0;
-                for (uint8_t byte : mac.bytes)
-                    aggregate |= byte;
-                return aggregate == 0;
-            }
+        static bool all_zero(const Mac &mac)
+        {
+            uint8_t aggregate = 0;
+            for (uint8_t byte : mac.bytes)
+                aggregate |= byte;
+            return aggregate == 0;
+        }
 
-            const uint8_t kBroadcast[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-            const uint8_t kRates[8] = {0x82, 0x84, 0x8b, 0x96,
-                                       0x0c, 0x12, 0x18, 0x24};
-            const uint8_t kExtendedRates[4] = {0x30, 0x48, 0x60, 0x6c};
-        } // namespace
+        static const uint8_t K_BROADCAST[6] = {0xff, 0xff, 0xff,
+                                               0xff, 0xff, 0xff};
+        static const uint8_t K_RATES[8] = {0x82, 0x84, 0x8b, 0x96,
+                                           0x0c, 0x12, 0x18, 0x24};
+        static const uint8_t K_EXTENDED_RATES[4] = {0x30, 0x48, 0x60, 0x6c};
 
         bool sameMac(const Mac &left, const Mac &right)
         {
@@ -71,7 +72,7 @@ namespace simpleath
 
         bool validStationMac(const Mac &mac)
         {
-            return !allZero(mac) && (mac.bytes[0] & 1u) == 0;
+            return !all_zero(mac) && (mac.bytes[0] & 1u) == 0;
         }
 
         Result parseFrame(const uint8_t *bytes, size_t length, Frame &out)
@@ -409,24 +410,24 @@ namespace simpleath
             for (size_t i = 0; i < needed; ++i)
                 output[i] = 0;
             write16(output, 0x0040u); // Management: probe request.
-            copyBytes(output + 4, kBroadcast, 6);
-            copyBytes(output + 10, station.bytes, 6);
-            copyBytes(output + 16, kBroadcast, 6);
+            copy_bytes(output + 4, K_BROADCAST, 6);
+            copy_bytes(output + 10, station.bytes, 6);
+            copy_bytes(output + 16, K_BROADCAST, 6);
             write16(output + 22,
                     static_cast<uint16_t>((sequence & 0xfffu) << 4u));
             size_t offset = 24;
             output[offset++] = 0;
             output[offset++] = static_cast<uint8_t>(ssidLength);
             if (ssidLength)
-                copyBytes(output + offset, ssid, ssidLength);
+                copy_bytes(output + offset, ssid, ssidLength);
             offset += ssidLength;
             output[offset++] = 1;
             output[offset++] = 8;
-            copyBytes(output + offset, kRates, 8);
+            copy_bytes(output + offset, K_RATES, 8);
             offset += 8;
             output[offset++] = 50;
             output[offset++] = 4;
-            copyBytes(output + offset, kExtendedRates, 4);
+            copy_bytes(output + offset, K_EXTENDED_RATES, 4);
             offset += 4;
             written = offset;
             return Result::Ok;
@@ -449,9 +450,9 @@ namespace simpleath
             for (size_t i = 0; i < needed; ++i)
                 output[i] = 0;
             write16(output, 0x00b0u); // Management: authentication.
-            copyBytes(output + 4, bssid.bytes, 6);
-            copyBytes(output + 10, station.bytes, 6);
-            copyBytes(output + 16, bssid.bytes, 6);
+            copy_bytes(output + 4, bssid.bytes, 6);
+            copy_bytes(output + 10, station.bytes, 6);
+            copy_bytes(output + 16, bssid.bytes, 6);
             write16(output + 22,
                     static_cast<uint16_t>((sequence & 0xfffu) << 4u));
             write16(output + 24, 0); // Open-system authentication algorithm.
@@ -488,9 +489,9 @@ namespace simpleath
             for (size_t i = 0; i < needed; ++i)
                 output[i] = 0;
             write16(output, 0x0000u); // Management: association request.
-            copyBytes(output + 4, network.bssid.bytes, 6);
-            copyBytes(output + 10, station.bytes, 6);
-            copyBytes(output + 16, network.bssid.bytes, 6);
+            copy_bytes(output + 4, network.bssid.bytes, 6);
+            copy_bytes(output + 10, station.bytes, 6);
+            copy_bytes(output + 16, network.bssid.bytes, 6);
             write16(output + 22,
                     static_cast<uint16_t>((sequence & 0xfffu) << 4u));
             write16(output + 24,
@@ -499,15 +500,15 @@ namespace simpleath
             size_t offset = 28;
             output[offset++] = 0;
             output[offset++] = network.ssidLength;
-            copyBytes(output + offset, network.ssid, network.ssidLength);
+            copy_bytes(output + offset, network.ssid, network.ssidLength);
             offset += network.ssidLength;
             output[offset++] = 1;
             output[offset++] = 8;
-            copyBytes(output + offset, kRates, 8);
+            copy_bytes(output + offset, K_RATES, 8);
             offset += 8;
             output[offset++] = 50;
             output[offset++] = 4;
-            copyBytes(output + offset, kExtendedRates, 4);
+            copy_bytes(output + offset, K_EXTENDED_RATES, 4);
             offset += 4;
             if (secure)
             {
@@ -517,7 +518,7 @@ namespace simpleath
                     0xac, 0x04, 0x01, 0x00, 0x00, 0x0f, 0xac, 0x02, 0x00, 0x00};
                 output[offset++] = 48;
                 output[offset++] = sizeof(rsn);
-                copyBytes(output + offset, rsn, sizeof(rsn));
+                copy_bytes(output + offset, rsn, sizeof(rsn));
                 offset += sizeof(rsn);
             }
             written = offset;

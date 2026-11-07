@@ -1,35 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Eapol.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace simpleath
 {
     namespace ieee80211
     {
-        namespace
+        static uint16_t read_big16(const uint8_t *bytes)
         {
-            uint16_t readBig16(const uint8_t *bytes)
-            {
-                return static_cast<uint16_t>(static_cast<uint16_t>(bytes[0])
-                                             << 8u) |
-                       static_cast<uint16_t>(bytes[1]);
-            }
+            return static_cast<uint16_t>(static_cast<uint16_t>(bytes[0])
+                                         << 8u) |
+                   static_cast<uint16_t>(bytes[1]);
+        }
 
-            uint64_t readBig64(const uint8_t *bytes)
-            {
-                uint64_t result = 0;
-                for (size_t i = 0; i < 8; ++i)
-                    result = (result << 8u) | bytes[i];
-                return result;
-            }
+        static uint64_t read_big64(const uint8_t *bytes)
+        {
+            uint64_t result = 0;
+            for (size_t i = 0; i < 8; ++i)
+                result = (result << 8u) | bytes[i];
+            return result;
+        }
 
-            bool anyNonzero(const uint8_t *bytes, size_t length)
-            {
-                uint8_t aggregate = 0;
-                for (size_t i = 0; i < length; ++i)
-                    aggregate |= bytes[i];
-                return aggregate != 0;
-            }
-        } // namespace
+        static bool any_nonzero(const uint8_t *bytes, size_t length)
+        {
+            uint8_t aggregate = 0;
+            for (size_t i = 0; i < length; ++i)
+                aggregate |= bytes[i];
+            return aggregate != 0;
+        }
 
         EapolResult parseEapolKey(const uint8_t *frame, size_t length,
                                   KeyFrame &out)
@@ -43,7 +43,7 @@ namespace simpleath
             if (frame[1] != 3)
                 return EapolResult::UnsupportedType;
 
-            const size_t bodyLength = readBig16(frame + 2);
+            const size_t bodyLength = read_big16(frame + 2);
             if (bodyLength > 2048u || bodyLength > length - 4)
                 return EapolResult::BadLength;
             // EAPOL-Key fixed portion = 95 bytes after the EAPOL header.
@@ -52,7 +52,7 @@ namespace simpleath
             const uint8_t *body = frame + 4;
             if (body[0] != 2)
                 return EapolResult::UnsupportedCipher;
-            const uint16_t info = readBig16(body + 1);
+            const uint16_t info = read_big16(body + 1);
             const uint8_t version = static_cast<uint8_t>(info & 7u);
             if (version != 2)
             {
@@ -61,11 +61,11 @@ namespace simpleath
                 // here.
                 return EapolResult::UnsupportedCipher;
             }
-            const uint16_t keyLength = readBig16(body + 3);
-            const uint64_t replay = readBig64(body + 5);
+            const uint16_t keyLength = read_big16(body + 3);
+            const uint64_t replay = read_big64(body + 5);
             const uint8_t *nonce = body + 13;
             const uint8_t *mic = body + 77;
-            const uint16_t keyDataLength = readBig16(body + 93);
+            const uint16_t keyDataLength = read_big16(body + 93);
             if (keyDataLength > bodyLength - 95u ||
                 bodyLength != static_cast<size_t>(95u + keyDataLength))
                 return EapolResult::BadLength;
@@ -83,14 +83,14 @@ namespace simpleath
             // An unset MIC flag also requires an all-zero MIC field.
             constexpr uint16_t kUnsupportedInfo = 0xe030u;
             if (error || request || (info & kUnsupportedInfo) != 0 ||
-                hasMic != anyNonzero(mic, 16))
+                hasMic != any_nonzero(mic, 16))
                 return EapolResult::InvalidKeyInformation;
 
             KeyMessage message = KeyMessage::Unknown;
             if (pairwise)
             {
                 if (ack && !hasMic && !install && !secure && !encryptedData &&
-                    anyNonzero(nonce, 32))
+                    any_nonzero(nonce, 32))
                     message = KeyMessage::Pairwise1;
                 else if (!ack && hasMic && !install && !secure &&
                          !encryptedData)
