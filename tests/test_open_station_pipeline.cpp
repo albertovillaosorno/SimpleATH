@@ -132,5 +132,36 @@ int main()
         engine.stationState() == StationState::AssociatedOpen ||
         engine.hasNativeWifiInterface())
         return 9;
+
+    // Borrowed identities from a previous link are not independent inputs to
+    // started(): resetting the snapshot would otherwise erase both MACs
+    // before they are copied, yet report the link Associated.
+    LinkMonitor monitor;
+    const Mac accessPoint {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+    if (monitor.started(station, accessPoint, 100, 1000, false, false) !=
+            LinkMonitorResult::Ok ||
+        monitor.observeTimeout(3000) != LinkMonitorResult::Ok ||
+        monitor.status().state != LinkState::ReconnectPending)
+        return 10;
+    const LinkSnapshot beforeRestart = monitor.status();
+    if (monitor.started(monitor.status().station, monitor.status().bssid, 100,
+                        3000, false,
+                        false) != LinkMonitorResult::InvalidArgument ||
+        monitor.status().state != LinkState::ReconnectPending ||
+        !sameMac(monitor.status().station, beforeRestart.station) ||
+        !sameMac(monitor.status().bssid, beforeRestart.bssid) ||
+        monitor.status().nextReconnectAtMs != beforeRestart.nextReconnectAtMs)
+        return 11;
+    if (monitor.started(station, monitor.status().bssid, 100, 3000, false,
+                        false) != LinkMonitorResult::InvalidArgument ||
+        monitor.started(monitor.status().station, accessPoint, 100, 3000, false,
+                        false) != LinkMonitorResult::InvalidArgument ||
+        monitor.status().state != LinkState::ReconnectPending)
+        return 12;
+    if (monitor.started(station, accessPoint, 100, 3000, false, false) !=
+            LinkMonitorResult::Ok ||
+        !sameMac(monitor.status().station, station) ||
+        !sameMac(monitor.status().bssid, accessPoint))
+        return 13;
     return 0;
 }

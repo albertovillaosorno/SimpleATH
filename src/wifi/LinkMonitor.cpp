@@ -13,6 +13,14 @@ namespace simpleath
             constexpr uint64_t kBaseRetryMs = 500;
             constexpr uint64_t kMaximumRetryMs = 16000;
 
+            bool overlapsStorage(const void *first, size_t firstBytes,
+                                 const void *second, size_t secondBytes)
+            {
+                const auto a = reinterpret_cast<uintptr_t>(first);
+                const auto b = reinterpret_cast<uintptr_t>(second);
+                return a <= b ? b - a < firstBytes : a - b < secondBytes;
+            }
+
             uint16_t readLittle16(const uint8_t *bytes)
             {
                 return static_cast<uint16_t>(bytes[0]) |
@@ -44,6 +52,13 @@ namespace simpleath
                              uint16_t beaconIntervalTu, uint64_t nowMs,
                              bool pmfNegotiated, bool interfaceReady)
         {
+            // A reconnect may borrow the prior snapshot by reference. Its
+            // fields are destroyed by status_ = {}, so reject those aliases
+            // before even validating the MACs or replacing retained state.
+            if (overlapsStorage(&station, sizeof(station), this,
+                                sizeof(*this)) ||
+                overlapsStorage(&bssid, sizeof(bssid), this, sizeof(*this)))
+                return LinkMonitorResult::InvalidArgument;
             if (status_.state == LinkState::Associated)
                 return LinkMonitorResult::AlreadyMonitoring;
             if (!validStationMac(station) || !validStationMac(bssid) ||

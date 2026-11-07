@@ -25,7 +25,8 @@ namespace simpleath
             ForeignAccessPoint,
             RejectedUnprotectedManagement,
             InvalidClock,
-            NoStateChange
+            NoStateChange,
+            InvalidArgument
         };
 
         enum class LinkState : uint8_t
@@ -71,6 +72,8 @@ namespace simpleath
                 // Call only after a validated association; WPA2 keys may
                 // still be pending and interfaceReady must then be false.
                 // The station and BSSID must be distinct unicast identities.
+                // Borrowed MACs overlapping this monitor's retained snapshot
+                // are rejected without resetting current reconnect state.
                 // This class never claims native operations have occurred.
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
                                           uint16_t beaconIntervalTu,
