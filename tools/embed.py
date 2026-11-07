@@ -22,16 +22,16 @@ import struct
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv for pinned offline disassembly.
 import sys
 from typing import TYPE_CHECKING
+from typing import TypeIs
 from typing import TypedDict
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Iterable
 
     from embed_macho_parser import LoadCommand
     from embed_macho_parser import ParsedSymbol
 
-from abi_types import mapping
-from abi_types import plist_object
 from abi_types import string
 from abi_types import unpack_integers
 from bootstrap import ROOT
@@ -129,6 +129,66 @@ class _PayloadRecord(TypedDict):
     namespacedClassStrings: dict[str, list[int]]
     powerDomainPatches: list[int]
     storage: _PayloadStorage
+
+
+def _object_dictionary(value: object) -> TypeIs[dict[object, object]]:
+    """Narrow a plist value to a generic mapping without dropping binary data.
+
+    Returns:
+        True when the input is a dictionary.
+
+    """
+    return isinstance(value, dict)
+
+
+def _string_dictionary(value: object) -> TypeIs[dict[str, object]]:
+    """Check dictionary key types without discarding valid plist values.
+
+    Returns:
+        True when every key is a string.
+
+    """
+    return _object_dictionary(value) and all(
+        isinstance(key, str) for key in value
+    )
+
+
+def _decode_plist(data: bytes, decoder: Callable[[bytes], object]) -> object:
+    """Decode a plist through a typed boundary preserving binary values.
+
+    Returns:
+        The original supported plist value.
+
+    """
+    return decoder(data)
+
+
+def checked_info_plist(
+    data: bytes,
+) -> tuple[dict[str, object], str, dict[str, str]]:
+    """Read a source bundle's required identity and dependency fields.
+
+    Returns:
+        Original plist values, bundle identifier and string dependencies.
+
+    Raises:
+        ValueError: Required fields are not string-valued plist records.
+
+    """
+    document = _decode_plist(data, plistlib.loads)
+    if not _string_dictionary(document):
+        message = "Embedded Info.plist must be a string-keyed dictionary"
+        raise ValueError(message)
+    identifier = string(document["CFBundleIdentifier"])
+    libraries = document["OSBundleLibraries"]
+    if not _string_dictionary(libraries):
+        message = "Embedded OSBundleLibraries must be a dictionary"
+        raise ValueError(message)
+    return (
+        document,
+        identifier,
+        {library: string(version) for library, version in libraries.items()},
+    )
 
 
 def require_embed(*, condition: bool, message: str) -> None:
@@ -1029,14 +1089,12 @@ def generate() -> None:
         zip(LABELS, images, parsed, strict=True)
     ):
         image_plan = plans[0] if label == LABEL_AIRPORT_ORIGINAL else plan
-        info = plist_object(
+        info, identifier, libraries = checked_info_plist(
             (image.path.parent.parent / "Info.plist").read_bytes()
         )
-        identifier = string(info["CFBundleIdentifier"])
         library_ids.add(identifier)
-        libraries = mapping(info["OSBundleLibraries"])
         for library, version in libraries.items():
-            library_versions.setdefault(library, set()).add(string(version))
+            library_versions.setdefault(library, set()).add(version)
         reloc_context = RelocationContext(
             index,
             image,

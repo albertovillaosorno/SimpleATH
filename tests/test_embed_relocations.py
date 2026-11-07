@@ -2,7 +2,9 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Offline relocation parser preflight before legacy payload expansion."""
 
+from datetime import datetime
 from pathlib import Path
+import plistlib
 import struct
 import sys
 from unittest import TestCase
@@ -18,6 +20,7 @@ from embed import MAX_EXPANDED_PAYLOAD_BYTES
 from embed import RelocationContext
 from embed import checked_alias_name
 from embed import checked_dysymtab_fields
+from embed import checked_info_plist
 from embed import checked_payload_size
 from embed import checked_relocation_entries
 from embed import checked_relocation_width
@@ -31,6 +34,9 @@ from macho import Image
 from native_payload import SkywalkPlan
 
 RELOC_BYTES = 8
+BUNDLE_ID = "dev.test.payload"
+SAMPLE_BINARY_DATA = b"\x00\xff"
+SAMPLE_DATE = datetime.fromisoformat("2026-01-01")
 CHILD_VTABLE = "__ZTV5Child"
 SAMPLE_ADDRESS = 8
 SAMPLE_SYMBOL = 2
@@ -448,3 +454,41 @@ class EmbedExtractedMetadataTests(TestCase):
         assert struct.unpack_from("<II", expanded, 16) == (3, 176)
         assert struct.unpack_from("<4I", expanded, 40) == (300, 0, 320, 8)
         assert struct.unpack_from("<II", expanded, 32 + 24 + 80) == (25, 72)
+
+
+class EmbedInfoPlistTypeSafetyTests(TestCase):
+    """Retain legal plist values while checking required source dependencies."""
+
+    @staticmethod
+    def test_binary_and_date_plist_values_are_preserved() -> None:
+        """Only required fields are constrained; plist bytes are not dropped."""
+        original: dict[str, object] = {
+            "CFBundleIdentifier": BUNDLE_ID,
+            "OSBundleLibraries": {"com.apple.iokit.IOPCIFamily": "2.9"},
+            "Data": SAMPLE_BINARY_DATA,
+            "Date": SAMPLE_DATE,
+        }
+        info, identifier, libraries = checked_info_plist(
+            plistlib.dumps(original)
+        )
+        assert identifier == BUNDLE_ID
+        assert libraries == {"com.apple.iokit.IOPCIFamily": "2.9"}
+        assert info["Data"] == SAMPLE_BINARY_DATA
+        assert info["Date"] == SAMPLE_DATE
+        _ = plistlib.dumps(info)
+
+    @staticmethod
+    def test_invalid_required_identity_and_libraries_rejected() -> None:
+        """Reject malformed bundle metadata before any output is written."""
+        cases: list[dict[str, object]] = [
+            {"CFBundleIdentifier": 5, "OSBundleLibraries": {}},
+            {"CFBundleIdentifier": "dev.test", "OSBundleLibraries": []},
+            {"CFBundleIdentifier": "dev.test", "OSBundleLibraries": {"x": 5}},
+        ]
+        for entry in cases:
+            rejected = False
+            try:
+                _ = checked_info_plist(plistlib.dumps(entry))
+            except TypeError, ValueError:
+                rejected = True
+            assert rejected
