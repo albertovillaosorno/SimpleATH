@@ -20,6 +20,7 @@ CHILD_FAILURE = 7
 EXPECTED_SKIP = "skipped"
 EXPECTED_FAIL = "fail"
 EXPECTED_TIMEOUT = "timed out"
+MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
 PYTHON_FAILURE = """\
@@ -248,6 +249,63 @@ class NativeExecution(unittest.TestCase):
             results = validator.run_tests(root)
             assert results[0]["status"] == EXPECTED_FAIL
             assert OUTSIDE in results[0]["diagnostics"][0]
+
+
+class ClangTidyDatabase(unittest.TestCase):
+    """A present database must not turn a silent Tidy skip into a pass."""
+
+    @staticmethod
+    def test_usable_command_must_match_the_checked_source() -> None:
+        """Reject stale, relative-workdir and commandless source entries."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            file = root / "src/radio.cpp"
+            _ = file.write_text("int radio;", encoding="utf-8")
+            database = root / "compile_commands.json"
+            command = {
+                "directory": str(root),
+                "file": "src/radio.cpp",
+                "arguments": ["clang++", "-fsyntax-only", "src/radio.cpp"],
+            }
+            _ = database.write_text(json.dumps([command]), encoding="utf-8")
+            assert validator.tidy_command_exists(root, file)
+            for replacement in (
+                {**command, "directory": "."},
+                {**command, "directory": str(root / "moved")},
+                {**command, "arguments": []},
+                {**command, "file": "src/other.cpp"},
+            ):
+                _ = database.write_text(
+                    json.dumps([replacement]), encoding="utf-8"
+                )
+                assert not validator.tidy_command_exists(root, file)
+            _ = database.write_text("{", encoding="utf-8")
+            assert not validator.tidy_command_exists(root, file)
+
+    @staticmethod
+    def test_unmatched_command_is_skipped_without_running_tidy() -> None:
+        """A Clang-Tidy exit zero cannot conceal a missing translation unit."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            file = root / "src/radio.cpp"
+            _ = file.write_text("int radio;", encoding="utf-8")
+            _ = (root / "compile_commands.json").write_text(
+                "[]", encoding="utf-8"
+            )
+            for config in (".clang-tidy", ".editorconfig"):
+                _ = (root / config).write_text("", encoding="utf-8")
+            with (
+                mock.patch.object(
+                    validator, "_command", return_value=[sys.executable]
+                ),
+                mock.patch.object(validator.LintRun, "_check_ready") as ready,
+            ):
+                finding = validator.LintRun(
+                    root, validator.Options(), {}
+                ).check(file, "clang-tidy")
+            assert finding["status"] == EXPECTED_SKIP
+            assert MISSING_COMPILE_ENTRY in finding["diagnostics"][0]
+            ready.assert_not_called()
 
 
 class DefaultCliOptions(unittest.TestCase):

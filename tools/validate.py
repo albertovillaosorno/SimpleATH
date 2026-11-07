@@ -31,6 +31,8 @@ ROOT = next(
     p for p in Path(__file__).resolve().parents if (p / ".git").exists()
 )
 CACHE_VERSION = "simpleath.validate.v2"
+CLANG_TIDY_TOOL = "clang-tidy"
+MISSING_TIDY_COMMAND = "No matching compile command in compile_commands.json"
 NATIVE = frozenset({
     ".c",
     ".cc",
@@ -439,6 +441,51 @@ def _signature(command: list[str], file: Path, root: Path, *, tool: str) -> str:
     return digest.hexdigest()
 
 
+def _compile_entry_target(entry: object) -> Path | None:
+    """Resolve only a usable, absolute-workdir compile command entry.
+
+    Returns:
+        The referenced source file, or None for an unusable entry.
+
+    """
+    target: Path | None = None
+    if _mapping(entry):
+        directory, filename = entry.get("directory"), entry.get("file")
+        args, command = entry.get("arguments"), entry.get("command")
+        usable = (_strings(args) and bool(args)) or (
+            isinstance(command, str) and bool(command.strip())
+        )
+        if isinstance(directory, str) and isinstance(filename, str) and usable:
+            base = Path(directory)
+            if base.is_absolute():
+                candidate = Path(filename)
+                target = (
+                    candidate if candidate.is_absolute() else base / candidate
+                ).resolve()
+    return target
+
+
+def tidy_command_exists(root: Path, file: Path) -> bool:
+    """Require a matching compile command before counting Tidy as executed.
+
+    Returns:
+        True only if the database contains a usable command for this file.
+
+    """
+    database = root / "compile_commands.json"
+    try:
+        # Prevent an unrelated or stale database from silently making Tidy
+        # print "Compile command not found" with a SUCCESS exit status.
+        if database.is_symlink() or database.stat().st_size > 32 * 1024 * 1024:
+            return False
+        entries = _decode(database.read_text(encoding="utf-8"))
+    except OSError, ValueError, UnicodeError, RecursionError:
+        return False
+    return _object_list(entries) and any(
+        _compile_entry_target(entry) == file.resolve() for entry in entries
+    )
+
+
 @dataclass
 class LintRun:
     """Collect actual checks and validated lint cache entries."""
@@ -466,6 +513,13 @@ class LintRun:
                 details=[
                     "Missing: " + ", ".join(missing or [EXECUTABLE[tool]])
                 ],
+            )
+        if tool == CLANG_TIDY_TOOL and not tidy_command_exists(self.root, file):
+            return _finding(
+                relative,
+                tool,
+                "skipped",
+                details=[MISSING_TIDY_COMMAND],
             )
         return self._check_ready(file, tool, command)
 

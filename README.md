@@ -119,6 +119,8 @@ project's C++14 dialect; offline test/tool entries use C++17. It was not
 captured from an Xcode kext compilation and does not establish native Tahoe
 header, ABI or runtime compatibility. The JSON records this checkout's
 absolute root path, as Clang-Tidy silently skips unmatched relative entries.
+The validator checks for a matching command first and reports missing/stale
+entries as unsuccessful skips, never an apparent Tidy pass.
 After moving or cloning the repository, refresh those paths with:
 
     python3 -B tools/generate_compile_commands.py
