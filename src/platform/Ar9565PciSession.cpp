@@ -141,10 +141,14 @@ namespace simpleath
     {
         if (!status_.readAccessReady)
             return status_.lastResult = PciSessionResult::WrongState;
-        if (device_.inspect() != Result::Ok)
+        const Result coreResult = device_.inspect();
+        status_.coreInspectResult = coreResult;
+        if (coreResult != Result::Ok)
         {
-            // Keep the core's reason for diagnostics but revoke further access.
-            status_.readAccessReady = false;
+            // Never leave a failed inspection holding a BAR or newly enabled
+            // memory decode until an unspecified future stop callback. Save
+            // the precise core reason before detach clears its live status.
+            unwind(ProviderAccess::Available);
             return status_.lastResult = PciSessionResult::CoreRejected;
         }
         return status_.lastResult = PciSessionResult::Ok;

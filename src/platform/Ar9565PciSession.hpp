@@ -70,6 +70,9 @@ namespace simpleath
     {
             PciSessionResult lastResult;
             PciSessionResult cleanupResult;
+            // Preserved when inspection failure revokes callbacks and detaches
+            // the hardware core before restoring PCI memory decode.
+            Result coreInspectResult;
             uint16_t originalCommand;
             uint32_t barLengthBytes;
             bool claimed;
@@ -94,6 +97,9 @@ namespace simpleath
             PciReadOnlySession(const PciReadOnlySession &) = delete;
             PciReadOnlySession &operator=(const PciReadOnlySession &) = delete;
             PciSessionResult start(const PciSessionBackend &backend);
+            // On core inspection failure, immediately revoke callbacks,
+            // unmap, and conservatively restore memory decode if possible.
+            // status().coreInspectResult retains the core diagnostic.
             PciSessionResult inspect();
             void stop(ProviderAccess access);
 
