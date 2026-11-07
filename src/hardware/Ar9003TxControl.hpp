@@ -49,10 +49,9 @@ namespace simpleath
         struct TxRate
         {
                 uint8_t attempts; // Hardware 4-bit field, maximum 15.
-                uint8_t rateCode; // AR9003 rate-code mapping must be checked
-                                  // upstream.
+                uint8_t rateCode; // AR9565 CCK/OFDM or single-stream MCS0..7.
                 uint16_t rtsCtsDuration;  // Up to 0x7fff.
-                uint8_t antennaChainMask; // Nonzero 3-bit chain selector.
+                uint8_t antennaChainMask; // AR9565 chain zero only (mask 1).
                 uint8_t powerIndex;       // Hardware units; must not exceed
                                           // per-channel limit.
                 bool ht40;
@@ -91,6 +90,8 @@ namespace simpleath
                 uint8_t maximumTxPowerIndex[4];
         };
 
+        // Only AR9565 single-chain rates, no STBC and no HT flags on legacy
+        // rates. An RTS/CTS control rate must be supported legacy modulation.
         // Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields)
         // into an existing validated pointer descriptor. This does not make a
         // packet safe to send until the macOS PCI owner and DMA completion path

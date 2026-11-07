@@ -113,6 +113,66 @@ int main()
         !same(descriptor, beforePolicyError))
         return 11;
 
+    // 1x1 AR9565 cannot use an arbitrary nonzero rate, multiple chains,
+    // STBC, or HT-only flags on a legacy rate, regardless of caller policy.
+    request.rate[0].powerIndex = 1;
+    request.rate[0].rateCode = 0x88; // MCS8 is a second spatial stream.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::InvalidRate ||
+        !same(descriptor, beforePolicyError))
+        return 19;
+    request.rate[0].rateCode = 0x04; // Unrecognized legacy encoding.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::InvalidRate ||
+        !same(descriptor, beforePolicyError))
+        return 20;
+    request.rate[0].rateCode = 0x80;
+    request.rate[0].antennaChainMask = 2;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::InvalidChain ||
+        !same(descriptor, beforePolicyError))
+        return 21;
+    request.rate[0].antennaChainMask = 1;
+    request.rate[0].stbc = true;
+    policy.stbcSupported = true; // A forged policy cannot add a TX chain.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforePolicyError))
+        return 22;
+    request.rate[0].stbc = false;
+    request.rate[0].rateCode = 0x0b;
+    request.rate[0].shortGuardInterval = true;
+    policy.shortGuardIntervalAuthorized = true;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforePolicyError))
+        return 23;
+    request.rate[0].shortGuardInterval = false;
+    request.rate[0].ht40 = true;
+    policy.ht40Authorized = true;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforePolicyError))
+        return 24;
+    request.rate[0].ht40 = false;
+    request.rts = true;
+    request.rtsCtsRateCode = 0x80; // RTS cannot use an HT modulation.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforePolicyError))
+        return 25;
+    request.rts = false;
+    request.rtsCtsRateCode = 0x1b; // Stale control rate without an RTS/CTS.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforePolicyError))
+        return 26;
+    request.rtsCtsRateCode = 0;
+    request.rate[0].rateCode = 0x80; // Single-stream MCS0 is supported.
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        !validTxPointerDescriptor(descriptor))
+        return 27;
+
     RxStatusWords rx {};
     rx.word[0] = 0x168c0000u;
     rx.word[1] = 0x0b000000u;

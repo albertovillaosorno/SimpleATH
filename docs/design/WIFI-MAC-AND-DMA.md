@@ -41,6 +41,10 @@ for the **next separately authorized build**.
   at least one contiguous nonzero segment, 12-bit lengths, no 4-GiB crossing,
   zero unused slots, aligned link, supported queue and pointer checksum.
   A forged all-zero payload with a recomputed checksum is not valid input.
+  The AR9565-only TX control encoder now rejects multi-chain selectors,
+  STBC, unknown rate codes or MCS8+, HT-only flags on legacy rates and
+  invalid/stale RTS/CTS rates, regardless of caller-set policy flags. These
+  descriptor checks do not verify the physical board or permit RF output.
   No safe bus mastering, EDMA ring programming, interrupt completion, active
   RF calibration or 802.11 traffic pipeline exists. The descriptors must not
   be submitted to the physical device.

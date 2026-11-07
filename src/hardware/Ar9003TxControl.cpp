@@ -50,6 +50,37 @@ namespace simpleath
                        type == TxPacketType::ProbeResponse;
             }
 
+            bool legacyRateValid(uint8_t code)
+            {
+                switch (code)
+                {
+                    case 0x1b:
+                    case 0x1a:
+                    case 0x19:
+                    case 0x1e:
+                    case 0x1d:
+                    case 0x18:
+                    case 0x1c:
+                    case 0x0b:
+                    case 0x0f:
+                    case 0x0a:
+                    case 0x0e:
+                    case 0x09:
+                    case 0x0d:
+                    case 0x08:
+                    case 0x0c:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
+            bool htRateValid(uint8_t code)
+            {
+                // AR9565 is 1x1: only MCS0..7 is representable.
+                return code >= 0x80u && code <= 0x87u;
+            }
+
         } // namespace
 
         TxControlError encodeTxControls(const TxControlRequest &request,
@@ -80,7 +111,9 @@ namespace simpleath
                 return TxControlError::RadioNotReady;
             if (!packetTypeValid(request.packetType) ||
                 (request.rts && request.cts) ||
-                ((request.rts || request.cts) && request.rtsCtsRateCode == 0))
+                ((request.rts || request.cts)
+                     ? !legacyRateValid(request.rtsCtsRateCode)
+                     : request.rtsCtsRateCode != 0))
                 return TxControlError::UnsupportedControl;
             if (request.crypto != TxCrypto::Clear &&
                 request.crypto != TxCrypto::Ccmp)
@@ -120,8 +153,17 @@ namespace simpleath
                 }
                 if (foundGap || series.attempts > 15 || series.rateCode == 0)
                     return TxControlError::InvalidRate;
-                if (series.antennaChainMask == 0 || series.antennaChainMask > 7)
+                // This target is AR9565, not a generic 2/3-chain AR9003.
+                // Reject unsupported stream/rate combinations even if a
+                // caller manufactures every radio-ready policy boolean.
+                if (series.antennaChainMask != 1)
                     return TxControlError::InvalidChain;
+                const bool htRate = htRateValid(series.rateCode);
+                if (!htRate && !legacyRateValid(series.rateCode))
+                    return TxControlError::InvalidRate;
+                if (series.stbc ||
+                    (!htRate && (series.ht40 || series.shortGuardInterval)))
+                    return TxControlError::UnsupportedControl;
                 if (series.rtsCtsDuration > 0x7fffu)
                     return TxControlError::InvalidDuration;
                 if (series.powerIndex > 63u ||
