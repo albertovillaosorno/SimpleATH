@@ -46,7 +46,9 @@ namespace simpleath
                     Adapter &operator=(const Adapter &) = delete;
                     // All callbacks must be real, nonblocking and serialized.
                     // This layer cannot authenticate their implementation or
-                    // claim hardware readiness. Callback outputs may not
+                    // claim hardware readiness. The borrowed hardware table
+                    // and adapter storage must not contain callback context.
+                    // Callback outputs may not
                     // overlap the adapter's retained hardware/callback state.
                     // Invalid unwrap-length aliases are returned untouched.
                     bool configure(const KeyHardware &hardware);

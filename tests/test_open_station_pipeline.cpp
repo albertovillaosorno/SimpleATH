@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Portable synthetic open-BSS association; NO native Wi-Fi, RF, PCI or OS I/O.
 #include "wifi/WifiEngine.hpp"
+#include "wifi/crypto/Wpa2CryptoAdapter.hpp"
 #include <cstring>
 
 namespace
@@ -10,6 +11,27 @@ namespace
 
     constexpr uint8_t kAp[6] {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
     constexpr uint8_t kStation[6] {0x02, 0x66, 0x77, 0x88, 0x99, 0xaa};
+
+    // These deliberately nonfunctional providers are never invoked; they
+    // validate only the adapter's offline callback storage contract.
+    bool fakeRandom(void *, uint8_t *, size_t)
+    {
+        return false;
+    }
+
+    bool fakePairwise(void *, const Mac &, const uint8_t[16])
+    {
+        return false;
+    }
+
+    bool fakeGroup(void *, uint8_t, const uint8_t[16], const uint8_t[8])
+    {
+        return false;
+    }
+
+    void fakeRemove(void *)
+    {
+    }
 
     void addresses(uint8_t *frame, const uint8_t *destination)
     {
@@ -163,5 +185,27 @@ int main()
         !sameMac(monitor.status().station, station) ||
         !sameMac(monitor.status().bssid, accessPoint))
         return 13;
+
+    // A provider may write to its opaque context. It cannot be allowed to
+    // modify the adapter's callbacks or the borrowed callback table itself.
+    crypto::Adapter adapter;
+    crypto::KeyHardware provider {nullptr, fakeRandom, fakePairwise, fakeGroup,
+                                  fakeRemove};
+    provider.context = &adapter;
+    if (adapter.configure(provider) || adapter.callbacks().context)
+        return 14;
+    provider.context = &provider;
+    if (adapter.configure(provider) || adapter.callbacks().context)
+        return 15;
+    provider.context = reinterpret_cast<uint8_t *>(&adapter) + 1;
+    if (adapter.configure(provider) || adapter.callbacks().context)
+        return 16;
+    uint32_t independentOwner = 1;
+    provider.context = &independentOwner;
+    if (!adapter.configure(provider) || adapter.callbacks().context != &adapter)
+        return 17;
+    adapter.clear();
+    if (adapter.callbacks().context)
+        return 18;
     return 0;
 }

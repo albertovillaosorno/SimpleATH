@@ -77,7 +77,9 @@ for the **next separately authorized build**.
   required platform callbacks. Portable PBKDF2, HMAC-SHA1 and AES unwrap
   sources are staged but uncompiled and unaudited. There is no validated
   CSPRNG, installed CCMP keycache, OS credentials or EAPOL TX/RX path.
-  It cannot independently establish secure traffic.
+  It cannot independently establish secure traffic. Provider callback
+  contexts are also rejected when they alias the retained crypto adapter or
+  its borrowed configuration table; callbacks remain untrusted code.
 - **Reconnect identity must be independently supplied.** The portable link
   monitor rejects station/BSSID inputs referencing its own retained snapshot
   before a restart clears that snapshot; a stale reconnect cannot report a

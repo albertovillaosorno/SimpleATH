@@ -30,7 +30,14 @@ namespace simpleath
 
             bool Adapter::configure(const KeyHardware &hw)
             {
-                if (configured_ || !hw.context || !hw.secureRandom ||
+                // The opaque callback owner cannot point into this adapter
+                // or the borrowed provider table: callbacks may write their
+                // contexts, and both locations carry trusted function data.
+                // Reject all detectable aliases before retaining anything.
+                if (overlaps(hw.context, 1, this, sizeof(*this)) ||
+                    overlaps(hw.context, 1, &hw, sizeof(hw)) ||
+                    overlaps(&hw, sizeof(hw), this, sizeof(*this)) ||
+                    configured_ || !hw.context || !hw.secureRandom ||
                     !hw.installPairwise || !hw.installGroup || !hw.removeKeys)
                     return false;
                 hardware_ = hw;
