@@ -90,6 +90,13 @@ struct Beacon {
     uint64_t timestamp;
     uint16_t intervalTu;
     uint16_t capabilities;
+    // Preserve advertised (including basic-rate marker) BSS rate codes.
+    uint8_t rates[32];
+    uint8_t rateCount;
+    // Full RSN information element including ID+length, for future
+    // CoreWLAN scan-result presentation without reconstructing security IE.
+    uint8_t rsnIe[257];
+    uint16_t rsnIeLength;
     Rsn rsn;
 };
 

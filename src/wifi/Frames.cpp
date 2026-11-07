@@ -217,6 +217,7 @@ Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out) {
     Elements cursor(fixed + 12, length - header.headerLength - 12);
     Element element {};
     bool seenSsid = false, seenRsn = false, seenDs = false;
+    bool seenRates = false, seenExtendedRates = false;
     for (;;) {
         const CursorStatus next = cursor.next(element);
         if (next == CursorStatus::End) break;
@@ -231,6 +232,19 @@ Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out) {
                 parsed.ssid[i] = element.data[i];
                 if (element.data[i] != 0) parsed.hiddenSsid = false;
             }
+        } else if (element.id == 1 || element.id == 50) {
+            // The basic-rate flag (MSB) must be carried to the macOS
+            // network stack, not interpreted as part of the rate number.
+            const bool base = element.id == 1;
+            if ((base && seenRates) || (!base && seenExtendedRates) ||
+                (base && (element.length == 0 || element.length > 8)) ||
+                static_cast<size_t>(parsed.rateCount) +
+                    element.length > sizeof(parsed.rates))
+                return Result::InvalidElement;
+            if (base) seenRates = true;
+            else seenExtendedRates = true;
+            for (size_t i = 0; i < element.length; ++i)
+                parsed.rates[parsed.rateCount++] = element.data[i];
         } else if (element.id == 3) {
             if (seenDs || element.length != 1)
                 return Result::InvalidElement;
@@ -250,6 +264,13 @@ Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out) {
             seenRsn = true;
             result = parseRsn(element.data, element.length, parsed.rsn);
             if (result != Result::Ok) return result;
+            // Keep the exact validated IE byte-for-byte for native scan
+            // reporting. This is received data, not a trusted association IE.
+            parsed.rsnIe[0] = element.id;
+            parsed.rsnIe[1] = element.length;
+            for (size_t i = 0; i < element.length; ++i)
+                parsed.rsnIe[i + 2] = element.data[i];
+            parsed.rsnIeLength = static_cast<uint16_t>(element.length + 2u);
         } else if (element.id == 61 && element.length >= 1 &&
                    !seenDs) {
             if (element.data[0] != 0 && element.data[0] <= 14)

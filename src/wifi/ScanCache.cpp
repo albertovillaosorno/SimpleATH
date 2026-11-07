@@ -75,6 +75,20 @@ size_t ScanCache::size() const {
     return count;
 }
 
+bool ScanCache::snapshot(size_t ordinal, Bss &out) const {
+    if (ordinal >= kCapacity) return false;
+    size_t occupied = 0;
+    for (size_t i = 0; i < kCapacity; ++i) {
+        if (!entries_[i].occupied) continue;
+        if (occupied == ordinal) {
+            out = entries_[i];
+            return true;
+        }
+        ++occupied;
+    }
+    return false;
+}
+
 bool ScanCache::strongest(const uint8_t *ssid, size_t ssidLength,
                           uint8_t channel, bool permitOpen,
                           bool permitWpa2, Bss &out) const {

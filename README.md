@@ -40,25 +40,23 @@ The source tree now includes a native C++ AR9565 hardware core, chipset
 revision decoder, EEPROM/RTC status reader, guarded initialization plan,
 and real 2.4 GHz register tables generated from Linux ath9k.
 
-The hardware port is **incomplete**: PCI BAR transport, DMA, PHY
-calibration, 802.11 association, encryption, and a macOS Wi-Fi interface
-do not exist yet. New modules are staged in the Xcode target, but no new
-binary has been built or deployed.
+The hardware port is **incomplete**. PCI bus mastering, live DMA,
+PHY calibration, 802.11 packet delivery, a verified crypto/keycache
+backend and an actual macOS wireless interface have not been integrated.
+The additional source is staged in the Xcode target but has not been built.
 
-See [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md).
-Portable 802.11 management/data/EAPOL parsing, AR9003 TX/RX descriptor
-and rate/power/CCMP control codecs, and DMA-validation modules are also
-staged in the Xcode target. A guarded Ethernet-II/802.11 ToDS payload
-serializer, access-point RX filter, and beacon-loss/reconnection
-state machine are also staged. They are
-**not active** on the PCI card and do not provide WPA2 or a network device;
-see [Wi-Fi MAC and DMA source status](docs/design/WIFI-MAC-AND-DMA.md). WPA2 handshake sources also
-coordinate key derivation, MIC verification and installation via a required
-portable SHA-1/PBKDF2/PTK/AES key-wrap primitives that are **uncompiled
-and unaudited**, plus a hardware CSPRNG/keycache provider that is **not
-yet implemented**. See [WPA2 crypto status](docs/design/WPA2-CRYPTO-SOURCE.md). An allocation-free source-level [Wi-Fi engine](docs/design/WIFI-ENGINE-SOURCE.md)
-now coordinates these modules but has no physical PCI backend or native
-Tahoe wireless interface.
+The [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md) covers hardware.
+The [Wi-Fi MAC/DMA record](docs/design/WIFI-MAC-AND-DMA.md) covers portable
+802.11 framing, scanning, association, retry/reconnect and the AR9003
+TX/RX descriptor codecs. A [Wi-Fi coordinator](docs/design/WIFI-ENGINE-SOURCE.md)
+links those components without operating hardware.
+
+Portable [WPA2 cryptographic source](docs/design/WPA2-CRYPTO-SOURCE.md)
+contains new SHA-1/HMAC, PBKDF2, PTK and AES key unwrap algorithms, but they
+are **uncompiled and unaudited** and there is no macOS CSPRNG or actual
+AR9565 keycache provider. A [native IO80211 research record](docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md)
+identifies a demonstrated Tahoe legacy-AirPort integration approach on
+other wireless chipsets; SimpleATH does not yet implement its native classes.
 
 The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
 the PCI ownership contract from a verified native adapter. The
