@@ -20,7 +20,9 @@
 // ar9003_mac.c:
 // a99f8fb18052510161232331e5fc98757619713e6f2ad69d1897f77597c0188b
 // ar9003_mac.h:
-// 47ada2b3a635aaf3cadb7b9f93bbff676da27bdc566e4a332124f21bbf0c7461 mac.h:
+// 47ada2b3a635aaf3cadb7b9f93bbff676da27bdc566e4a332124f21bbf0c7461
+//
+// mac.h:
 // 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
 #include "Ar9003Descriptors.hpp"
 
@@ -102,6 +104,17 @@ namespace simpleath
             if (nextDescriptorBusAddress != 0 &&
                 (nextDescriptorBusAddress & 3u) != 0)
                 return DescriptorError::InvalidLink;
+            // A link update must not launder an uninitialized, stale or
+            // checksum-corrupt descriptor into something apparently valid.
+            // Pointer checksums exclude the rate/power control fields.
+            const uint32_t info = descriptor.word[kTxInfoIndex];
+            if ((info & 0xffff0000u) != kVendor ||
+                (info & kTxDescriptorBits) != kTxDescriptorBits ||
+                (info & 0xffu) != kTxDescriptorDwords ||
+                ((info >> 8u) & 0x0fu) > kValidQueueMax ||
+                (descriptor.word[kChecksumIndex] & 0xffffu) !=
+                    txPointerChecksum(descriptor))
+                return DescriptorError::InvalidDescriptor;
             // Link updates do not require rewriting rate/power control words.
             descriptor.word[kLinkIndex] = nextDescriptorBusAddress;
             descriptor.word[kChecksumIndex] =
@@ -112,6 +125,9 @@ namespace simpleath
 
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out)
         {
+            // A caller must never reuse a prior completed payload/status after
+            // this read fails; diagnostic bits remain in the raw words.
+            out = {};
             const uint32_t info = raw.word[0];
             const uint32_t flags = raw.word[11];
             if ((info & 0xffff0000u) != kVendor)
@@ -142,9 +158,9 @@ namespace simpleath
             status.frameValid = (flags & 0x2u) != 0 && !status.crcError &&
                                 !status.decryptError && !status.phyError &&
                                 !status.micError && !status.keyMiss;
-            out = status;
             if (!status.frameValid || status.frameLength == 0)
                 return DescriptorError::ReceiveError;
+            out = status;
             return DescriptorError::Ok;
         }
 

@@ -20,10 +20,12 @@
 // ar9003_mac.c:
 // a99f8fb18052510161232331e5fc98757619713e6f2ad69d1897f77597c0188b
 // ar9003_mac.h:
-// 47ada2b3a635aaf3cadb7b9f93bbff676da27bdc566e4a332124f21bbf0c7461 mac.h:
-// 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9 AR9003 EDMA
-// descriptor layout, referencing Linux ath9k ar9003_mac.h. This portable
-// descriptor codec is NOT an active DMA transport.
+// 47ada2b3a635aaf3cadb7b9f93bbff676da27bdc566e4a332124f21bbf0c7461
+//
+// mac.h:
+// 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
+// AR9003 EDMA descriptor layout, referencing Linux ath9k ar9003_mac.h.
+// This portable descriptor codec is NOT an active DMA transport.
 #ifndef SIMPLEATH_AR9003_DESCRIPTORS_HPP
 #define SIMPLEATH_AR9003_DESCRIPTORS_HPP
 
@@ -66,7 +68,8 @@ namespace simpleath
             Incomplete,
             InvalidVendor,
             CorruptStatus,
-            ReceiveError
+            ReceiveError,
+            InvalidDescriptor
         };
 
         struct Segment
@@ -93,6 +96,8 @@ namespace simpleath
         // device.
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out);
+        // Checks the existing TX identity, length, queue and pointer checksum
+        // before touching the link. A corrupt descriptor stays unchanged.
         DescriptorError setNextTxDescriptor(TxDescriptor &descriptor,
                                             uint32_t nextDescriptorBusAddress);
         uint16_t txPointerChecksum(const TxDescriptor &descriptor);
@@ -119,7 +124,7 @@ namespace simpleath
 
         // Caller must first synchronize DMA and verify a complete status write.
         // This only decodes status; it does not read payloads or acknowledge
-        // IRQs.
+        // IRQs. All errors leave out zeroed; raw retains diagnostic bits.
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out);
 
     } // namespace edma
