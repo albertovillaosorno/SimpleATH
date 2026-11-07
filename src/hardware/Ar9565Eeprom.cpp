@@ -125,6 +125,12 @@ namespace simpleath
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info)
     {
+        // Check aliases before clearing diagnostics: an overlapping info
+        // reference could otherwise clobber the frame or board image first.
+        // The returned error itself is authoritative on this contract breach.
+        if (overlaps(&info, sizeof(info), frame, frameBytes) ||
+            overlaps(&info, sizeof(info), &image, sizeof(image)))
+            return EepromResult::InvalidArgument;
         info = {};
         if (!frame)
             return EepromResult::InvalidArgument;
@@ -211,9 +217,15 @@ namespace simpleath
                                    EepromImage &image,
                                    EepromRestoreStatus &status)
     {
-        // The API's disjoint-status contract allows initializing diagnostics
-        // before accessing input. No frame-sized allocation is made on the
-        // kernel stack.
+        // Never initialize diagnostics before checking aliasing: status may
+        // otherwise overwrite storage, scratch, or the reconstructed image.
+        // On such a contract breach the return code alone reports the error;
+        // neither status nor the aliased buffers can be safely modified.
+        if (overlaps(&status, sizeof(status), storage, storageBytes) ||
+            overlaps(&status, sizeof(status), scratch, scratchBytes) ||
+            overlaps(&status, sizeof(status), &image, sizeof(image)))
+            return EepromResult::InvalidArgument;
+        // No frame-sized allocation is made on the kernel stack.
         status = {};
         status.origin = origin;
         status.nextAddress = origin;

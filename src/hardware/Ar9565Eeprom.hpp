@@ -72,7 +72,8 @@ namespace simpleath
     // failures leave an existing image intact; caller must discard the
     // entire restore chain on ANY failure. Frame and template storage must
     // be immutable and disjoint from image/info; the caller owns their
-    // lifetime for the duration of this serialized call.
+    // lifetime for the duration of this serialized call. If info aliases
+    // frame/image, InvalidArgument is returned without writing info.
     EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info);
@@ -96,8 +97,10 @@ namespace simpleath
     // must be 0x3ff, 0xfff or 0x1ff; no speculative fallback or default image
     // is used. Scratch is caller-owned (at least kAr9565EepromScratchBytes),
     // and all buffers and status must be disjoint. Malformed chains
-    // invalidate/wipe the image. No hardware operations, storage acquisition or
-    // regulatory approval.
+    // invalidate/wipe the image. If status aliases storage/scratch/image,
+    // returns InvalidArgument without modifying any aliased output; the
+    // return code is authoritative and the caller must discard the image.
+    // No hardware operations, storage acquisition or regulatory approval.
     EepromResult restoreEepromDump(const uint8_t *storage, size_t storageBytes,
                                    uint16_t origin,
                                    const EepromTemplates &templates,

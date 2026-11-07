@@ -10,9 +10,12 @@ compression, bad checksums, truncated records, destination overlap and more
 than 100 applied blocks. Direct block callers must first zero-initialize or
 explicitly discard the image; inconsistent restored/applied-block metadata
 is rejected so a reference-free delta cannot reuse an incoherent base. Errors
-are returned, not silently accepted. A caller must discard the complete
-restore chain on any error. This is deliberately
-stricter than upstream's default-image fallback and ignored delta failures.
+are returned, not silently accepted. Block-info and restore-status buffers
+are checked for overlap before diagnostic output is initialized; an alias
+error leaves those buffers untouched and must be detected from the function
+return value. A caller must discard the complete restore chain on any error.
+This is deliberately stricter than upstream's default-image fallback and
+ignored delta failures.
 
 The 1088-byte reconstructed image retains **all** board/calibration/target-power
 and CTL bytes, including the unused 5 GHz area of the shared AR9300 format.
@@ -30,8 +33,8 @@ origin. It reverses each block, applies the chain in upstream order, recognizes
 erased terminators, bounds storage/frames and enforces upstream's
 below-1024-byte AR9565 payload limit. It wipes the recovered image on
 malformed chains and never silently falls back to another origin or default
-image. The caller
-supplies bounded scratch storage, avoiding a frame-sized kernel-stack
+image. On an alias error, the caller must discard any prior image explicitly.
+The caller supplies bounded scratch storage, avoiding a frame-sized kernel-stack
 allocation. The separate [active NVM reader](NVM-READ-PROTOCOL.md) now stages
 EEPROM/OTP access and word normalization; it remains uncompiled and unwired.
 Acquisition still needs the verified PCI/power adapter, source/origin discovery
