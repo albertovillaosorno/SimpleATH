@@ -56,7 +56,9 @@ see [Wi-Fi MAC and DMA source status](docs/design/WIFI-MAC-AND-DMA.md). WPA2 han
 coordinate key derivation, MIC verification and installation via a required
 portable SHA-1/PBKDF2/PTK/AES key-wrap primitives that are **uncompiled
 and unaudited**, plus a hardware CSPRNG/keycache provider that is **not
-yet implemented**. See [WPA2 crypto status](docs/design/WPA2-CRYPTO-SOURCE.md).
+yet implemented**. See [WPA2 crypto status](docs/design/WPA2-CRYPTO-SOURCE.md). An allocation-free source-level [Wi-Fi engine](docs/design/WIFI-ENGINE-SOURCE.md)
+now coordinates these modules but has no physical PCI backend or native
+Tahoe wireless interface.
 
 The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
 the PCI ownership contract from a verified native adapter. The

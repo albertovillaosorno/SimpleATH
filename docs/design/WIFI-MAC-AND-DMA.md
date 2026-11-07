@@ -20,8 +20,9 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
 | Infrastructure data path | src/wifi/DataPath.* | Builds ToDS frames from Ethernet-II/LLC-SNAP, gates outgoing EAPOL versus WPA2 CCMP data, filters received AP-to-station frames by BSSID and decryption integrity; no physical TX/RX or network interface |
 | Link monitoring | src/wifi/LinkMonitor.* | Bounds-checked AP beacon/deauth/disassoc handling, mandatory PMF verification when negotiated, beacon-loss timeout, bounded reconnect backoff; no actual radio scan or reconnect scheduler |
+| Portable coordinator | src/wifi/WifiEngine.* | Connects scan, association, EAPOL, station data TX/RX and link-monitor state without making live PCI or macOS Wi-Fi calls; uncompiled |
 
-All thirteen C++ translation units were added to the existing Xcode target
+All fourteen C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
 
 ## Critical restrictions
