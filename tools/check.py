@@ -95,7 +95,7 @@ def _check_source_references() -> None:
     for path in (ROOT / "Docs").glob("*.json"):
         _ = _decode_json(path.read_text())
     for system in SYSTEMS:
-        load_reference(DIRECTORY / f"{system}.json")
+        _ = load_reference(DIRECTORY / f"{system}.json")
 
 
 def _check_project() -> None:
