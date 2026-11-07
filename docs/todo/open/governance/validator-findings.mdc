@@ -187,6 +187,20 @@ establish native Tahoe ABI, kext behavior or physical Wi-Fi operation.
 
 No kext build, CI/tag, device access or hardware testing was performed.
 
+## Post-commit complete-repository confirmation, 2026-11-07 16:39 CST
+
+On another **clean main** at `21a489f`, after the standalone WPA2 M3
+host regression and the separate frame-parser alias/admission fixes,
+`python3 -B tools/validate.py` completed the mandatory full repository
+scope with default-on tests and Clang-Tidy: **161 files, 410 checks, 356
+cached, 54 executed, 359 passed, 51 failed, 0 skipped**. All failures
+remain Clang-Tidy; the source snapshot remained stable. The process JSON
+exactly matched `.cache/validate/report.json`. The reused lint entries
+are explicitly counted, not misrepresented as newly executed; the prior
+full `--no-cache` checkpoint above independently executed all 410 checks.
+The P0 remains **OPEN**; neither report authorizes a native Tahoe build
+or claims operational Wi-Fi.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
