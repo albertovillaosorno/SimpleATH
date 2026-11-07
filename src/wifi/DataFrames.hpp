@@ -21,6 +21,8 @@ struct Msdu {
 
 // A protected frame may be parsed only when the platform backend has already
 // verified decryption, replay/PN and MIC integrity, with no hardware key miss.
+// Crypto headers/trailers must already have been removed, leaving plaintext
+// LLC immediately after the 802.11 header. Input remains owned by the caller.
 // A-MSDU aggregation and fragmented MSDUs are deliberately rejected.
 Result decodeLlcData(const uint8_t *frame, size_t frameBytes,
                      bool containsFcs, bool verifiedDecryptionAndMic,
