@@ -48,6 +48,13 @@ namespace simpleath
             return nullptr;
         }
 
+        int8_t signedByte(uint8_t value)
+        {
+            return static_cast<int8_t>(value < 128
+                                           ? static_cast<int>(value)
+                                           : static_cast<int>(value) - 256);
+        }
+
         uint16_t le16(const uint8_t *p)
         {
             return static_cast<uint16_t>(p[0] |
@@ -337,14 +344,40 @@ namespace simpleath
         out.antennaControlChain0 = le16(bytes + 61);
         // Explicit sign extension avoids implementation-defined
         // uint8_t->int8_t.
-        out.antennaGainDb = static_cast<int8_t>(
-            bytes[99] < 128 ? static_cast<int>(bytes[99])
-                            : static_cast<int>(bytes[99]) - 256);
+        out.antennaGainDb = signedByte(bytes[99]);
         out.storedAntennaDiversity = bytes[124];
         // ath9k EEP_ANT_DIV_CTL1 overrides the EEPROM value for AR9565.
         out.ar9565AntennaDiversity = 0xc9;
         copyBytes(out.calibrationFrequencyBins2G, bytes + 138,
                   sizeof(out.calibrationFrequencyBins2G));
+        // The packed AR9300 layout places the single AR9565 chain's three
+        // six-byte op-loop calibration records at byte 141. The Linux source
+        // uses these separately for correction/temperature/voltage and gates
+        // noise floor on rxTempMeas; report them without applying TPC values.
+        bool ordered2gBins = true;
+        for (size_t i = 0; i < 3; ++i)
+        {
+            const uint8_t bin = out.calibrationFrequencyBins2G[i];
+            const uint8_t *pier = bytes + 141 + i * 6;
+            auto &entry = out.calibrationPiers2G[i];
+            entry.frequencyBin = bin;
+            // Legal 2.4 GHz channel center frequencies span 2412..2484 MHz.
+            // This is a structural bin sanity check, not regulatory approval.
+            const bool plausible =
+                bin >= 112 && bin <= 184 &&
+                (i == 0 || bin > out.calibrationFrequencyBins2G[i - 1]);
+            if (!plausible)
+                ordered2gBins = false;
+            entry.centerMhz = bin >= 112 && bin <= 184 ? 2300u + bin : 0;
+            entry.referencePower = signedByte(pier[0]);
+            entry.voltageMeasurement = pier[1];
+            entry.temperatureMeasurement = pier[2];
+            entry.noiseFloorCalibrationRaw = signedByte(pier[3]);
+            entry.noiseFloorPowerRaw = signedByte(pier[4]);
+            entry.noiseTemperatureMeasurement = pier[5];
+            entry.noiseMeasurementsPresent = pier[5] != 0;
+        }
+        out.calibrationPierBinsPlausible = ordered2gBins;
         // No calibration, regulatory authority, power limit, RF-kill GPIO
         // sample, antenna routing or coexistence programming follows from
         // parsing bytes.

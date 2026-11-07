@@ -74,6 +74,18 @@ and calibration frequency bins. Upstream overrides AR9565 EEP_ANT_DIV_CTL1 to
 0xc9; both the stored value and this override are reported. Neither establishes
 the Dell's physical antenna routing or the current RF-kill switch level.
 
+The diagnostic board summary now also extracts the three chain-zero
+2.4 GHz `ar9300_cal_data_per_freq_op_loop` records (6 bytes each, beginning at
+packed offset 141): signed correction/refPower, voltage, temperature,
+noise-floor calibration/power bytes and the noise temperature measurement.
+The latter's zero value means the original ath9k path omits noise-floor data.
+Frequency bins are mapped to 2300 + bin MHz only in the 2412..2484 MHz
+range, and a separate monotonic/bin-plausibility bit records structural
+sanity. Neither raw records, zero-filled template defaults, nor plausible
+bins constitute calibrated gain/TPC data or permission to transmit. The
+other two generic-format chains remain unparsed since AR9565 requires mask
+0x11, and no assumption about the physical board's factory values is made.
+
 `calibrationValidated` and `regulatoryAuthorized` remain false. This module
 does not set the hardware core's EEPROM-valid state or create permission to
 transmit. Calibration application, legal country intersection, CTL

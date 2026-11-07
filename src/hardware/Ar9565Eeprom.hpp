@@ -115,6 +115,23 @@ namespace simpleath
     // policy and calibration code, not a validation of those fields for
     // transmission. Output is cleared on ordinary failure, but an output
     // overlapping the image is rejected untouched with InvalidArgument.
+    // ath9k ar9300_cal_data_per_freq_op_loop, chain zero only. These are raw
+    // factory-supplied measurements, not calibrated register/TPC settings.
+    // A zero noise temperature indicates that ath9k does not use the two
+    // noise-floor values, even when their raw bytes are nonzero.
+    struct BoardCalibrationPier2G
+    {
+            uint8_t frequencyBin;
+            uint16_t centerMhz; // 0 for a non-2.4-GHz frequency bin.
+            int8_t referencePower;
+            uint8_t voltageMeasurement;
+            uint8_t temperatureMeasurement;
+            int8_t noiseFloorCalibrationRaw;
+            int8_t noiseFloorPowerRaw;
+            uint8_t noiseTemperatureMeasurement;
+            bool noiseMeasurementsPresent;
+    };
+
     struct BoardDataSummary
     {
             uint8_t eepromVersion;
@@ -139,6 +156,9 @@ namespace simpleath
             uint8_t storedAntennaDiversity;
             uint8_t ar9565AntennaDiversity;
             uint8_t calibrationFrequencyBins2G[3];
+            BoardCalibrationPier2G calibrationPiers2G[3];
+            // Frequency-bin sanity only; not an EEPROM provenance check.
+            bool calibrationPierBinsPlausible;
             bool calibrationValidated;
             bool regulatoryAuthorized;
     };
