@@ -50,8 +50,10 @@ namespace simpleath
         };
 
         // Borrowed RX payloads are valid only for the successful call.
-        // Every public action-producing call clears the action at entry so
-        // failure or NoAction never preserves a previous borrowed pointer.
+        // Every public action-producing call clears the action at entry on
+        // ordinary failures. Output and action storage must not overlap the
+        // engine state, inputs, each other or trusted callback metadata;
+        // malformed aliases return InvalidInput before any write or transition.
         struct EngineAction
         {
                 ActionKind kind;

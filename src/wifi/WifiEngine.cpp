@@ -15,6 +15,36 @@ namespace simpleath
             // LLC/SNAP.
             constexpr size_t kMinimumEapolTxFrameCapacity = 24u + 8u + 121u;
 
+            bool overlaps(const void *a, size_t aBytes, const void *b,
+                          size_t bBytes)
+            {
+                if (!a || !b || !aBytes || !bBytes)
+                    return false;
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return first <= second ? second - first < aBytes
+                                       : first - second < bBytes;
+            }
+
+            // EngineAction is a caller-owned output, but the RX frame can be
+            // borrowed from DMA and the engine stores keys and station state.
+            // An overlap must be refused BEFORE action={} or a TX response.
+            bool aliasesEngineIo(const WifiEngine *engine,
+                                 const EngineAction &action, const void *input,
+                                 size_t inputBytes, const void *trust,
+                                 size_t trustBytes, const uint8_t *out,
+                                 size_t capacity)
+            {
+                return overlaps(&action, sizeof(action), engine,
+                                sizeof(*engine)) ||
+                       overlaps(&action, sizeof(action), input, inputBytes) ||
+                       overlaps(&action, sizeof(action), trust, trustBytes) ||
+                       overlaps(&action, sizeof(action), out, capacity) ||
+                       overlaps(out, capacity, engine, sizeof(*engine)) ||
+                       overlaps(out, capacity, input, inputBytes) ||
+                       overlaps(out, capacity, trust, trustBytes);
+            }
+
             void copyBytes(uint8_t *dest, const uint8_t *src, size_t count)
             {
                 for (size_t i = 0; i < count; ++i)
@@ -165,6 +195,9 @@ namespace simpleath
                                                        size_t capacity,
                                                        EngineAction &action)
         {
+            if (aliasesEngineIo(this, action, nullptr, 0, nullptr, 0, out,
+                                capacity))
+                return EngineResult::InvalidInput;
             action = {};
             if (!selected_)
                 return EngineResult::InvalidState;
@@ -382,6 +415,9 @@ namespace simpleath
                                           const InputTrust &trust, uint8_t *out,
                                           size_t capacity, EngineAction &action)
         {
+            if (aliasesEngineIo(this, action, frame, length, &trust,
+                                sizeof(trust), out, capacity))
+                return EngineResult::InvalidInput;
             action = {};
             if (!frame || !trust.radioReady || !trust.channelAuthorized ||
                 !trust.dmaAndFcsVerified)
@@ -413,6 +449,9 @@ namespace simpleath
         EngineResult WifiEngine::checkBeaconTimeout(uint64_t nowMs,
                                                     EngineAction &action)
         {
+            if (aliasesEngineIo(this, action, nullptr, 0, nullptr, 0, nullptr,
+                                0))
+                return EngineResult::InvalidInput;
             action = {};
             if (link_.observeTimeout(nowMs) != LinkMonitorResult::Ok)
                 return EngineResult::NoAction;
@@ -445,6 +484,9 @@ namespace simpleath
             const InputTrust &trust, uint8_t *out, size_t capacity,
             EngineAction &action)
         {
+            if (aliasesEngineIo(this, action, ethernet, length, &trust,
+                                sizeof(trust), out, capacity))
+                return EngineResult::InvalidInput;
             action = {};
             const StationState state = station_.state();
             if ((state != StationState::AssociatedOpen &&

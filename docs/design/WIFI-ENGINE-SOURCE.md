@@ -31,8 +31,12 @@ The caller passes a separate receive-trust report from a real device
 backend. Such a backend is NOT implemented: the flags must never be
 manufactured from a registry property or successful frame parse alone.
 Every public engine action-producing call clears the prior `EngineAction`
-(including its borrowed RX payload pointer) before checking inputs. The
-native callback must copy valid payload bytes before releasing its RX buffer.
+(including its borrowed RX payload pointer) on ordinary failed admission. The
+engine first rejects action/output storage overlapping its retained state,
+DMA-backed RX or Ethernet TX input, trust metadata or one another. This
+malformed-caller error reports `InvalidInput` without writing either output
+or consuming station/replay state. The native callback must copy valid payload
+bytes before releasing its RX buffer.
 On radio stop/suspend, the owner must quiesce hardware while key callbacks
 remain alive; `radioStopped()` then resets the supplicant, removes attempted
 keys and revokes provider callbacks, station state, old BSS entries and channel
