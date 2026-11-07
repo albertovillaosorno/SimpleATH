@@ -1,0 +1,207 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 SimpleATH contributors.
+"""Synthetic, bounded Mach-O header and load-command parsing tests."""
+
+from pathlib import Path
+import struct
+import tempfile
+from unittest import TestCase
+from unittest import mock
+
+from tools.macho import Image
+
+HEADER_BYTES = 32
+FAT_TABLE_BYTES = 40
+FAT_CPU = 0x1000007
+UUID_COMMAND = 0x1B
+SEGMENT_COMMAND = 0x19
+SYMTAB_COMMAND = 2
+UUID_BYTES = bytes(range(16))
+SAMPLE_NAME = b"\0_sample\0"
+
+
+def _thin(commands: tuple[bytes, ...] = (), payload: bytes = b"") -> bytes:
+    """Build a minimal, nonexecutable x86_64 Mach-O image.
+
+    Returns:
+        Thin 64-bit header and supplied load commands/data.
+
+    """
+    header = bytearray(HEADER_BYTES)
+    header[:4] = b"\xcf\xfa\xed\xfe"
+    struct.pack_into(
+        "<II", header, 16, len(commands), sum(len(c) for c in commands)
+    )
+    return bytes(header) + b"".join(commands) + payload
+
+
+def _parse(data: bytes) -> Image:
+    """Parse a synthetic image from a disposable private filesystem path.
+
+    Returns:
+        A validated image whose input bytes never come from a system KDK.
+
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "synthetic.macho"
+        _ = path.write_bytes(data)
+        return Image(path)
+
+
+def _rejects(data: bytes, expected: str) -> bool:
+    """Confirm an invalid image fails at its expected parser boundary.
+
+    Returns:
+        True if ValueError contains the expected diagnostic.
+
+    """
+    try:
+        _ = _parse(data)
+    except ValueError as error:
+        return expected in str(error)
+    return False
+
+
+def _uuid_command() -> bytes:
+    """Make a correctly sized LC_UUID entry.
+
+    Returns:
+        A 24-byte load command.
+
+    """
+    return struct.pack("<II", UUID_COMMAND, 24) + UUID_BYTES
+
+
+def _symbol_image() -> bytes:
+    """Construct one bound symbol table and NUL-terminated name.
+
+    Returns:
+        A valid thin image with a single known symbol.
+
+    """
+    command_bytes = 24
+    symbol_offset = HEADER_BYTES + command_bytes
+    string_offset = symbol_offset + 16
+    command = struct.pack(
+        "<IIIIII",
+        SYMTAB_COMMAND,
+        command_bytes,
+        symbol_offset,
+        1,
+        string_offset,
+        len(SAMPLE_NAME),
+    )
+    symbol = struct.pack("<IBBHQ", 1, 0xF, 1, 0, 0x1000)
+    return _thin((command,), symbol + SAMPLE_NAME)
+
+
+class MachoLoadCommandSafety(TestCase):
+    """Refuse incomplete metadata before slicing or interpreting payloads."""
+
+    @staticmethod
+    def test_thin_uuid_and_symtab_round_trip() -> None:
+        """Preserve UUID and exported symbols from synthetic valid metadata."""
+        uuid = _parse(_thin((_uuid_command(),)))
+        assert uuid.uuid == UUID_BYTES.hex()
+        image = _parse(_symbol_image())
+        assert image.symbols == {"_sample": 0x1000}
+
+    @staticmethod
+    def test_fat64_slice_round_trip() -> None:
+        """Select a present x86_64 slice with exact bounded metadata."""
+        thin = _thin((_uuid_command(),))
+        architecture = struct.pack(
+            ">IIQQII", FAT_CPU, 3, FAT_TABLE_BYTES, len(thin), 2, 0
+        )
+        fat = b"\xca\xfe\xba\xbf" + struct.pack(">I", 1)
+        image = _parse(fat + architecture + thin)
+        assert image.uuid == UUID_BYTES.hex()
+        assert image.data == thin
+
+    @staticmethod
+    def test_truncated_fat64_and_slice_bounds_rejected() -> None:
+        """Refuse a missing architecture table or a truncated target slice."""
+        truncated = b"\xca\xfe\xba\xbf" + struct.pack(">I", 1)
+        assert _rejects(truncated, "fat architecture table")
+        architecture = struct.pack(
+            ">IIQQII", FAT_CPU, 3, FAT_TABLE_BYTES, 1000, 2, 0
+        )
+        assert _rejects(truncated + architecture, "fat slice bounds")
+
+    @staticmethod
+    def test_short_or_overlong_command_area_rejected() -> None:
+        """Reject missing command bytes and declared sizes beyond the file."""
+        assert _rejects(
+            _thin((struct.pack("<II", UUID_COMMAND, 24),)),
+            "load command bounds",
+        )
+        short = bytearray(_thin())
+        struct.pack_into("<II", short, 16, 1, 4096)
+        assert _rejects(bytes(short), "command area")
+        assert _rejects(
+            _thin((struct.pack("<II", UUID_COMMAND, 4),)), "load command bounds"
+        )
+
+    @staticmethod
+    def test_truncated_uuid_and_segment_commands_rejected() -> None:
+        """Enforce fixed field layout before reading UUID or segment data."""
+        assert _rejects(_thin((struct.pack("<II", UUID_COMMAND, 8),)), "UUID")
+        assert _rejects(
+            _thin((struct.pack("<II", SEGMENT_COMMAND, 8),)), "segment"
+        )
+
+    @staticmethod
+    def test_symbol_table_string_bounds_rejected() -> None:
+        """Avoid symbol-name reads that leave declared string storage."""
+        image = bytearray(_symbol_image())
+        struct.pack_into("<I", image, HEADER_BYTES + 8 + 12, 65536)
+        assert _rejects(bytes(image), "symbol table exceeds")
+
+    @staticmethod
+    def test_missing_symbol_terminator_rejected() -> None:
+        """Reject unterminated symbol names within the table's strsize."""
+        image = bytearray(_symbol_image())
+        image[-1] = ord("x")
+        assert _rejects(bytes(image), "Unterminated Mach-O symbol")
+
+    @staticmethod
+    def test_disassembly_command_uses_fixed_shell_free_argv() -> None:
+        """Never invoke a shell or use an unqualified xcrun process name."""
+        image = _parse(_symbol_image())
+        calls: list[list[str]] = []
+
+        class _Output:
+            stdout: str = "synthetic disassembly"
+
+        def fake_run(argv: list[str], **options: object) -> _Output:
+            calls.append(argv)
+            assert options.get("shell") is False
+            assert options.get("check") is True
+            return _Output()
+
+        with (
+            mock.patch("tools.macho.shutil.which", return_value="/mock/xcrun"),
+            mock.patch("tools.macho.subprocess.run", side_effect=fake_run),
+        ):
+            _ = image.disassemble("^_sample$")
+        assert len(calls) == 1
+        assert calls[0][:2] == ["/mock/xcrun", "llvm-objdump"]
+
+    @staticmethod
+    def test_truncated_or_oversized_leb_rejected() -> None:
+        """Bound malformed LEB128 decoding without hanging the parser."""
+        assert all(_leb_rejected(data) for data in (b"\x80", b"\x80" * 16))
+
+
+def _leb_rejected(data: bytes) -> bool:
+    """Check a malformed signed/unsigned LEB128 stream.
+
+    Returns:
+        True when the decoder refuses the supplied incomplete input.
+
+    """
+    try:
+        _ = Image.leb(data, 0)
+    except ValueError:
+        return True
+    return False
