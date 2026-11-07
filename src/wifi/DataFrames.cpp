@@ -16,9 +16,12 @@ namespace simpleath
                 return result;
             if (header.type != FrameType::Data)
                 return Result::UnsupportedFrame;
+            // Only ordinary and QoS Data MSDUs have a reviewed payload
+            // contract. Null-data and contention-free poll/ACK variants are
+            // not ordinary Ethernet-II data for this station decoder.
             // A-MSDU and fragmentation need separate, bounded reassembly.
-            if ((header.subtype & 0x4u) != 0 || header.fragment != 0 ||
-                header.moreFragments)
+            if ((header.subtype != 0u && header.subtype != 8u) ||
+                header.fragment != 0 || header.moreFragments)
                 return Result::UnsupportedFrame;
             if (header.protectedFrame && !verifiedDecryptionAndMic)
                 return Result::InvalidSecurity;
@@ -55,6 +58,11 @@ namespace simpleath
                 static_cast<uint16_t>(llc[7]);
             if (etherType < 0x0600u)
                 return Result::InvalidFrame;
+            // IEEE 802.1H reserves the bridge-tunnel SNAP OUI for Ethernet-II
+            // AARP/IPX. The ordinary RFC 1042 form for these EtherTypes must
+            // be kept as 802.3 LLC rather than misreported as Ethernet-II.
+            if (standardSnap && (etherType == 0x80f3u || etherType == 0x8137u))
+                return Result::UnsupportedFrame;
             // The protected bit and decrypted payload are NOT evidence that a
             // key is authorized; the platform must prove decrypt+MIC+PN before
             // passing true.

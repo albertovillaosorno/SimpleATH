@@ -44,6 +44,14 @@ for the **next separately authorized build**.
   The existing `src/platform/Ar9565PciSession.*` provides a portable read-only
   inspection contract; its native platform adapter is
   still missing. All hardware access must use one verified PCI owner.
+- **Ethernet-II LLC/SNAP follows IEEE 802.1H translation rules.** Ordinary
+  EtherTypes use RFC 1042 OUI 00:00:00; AARP (0x80f3) and IPX (0x8137) use
+  bridge-tunnel OUI 00:00:f8. The RX decoder rejects ordinary RFC 1042
+  AARP/IPX rather than misclassifying an 802.3 LLC payload as Ethernet-II.
+  Only unfragmented Data/QoS Data subtypes are decapsulated; CF poll/ACK,
+  null-data and A-MSDU require distinct implementations. This rule is also
+  present in Linux cfg80211 `net/wireless/util.c` (see the upstream source
+  in the evidence references below).
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
   beacon/scan operation, association timers and packet scheduling.
@@ -78,6 +86,8 @@ for the **next separately authorized build**.
 
 - Linux ath9k (local): linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c,
   ar9003_mac.h, mac.h, ar9565_1p0_initvals.h, ar9565_1p1_initvals.h
+- Linux cfg80211 LLC/SNAP translation:
+  https://github.com/torvalds/linux/blob/v6.12/net/wireless/util.c
 - Apple PCIDriverKit: https://developer.apple.com/documentation/pcidriverkit
 - Apple NetworkingDriverKit:
   https://developer.apple.com/documentation/networkingdriverkit

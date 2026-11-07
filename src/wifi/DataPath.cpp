@@ -8,6 +8,8 @@ namespace simpleath
         namespace
         {
             constexpr uint16_t kEtherTypeEapol = 0x888eu;
+            constexpr uint16_t kEtherTypeAarp = 0x80f3u;
+            constexpr uint16_t kEtherTypeIpx = 0x8137u;
             constexpr size_t kEthernetHeaderBytes = 14u;
             constexpr size_t kDataHeaderBytes = 24u;
             constexpr size_t kSnapBytes = 8u;
@@ -124,7 +126,12 @@ namespace simpleath
             out[26] = 3u;
             out[27] = 0;
             out[28] = 0;
-            out[29] = 0;
+            // IEEE 802.1H bridge-tunnel SNAP is required for Ethernet-II
+            // AARP and IPX; RFC 1042 (OUI 00:00:00) is used otherwise.
+            out[29] =
+                (etherType == kEtherTypeAarp || etherType == kEtherTypeIpx)
+                    ? 0xf8u
+                    : 0u;
             out[30] = ethernet[12];
             out[31] = ethernet[13];
             copyBytes(out + kDataHeaderBytes + kSnapBytes,
