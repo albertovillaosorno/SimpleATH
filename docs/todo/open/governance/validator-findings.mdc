@@ -340,6 +340,29 @@ failed, and no source snapshot drift appeared. Process stdout and saved
 fully uncached source checkpoint, not a passing acceptance result. The
 root linter policy has not been weakened. **P0 remains OPEN**.
 
+## PCI BAR owner-revocation checkpoint, 2026-11-07 17:38 CST
+
+Source DCO `32401ca` adds a fresh D0 ownership check before BAR0 mapping
+and another immediately after a successful map. The PCI command readback
+callback can revoke D0 while still returning a valid command value; the
+mapping callback can likewise revoke D0 before reporting success. The
+session now refuses both cases with `NotInD0` and conservative unwind,
+never publishing read-ready access after revocation.
+
+Two synthetic PCI callback regressions fail independently against the
+old source (exits 28 and 29) and pass with the guards in strict C++14 and
+C++17 AddressSanitizer/UndefinedBehaviorSanitizer host runs. Clang-Format
+and Git whitespace checks pass. No physical PCI, native kext or RF
+operation was performed.
+
+On clean, pushed main `32401ca`, mandatory `python3 -B tools/validate.py
+--no-cache` reported **`scope=repository`, 161 source files, 410 checks,
+zero cached, 410 executed, 359 passed, 51 failed, zero skipped**.
+`source_only=true` and `tests_requested=true` were confirmed; all 51
+failures are Clang-Tidy. The process output and saved JSON match
+byte-for-byte, and the source snapshot did not drift. This is a fresh
+complete failed report, not a validator acceptance. **P0 remains OPEN**.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
