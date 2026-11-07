@@ -9,7 +9,10 @@ from unittest import TestCase
 
 # Legacy embed CLI uses script-relative imports; import never calls generate.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+from embed import DYSYMTAB_COMMAND
+from embed import DYSYMTAB_COMMAND_BYTES
 from embed import MAX_EMBED_RELOCATIONS
+from embed import checked_dysymtab_fields
 from embed import checked_relocation_entries
 
 RELOC_BYTES = 8
@@ -21,6 +24,8 @@ EXTERNAL_SYMBOL = 1 << 27
 BOUNDS_MESSAGE = "source bounds"
 NEGATIVE_MESSAGE = "Negative"
 INVALID_SYMBOL_MESSAGE = "out of range"
+DYSYMTAB_SHAPE_MESSAGE = "exactly one complete"
+DYSYMTAB_HEADER_MESSAGE = "Malformed"
 
 
 def _bad(data: bytes, offset: int, count: int, *, symbol_count: int) -> str:
@@ -78,3 +83,60 @@ class EmbedRelocationSafetyTests(TestCase):
             absent, 0, 1, symbol_count=SAMPLE_SYMBOL_COUNT
         )
         assert BOUNDS_MESSAGE in _bad(absent, 0, 1, symbol_count=-1)
+
+
+def _bad_dysymtab(commands: list[tuple[int, bytearray]]) -> str:
+    """Return the malformed command diagnostic without invoking a build.
+
+    Returns:
+        The ValueError message, or an empty string when accepted.
+
+    """
+    try:
+        _ = checked_dysymtab_fields(commands)
+    except ValueError as error:
+        return str(error)
+    return ""
+
+
+class EmbedDynamicSymbolPreflightTests(TestCase):
+    """Reject corrupted legacy Mach-O layout before any output generation."""
+
+    @staticmethod
+    def test_exactly_one_complete_command() -> None:
+        """Return exact metadata fields when the DYSYMTAB is complete."""
+        fields = tuple(range(18))
+        valid = bytearray(
+            struct.pack(
+                "<II18I", DYSYMTAB_COMMAND, DYSYMTAB_COMMAND_BYTES, *fields
+            )
+        )
+        assert (
+            checked_dysymtab_fields([(2, bytearray(24)), (11, valid)]) == fields
+        )
+
+    @staticmethod
+    def test_missing_duplicate_or_truncated_command_rejected() -> None:
+        """Never select a first-of-many or unpack a partial command."""
+        valid = bytearray(
+            struct.pack("<II18I", DYSYMTAB_COMMAND, 80, *([0] * 18))
+        )
+        for commands in (
+            [],
+            [(DYSYMTAB_COMMAND, valid[:-1])],
+            [(DYSYMTAB_COMMAND, valid), (DYSYMTAB_COMMAND, valid)],
+        ):
+            assert DYSYMTAB_SHAPE_MESSAGE in _bad_dysymtab(commands)
+
+    @staticmethod
+    def test_inconsistent_command_header_rejected() -> None:
+        """Do not trust a checked tuple tag with contradictory binary bytes."""
+        valid = bytearray(
+            struct.pack("<II18I", DYSYMTAB_COMMAND, 80, *([0] * 18))
+        )
+        for offset, value in ((0, 2), (4, 72)):
+            invalid = bytearray(valid)
+            struct.pack_into("<I", invalid, offset, value)
+            assert DYSYMTAB_HEADER_MESSAGE in _bad_dysymtab([
+                (DYSYMTAB_COMMAND, invalid)
+            ])

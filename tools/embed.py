@@ -16,6 +16,7 @@ import subprocess
 
 from bootstrap import ROOT
 from bootstrap import validate_payloads
+from embed_macho_parser import LoadCommand
 from embed_macho_parser import parse
 from embed_payload_codec import align
 from embed_payload_codec import checksum
@@ -43,6 +44,8 @@ ALIASES = {
 
 MAX_EMBED_RELOCATIONS = 1_000_000
 RELOCATION_RECORD_BYTES = 8
+DYSYMTAB_COMMAND = 0xB
+DYSYMTAB_COMMAND_BYTES = 80
 
 
 def checked_relocation_entries(
@@ -80,6 +83,27 @@ def checked_relocation_entries(
             raise ValueError(message)
         rows.append((address, bits))
     return rows
+
+
+def checked_dysymtab_fields(commands: list[LoadCommand]) -> tuple[int, ...]:
+    """Require exactly one complete dynamic symbol table command.
+
+    Returns:
+        The 18 unsigned table offsets and counts for checked relocation reads.
+
+    Raises:
+        ValueError: The command is absent, duplicated or malformed.
+
+    """
+    tables = [raw for command, raw in commands if command == DYSYMTAB_COMMAND]
+    if len(tables) != 1 or len(tables[0]) != DYSYMTAB_COMMAND_BYTES:
+        message = "Expected exactly one complete Mach-O dynamic symbol table"
+        raise ValueError(message)
+    command, length = struct.unpack_from("<II", tables[0])
+    if command != DYSYMTAB_COMMAND or length != DYSYMTAB_COMMAND_BYTES:
+        message = "Malformed Mach-O dynamic symbol table header"
+        raise ValueError(message)
+    return struct.unpack_from("<18I", tables[0], 8)
 
 
 def header(name):
@@ -157,9 +181,13 @@ def generate():
                 raise ValueError(
                     "Packet implementation differs across systems: " + cls
                 )
-    OUTPUT.mkdir(parents=True, exist_ok=True)
     images = [Image(IMAGES[label]) for label in LABELS]
     parsed = [parse(image) for image in images]
+    # Reject missing, malformed or ambiguous metadata before writing artifacts.
+    dynamic_fields = [
+        checked_dysymtab_fields(commands) for commands, _ in parsed
+    ]
+    OUTPUT.mkdir(parents=True, exist_ok=True)
     exports = [
         {
             name: value
@@ -170,10 +198,10 @@ def generate():
     ]
     native = set(plan.native_names) | prepare_native_guards(plans)
     vtable_guards = set()
-    for index, (image, (commands, symbols)) in enumerate(zip(images, parsed)):
-        fields = struct.unpack_from(
-            "<18I", next(data for cmd, data in commands if cmd == 11), 8
-        )
+    for index, (image, (commands, symbols)) in enumerate(
+        zip(images, parsed, strict=True)
+    ):
+        fields = dynamic_fields[index]
         references = {}
         for offset, bits in checked_relocation_entries(
             image.data, fields[14], fields[15], len(symbols)
@@ -271,7 +299,7 @@ def generate():
     library_versions = {}
     library_ids = set()
     for index, (label, image, (commands, symbols)) in enumerate(
-        zip(LABELS, images, parsed)
+        zip(LABELS, images, parsed, strict=True)
     ):
         logical_index = int(index != 0)
         image_plan = plans[0] if label == "AirPortOriginal" else plan
@@ -283,8 +311,7 @@ def generate():
             library_versions.setdefault(library, set()).add(version)
         branches = 0
         relocations = []
-        ds = next(data for cmd, data in commands if cmd == 11)
-        dsfields = struct.unpack_from("<18I", ds, 8)
+        dsfields = dynamic_fields[index]
         for external, field in [(True, 14), (False, 16)]:
             for address, bits in checked_relocation_entries(
                 image.data, dsfields[field], dsfields[field + 1], len(symbols)
