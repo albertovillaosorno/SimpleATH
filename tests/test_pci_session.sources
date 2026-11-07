@@ -1,0 +1,2 @@
+src/platform/Ar9565PciSession.cpp
+src/hardware/Ar9565Core.cpp
