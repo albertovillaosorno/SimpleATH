@@ -5,7 +5,9 @@
 // ar9003_eeprom.c:
 // 9af461f68c73fdbe553619534f0474dca637a7c5191729251fa479af2ad75dc6
 // ar9003_eeprom.h:
-// 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd eeprom.h:
+// 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd
+//
+// eeprom.h:
 // b6bc5f1bffd56f5b8828d14635eac4846487ff6f2ef06344d474ac4c1c11b7b0
 /*
  * Copyright (c) 2010-2011 Atheros Communications Inc.
@@ -142,7 +144,11 @@ namespace simpleath
         const size_t length = info.payloadBytes;
         if (frameBytes != length + 6)
             return EepromResult::TruncatedBlock;
-        if (image.appliedBlocks >= 100)
+        // Callers must start from a discarded/zero-initialized image. A
+        // restored flag without an applied block (or vice versa) must not
+        // authorize a reference-free delta to use stale board data.
+        if (image.appliedBlocks >= 100 ||
+            image.restored != (image.appliedBlocks != 0))
             return EepromResult::InvalidArgument;
         uint16_t checksum = 0;
         for (size_t i = 0; i < length; ++i)

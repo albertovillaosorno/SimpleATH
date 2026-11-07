@@ -7,8 +7,11 @@ implements the four-byte compression header, 16-bit additive payload checksum,
 uncompressed images and reference/delta block compression. It bounds every
 record before copying and rejects missing bases/templates, unsupported
 compression, bad checksums, truncated records, destination overlap and more
-than 100 applied blocks. Errors are returned, not silently accepted. A caller
-must discard the complete restore chain on any error. This is deliberately
+than 100 applied blocks. Direct block callers must first zero-initialize or
+explicitly discard the image; inconsistent restored/applied-block metadata
+is rejected so a reference-free delta cannot reuse an incoherent base. Errors
+are returned, not silently accepted. A caller must discard the complete
+restore chain on any error. This is deliberately
 stricter than upstream's default-image fallback and ignored delta failures.
 
 The 1088-byte reconstructed image retains **all** board/calibration/target-power
@@ -24,15 +27,17 @@ order, as produced by ath9k's ar9300_read_eeprom/read_otp. It does not read
 hardware or implement OTP/EEPROM access/polling. `restoreEepromDump` accepts an
 already acquired ascending-address byte dump and an explicit 0x3ff/0xfff/0x1ff
 origin. It reverses each block, applies the chain in upstream order, recognizes
-erased terminators, bounds storage/frames and enforces upstream's below-1024-byte
-AR9565 payload limit. It wipes the recovered image on a malformed chain and
-never silently falls back to another origin or default image. The caller
+erased terminators, bounds storage/frames and enforces upstream's
+below-1024-byte AR9565 payload limit. It wipes the recovered image on
+malformed chains and never silently falls back to another origin or default
+image. The caller
 supplies bounded scratch storage, avoiding a frame-sized kernel-stack
 allocation. The separate [active NVM reader](NVM-READ-PROTOCOL.md) now stages
 EEPROM/OTP access and word normalization; it remains uncompiled and unwired.
 Acquisition still needs the verified PCI/power adapter, source/origin discovery
-and separate hardware authorization. The block primitive supports full uncompressed
-1088-byte images; these do not fit the AR9565 compressed storage-chain limit.
+and separate hardware authorization. The block primitive supports full
+uncompressed 1088-byte images; these do not fit the AR9565 compressed
+storage-chain limit.
 Flash-format images require a separate validated path.
 
 ## Layout evidence
@@ -66,9 +71,10 @@ the Dell's physical antenna routing or the current RF-kill switch level.
 
 `calibrationValidated` and `regulatoryAuthorized` remain false. This module
 does not set the hardware core's EEPROM-valid state or create permission to
-transmit. Calibration application, legal country intersection, CTL interpolation,
-per-rate conducted/EIRP limits, RF-kill sampling, gain selection and coexistence
-remain required. An OS locale or user-entered country alone is insufficient.
+transmit. Calibration application, legal country intersection, CTL
+interpolation, per-rate conducted/EIRP limits, RF-kill sampling, gain
+selection and coexistence remain required. An OS locale or user-entered
+country alone is insufficient.
 
 `selectBoardGainProfiles` maps the AR9565-specific ath9k TX indexes 0/2 to
 low-OB, 1 to high-OB and 3 to high-power; RX 0/1 selects standard/without-LNA.
@@ -96,9 +102,10 @@ test suite, C/C++ compiler comparison or hardware validation was executed.
 | 3 | ar9300_h112 |
 | 6 | ar9300_x113 |
 
-Per-template hashes in the generated header pin the interpretation; they are not independent proof
-that serialization matches a compiled upstream structure. That byte-for-byte
-comparison and reconstruction vectors remain required after test authorization.
+Per-template hashes in the generated header pin the interpretation; they
+are not independent proof that serialization matches a compiled upstream
+structure. Byte-for-byte comparison and reconstruction vectors remain
+required after test authorization.
 The catalog is included through the already staged `Ar9565Eeprom.cpp`, without
 linking Linux objects or changing the passive service's hardware behavior.
 

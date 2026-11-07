@@ -66,11 +66,13 @@ namespace simpleath
     // descend, as in ath9k ar9300_read_eeprom/read_otp. Caller normalizes the
     // EEPROM/OTP word stream first. Exact frame: header(4), payload,
     // checksum(2). Supports ath9k None and Block compression. Rejects malformed
-    // delta streams before modifying image bytes. Other failures leave an
-    // existing image intact; caller must discard the entire restore chain on
-    // ANY failure. Frame and template storage must be immutable and disjoint
-    // from image/info; the caller owns their lifetime for the duration of this
-    // serialized call.
+    // delta streams before modifying image bytes. Initialize EepromImage to
+    // zero or call discardEepromImage before the first direct block apply;
+    // contradictory restored/applied-block metadata is rejected. Other
+    // failures leave an existing image intact; caller must discard the
+    // entire restore chain on ANY failure. Frame and template storage must
+    // be immutable and disjoint from image/info; the caller owns their
+    // lifetime for the duration of this serialized call.
     EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info);
