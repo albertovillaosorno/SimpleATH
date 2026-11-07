@@ -58,6 +58,21 @@ int main()
     // Persistent owner-style allocations, no OS driver or bus interactions.
     static ScanCache cache;
     static LegacyScanBridge bridge;
+    // A forged borrowed RX source from inside the cache must not be parsed
+    // as a real air frame or erase cached BSS metadata.
+    const auto *cacheBytes = reinterpret_cast<const uint8_t *>(&cache);
+    if (cache.observe(cacheBytes, kBeaconBytes, -41, 1) !=
+            Result::InvalidFrame ||
+        cache.size() != 0)
+        return 18;
+    // Ordinary missing-SSID lookups clear a stale output, but a caller
+    // accidentally pointing its SSID into that output must leave it intact.
+    Bss aliasedResult {};
+    aliasedResult.rssiDbm = 37;
+    const auto *badSsid = reinterpret_cast<const uint8_t *>(&aliasedResult);
+    if (cache.strongest(badSsid, 4, 6, true, true, aliasedResult) ||
+        aliasedResult.rssiDbm != 37 || cache.size() != 0)
+        return 19;
     uint8_t beacon[kBeaconBytes] {};
     makeBeacon(beacon, 6);
     NativeBssSnapshot entry {};

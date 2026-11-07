@@ -7,6 +7,17 @@ namespace simpleath
     {
         namespace
         {
+            bool overlaps(const void *a, size_t aBytes, const void *b,
+                          size_t bBytes)
+            {
+                if (!a || !b || !aBytes || !bBytes)
+                    return false;
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return first <= second ? second - first < aBytes
+                                       : first - second < bBytes;
+            }
+
             bool sameSecurityAdvertisement(const Beacon &left,
                                            const Beacon &right)
             {
@@ -41,6 +52,10 @@ namespace simpleath
         Result ScanCache::observe(const uint8_t *frame, size_t length,
                                   int8_t rssiDbm, uint64_t nowMs)
         {
+            // RX bytes must be borrowed from a disjoint DMA/frame allocation;
+            // a forged source within the cache could change while updating it.
+            if (overlaps(frame, length, this, sizeof(*this)))
+                return Result::InvalidFrame;
             Beacon beacon {};
             const Result result = parseBeacon(frame, length, beacon);
             if (result != Result::Ok)
@@ -121,6 +136,10 @@ namespace simpleath
 
         bool ScanCache::snapshot(size_t ordinal, Bss &out) const
         {
+            // Failed lookups normally clear stale output, but an alias to an
+            // owned cache entry must not erase its live BSS first.
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)))
+                return false;
             out = {};
             if (ordinal >= kCapacity)
                 return false;
@@ -143,6 +162,12 @@ namespace simpleath
                                   uint8_t channel, bool permitOpen,
                                   bool permitWpa2, Bss &out) const
         {
+            // Caller-owned output cannot alias the search SSID or the live
+            // cache. Even an invalid lookup must not erase borrowed bytes.
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), ssid, ssidLength) ||
+                overlaps(ssid, ssidLength, this, sizeof(*this)))
+                return false;
             if (ssidLength > 32 || (ssidLength != 0 && !ssid))
             {
                 out = {};

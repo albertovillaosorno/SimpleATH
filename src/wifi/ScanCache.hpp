@@ -29,14 +29,15 @@ namespace simpleath
                 ScanCache();
                 void clear();
                 // Caller must have verified RX descriptor CRC and DMA bounds
-                // first.
+                // first. RX frame storage must not overlap this cache.
                 Result observe(const uint8_t *frame, size_t length,
                                int8_t rssiDbm, uint64_t nowMs);
                 void expire(uint64_t nowMs, uint64_t ttlMs);
                 size_t size() const;
                 // Returns a defensive copy of the Nth occupied BSS for native
                 // scan enumeration. Caller must serialize with
-                // observe()/expire()/clear(). Failed lookups clear out.
+                // observe()/expire()/clear(). Failed lookups clear out,
+                // except malformed output aliases with the retained cache.
                 bool snapshot(size_t ordinal, Bss &out) const;
 
                 // Only allows Open or WPA2/CCMP PSK, with a visible SSID
@@ -45,6 +46,7 @@ namespace simpleath
                 // Invalid/unmeasured RSSI never beats a measured value.
                 // This does NOT check country-specific regulatory policy.
                 // A copy of the BSS is returned; no invalidatable pointers.
+                // The output cannot overlap the input SSID or this cache.
                 bool strongest(const uint8_t *ssid, size_t ssidLength,
                                uint8_t channel, bool permitOpen,
                                bool permitWpa2, Bss &out) const;
