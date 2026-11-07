@@ -9,19 +9,29 @@ from unittest import TestCase
 
 # Legacy embed CLI uses script-relative imports; import never calls generate.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+from embed import ALIASES
+from embed import CommandLayout
 from embed import DYSYMTAB_COMMAND
 from embed import DYSYMTAB_COMMAND_BYTES
 from embed import MAX_EMBED_RELOCATIONS
 from embed import MAX_EXPANDED_PAYLOAD_BYTES
+from embed import RelocationContext
+from embed import checked_alias_name
 from embed import checked_dysymtab_fields
 from embed import checked_payload_size
 from embed import checked_relocation_entries
 from embed import checked_relocation_width
+from embed import expanded_legacy_image
+from embed import image_relocations
 from embed import remap_file_offset
 from embed import require_embed
+from embed import vtable_class_name
 from embed_payload_codec import align
+from macho import Image
+from native_payload import SkywalkPlan
 
 RELOC_BYTES = 8
+CHILD_VTABLE = "__ZTV5Child"
 SAMPLE_ADDRESS = 8
 SAMPLE_SYMBOL = 2
 SAMPLE_COUNT = 1
@@ -32,6 +42,7 @@ NEGATIVE_MESSAGE = "Negative"
 INVALID_SYMBOL_MESSAGE = "out of range"
 DYSYMTAB_SHAPE_MESSAGE = "exactly one complete"
 DYSYMTAB_HEADER_MESSAGE = "Malformed"
+ALIAS_REJECT = "inconsistent"
 
 
 def _bad(data: bytes, offset: int, count: int, *, symbol_count: int) -> str:
@@ -325,3 +336,115 @@ class EmbedAlwaysCheckedInvariantsTests(TestCase):
         else:
             received = ""
         assert received == message
+
+
+class EmbedExtractedMetadataTests(TestCase):
+    """Isolated source image fixtures verify generator helper semantics."""
+
+    @staticmethod
+    def test_vtable_class_mangling_requires_exact_name_length() -> None:
+        """Recognize exact source and parent metadata, not prefix aliases."""
+        assert (
+            vtable_class_name("__ZN5Child10superClassE", "10superClassE")
+            == CHILD_VTABLE
+        )
+        assert (
+            vtable_class_name("__ZN5Child10gMetaClassE", "10gMetaClassE")
+            == CHILD_VTABLE
+        )
+        assert (
+            vtable_class_name("__ZN6Child10superClassE", "10superClassE")
+            is None
+        )
+        assert (
+            vtable_class_name("__ZN5Child10gMetaClassE", "10superClassE")
+            is None
+        )
+
+    @staticmethod
+    def _image() -> Image:
+        """Return a synthetic in-memory Image without loading a native file.
+
+        Returns:
+            Source bytes, segments and section bounds for offline tests.
+
+        """
+        image = Image.__new__(Image)
+        image.data = bytes(512)
+        image.segments = [("__TEXT", 0, 512, 0, 512)]
+        image.sections = [("__text", "__TEXT", 0, 1, 256)]
+        image.symbols = {}
+        return image
+
+    @staticmethod
+    def test_external_and_local_relocations_keep_fields_and_order() -> None:
+        """Preserve decoded targets, addends and section ownership."""
+        image = EmbedExtractedMetadataTests._image()
+        data = bytearray(image.data)
+        struct.pack_into("<q", data, 0, 4)
+        struct.pack_into("<q", data, 8, 24)
+        external_bits = (3 << 25) | EXTERNAL_SYMBOL
+        local_bits = (3 << 25) | 1
+        struct.pack_into("<iI", data, 16, 0, external_bits)
+        struct.pack_into("<iI", data, 24, 8, local_bits)
+        image.data = bytes(data)
+        fields = [0] * 18
+        fields[14:18] = [16, 1, 24, 1]
+        model = SkywalkPlan.__new__(SkywalkPlan)
+        context = RelocationContext(
+            0,
+            image,
+            [("_defined", 15, 1, 0, 12)],
+            tuple(fields),
+            [{}],
+            model,
+            {},
+        )
+        assert image_relocations(context) == (
+            [(0, 12, 4, 0, 8), (8, 24, 0, 0, 8)],
+            0,
+        )
+
+    @staticmethod
+    def test_compatibility_alias_requires_exact_source_slot() -> None:
+        """Do not silently accept a mismatched compatibility address."""
+        image = EmbedExtractedMetadataTests._image()
+        image.symbols = {"__ZTV34AirPort_Brcm43xxLLSkywalkInterface": 256}
+        context = RelocationContext(
+            0,
+            image,
+            [],
+            tuple([0] * 18),
+            [{}],
+            SkywalkPlan.__new__(SkywalkPlan),
+            {},
+        )
+        name, replacement = next(iter(ALIASES.items()))
+        address = 256 + 16 + 0xA70
+        assert checked_alias_name(context, name, (address, 8, 0)) == replacement
+        for invalid in ((address + 8, 8, 0), (address, 4, 0), (address, 8, 1)):
+            rejected = False
+            try:
+                _ = checked_alias_name(context, name, invalid)
+            except ValueError as error:
+                rejected = ALIAS_REJECT in str(error)
+            assert rejected
+
+    @staticmethod
+    def test_rebased_load_commands_preserve_mapped_offsets() -> None:
+        """Rebase checked symbol and dynamic tables without executing source."""
+        image = EmbedExtractedMetadataTests._image()
+        symtab = bytearray(struct.pack("<6I", 2, 24, 300, 0, 320, 8))
+        dysymtab = bytearray(struct.pack("<II18I", 11, 80, *([0] * 18)))
+        layout = CommandLayout(
+            image,
+            [(2, symtab), (11, dysymtab)],
+            [],
+            512,
+            4096,
+        )
+        expanded, values = expanded_legacy_image(layout)
+        assert values == []
+        assert struct.unpack_from("<II", expanded, 16) == (3, 176)
+        assert struct.unpack_from("<4I", expanded, 40) == (300, 0, 320, 8)
+        assert struct.unpack_from("<II", expanded, 32 + 24 + 80) == (25, 72)
