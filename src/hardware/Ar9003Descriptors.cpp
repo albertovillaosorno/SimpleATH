@@ -1,4 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Linux-derived descriptor format/constants retain their upstream notice.
+/*
+ * Copyright (c) 2008-2011 Atheros Communications Inc.
+ * Copyright (c) 2010-2011 Atheros Communications Inc.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+// Reference SHA-256:
+// ar9003_mac.c: a99f8fb18052510161232331e5fc98757619713e6f2ad69d1897f77597c0188b
+// ar9003_mac.h: 47ada2b3a635aaf3cadb7b9f93bbff676da27bdc566e4a332124f21bbf0c7461
+// mac.h: 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
 #include "Ar9003Descriptors.hpp"
 
 namespace simpleath {
