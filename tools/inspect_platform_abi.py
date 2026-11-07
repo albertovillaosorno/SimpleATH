@@ -478,7 +478,35 @@ def load_kdk(root):
     return None, metadata, images
 
 
-def inventory(path, reference_mode, system_version=None, kdk_mode=False):
+def read_system_version(path: Path) -> tuple[bytes, str, str]:
+    """Validate a supplied offline SystemVersion plist without following links.
+
+    Returns:
+        Original bounded bytes plus explicit OS version and build identifiers.
+
+    Raises:
+        ValueError: The plist is malformed or lacks required string metadata.
+
+    """
+    data = read_kdk_file(path.parent, path.name)
+    version = plistlib.loads(data)
+    if not isinstance(version, dict):
+        raise ValueError("SystemVersion.plist must contain a dictionary")
+    product = version.get("ProductVersion")
+    build = version.get("ProductBuildVersion")
+    if not isinstance(product, str) or not isinstance(build, str):
+        raise ValueError("SystemVersion.plist requires version/build strings")
+    if not product or not build:
+        raise ValueError("SystemVersion.plist has empty version/build fields")
+    return data, product, build
+
+
+def inventory(
+    path: Path,
+    reference_mode: bool,
+    system_version: Path | None = None,
+    kdk_mode: bool = False,
+) -> dict[str, object]:
     if kdk_mode:
         digest, metadata, images = load_kdk(path)
     else:
@@ -511,12 +539,11 @@ def inventory(path, reference_mode, system_version=None, kdk_mode=False):
         }
     supplied_system = None
     if system_version is not None:
-        data = system_version.read_bytes()
-        version = plistlib.loads(data)
+        data, product, build = read_system_version(system_version)
         supplied_system = {
             "sha256": hashlib.sha256(data).hexdigest(),
-            "version": version.get("ProductVersion"),
-            "build": version.get("ProductBuildVersion"),
+            "version": product,
+            "build": build,
             "pairedToCollectionVerified": False,
         }
     return {
