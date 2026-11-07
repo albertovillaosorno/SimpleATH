@@ -2,6 +2,7 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic Mach-O parser safety checks with no real system images."""
 
+import hashlib
 import mmap
 import os
 from pathlib import Path
@@ -323,6 +324,20 @@ class MachOResourceLifecycleTests(TestCase):
         assert handles[0].closed
 
 
+def _reject_source_hash(path: Path) -> bool:
+    """Check source hash safely refuses an invalid synthetic path.
+
+    Returns:
+        True if the hash reader rejected an invalid filesystem input.
+
+    """
+    try:
+        _ = native_abi.hash_mach_source(path)
+    except OSError, ValueError:
+        return True
+    return False
+
+
 class MachOInputPathSafetyTests(TestCase):
     """No mmap or blocked FIFO open for untrusted native source paths."""
 
@@ -369,6 +384,32 @@ class MachOInputPathSafetyTests(TestCase):
             with mock.patch.object(mmap, "mmap", side_effect=AssertionError):
                 assert MachOInputPathSafetyTests._refuses_path(empty)
                 assert MachOInputPathSafetyTests._refuses_path(oversized)
+
+    @staticmethod
+    def test_pinned_source_hash_rejects_nonregular_and_oversized_files() -> (
+        None
+    ):
+        """Reject unsafe paths before the model's source-checksum step."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid = root / "valid.macho"
+            contents = _thin()
+            _ = valid.write_bytes(contents)
+            assert (
+                native_abi.hash_mach_source(valid)
+                == hashlib.sha256(contents).hexdigest()
+            )
+            invalid = [root / name for name in ("link.macho", "pipe.macho")]
+            invalid[0].symlink_to(valid)
+            os.mkfifo(invalid[1])
+            empty = root / "empty.macho"
+            _ = empty.write_bytes(b"")
+            invalid.append(empty)
+            oversized = root / "sparse.macho"
+            _ = oversized.touch()
+            os.truncate(oversized, native_abi.MAX_NATIVE_MACHO_BYTES + 1)
+            invalid.append(oversized)
+            assert all(_reject_source_hash(path) for path in invalid)
 
     @staticmethod
     def test_valid_regular_image_keeps_existing_mapped_reads() -> None:

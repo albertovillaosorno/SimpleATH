@@ -53,6 +53,7 @@ PATHS = {
 
 
 MAX_NATIVE_MACHO_BYTES = 2 * 1024 * 1024 * 1024
+HASH_CHUNK_BYTES = 1024 * 1024
 
 
 def _open_mach_source(path: Path) -> BinaryIO:
@@ -80,6 +81,42 @@ def _open_mach_source(path: Path) -> BinaryIO:
     except BaseException:
         stream.close()
         raise
+
+
+def hash_mach_source(path: Path) -> str:
+    """Hash an unchanged, bounded source without loading it into memory.
+
+    Returns:
+        SHA-256 digest of the exact regular input bytes.
+
+    Raises:
+        ValueError: The file changed, was empty, or exceeded the byte limit.
+
+    """
+    with _open_mach_source(path) as stream:
+        before = os.fstat(stream.fileno())
+        remaining = before.st_size
+        digest = hashlib.sha256()
+        while remaining:
+            chunk = stream.read(min(remaining, HASH_CHUNK_BYTES))
+            if not chunk:
+                break
+            digest.update(chunk)
+            remaining -= len(chunk)
+        excess = stream.read(1)
+        after = os.fstat(stream.fileno())
+    attributes = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+    if (
+        remaining
+        or excess
+        or any(
+            getattr(before, attribute) != getattr(after, attribute)
+            for attribute in attributes
+        )
+    ):
+        message = "Native Mach-O source changed while hashing"
+        raise ValueError(message)
+    return digest.hexdigest()
 
 
 def _require_span(start: int, size: int, limit: int) -> None:
@@ -543,7 +580,7 @@ class NativeModel:
         self.system = system
         self.profile = SYSTEMS[system]
         for key, expected in EXPECTED_SOURCES.items():
-            if hashlib.sha256(PATHS[key].read_bytes()).hexdigest() != expected:
+            if hash_mach_source(PATHS[key]) != expected:
                 raise ValueError(f"Unsupported source payload: {key}")
         self.old = Mach(PATHS["OldSky"])
         self.native = sky(system)
@@ -662,8 +699,7 @@ class NativeModel:
             "nativeUUID": self.native.uuid,
             "airPortSource": self.airport_source,
             "sourceSHA256": {
-                key: hashlib.sha256(path.read_bytes()).hexdigest()
-                for key, path in sources.items()
+                key: hash_mach_source(path) for key, path in sources.items()
             },
             "classes": classes,
             "removedMethods": self.holes,
