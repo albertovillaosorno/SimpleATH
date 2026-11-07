@@ -10,6 +10,22 @@
 
 namespace simpleath
 {
+    namespace
+    {
+        // Check overlap without adding untrusted pointer lengths or wrapping
+        // an address-sized integer. A single byte checks an opaque context's
+        // known base, not the extent of its caller-owned allocation.
+        bool overlapsStorage(const void *first, size_t firstLength,
+                             const void *second, size_t secondLength)
+        {
+            if (!first || !second || !firstLength || !secondLength)
+                return false;
+            const auto left = reinterpret_cast<uintptr_t>(first);
+            const auto right = reinterpret_cast<uintptr_t>(second);
+            return left >= right ? left - right < secondLength
+                                 : right - left < firstLength;
+        }
+    } // namespace
 
     NativePciBackend::NativePciBackend()
         : owner_(nullptr), pci_(nullptr), bar_(nullptr), power_ {}, length_(0),
@@ -120,9 +136,16 @@ namespace simpleath
     bool NativePciBackend::configRead32(void *context, uint16_t offset,
                                         uint32_t *value)
     {
-        if (!value || (offset & 3u) || offset > 0xfcu || !inD0(context))
-            return false;
         auto &self = *static_cast<NativePciBackend *>(context);
+        if (!value || (offset & 3u) || offset > 0xfcu ||
+            overlapsStorage(value, sizeof(*value), &self, sizeof(self)) ||
+            overlapsStorage(value, sizeof(*value), self.power_.context, 1) ||
+            (self.bar_ && overlapsStorage(value, sizeof(*value),
+                                          reinterpret_cast<const void *>(
+                                              self.bar_->getVirtualAddress()),
+                                          self.length_)) ||
+            !inD0(context))
+            return false;
         const uint32_t observed = self.pci_->extendedConfigRead32(offset);
         if (observed == 0xffffffffu)
             return false;
@@ -147,10 +170,18 @@ namespace simpleath
 
     bool NativePciBackend::mapBar0(void *context, uint32_t *lengthBytes)
     {
-        if (!lengthBytes)
+        auto &self = *static_cast<NativePciBackend *>(context);
+        if (!lengthBytes ||
+            overlapsStorage(lengthBytes, sizeof(*lengthBytes), &self,
+                            sizeof(self)) ||
+            overlapsStorage(lengthBytes, sizeof(*lengthBytes),
+                            self.power_.context, 1) ||
+            (self.bar_ && overlapsStorage(lengthBytes, sizeof(*lengthBytes),
+                                          reinterpret_cast<const void *>(
+                                              self.bar_->getVirtualAddress()),
+                                          self.length_)))
             return false;
         *lengthBytes = 0;
-        auto &self = *static_cast<NativePciBackend *>(context);
         if (self.bar_ || !inD0(context))
             return false;
         uint32_t command = 0, bar = 0, upper = 0;
@@ -205,7 +236,14 @@ namespace simpleath
                                     uint32_t *value)
     {
         auto &self = *static_cast<NativePciBackend *>(context);
-        if (!value || !self.bar_ || !inD0(context) ||
+        if (!value || !self.bar_ ||
+            overlapsStorage(value, sizeof(*value), &self, sizeof(self)) ||
+            overlapsStorage(value, sizeof(*value), self.power_.context, 1) ||
+            overlapsStorage(
+                value, sizeof(*value),
+                reinterpret_cast<const void *>(self.bar_->getVirtualAddress()),
+                self.length_) ||
+            !inD0(context) ||
             (offset != kRevisionRegister && offset != kRtcStatusRegister &&
              offset != kEepromStatusRegister) ||
             offset > self.length_ || self.length_ - offset < sizeof(uint32_t))

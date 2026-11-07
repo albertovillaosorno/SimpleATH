@@ -50,6 +50,12 @@ contract. The virtual base plus map length must also fit without integer
 wraparound, including when the map address is retrieved again for a register
 read. Failure releases the temporary map and publishes no mapping.
 
+Native callback output pointers are checked before writing so a malformed
+caller cannot overwrite the backend's ownership/callback storage, the known
+start of its opaque power context, or the currently mapped BAR through a
+read-only result buffer. The full size of an external power-context allocation
+is unknown and must be kept disjoint by its owner.
+
 Only 16-bit writes to PCI command are available. The adapter rejects bus-master
 enable and any change other than memory-decode bit 1 relative to the current
 word. It never writes PCI status. The portable session performs readback and
