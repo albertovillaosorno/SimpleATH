@@ -45,7 +45,6 @@ Error TxRing::initialize(size_t numberOfSlots) {
         return Error::InvalidCount;
     if (capacity_ != 0) return Error::UnexpectedState;
     capacity_ = numberOfSlots;
-    ++generation_;
     for (size_t i = 0; i < kMaximumSlots; ++i) {
         slots_[i] = {};
         slots_[i].generation = generation_;
@@ -56,10 +55,14 @@ Error TxRing::initialize(size_t numberOfSlots) {
 
 Error TxRing::reserve(size_t &slot, uint32_t cookie) {
     if (capacity_ == 0) return Error::UninitializedRing;
+    // Never wrap a token and accidentally match an old completion. Recreate
+    // the ring owner after complete DMA/callback teardown if exhausted.
+    if (generation_ == 0xffffffffu) return Error::GenerationExhausted;
     for (size_t i = 0; i < capacity_; ++i) {
         if (slots_[i].state != SlotState::Free)
             continue;
         slots_[i].state = SlotState::Reserved;
+        slots_[i].generation = ++generation_;
         slots_[i].cookie = cookie;
         slots_[i].dmaMapped = false;
         slots_[i].descriptorCompleted = false;
@@ -95,10 +98,10 @@ Error TxRing::handedToHardware(size_t slot, bool radioCalibrated,
     return Error::Ok;
 }
 
-Error TxRing::complete(size_t slot, uint32_t cookie) {
+Error TxRing::complete(size_t slot, uint32_t cookie, uint32_t generation) {
     if (slot >= capacity_) return Error::InvalidSlot;
     if (slots_[slot].state != SlotState::OwnedByHardware ||
-        slots_[slot].cookie != cookie)
+        slots_[slot].cookie != cookie || slots_[slot].generation != generation)
         return Error::UnexpectedState;
     slots_[slot].state = SlotState::Completed;
     return Error::Ok;
@@ -121,7 +124,7 @@ void TxRing::reset() {
     // The platform MUST stop hardware DMA and reclaim buffers before reset.
     capacity_ = 0;
     active_ = 0;
-    ++generation_;
+    // Preserve the reservation-token sequence across reset/reinitialization.
     for (size_t i = 0; i < kMaximumSlots; ++i)
         slots_[i] = {};
 }
