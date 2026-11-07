@@ -7,74 +7,178 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+"""Fetch pinned development references when explicitly invoked."""
+
 import argparse
 import hashlib
-import subprocess
-import zipfile
 from pathlib import Path
-
+import shutil
+import subprocess  # ruff: ignore[suspicious-subprocess-import] - Shell-free pinned Git operations only.
+import sys
+import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
-REPOSITORIES = {
-    "MacKernelSDK": ("https://github.com/acidanthera/MacKernelSDK.git", "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
-                     ["/Headers/", "/Library/x86_64/", "/LICENSE.txt"]),
-    "OpenCore-Legacy-Patcher": ("https://github.com/dortania/OpenCore-Legacy-Patcher.git", "8da38565fa1551a8e5ce8613ea835d04dd97e089",
-                               ["/payloads/Kexts/Wifi/IOSkywalkFamily-v1.2.0.zip", "/payloads/Kexts/Wifi/IO80211FamilyLegacy-v1.0.0.zip",
-                                "/payloads/Kexts/Wifi/AirPortBrcmNIC-Tahoe-v1.0.0.zip",
-                                "/LICENSE.txt"]),
+PARENT_COMPONENT = ".."
+MAC_METADATA_COMPONENT = "__MACOSX"
+REPOSITORIES: dict[str, tuple[str, str, list[str]]] = {
+    "MacKernelSDK": (
+        "https://github.com/acidanthera/MacKernelSDK.git",
+        "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+        ["/Headers/", "/Library/x86_64/", "/LICENSE.txt"],
+    ),
+    "OpenCore-Legacy-Patcher": (
+        "https://github.com/dortania/OpenCore-Legacy-Patcher.git",
+        "8da38565fa1551a8e5ce8613ea835d04dd97e089",
+        [
+            "/payloads/Kexts/Wifi/IOSkywalkFamily-v1.2.0.zip",
+            "/payloads/Kexts/Wifi/IO80211FamilyLegacy-v1.0.0.zip",
+            "/payloads/Kexts/Wifi/AirPortBrcmNIC-Tahoe-v1.0.0.zip",
+            "/LICENSE.txt",
+        ],
+    ),
 }
 ARCHIVES = {
-    "Wifi/IOSkywalkFamily-v1.2.0.zip": "1e12b7ef42f55b39ea54ada97b46331220668b2c48a28656e9875c5145fe2479",
-    "Wifi/IO80211FamilyLegacy-v1.0.0.zip": "e681dcc76a2cd2cea4b0ad5f27a3c816055fde3cdccd890dd10a3e2c84e96d93",
-    "Wifi/AirPortBrcmNIC-Tahoe-v1.0.0.zip": "04edd7127ce096f5de9f8112af6d06744f27e5bc659e3d6516408755cb9af032",
+    "Wifi/IOSkywalkFamily-v1.2.0.zip": (
+        "1e12b7ef42f55b39ea54ada97b46331220668b2c48a28656e9875c5145fe2479"
+    ),
+    "Wifi/IO80211FamilyLegacy-v1.0.0.zip": (
+        "e681dcc76a2cd2cea4b0ad5f27a3c816055fde3cdccd890dd10a3e2c84e96d93"
+    ),
+    "Wifi/AirPortBrcmNIC-Tahoe-v1.0.0.zip": (
+        "04edd7127ce096f5de9f8112af6d06744f27e5bc659e3d6516408755cb9af032"
+    ),
 }
 
 
-def git(folder, *args):
-    return subprocess.check_output(["git", "-C", str(folder), *args], text=True).strip()
+def git(folder: Path, *args: str) -> str:
+    """Run Git with an argument vector.
+
+    Returns:
+        Captured standard output with surrounding whitespace removed.
+
+    Raises:
+        RuntimeError: Git is unavailable on the current path.
+
+    """
+    executable = shutil.which("git")
+    if executable is None:
+        message = "Git executable is missing"
+        raise RuntimeError(message)
+    # Git receives separate arguments; none are evaluated by a shell.
+    return subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+        [executable, "-C", str(folder), *args], text=True
+    ).strip()
 
 
-def validate_payloads(extract=False):
+def _run_git(args: list[str], *, stdin: str | None = None) -> None:
+    executable = shutil.which("git")
+    if executable is None:
+        message = "Git executable is missing"
+        raise RuntimeError(message)
+    # URLs/revisions come from the pinned constants above; shell stays disabled.
+    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        [executable, *args], input=stdin, text=True, check=True
+    )
+
+
+def _validate_item(
+    bundle: zipfile.ZipFile,
+    item: zipfile.ZipInfo,
+    destination: Path,
+    *,
+    extract: bool,
+) -> None:
+    parts = Path(item.filename).parts
+    if PARENT_COMPONENT in parts or item.filename.startswith("/"):
+        message = "Unsafe archive entry path"
+        raise RuntimeError(message)
+    if item.is_dir() or MAC_METADATA_COMPONENT in parts:
+        return
+    target = destination / item.filename
+    original = bundle.read(item)
+    if extract and not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _ = target.write_bytes(original)
+    if not target.is_file() or target.read_bytes() != original:
+        message = f"Extracted file differs from the pinned archive: {target}"
+        raise RuntimeError(message)
+
+
+def validate_payloads(*, extract: bool = False) -> None:
+    """Compare payload archives and extracted bytes with pinned references.
+
+    Raises:
+        RuntimeError: A pinned archive checksum does not match.
+
+    """
     for relative, digest in ARCHIVES.items():
-        archive = ROOT / ".research/OpenCore-Legacy-Patcher/payloads/Kexts" / relative
+        archive = (
+            ROOT / ".research/OpenCore-Legacy-Patcher/payloads/Kexts" / relative
+        )
         if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
-            raise RuntimeError(f"Archive checksum verification failed: {archive}")
+            message = f"Archive checksum verification failed: {archive}"
+            raise RuntimeError(message)
         destination = ROOT / ".research/binaries" / archive.stem
         with zipfile.ZipFile(archive) as bundle:
             for item in bundle.infolist():
-                if ".." in Path(item.filename).parts or item.filename.startswith("/"):
-                    raise RuntimeError("Unsafe archive entry path")
-                if item.is_dir() or "__MACOSX" in Path(item.filename).parts:
-                    continue
-                target = destination / item.filename
-                original = bundle.read(item)
-                if extract and not target.exists():
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(original)
-                if not target.is_file() or target.read_bytes() != original:
-                    raise RuntimeError(f"Extracted file differs from the pinned archive: {target}")
+                _validate_item(bundle, item, destination, extract=extract)
 
 
-def main():
+def _sparse_checkout(path: Path, sparse: list[str]) -> None:
+    _run_git(
+        ["-C", str(path), "sparse-checkout", "set", "--no-cone", "--stdin"],
+        stdin="\n".join(sparse),
+    )
+
+
+def _fetch_checkout(path: Path, repository: tuple[str, str, list[str]]) -> None:
+    url, revision, sparse = repository
+    _ = sys.stdout.write(
+        f"Fetching pinned upstream build dependency: {url} @ {revision}\n"
+    )
+    _ = sys.stdout.flush()
+    _run_git([
+        "clone",
+        "--filter=blob:none",
+        "--no-checkout",
+        "--depth=1",
+        url,
+        str(path),
+    ])
+    _run_git(["-C", str(path), "fetch", "--depth=1", "origin", revision])
+    _sparse_checkout(path, sparse)
+    _run_git(["-C", str(path), "checkout", "--detach", revision])
+
+
+def _validate_checkout(path: Path, revision: str) -> None:
+    if git(path, "rev-parse", "HEAD") != revision:
+        message = (
+            "Upstream checkout revision does not match the pinned commit: "
+            f"{path}"
+        )
+        raise RuntimeError(message)
+    if git(path, "status", "--porcelain", "--untracked-files=no"):
+        message = f"Upstream working tree contains modifications: {path}"
+        raise RuntimeError(message)
+
+
+def main() -> None:
+    """Fetch and validate the explicitly pinned upstream build references."""
     parser = argparse.ArgumentParser()
-    parser.parse_args()
+    _ = parser.parse_args()
     research = ROOT / ".research"
     research.mkdir(exist_ok=True)
-    for name, (url, revision, sparse) in REPOSITORIES.items():
+    for name, repository in REPOSITORIES.items():
         path = research / name
         if not path.exists():
-            print(f"Fetching pinned upstream build dependency: {url} @ {revision}", flush=True)
-            subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", url, str(path)], check=True)
-            subprocess.run(["git", "-C", str(path), "fetch", "--depth=1", "origin", revision], check=True)
-            subprocess.run(["git", "-C", str(path), "sparse-checkout", "set", "--no-cone", "--stdin"], input="\n".join(sparse), text=True, check=True)
-            subprocess.run(["git", "-C", str(path), "checkout", "--detach", revision], check=True)
-        if git(path, "rev-parse", "HEAD") != revision:
-            raise RuntimeError(f"Upstream checkout revision does not match the pinned commit: {path}")
-        if git(path, "status", "--porcelain", "--untracked-files=no"):
-            raise RuntimeError(f"Upstream working tree contains modifications: {path}")
-        subprocess.run(["git", "-C", str(path), "sparse-checkout", "set", "--no-cone", "--stdin"], input="\n".join(sparse), text=True, check=True)
+            _fetch_checkout(path, repository)
+        _validate_checkout(path, repository[1])
+        _sparse_checkout(path, repository[2])
     validate_payloads(extract=True)
-    print("All required upstream revisions, driver archives, and extracted files passed byte-for-byte verification.")
+    message = "All required upstream revisions, driver archives, and extracted"
+    _ = sys.stdout.write(
+        f"{message} files passed byte-for-byte verification.\n"
+    )
 
 
 if __name__ == "__main__":
