@@ -7,17 +7,19 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+"""Read pinned Mach-O images for offline static ABI evidence only."""
+
 import argparse
 import bisect
 import hashlib
+from pathlib import Path
 import re
 import struct
 import subprocess
-from pathlib import Path
 
 
 class Image:
-    def __init__(self, path):
+    def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.data = self.path.read_bytes()
         if self.data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
@@ -27,8 +29,10 @@ class Image:
                 entry = 8 + index * (32 if wide else 20)
                 cpu = struct.unpack_from(">I", self.data, entry)[0]
                 if cpu == 0x1000007:
-                    offset, size = struct.unpack_from(">QQ" if wide else ">II", self.data, entry + 8)
-                    self.data = self.data[offset:offset + size]
+                    offset, size = struct.unpack_from(
+                        ">QQ" if wide else ">II", self.data, entry + 8
+                    )
+                    self.data = self.data[offset : offset + size]
                     break
             else:
                 raise ValueError("No x86_64 slice")
@@ -47,13 +51,27 @@ class Image:
         for _ in range(struct.unpack_from("<I", self.data, 16)[0]):
             command, size = struct.unpack_from("<II", self.data, position)
             if command == 0x19:
-                name, address, length, offset, file_size, _, _, count, _ = struct.unpack_from(
-                    "<16sQQQQiiII", self.data, position + 8)
-                self.segments.append((name.rstrip(b"\0").decode(), address, length, offset, file_size))
+                name, address, length, offset, file_size, _, _, count, _ = (
+                    struct.unpack_from("<16sQQQQiiII", self.data, position + 8)
+                )
+                self.segments.append((
+                    name.rstrip(b"\0").decode(),
+                    address,
+                    length,
+                    offset,
+                    file_size,
+                ))
                 for index in range(count):
                     sec, seg, addr, length, offset = struct.unpack_from(
-                        "<16s16sQQI", self.data, position + 72 + 80 * index)
-                    self.sections.append((seg.rstrip(b"\0").decode(), sec.rstrip(b"\0").decode(), addr, length, offset))
+                        "<16s16sQQI", self.data, position + 72 + 80 * index
+                    )
+                    self.sections.append((
+                        seg.rstrip(b"\0").decode(),
+                        sec.rstrip(b"\0").decode(),
+                        addr,
+                        length,
+                        offset,
+                    ))
             elif command == 2:
                 symtab = struct.unpack_from("<IIII", self.data, position + 8)
             elif command == 0xB:
@@ -61,14 +79,23 @@ class Image:
             elif command in (0x22, 0x80000022):
                 dyld = struct.unpack_from("<10I", self.data, position + 8)
             elif command == 0x1B:
-                self.uuid = self.data[position + 8:position + 24].hex()
+                self.uuid = self.data[position + 8 : position + 24].hex()
             position += size
         names = []
         if symtab:
             offset, count, strings, _ = symtab
             for index in range(count):
-                name, kind, _, _, address = struct.unpack_from("<IBBHQ", self.data, offset + 16 * index)
-                text = self.data[strings + name:].split(b"\0", 1)[0].decode(errors="replace") if name else ""
+                name, kind, _, _, address = struct.unpack_from(
+                    "<IBBHQ", self.data, offset + 16 * index
+                )
+                text = (
+                    self
+                    .data[strings + name :]
+                    .split(b"\0", 1)[0]
+                    .decode(errors="replace")
+                    if name
+                    else ""
+                )
                 names.append(text)
                 if name and address > 1 and kind & 0xE == 0xE:
                     self.symbols[text] = address
@@ -78,26 +105,38 @@ class Image:
             for _ in range(struct.unpack_from("<I", self.data, 16)[0]):
                 command, size = struct.unpack_from("<II", self.data, position)
                 if command == 0x19:
-                    count = struct.unpack_from("<I", self.data, position + 64)[0]
+                    count = struct.unpack_from("<I", self.data, position + 64)[
+                        0
+                    ]
                     for index in range(count):
                         section = position + 72 + index * 80
-                        address, length = struct.unpack_from("<QQ", self.data, section + 32)
-                        flags, first, stride = struct.unpack_from("<III", self.data, section + 64)
+                        address, length = struct.unpack_from(
+                            "<QQ", self.data, section + 32
+                        )
+                        flags, first, stride = struct.unpack_from(
+                            "<III", self.data, section + 64
+                        )
                         kind = flags & 255
                         if kind not in (6, 7, 8):
                             continue
                         stride = stride if kind == 8 else 8
                         for item in range(length // stride):
-                            symbol = struct.unpack_from("<I", self.data, indirect + 4 * (first + item))[0]
+                            symbol = struct.unpack_from(
+                                "<I", self.data, indirect + 4 * (first + item)
+                            )[0]
                             if symbol < len(names):
-                                (self.stubs if kind == 8 else self.binds)[address + item * stride] = names[symbol]
+                                (self.stubs if kind == 8 else self.binds)[
+                                    address + item * stride
+                                ] = names[symbol]
                 position += size
-        self.addresses = sorted((address, name) for name, address in self.symbols.items())
+        self.addresses = sorted(
+            (address, name) for name, address in self.symbols.items()
+        )
         self.keys = [entry[0] for entry in self.addresses]
         if dyld:
             for offset, size in [(dyld[2], dyld[3]), (dyld[6], dyld[7])]:
                 if size:
-                    self.parse_binds(self.data[offset:offset + size])
+                    self.parse_binds(self.data[offset : offset + size])
 
     @staticmethod
     def leb(data, position, signed=False):
@@ -149,11 +188,15 @@ class Image:
             else:
                 raise ValueError(f"Unsupported bind opcode {byte:#x}")
 
-    def read(self, address, size):
+    def read(self, address: int, size: int) -> bytes:
+        if address < 0 or size < 0:
+            raise ValueError("Negative Mach-O address or size")
         for _, start, _, offset, length in self.segments:
             if start <= address and address + size <= start + length:
                 location = offset + address - start
-                return self.data[location:location + size]
+                if location < 0 or location + size > len(self.data):
+                    raise ValueError("Truncated Mach-O mapping")
+                return self.data[location : location + size]
         raise ValueError(f"Unmapped range {address:#x}+{size:#x}")
 
     def name(self, address):
@@ -187,16 +230,38 @@ class Image:
             address = int(match[1], 16)
             for _, name, start, size, _ in self.sections:
                 if name == "__cstring" and start <= address < start + size:
-                    labels.append(repr(self.read(address, min(256, start + size - address)).split(b"\0", 1)[0].decode(errors="replace")))
-        return line + (" ; " + " | ".join(label for label in labels if label) if any(labels) else "")
+                    labels.append(
+                        repr(
+                            self
+                            .read(address, min(256, start + size - address))
+                            .split(b"\0", 1)[0]
+                            .decode(errors="replace")
+                        )
+                    )
+        return line + (
+            " ; " + " | ".join(label for label in labels if label)
+            if any(labels)
+            else ""
+        )
 
     def disassemble(self, pattern):
         names = [name for name in self.symbols if re.search(pattern, name)]
         if not names:
             raise ValueError("No matching symbols")
-        output = subprocess.run(["xcrun", "llvm-objdump", "--arch=x86_64", "-d", "--no-show-raw-insn",
-                                 "--disassemble-symbols=" + ",".join(names), str(self.path)],
-                                check=True, text=True, capture_output=True).stdout
+        output = subprocess.run(
+            [
+                "xcrun",
+                "llvm-objdump",
+                "--arch=x86_64",
+                "-d",
+                "--no-show-raw-insn",
+                "--disassemble-symbols=" + ",".join(names),
+                str(self.path),
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
         return "\n".join(self.annotate(line) for line in output.splitlines())
 
 
@@ -218,10 +283,14 @@ def main():
         address, size = (int(part, 0) for part in args.read.split(":"))
         data = image.read(address, size)
         for index in range(0, len(data), 16):
-            part = data[index:index + 16]
-            print(f"{address + index:016x} {part.hex(' '):47s} {''.join(chr(c) if 32 <= c < 127 else '.' for c in part)}")
+            part = data[index : index + 16]
+            print(
+                f"{address + index:016x} {part.hex(" "):47s} {"".join(chr(c) if 32 <= c < 127 else "." for c in part)}"
+            )
     else:
-        print(f"UUID={image.uuid} SHA256={hashlib.sha256(image.path.read_bytes()).hexdigest()}")
+        print(
+            f"UUID={image.uuid} SHA256={hashlib.sha256(image.path.read_bytes()).hexdigest()}"
+        )
 
 
 if __name__ == "__main__":
