@@ -7,6 +7,12 @@ integration are not yet implemented. This is not a functional Wi-Fi driver.
 PCI `168c:0036`, macOS Tahoe 26.7.2 (Darwin 25, build 25G332),
 OpenCore 1.0.8.
 
+For the current source milestones, remaining blockers, separate authorization
+scopes and recovery procedure, see [status and recovery](STATUS-AND-RECOVERY.md).
+See [macOS integration](MACOS-INTEGRATION.md) for PCI ownership/DMA/power and
+the limits of the stored Tahoe ABI evidence, and [EEPROM port](EEPROM-PORT.md)
+for the bounded source parser and the board acquisition still required.
+
 ## Source components and blocking dependencies
 
 | Layer | Files | Implemented | Blocking dependency |
@@ -16,6 +22,8 @@ OpenCore 1.0.8.
 | Device state | `Ar9565Core.*` | Fail-closed phases; no TX/RX before implementation | EEPROM contents, reset and calibration |
 | RF configuration data | `generated/Ar9565InitTables.hpp` | 2,174 2.4GHz HT20/HT40 entries derived from 15 Linux ath9k source arrays | BAR writes, complete EEPROM validation, safe reset and delays |
 | Radio configuration planning | `Ar9565InitCatalog.*` | Revision-specific radio postamble, RX/TX gain profiles, channel 14 and regulatory preconditions | Calibration and board data |
+| PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Verified native PCI-family adapter; not connected to the passive IOService |
+| Board data parser | `Ar9565Eeprom.*` | Checked compression blocks, 1088-byte image storage, raw board summary and gain-index mapping | Hardware storage access, chain restoration/templates, actual calibration/regulatory validation |
 | PCI DMA and interrupts | Not yet written | NOT IMPLEMENTED | DMA mapping, rings, completions and recovery |
 | 802.11 MAC and security | Not yet written | NOT IMPLEMENTED | Scan, beacons, association, WPA/RSN, rate control |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
@@ -31,10 +39,12 @@ overflow, an Invalid Parameter injection error, and unresolved kernel
 IOPCIDevice C++ symbols. That boot did NOT prove the driver was loaded.
 
 The source was corrected to use IOKit's matching properties without directly
-importing the unavailable IOPCIDevice methods. Its last authorized Xcode
+importing the previously unresolved IOPCIDevice methods. Exact Tahoe PCI-family
+exports are still unverified; the stored ABI profile omits IOPCIFamily. Its last authorized Xcode
 build was successful, but there is no target-kernel load confirmation yet.
 
-The newer hardware core and initialization tables are SOURCE ONLY and
+The newer hardware core, initialization tables, PCI-session contract and
+EEPROM parser are SOURCE ONLY and
 HAVE NOT BEEN BUILT. The user has not authorized another binary.
 
 ## Platform-specific blockers
