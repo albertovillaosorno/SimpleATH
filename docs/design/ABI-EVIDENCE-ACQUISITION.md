@@ -33,6 +33,38 @@ DMA-command lifetime or correct descriptor addressability for the Dell.
 
 ## Read-only inventory tool
 
+### Copy existing evidence from the target installation
+
+`tools/collect_platform_abi.py` is a separate, source-only collector. It has
+not been run on the Dell or tested. When the owner chooses to collect files,
+run it manually on the Intel Mac using Python 3, without sudo:
+
+```sh
+python3 -B tools/collect_platform_abi.py \
+  --expected-build 25G332 \
+  --output "$HOME/Downloads/SimpleATH-ABI-25G332"
+```
+
+The output directory must not already exist. The script checks the source
+SystemVersion build before creating it, copies the existing Boot/System
+kernel collections, kernel and three families' Info.plist/executable files
+when accessible, and records sizes, SHA-256 hashes and unavailable paths in
+manifest.json. Missing standalone executables are not proof of missing
+families: those families may be present in a collection. Failure to copy the
+version and Boot collection produces a failure status, without privilege
+escalation or any automatic retry.
+
+For an already accessible offline OS root, add `--source-root /path/to/root`.
+The script does not mount volumes, fetch/install a KDK, invoke a kernel
+utility, execute a driver, probe PCI, change network state or touch EFI.
+It writes copies only to a new directory under home or the temporary
+directory, rejecting system/EFI output paths. The resulting files need to be
+transferred separately for inspection; no upload happens automatically.
+Matching the observed build is not proof of loaded-image provenance, native
+wireless compatibility or an unpatched installation.
+
+### Inspect already acquired files
+
 To inspect the retained JSON reference:
 
 ```sh
