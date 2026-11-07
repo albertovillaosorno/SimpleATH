@@ -9,6 +9,7 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | Component | File | What is implemented |
 | --- | --- | --- |
 | AR9003 descriptor representation | src/hardware/Ar9003Descriptors.* | 128-byte TX pointer layout, four 32-bit DMA buffer addresses and lengths, AR9565 descriptor-id formatting, pointer checksum and link updates; 48-byte RX status parsing and error flags |
+| AR9003 TX controls | src/hardware/Ar9003TxControl.* | Four retry/rate series, per-series power caps, HT40/GI/STBC/antenna selection, CCMP keycache controls, RTS/CTS duration, 36-byte TX completion flags; never enables hardware transmission |
 | DMA safety checks | src/hardware/Ar9003Dma.* | Reject unmapped buffers, 64-to-32-bit truncation, 4-GiB crossing, cache-synchronization and alignment errors; bounded 64-slot TX *metadata* ownership model |
 | Management frames | src/wifi/Frames.* | Bounds-checked 802.11 management/data header parsing, beacons/probe responses, SSID, DS channel, HT and RSN suites, serializers for probe, open authentication and limited WPA2-PSK CCMP association requests |
 | BSS cache | src/wifi/ScanCache.* | Allocation-free maximum 48 APs, expiry, visible/hidden SSID updates, channel/security filtering and RSSI preference |
@@ -17,14 +18,17 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | WPA2-PSK handshake | src/wifi/Wpa2Supplicant.* | EAPOL messages 2/4, MIC verification, GTK unwrap and pairwise/group key installation through mandatory reviewed crypto callbacks; no active hardware backend |
 | Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
 
-All eight C++ translation units were added to the existing Xcode target
+All nine C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
 
 ## Critical restrictions
 
-- **TX descriptors are pointer-only.** AR9003 rate selection, control words,
-  retry schedules, antenna/power settings, crypto key indices and aggregation
-  are not encoded. They are *not* ready to submit to the AR9565.
+- **TX descriptors are not connected to a working radio.** Pointer checksums
+  and most non-aggregated rate/retry/power/CCMP control fields are staged, but
+  rate selection and power limits still depend on verified board/OS policy.
+  No safe bus mastering, EDMA ring programming, interrupt completion, active
+  RF calibration or 802.11 traffic pipeline exists. The descriptors must not
+  be submitted to the physical device.
 - **DMA ring is metadata only.** There is no IODMACommand allocation,
   IOMMU mapping, physical device access, interrupt acknowledgement or
   hardware doorbell. The existing src/platform/Ar9565PciSession.* provides
