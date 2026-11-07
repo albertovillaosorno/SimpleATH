@@ -4,7 +4,9 @@
 
 import ast
 from contextlib import ExitStack
+from copy import deepcopy
 import importlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -24,6 +26,7 @@ from tools.native_invariants import require
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
 FAKE_XCRUN = "/offline-fixture/xcrun"
 ASSEMBLY = ".globl _athSkyForward0\n"
@@ -32,6 +35,7 @@ EXPECT_FORWARD0 = 'extern "C" void athSkyForward0();'
 EXPECT_CALLBACK1 = 'extern "C" void athSkyCallback1();'
 EXPECT_FORWARD_PTR = "reinterpret_cast<uintptr_t>(athSkyForward1)"
 EXPECTED_ABI_GUARDS = 52
+SYNTHETIC_PAYLOAD_SIZE = 64
 EXPECTED_RECONSTRUCTED_PAYLOAD = b"\x00ab\x00cd\x00"
 REQUIRE_FUNCTION = "require"
 RAW_READ_METHOD = "read_bytes"
@@ -48,12 +52,135 @@ GOOD_OUTPUT = (
 )
 
 
-def _reject(action: Callable[[], object]) -> bool:
+def _verifier_module() -> ModuleType:
+    """Import the native verifier in package mode without starting a build.
+
+    Returns:
+        The pure Python verifier module for synthetic contract tests.
+
+    """
+    with mock.patch.object(
+        sys,
+        "path",
+        [str(Path(__file__).parent.parent / "tools"), *sys.path],
+    ):
+        return importlib.import_module("tools.verify_native")
+
+
+def _manifest_fixture() -> dict[str, object]:
+    """Create a complete small native verification metadata fixture.
+
+    Returns:
+        A source-only manifest with every required field populated.
+
+    """
+    return {
+        "payloads": [
+            {
+                "label": "Legacy",
+                "size": SYNTHETIC_PAYLOAD_SIZE,
+                "namespacedClassStrings": {"IO80211Controller": [4, 12]},
+                "powerDomainPatches": [],
+            }
+        ],
+        "nativeAdapter": {
+            "wirelessControllerIdentity": "AirPortDriver",
+            "powerDomain": {
+                "strategy": "pci-provider",
+                "airPortTablePreserved": True,
+            },
+        },
+        "systemProfiles": [
+            {
+                "system": "Tahoe",
+                "nativeUUID": "synthetic-native",
+                "wirelessUUID": "synthetic-wireless",
+                "ethernetSize": 232,
+                "poolSize": 304,
+                "ethernetLinkSlot": 9,
+                "airPortPayloadIndex": 2,
+            }
+        ],
+        "nativeRuntimeGuards": {
+            "Tahoe": {
+                "classes": [["__ZN4Mock10gMetaClassE", 224]],
+                "vtables": [["Mock", 8, "_method"]],
+            }
+        },
+    }
+
+
+def _reject(
+    action: Callable[[], object],
+    errors: tuple[type[Exception], ...] = (ValueError, OSError),
+) -> bool:
     try:
         _ = action()
-    except ValueError, OSError:
+    except errors:
         return True
     return False
+
+
+class NativeVerifierManifestTests(TestCase):
+    """Reject malformed generated payload metadata before reading artifacts."""
+
+    @staticmethod
+    def test_parse_typed_complete_metadata() -> None:
+        """Keep exact source fields and preserve the nested output shape."""
+        loader = vars(_verifier_module())["_read_manifest"]
+        document = loader(json.dumps(_manifest_fixture()).encode("utf-8"))
+        assert document["payloads"][0]["size"] == SYNTHETIC_PAYLOAD_SIZE
+        assert document["payloads"][0]["namespacedClassStrings"] == {
+            "IO80211Controller": [4, 12]
+        }
+        assert (
+            document["nativeAdapter"]["powerDomain"]["airPortTablePreserved"]
+            is True
+        )
+        assert document["nativeRuntimeGuards"]["Tahoe"]["classes"] == [
+            ("__ZN4Mock10gMetaClassE", 224)
+        ]
+
+    def test_reject_malformed_payload_and_runtime_metadata(self) -> None:
+        """Require exact integer, array, mapping and class pair shapes."""
+        loader = vars(_verifier_module())["_read_manifest"]
+        valid = _manifest_fixture()
+        bad_values: tuple[tuple[str, object], ...] = (
+            ("size", True),
+            ("size", "64"),
+            ("namespacedClassStrings", {"IO80211Controller": [False]}),
+            ("powerDomainPatches", "missing"),
+        )
+        for field, value in bad_values:
+            with self.subTest(field=field, value=str(value)):
+                source = deepcopy(valid)
+                source["payloads"][0][field] = value
+                assert _reject(
+                    lambda source=source: loader(
+                        json.dumps(source).encode("utf-8")
+                    ),
+                    (TypeError, ValueError),
+                )
+
+        invalid_runtime = deepcopy(valid)
+        invalid_runtime["nativeRuntimeGuards"]["Tahoe"]["classes"] = [
+            ["__ZN4Mock10gMetaClassE", 224, 999]
+        ]
+        assert _reject(
+            lambda: loader(json.dumps(invalid_runtime).encode("utf-8"))
+        )
+
+    @staticmethod
+    def test_reject_nonboolean_adapter_and_invalid_root() -> None:
+        """Reject truthy impostors and non-object JSON manifests."""
+        loader = vars(_verifier_module())["_read_manifest"]
+        source = _manifest_fixture()
+        source["nativeAdapter"]["powerDomain"]["airPortTablePreserved"] = "true"
+        assert _reject(
+            lambda: loader(json.dumps(source).encode("utf-8")),
+            (TypeError,),
+        )
+        assert _reject(lambda: loader(b"[]"))
 
 
 class NativeForwardingProbeTests(TestCase):
@@ -265,15 +392,24 @@ class NativeAbiInvariantTests(TestCase):
         )
 
     @staticmethod
+    def test_reference_only_image_cannot_reach_forwarding_probe() -> None:
+        """Reject a metadata-only image before launching a host ABI probe."""
+        verifier = _verifier_module()
+        verifier_class = vars(verifier)["_NativeVerifier"]
+        runner = object.__new__(verifier_class)
+        runner.plan = SimpleNamespace(old=object())
+        forwarding_stage = vars(verifier_class)["_check_forwarding"]
+        with mock.patch.object(verifier, "run_probe") as launch:
+            assert _reject(
+                lambda: forwarding_stage(runner),
+                (TypeError,),
+            )
+            launch.assert_not_called()
+
+    @staticmethod
     def test_verifier_stages_keep_ordered_fail_closed_execution() -> None:
         """Preserve stages, output shape and offline resource teardown."""
-        with mock.patch.object(
-            sys,
-            "path",
-            [str(Path(__file__).parent.parent / "tools"), *sys.path],
-        ):
-            verifier = importlib.import_module("tools.verify_native")
-        verifier_class = vars(verifier)["_NativeVerifier"]
+        verifier_class = vars(_verifier_module())["_NativeVerifier"]
         runner = object.__new__(verifier_class)
         runner.plan = SimpleNamespace(
             packet_calls=[1, 2],

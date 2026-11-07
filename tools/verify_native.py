@@ -15,11 +15,11 @@ This is a build-time offline verifier; importing it never invokes compilers.
 from __future__ import annotations
 
 import bisect
-import json
 from pathlib import Path
 import re
 import struct
 from typing import TYPE_CHECKING
+from typing import TypedDict
 from typing import final
 
 from bootstrap import ROOT
@@ -36,11 +36,19 @@ from native_payload import SkywalkPlan
 from profiles import IMAGES
 
 if __package__:
+    from tools.abi_types import integer
+    from tools.abi_types import json_object
+    from tools.abi_types import mapping
+    from tools.abi_types import sequence
     from tools.abi_types import string
     from tools.native_invariants import read_native_artifact
     from tools.native_invariants import reconstruct_payload_image
     from tools.native_invariants import require
 else:
+    from abi_types import integer
+    from abi_types import json_object
+    from abi_types import mapping
+    from abi_types import sequence
     from abi_types import string
     from native_invariants import read_native_artifact
     from native_invariants import reconstruct_payload_image
@@ -82,6 +90,186 @@ POINTER_MARKER = "*"
 SKYWALK_PACKET_CONSTRUCTOR = "AirPort_Brcm43xxSkywalkPacket"
 X86_RELATIVE_LEA_BYTES = 7
 OS_META_CLASS_CONSTRUCTOR = "__ZN11OSMetaClassC2EPKcPKS_j"
+CLASS_GUARD_FIELDS = 2
+
+
+class _PayloadRecord(TypedDict):
+    """Required fields for one reconstructed native payload."""
+
+    label: str
+    size: int
+    namespacedClassStrings: dict[str, list[int]]
+    powerDomainPatches: list[JsonValue]
+
+
+class _SystemProfile(TypedDict):
+    """Required native identity and layout fields for a kernel profile."""
+
+    system: str
+    nativeUUID: str
+    wirelessUUID: str
+    ethernetSize: int
+    poolSize: int
+    ethernetLinkSlot: int
+    airPortPayloadIndex: int
+
+
+class _PowerDomain(TypedDict):
+    """Declared power-domain topology from the generated manifest."""
+
+    strategy: str
+    airPortTablePreserved: bool
+
+
+class _NativeAdapter(TypedDict):
+    """Required native adapter settings for offline identity validation."""
+
+    wirelessControllerIdentity: str
+    powerDomain: _PowerDomain
+
+
+class _RuntimeGuards(TypedDict):
+    """Required runtime class and vtable inventories per kernel version."""
+
+    classes: list[tuple[str, int]]
+    vtables: list[JsonValue]
+
+
+class _VerifierManifest(TypedDict):
+    """Validated subset of a generated embedding manifest."""
+
+    payloads: list[_PayloadRecord]
+    nativeAdapter: _NativeAdapter
+    systemProfiles: list[_SystemProfile]
+    nativeRuntimeGuards: dict[str, _RuntimeGuards]
+
+
+def _read_payload(value: JsonValue) -> _PayloadRecord:
+    """Require a payload's bounded size, label and class offset catalog.
+
+    Returns:
+        Typed fields required for the integrity comparisons.
+
+    """
+    record = mapping(value)
+    return {
+        "label": string(record["label"]),
+        "size": integer(record["size"]),
+        "namespacedClassStrings": {
+            name: [integer(offset) for offset in sequence(offsets)]
+            for name, offsets in mapping(
+                record["namespacedClassStrings"]
+            ).items()
+        },
+        "powerDomainPatches": sequence(record["powerDomainPatches"]),
+    }
+
+
+def _read_profile(value: JsonValue) -> _SystemProfile:
+    """Require all profile IDs, layout sizes and slot indices.
+
+    Returns:
+        Typed source profile fields.
+
+    """
+    record = mapping(value)
+    return {
+        "system": string(record["system"]),
+        "nativeUUID": string(record["nativeUUID"]),
+        "wirelessUUID": string(record["wirelessUUID"]),
+        "ethernetSize": integer(record["ethernetSize"]),
+        "poolSize": integer(record["poolSize"]),
+        "ethernetLinkSlot": integer(record["ethernetLinkSlot"]),
+        "airPortPayloadIndex": integer(record["airPortPayloadIndex"]),
+    }
+
+
+def _read_native_adapter(value: JsonValue) -> _NativeAdapter:
+    """Require the selected wireless identity and preserved power topology.
+
+    Returns:
+        Typed adapter identity and power policy metadata.
+
+    Raises:
+        TypeError: The power preservation flag is not boolean.
+
+    """
+    record = mapping(value)
+    power = mapping(record["powerDomain"])
+    preserved = power["airPortTablePreserved"]
+    if not isinstance(preserved, bool):
+        message = "Native adapter power table flag must be a boolean"
+        raise TypeError(message)
+    return {
+        "wirelessControllerIdentity": string(
+            record["wirelessControllerIdentity"]
+        ),
+        "powerDomain": {
+            "strategy": string(power["strategy"]),
+            "airPortTablePreserved": preserved,
+        },
+    }
+
+
+def _read_runtime_guards(value: JsonValue) -> _RuntimeGuards:
+    """Require exact class/name pairs and a bounded vtable inventory.
+
+    Returns:
+        Typed runtime guard rows.
+
+    Raises:
+        ValueError: A class guard has the wrong arity.
+
+    """
+    record = mapping(value)
+    classes: list[tuple[str, int]] = []
+    for entry in sequence(record["classes"]):
+        row = sequence(entry)
+        if len(row) != CLASS_GUARD_FIELDS:
+            message = "Native runtime class guard must have two fields"
+            raise ValueError(message)
+        classes.append((string(row[0]), integer(row[1])))
+    return {"classes": classes, "vtables": sequence(record["vtables"])}
+
+
+def _read_manifest(source: bytes) -> _VerifierManifest:
+    """Parse the exact required manifest fields without unknown JSON values.
+
+    Returns:
+        Checked source metadata for every offline ABI stage.
+
+    """
+    record = json_object(source)
+    return {
+        "payloads": [
+            _read_payload(payload) for payload in sequence(record["payloads"])
+        ],
+        "nativeAdapter": _read_native_adapter(record["nativeAdapter"]),
+        "systemProfiles": [
+            _read_profile(profile)
+            for profile in sequence(record["systemProfiles"])
+        ],
+        "nativeRuntimeGuards": {
+            system: _read_runtime_guards(value)
+            for system, value in mapping(record["nativeRuntimeGuards"]).items()
+        },
+    }
+
+
+def _binary_image(image: Mach | ReferenceImage) -> Mach:
+    """Require a concrete Mach-O binary before inspecting byte-only fields.
+
+    Returns:
+        A parsed binary with on-disk segments and executable metadata.
+
+    Raises:
+        TypeError: A JSON-only reference cannot prove executable bytes.
+
+    """
+    if not isinstance(image, Mach):
+        message = "Native ABI byte checks require a concrete Mach-O image"
+        raise TypeError(message)
+    return image
 
 
 @final
@@ -99,7 +287,7 @@ class _NativeVerifier:
         self.checks: list[str] = [
             string(item) for item in verify_model(self.plan.model)
         ]
-        self.manifest = json.loads(
+        self.manifest = _read_manifest(
             read_native_artifact(ROOT / "build/Embedded/manifest.json")
         )
 
@@ -112,7 +300,7 @@ class _NativeVerifier:
         """
         for payload in self.manifest["payloads"]:
             label = payload["label"]
-            image = Mach(IMAGES[label])
+            image = _binary_image(Mach(IMAGES[label]))
             segments = [
                 (address, fileoff, length)
                 for _, address, _, fileoff, length in image.segs
@@ -159,7 +347,12 @@ class _NativeVerifier:
         return read_native_artifact(ROOT / "build/Embedded/Legacy.bin")
 
     def _check_profile(self) -> None:
-        """Verify the profile source invariants."""
+        """Verify the profile source invariants.
+
+        Raises:
+            ValueError: The runtime metaclass name is malformed.
+
+        """
         require(
             (
                 self.plan.namespace["IO80211Controller"]
@@ -235,7 +428,11 @@ class _NativeVerifier:
         )
         guards = self.manifest["nativeRuntimeGuards"][self.system]
         for meta, size in guards["classes"]:
-            cls = re.fullmatch(r"__ZN\d+(.+)10gMetaClassE", meta)[1]
+            match = re.fullmatch(r"__ZN\d+(.+)10gMetaClassE", meta)
+            if match is None:
+                message = "Unrecognized native runtime metaclass guard"
+                raise ValueError(message)
+            cls = match[1]
             image = (
                 self.plan.wireless
                 if cls in CLIENT_CLASSES
@@ -554,7 +751,8 @@ class _NativeVerifier:
 
     def _check_constructors(self) -> None:
         """Verify the constructors source invariants."""
-        functions = self.plan.air.funcs()
+        air = _binary_image(self.plan.air)
+        functions = air.funcs()
         starts = [address for address, _ in functions]
         for address in self.plan.vptr_sites:
             start, name = functions[bisect.bisect_right(starts, address) - 1]
@@ -562,9 +760,7 @@ class _NativeVerifier:
                 (SKYWALK_PACKET_CONSTRUCTOR in name),
                 "packet constructor vptr #48",
             )
-            decoded = list(
-                insns(self.plan.air.read(start, address + 7 - start), start)
-            )
+            decoded = list(insns(air.read(start, address + 7 - start), start))
             require((decoded[-1][0] == address), "packet constructor vptr #49")
             require(
                 (decoded[-1][1] == X86_RELATIVE_LEA_BYTES),
@@ -574,10 +770,8 @@ class _NativeVerifier:
             "All packet vptr replacements are complete constructor instructions"
         )
         expected_sizes = []
-        for address, relocation in self.plan.air.relocs().items():
-            if relocation[
-                0
-            ] == OS_META_CLASS_CONSTRUCTOR and self.plan.air.read(
+        for address, relocation in air.relocs().items():
+            if relocation[0] == OS_META_CLASS_CONSTRUCTOR and air.read(
                 address - 6, 5
             ) == bytes.fromhex("b9b8000000"):
                 expected_sizes.append(address - 5)
@@ -596,6 +790,7 @@ class _NativeVerifier:
             Structured probe counters for the verified forwarding calls.
 
         """
+        old = _binary_image(self.plan.old)
         forwarders = (
             read_native_artifact(ROOT / "build/Embedded/Payloads.S")
             .decode("utf-8")
@@ -606,15 +801,10 @@ class _NativeVerifier:
         )
         blob = read_native_artifact(Path(self.binary))
         old_code = next(
-            section
-            for section in self.plan.old.sects
-            if section[0] == TEXT_SECTION
+            section for section in old.sects if section[0] == TEXT_SECTION
         )
         require(
-            (
-                self.plan.old.read(old_code[2], min(old_code[3], 4096))
-                not in blob
-            ),
+            (old.read(old_code[2], min(old_code[3], 4096)) not in blob),
             "legacy executable text isolation #52",
         )
         self.checks.append(
