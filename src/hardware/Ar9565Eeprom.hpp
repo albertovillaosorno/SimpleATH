@@ -3,6 +3,7 @@
 #define SIMPLEATH_AR9565_EEPROM_HPP
 
 #include "Ar9565Core.hpp"
+#include "Ar9565InitCatalog.hpp"
 
 namespace simpleath {
 
@@ -11,7 +12,8 @@ constexpr size_t kAr9300EepromImageBytes = 1088;
 enum class EepromResult : uint8_t {
     Ok, InvalidArgument, EmptyHeader, TruncatedBlock, BadChecksum,
     UnsupportedCompression, MissingTemplate, MissingBaseImage,
-    InvalidDelta, WrongImageSize, UnsupportedFormat, InvalidBoardIdentity
+    InvalidDelta, WrongImageSize, UnsupportedFormat, InvalidBoardIdentity,
+    UnsupportedGainConfiguration
 };
 
 struct EepromBlockInfo {
@@ -84,6 +86,11 @@ struct BoardDataSummary {
 };
 
 EepromResult summarizeBoardData(const EepromImage &image, BoardDataSummary &out);
+
+// AR9565-specific ath9k EEPROM gain-index mapping. Unknown indexes are
+// rejected instead of selecting generic AR9300 tables. No TX permission.
+EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
+                                     TxGainProfile &tx, RxGainProfile &rx);
 
 } // namespace simpleath
 #endif

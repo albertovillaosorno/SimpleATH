@@ -171,4 +171,21 @@ EepromResult summarizeBoardData(const EepromImage &image, BoardDataSummary &out)
     return EepromResult::Ok;
 }
 
+EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
+                                     TxGainProfile &tx, RxGainProfile &rx) {
+    // ar9003_hw.c mode0/mode2 both select AR9565 low-OB; mode1 is high-OB,
+    // mode3 is high-power. The 1.1 header aliases these gains to 1.0 arrays.
+    // Higher generic indexes are not a verified AR9565 board configuration.
+    if (board.txGainIndex > 3 || board.rxGainIndex > 1)
+        return EepromResult::UnsupportedGainConfiguration;
+    const TxGainProfile selectedTx = board.txGainIndex == 1
+        ? TxGainProfile::HighOb : board.txGainIndex == 3
+        ? TxGainProfile::HighPower : TxGainProfile::LowOb;
+    const RxGainProfile selectedRx = board.rxGainIndex == 1
+        ? RxGainProfile::WithoutExternalLna : RxGainProfile::Standard;
+    tx = selectedTx;
+    rx = selectedRx;
+    return EepromResult::Ok;
+}
+
 } // namespace simpleath
