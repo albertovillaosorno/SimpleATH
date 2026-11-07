@@ -8,6 +8,7 @@
 #include <libkern/c++/OSMetaClass.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
+#include "hardware/Ar9565Core.hpp"
 
 namespace {
 constexpr UInt16 kAtherosVendor = 0x168c;
@@ -55,7 +56,15 @@ public:
         setProperty("SimpleATHVendorID", kAtherosVendor, 32);
         setProperty("SimpleATHMatchedDeviceIDs", "0036 / 0030 (IOPCIPrimaryMatch)");
         setProperty("SimpleATHDriverReady", false);
+        // The PCI identity comes from IOKit's IOPCIPrimaryMatch. We must not
+        // claim that we have accessed hardware until a real mapped PCI bus
+        // transport is installed. Keep the complete Wi-Fi path disabled.
         setProperty("SimpleATHRadioInitialized", false);
+        setProperty("SimpleATHHardwareCorePresent", true);
+        setProperty("SimpleATHMmioTransportReady", false);
+        setProperty("SimpleATHEepromValidated", false);
+        setProperty("SimpleATHRegulatoryReady", false);
+        setProperty("SimpleATHNetworkInterfaceReady", false);
         registerService();
         IOLog("SimpleATH: IOKit matched the Atheros PCI device; radio inactive\n");
         return true;
