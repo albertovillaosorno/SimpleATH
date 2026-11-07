@@ -714,9 +714,9 @@ def _native_import_catalog(
     for index, (image, (_, symbols)) in enumerate(
         zip(scan.images, scan.parsed, strict=True)
     ):
-        internal = set(scan.exports[index]) | (
-            set(scan.exports[0]) if index else set()
-        )
+        internal: set[str] = set(scan.exports[index])
+        if index:
+            internal.update(scan.exports[0])
         guards = _embedded_vtable_guards(
             image, symbols, scan.fields[index], internal=internal
         )

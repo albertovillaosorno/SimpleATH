@@ -723,15 +723,17 @@ def table(image, cls, kernel=None):
 
 
 class NativeModel:
-    def __init__(self, system="Tahoe"):
-        self.system = system
+    def __init__(self, system: str = "Tahoe") -> None:
+        self.system: str = system
         self.profile = SYSTEMS[system]
         for key, expected in EXPECTED_SOURCES.items():
             if hash_mach_source(PATHS[key]) != expected:
                 raise ValueError(f"Unsupported source payload: {key}")
-        self.old = Mach(PATHS["OldSky"])
-        self.native = sky(system)
-        self.kernel = Mach(self.native.path, "com.apple.kernel")
+        self.old: Mach | ReferenceImage = Mach(PATHS["OldSky"])
+        self.native: Mach | ReferenceImage = sky(system)
+        self.kernel: Mach | ReferenceImage = Mach(
+            self.native.path, "com.apple.kernel"
+        )
         major = self.kernel.names["_version_major"][4]
         if (
             struct.unpack("<I", self.kernel.read(major, 4))[0]
@@ -744,19 +746,19 @@ class NativeModel:
             raise ValueError(
                 "Reference Skywalk UUID does not match its profile"
             )
-        self.airport_source = (
+        self.airport_source: str = (
             "BrcmTahoe" if self.profile["kernel"] == 25 else "BrcmOriginal"
         )
-        self.images = {
+        self.images: dict[str, Mach | ReferenceImage] = {
             "Legacy": Mach(PATHS["Legacy"]),
             "BrcmTahoe": Mach(PATHS[self.airport_source]),
         }
-        self.old_tables = {}
-        self.new_tables = {}
-        self.old_views = {}
-        self.tables = {}
-        self.holes = []
-        all_names = []
+        self.old_tables: dict[str, list[str]] = {}
+        self.new_tables: dict[str, list[str]] = {}
+        self.old_views: dict[str, list[tuple[str, str, int]]] = {}
+        self.tables: dict[str, list[tuple[str, str, int]]] = {}
+        self.holes: list[tuple[str, int, str]] = []
+        all_names: list[str] = []
         for cls in NATIVE_CLASSES:
             all_names.extend(table(self.old, cls))
             all_names.extend(table(self.native, cls, self.kernel))
