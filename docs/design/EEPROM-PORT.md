@@ -26,7 +26,11 @@ explicit `pinnedEepromTemplates()` catalog. A reference-compressed block must
 name a known template ID; unknown IDs fail. A template alone cannot identify
 this board. No factory MAC, antenna or regulatory defaults are substituted.
 Unsupported board gain indexes clear both gain-selector outputs to `Unknown`
-rather than reusing a prior supported profile. Initialization rejects `Unknown`.
+rather than reusing a prior supported profile. Gain selection also rejects a
+zero-initialized or structurally invalid summary (version, permanent MAC,
+single-chain mask, 2 GHz capability) before choosing usable-looking zero-index
+tables. These are structural checks, not proof of NVM origin or calibration.
+Initialization rejects `Unknown`.
 
 The block parser consumes header/payload/checksum in descending NVM address
 order, as produced by ath9k's ar9300_read_eeprom/read_otp. It does not read

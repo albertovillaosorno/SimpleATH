@@ -125,6 +125,37 @@ int main()
         restoreStatus.result != EepromResult::BadChecksum)
         return 9;
 
+    // An empty or tampered diagnostic summary must never choose apparently
+    // supported zero-index gain tables. Reject without retaining old gains.
+    const BoardDataSummary accepted = board;
+    BoardDataSummary invalid {};
+    tx = TxGainProfile::HighOb;
+    rx = RxGainProfile::WithoutExternalLna;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+            EepromResult::InvalidBoardIdentity ||
+        tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+        return 11;
+    invalid = accepted;
+    invalid.mac[0] |= 1; // Multicast MAC is not a permanent station address.
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::InvalidBoardIdentity)
+        return 12;
+    invalid = accepted;
+    invalid.txChainMask = 2; // Unsupported multi-chain board.
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::InvalidBoardIdentity)
+        return 13;
+    invalid = accepted;
+    invalid.operationFlags = 0; // No 2.4 GHz operation capability.
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::InvalidBoardIdentity)
+        return 14;
+    invalid = accepted;
+    invalid.eepromVersion = 1;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::InvalidBoardIdentity)
+        return 15;
+
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||
         board.eepromVersion != 0 || board.calibrationPierBinsPlausible ||

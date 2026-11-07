@@ -169,9 +169,13 @@ namespace simpleath
     EepromResult summarizeBoardData(const EepromImage &image,
                                     BoardDataSummary &out);
 
-    // AR9565-specific ath9k EEPROM gain-index mapping. Unknown indexes are
-    // rejected instead of selecting generic AR9300 tables. Outputs become
-    // Unknown on ordinary failure and cannot be passed to createInitRecipe.
+    // AR9565-specific ath9k EEPROM gain-index mapping. Requires the basic
+    // version, permanent unicast MAC, single-chain and 2 GHz board structure
+    // to reject zero/default-initialized summaries before choosing tables.
+    // This is not physical board provenance or calibration verification.
+    // Unknown indexes are rejected instead of generic AR9300 tables.
+    // Outputs become Unknown on ordinary failure and cannot be passed to
+    // createInitRecipe.
     // Aliasing either output with the board or the other output returns
     // InvalidArgument without writing either. No TX permission.
     EepromResult selectBoardGainProfiles(const BoardDataSummary &board,

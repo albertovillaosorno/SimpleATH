@@ -408,6 +408,14 @@ namespace simpleath
         // board's index is unsupported. Unknown is rejected by the INI catalog.
         tx = TxGainProfile::Unknown;
         rx = RxGainProfile::Unknown;
+        // A default-initialized or mutated diagnostic summary must not select
+        // working radio gain tables merely because both index nibbles are zero.
+        // This only checks structural provenance; it does not establish that
+        // the NVM was acquired from the physical board or calibrated.
+        if (board.eepromVersion != 2 || !validatePermanentMac(board.mac) ||
+            board.txChainMask != 1 || board.rxChainMask != 1 ||
+            !(board.operationFlags & 0x02u))
+            return EepromResult::InvalidBoardIdentity;
         // ar9003_hw.c mode0/mode2 both select AR9565 low-OB; mode1 is high-OB,
         // mode3 is high-power. The 1.1 header aliases these gains to 1.0
         // arrays. Higher generic indexes are not a verified AR9565 board
