@@ -102,7 +102,12 @@ namespace simpleath
                                  const uint8_t *expectedRsnIe,
                                  size_t expectedRsnIeLength);
                 // AP source/BSSID and 802.11 decryption/CRC must be verified
-                // externally.
+                // externally. The RX frame, TX buffer, written reference,
+                // supplicant state and retained crypto context must be
+                // disjoint. Detectable aliases return InvalidArgument without
+                // modifying any output or invoking a crypto callback; the
+                // owner guarantees the complete opaque callback allocation
+                // cannot alias either buffer.
                 Wpa2Result onMessage1(const uint8_t *eapol, size_t length,
                                       uint8_t *outMessage2, size_t capacity,
                                       size_t &written);

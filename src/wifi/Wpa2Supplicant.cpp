@@ -62,6 +62,38 @@ namespace simpleath
                 return aggregate != 0;
             }
 
+            bool overlaps(const void *a, size_t aBytes, const void *b,
+                          size_t bBytes)
+            {
+                if (!a || !b || !aBytes || !bBytes)
+                    return false;
+                const auto first = reinterpret_cast<uintptr_t>(a);
+                const auto second = reinterpret_cast<uintptr_t>(b);
+                return first <= second ? second - first < aBytes
+                                       : first - second < bBytes;
+            }
+
+            // The RX frame can be DMA-owned and written is a caller-supplied
+            // reference. Reject aliases before written=0 or any crypto/state
+            // transition, including an opaque callback context starting in
+            // writable storage. Its full allocation remains an owner contract.
+            bool handshakeIoDisjoint(const void *owner, size_t ownerBytes,
+                                     const void *context, const uint8_t *eapol,
+                                     size_t length, const uint8_t *out,
+                                     size_t capacity, const size_t &written)
+            {
+                return !overlaps(&written, sizeof(written), eapol, length) &&
+                       !overlaps(&written, sizeof(written), out, capacity) &&
+                       !overlaps(&written, sizeof(written), owner,
+                                 ownerBytes) &&
+                       !overlaps(&written, sizeof(written), context, 1) &&
+                       !overlaps(out, capacity, eapol, length) &&
+                       !overlaps(out, capacity, owner, ownerBytes) &&
+                       !overlaps(out, capacity, context, 1) &&
+                       !overlaps(eapol, length, owner, ownerBytes) &&
+                       !overlaps(eapol, length, context, 1);
+            }
+
             void populateEapolKey(uint8_t *message, size_t length,
                                   uint8_t version, uint16_t keyInfo,
                                   uint64_t replayCounter, const uint8_t *nonce)
@@ -250,6 +282,10 @@ namespace simpleath
                                               uint8_t *outMessage2,
                                               size_t capacity, size_t &written)
         {
+            if (!handshakeIoDisjoint(this, sizeof(*this), crypto_.context,
+                                     eapol, length, outMessage2, capacity,
+                                     written))
+                return Wpa2Result::InvalidArgument;
             written = 0;
             if (state_ != Wpa2State::AwaitingMessage1)
                 return Wpa2Result::InvalidState;
@@ -324,6 +360,10 @@ namespace simpleath
                                               uint8_t *outMessage4,
                                               size_t capacity, size_t &written)
         {
+            if (!handshakeIoDisjoint(this, sizeof(*this), crypto_.context,
+                                     eapol, length, outMessage4, capacity,
+                                     written))
+                return Wpa2Result::InvalidArgument;
             written = 0;
             if (state_ != Wpa2State::AwaitingMessage3)
                 return Wpa2Result::InvalidState;
