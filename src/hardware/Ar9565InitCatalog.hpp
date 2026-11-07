@@ -84,15 +84,19 @@ namespace simpleath
     // This code describes supported Linux ath9k revision-specific table
     // layouts. It never touches live PCI or MMIO, and does not claim to
     // implement Linux's calibration / board data / coexistence / 802.11 MAC
-    // service layers.
+    // service layers. On failure, out is zeroed (no stale table pointers).
     Result createInitRecipe(Revision revision, const Channel &channel,
                             ChannelWidth width, TxGainProfile tx,
                             RxGainProfile rx,
                             const CalibrationAndRegulatory &preconditions,
                             RegisterRecipe &out);
 
-    // Informational guard; true only if every prerequisite is satisfied.
-    // "Prepared" does not mean writing these tables alone will enable Wi-Fi.
+    // Informational guard; also verifies the exact generated phase sequence,
+    // table pointers, row counts, and register count for the requested silicon,
+    // width, gain and channel. This does not establish runtime PCI ownership,
+    // trusted source of the prerequisites or a working calibration backend.
+    // Current source always emits implementationComplete=false, so it cannot
+    // declare any recipe executable. "Prepared" never means TX permission.
     bool canBeginHardwareInitialization(
         const RegisterRecipe &recipe,
         const CalibrationAndRegulatory &preconditions);

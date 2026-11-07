@@ -51,15 +51,35 @@ namespace simpleath
     canBeginHardwareInitialization(const RegisterRecipe &recipe,
                                    const CalibrationAndRegulatory &requirements)
     {
-        return recipe.implementationComplete && recipe.regulatoryAuthorized &&
-               recipe.count >= 10 && recipe.silicon != Revision::Unknown &&
-               requirements.eepromContentsVerified &&
-               requirements.boardAntennaConfigurationVerified &&
-               requirements.localCountryRulesAvailable &&
-               requirements.channelPermitted &&
-               requirements.txPowerLimitsVerified &&
-               requirements.radioKillUnblocked &&
-               requirements.coexistenceConfigurationVerified;
+        if (!recipe.implementationComplete || !recipe.regulatoryAuthorized ||
+            !requirements.eepromContentsVerified ||
+            !requirements.boardAntennaConfigurationVerified ||
+            !requirements.localCountryRulesAvailable ||
+            !requirements.channelPermitted ||
+            !requirements.txPowerLimitsVerified ||
+            !requirements.radioKillUnblocked ||
+            !requirements.coexistenceConfigurationVerified)
+            return false;
+
+        // Even when a future owner can legitimately mark the implementation
+        // complete, a caller-mutated recipe is not an acceptable table list.
+        // Compare every phase and immutable table view with the pinned,
+        // revision-specific source recipe. This is still NOT hardware proof.
+        RegisterRecipe expected {};
+        if (createInitRecipe(recipe.silicon, recipe.channel, recipe.width,
+                             recipe.txGain, recipe.rxGain, requirements,
+                             expected) != Result::Ok ||
+            !expected.regulatoryAuthorized || recipe.count != expected.count ||
+            recipe.registerWrites != expected.registerWrites)
+            return false;
+        for (size_t i = 0; i < expected.count; ++i)
+        {
+            if (recipe.phases[i].phase != expected.phases[i].phase ||
+                recipe.phases[i].data != expected.phases[i].data ||
+                recipe.phases[i].count != expected.phases[i].count)
+                return false;
+        }
+        return true;
     }
 
     Result createInitRecipe(Revision revision, const Channel &channel,
@@ -68,6 +88,9 @@ namespace simpleath
                             const CalibrationAndRegulatory &requirements,
                             RegisterRecipe &out)
     {
+        // Do not expose a previous recipe's valid-looking table pointers or
+        // flags when a new revision/channel request is rejected.
+        out = {};
         if (revision != Revision::V1_0 && revision != Revision::V1_0_1 &&
             revision != Revision::V1_1)
             return Result::UnsupportedRevision;
