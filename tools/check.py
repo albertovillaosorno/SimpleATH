@@ -190,7 +190,7 @@ def _check_docs() -> None:
 
 def _check_fragments() -> None:
     for optional in (False, True):
-        config = _mapping(fragment(optional), "fragment")
+        config = _mapping(fragment(optional=optional), "fragment")
         kernel = _mapping(config.get("Kernel"), "fragment Kernel")
         raw_add = kernel.get("Add")
         if not _is_object_list(raw_add):
