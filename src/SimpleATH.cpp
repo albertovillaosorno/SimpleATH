@@ -12,7 +12,6 @@
 namespace {
 constexpr UInt16 kAtherosVendor = 0x168c;
 constexpr UInt16 kAr9565Device = 0x0036;
-constexpr UInt16 kLegacyCompatibleDevice = 0x0030;
 bool gSimpleATHEnabled = true;
 }
 
