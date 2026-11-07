@@ -8,7 +8,10 @@
 #
 
 import bisect
+import json
 from collections.abc import Callable
+from collections.abc import Mapping
+from collections.abc import Sequence
 import re
 import struct
 
@@ -159,6 +162,32 @@ def normalized(name: str) -> str:
 
     """
     return name.replace("12ether_addr_t", "10ether_addr")
+
+
+def checked_client_profile_rows(
+    client_symbols: Sequence[Sequence[str]],
+    client_tables: Sequence[Sequence[str]],
+    native_index: Mapping[str, int],
+) -> list[tuple[int, ...]]:
+    """Encode all declared user clients without silently dropping a table.
+
+    Returns:
+        Native import indices followed by each client's vtable slot count.
+
+    Raises:
+        ValueError: A client profile is absent from either parallel catalog.
+        KeyError: A required client symbol has no native import index.
+
+    """
+    if len(client_symbols) != len(CLIENT_CLASSES) or len(client_tables) != len(
+        CLIENT_CLASSES
+    ):
+        message = "Incomplete native user-client profile catalog"
+        raise ValueError(message)
+    return [
+        (*[native_index[name] for name in symbols], len(vtable))
+        for symbols, vtable in zip(client_symbols, client_tables, strict=True)
+    ]
 
 
 class SkywalkPlan:
@@ -427,8 +456,6 @@ class SkywalkPlan:
         return self.compat_index.get(name)
 
     def emit(self, native_index):
-        import json
-
         cpp = []
         assembly = []
         api = [native_index[name] for name in self.api_symbols]
@@ -441,12 +468,9 @@ class SkywalkPlan:
             cpp,
             "NativeClientProfile",
             "nativeClientProfiles",
-            [
-                tuple(native_index[name] for name in symbols) + (len(vtable),)
-                for symbols, vtable in zip(
-                    self.client_symbols, self.client_tables
-                )
-            ],
+            checked_client_profile_rows(
+                self.client_symbols, self.client_tables, native_index
+            ),
         )
         cpp.append(
             "const uint32_t compatibilityImportCount = "
@@ -640,7 +664,29 @@ class SkywalkPlan:
         }
 
 
-def prepare_native_guards(plans):
+def checked_system_profile_names(names: Sequence[str]) -> None:
+    """Require the complete pinned native profile catalog in stable order.
+
+    Raises:
+        ValueError: A profile is missing, duplicated, reordered or unknown.
+
+    """
+    if tuple(names) != tuple(SYSTEMS):
+        message = "Incomplete or reordered native system profile catalog"
+        raise ValueError(message)
+
+
+def prepare_native_guards(plans: Sequence[SkywalkPlan]) -> set[str]:
+    """Validate common native classes across all pinned system profiles.
+
+    Returns:
+        Exports needed to resolve checked native vtables and references.
+
+    Raises:
+        ValueError: A required system profile is absent or reordered.
+
+    """
+    checked_system_profile_names([plan.system for plan in plans])
     common = set.intersection(
         *(
             p.native.defined() | p.model.kernel.defined() | p.wireless.defined()
@@ -717,10 +763,20 @@ def prepare_native_guards(plans):
     return imports
 
 
-def emit_system_profiles(plans, native_index):
-    import json
+def emit_system_profiles(
+    plans: Sequence[SkywalkPlan], native_index: Mapping[str, int]
+) -> list[str]:
+    """Emit native source profile rows after validating required inputs.
 
-    lines = []
+    Returns:
+        Generated C++ declarations for all checked reference profiles.
+
+    Raises:
+        ValueError: A required system profile is absent or reordered.
+
+    """
+    checked_system_profile_names([plan.system for plan in plans])
+    lines: list[str] = []
     rows = []
     for index, plan in enumerate(plans):
         classes = []
