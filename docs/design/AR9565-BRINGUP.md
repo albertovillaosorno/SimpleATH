@@ -27,6 +27,7 @@ for the bounded source parser and the board acquisition still required.
 | NVM read protocol | `Ar9565NvmReader.*` | Active EEPROM/OTP trigger/poll/byte-normalization source with word/capture bounds | Verified exclusive PCI/power backend and separate hardware authorization; no live reader connected |
 | Power candidate calculation | `Ar9565Power.*` | EEPROM target interpolation, explicit CTL coverage, antenna/EIRP intersection and single-stream rate selection | Actual board/country approval, TPC conversion and calibrated/programmed/measured power; no TX enabled |
 | PCI DMA and interrupts | `Ar9003Descriptors.*`, `Ar9003Dma.*` | Pointer/status codecs and generation-checked ring metadata only | Actual DMA mapping, hardware rings, interrupts, completions and recovery |
+| Native packet-buffer mapping | `src/platform/Ar9565NativeDma.*` | Disabled IOBuffer/IOMapper/IODMACommand resource source, 32-bit segments, client/gate handoff and token-checked retirement | Uncompiled; controller worker/epoch ownership, ABI validation, coherent rings and real queues/interrupts remain missing |
 | 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
 

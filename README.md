@@ -70,6 +70,9 @@ The later [25G332 KDK inspection](docs/design/TAHOE-25G332-KDK.md) supplies
 both old unresolved PCI names in the exact-build package's export list,
 plus fuller native wireless symbols. Loaded-image provenance and complete
 ABI/lifetime contracts still need verification; no native adapter is active.
+The disabled [native DMA packet-buffer source](docs/design/NATIVE-DMA-BUFFERS.md)
+uses device-specific mapper/command APIs with client/gate ownership transfer.
+It is uncompiled and unwired; live rings, queues and interrupts remain missing.
 See [status, blockers and recovery](docs/design/STATUS-AND-RECOVERY.md) for
 source commit evidence and the separate build/install/device authorizations.
 The user must explicitly authorize the next CI build and boot test.
