@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace bcm {
+namespace ath {
 
 struct HardwareIdentity {
     uint32_t vendor;

@@ -11,7 +11,7 @@
 
 #include <IOKit/IOService.h>
 
-namespace bcm {
+namespace ath {
 bool preparePayloads();
 bool startPayloads();
 void publishLoader(IOService *service);

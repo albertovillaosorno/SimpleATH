@@ -66,7 +66,7 @@ static unsigned restorationBoundaries() {
     const uint8_t delta[] = {0, 0, 0, 0, 2, 0, 0, 0, 9, 8, 7, 0, 0, 0, 1, 0, 0, 0, 0xaa};
     const uint8_t expected[] = {9, 8, 2, 3, 4, 5, 6, 0xaa};
     uint8_t arena[32];
-    bcm::Payload payload {};
+    ath::Payload payload {};
     payload.bytes = base;
     payload.bytesSize = sizeof(base);
     payload.delta = delta;
@@ -75,19 +75,19 @@ static unsigned restorationBoundaries() {
     payload.mappedSize = 16;
     payload.stubOffset = sizeof(base);
     payload.stubSize = 8;
-    payload.checksum = bcm::payloadChecksum(expected, sizeof(expected));
-    bcm::LinkedImage image {&payload, arena + 8, 0x1000, 0, false, true};
+    payload.checksum = ath::payloadChecksum(expected, sizeof(expected));
+    ath::LinkedImage image {&payload, arena + 8, 0x1000, 0, false, true};
     memset(arena, 0x5a, sizeof(arena));
-    assert(bcm::restorePayload(image));
+    assert(ath::restorePayload(image));
     assert(!memcmp(image.memory, expected, sizeof(expected)));
     for (size_t i = 0; i < 8; ++i)
         assert(arena[i] == 0x5a && image.memory[8 + i] == 0 && arena[24 + i] == 0x5a);
-    assert(bcm::relocateImage(image, nullptr, 0, nullptr, 0, nullptr, 0));
+    assert(ath::relocateImage(image, nullptr, 0, nullptr, 0, nullptr, 0));
     const auto original = payload;
     unsigned rejected = 0;
     auto reject = [&]() {
         memset(arena, 0x5a, sizeof(arena));
-        assert(!bcm::restorePayload(image));
+        assert(!ath::restorePayload(image));
         for (auto byte : arena)
             assert(byte == 0x5a);
         payload = original;
@@ -128,18 +128,18 @@ static unsigned restorationBoundaries() {
     memcpy(bad, delta, sizeof(bad));
     bad[8] ^= 1;
     payload.delta = bad;
-    assert(bcm::restorePayload(image));
-    assert(!bcm::relocateImage(image, nullptr, 0, nullptr, 0, nullptr, 0));
+    assert(ath::restorePayload(image));
+    assert(!ath::relocateImage(image, nullptr, 0, nullptr, 0, nullptr, 0));
     return rejected + 2;
 }
 
 int main(int argc, char **argv) {
     assert(argc == 6);
     const auto restorationChecks = restorationBoundaries();
-    auto profile = bcm::nativeSystemForKernel(static_cast<uint32_t>(atoi(argv[4])));
-    assert(profile && !bcm::nativeSystemForKernel(22) && !bcm::nativeSystemForKernel(26));
-    std::vector<uintptr_t> imports(bcm::nativeImportCount);
-    std::vector<uintptr_t> compatibility(bcm::compatibilityImportCount);
+    auto profile = ath::nativeSystemForKernel(static_cast<uint32_t>(atoi(argv[4])));
+    assert(profile && !ath::nativeSystemForKernel(22) && !ath::nativeSystemForKernel(26));
+    std::vector<uintptr_t> imports(ath::nativeImportCount);
+    std::vector<uintptr_t> compatibility(ath::compatibilityImportCount);
     FILE *f = fopen(argv[1], "rb");
     assert(f && fread(imports.data(), 8, imports.size(), f) == imports.size());
     assert(fread(compatibility.data(), 8, compatibility.size(), f) == compatibility.size());
@@ -154,7 +154,7 @@ int main(int argc, char **argv) {
         fclose(f);
         const auto &pattern = profile->ethernetLinkPattern;
         auto find = [&](const std::vector<uint8_t> &bytes, uintptr_t base) {
-            return bcm::findNativeLink(bytes.data(), bytes.size(), base, pattern, imports.data(), imports.size());
+            return ath::findNativeLink(bytes.data(), bytes.size(), base, pattern, imports.data(), imports.size());
         };
         assert(find(text, header[0]) == header[1]);
         ++linkChecks;
@@ -191,20 +191,20 @@ int main(int argc, char **argv) {
         ++linkChecks;
     }
     const bool far = atoi(argv[3]) != 0;
-    assert(bcm::payloads[1].bytes == bcm::payloads[2].bytes);
-    assert(bcm::payloads[1].relocations == bcm::payloads[2].relocations);
-    assert(bcm::payloads[1].symbolValues == bcm::payloads[2].symbolValues);
-    assert(bcm::payloads[1].symbols == bcm::payloads[2].symbols);
-    assert(bcm::payloads[1].routes == bcm::payloads[2].routes);
-    bcm::LinkedImage images[2] {};
+    assert(ath::payloads[1].bytes == ath::payloads[2].bytes);
+    assert(ath::payloads[1].relocations == ath::payloads[2].relocations);
+    assert(ath::payloads[1].symbolValues == ath::payloads[2].symbolValues);
+    assert(ath::payloads[1].symbols == ath::payloads[2].symbols);
+    assert(ath::payloads[1].routes == ath::payloads[2].routes);
+    ath::LinkedImage images[2] {};
     for (unsigned i = 0; i < 2; ++i) {
-        auto &p = bcm::payloads[i ? profile->airPortPayloadIndex : 0];
+        auto &p = ath::payloads[i ? profile->airPortPayloadIndex : 0];
         images[i] = {&p, static_cast<uint8_t *>(calloc(1, p.mappedSize)),
                      (far ? 0xffffff9000000000ULL : 0xffffff8010000000ULL) + i * 0x2000000ULL,
                      0, false, true};
         assert(images[i].memory);
-        assert(bcm::restorePayload(images[i]));
-        assert(bcm::payloadChecksum(images[i].memory, p.size) == p.checksum);
+        assert(ath::restorePayload(images[i]));
+        assert(ath::payloadChecksum(images[i].memory, p.size) == p.checksum);
         char path[4096];
         snprintf(path, sizeof(path), "%s/%u.restored.bin", argv[2], i);
         f = fopen(path, "wb");
@@ -213,7 +213,7 @@ int main(int argc, char **argv) {
     }
     unsigned long total = 0;
     for (unsigned i = 0; i < 2; ++i) {
-        assert(bcm::relocateImage(images[i], images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+        assert(ath::relocateImage(images[i], images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
         total += images[i].payload->relocationCount;
         char path[4096];
         snprintf(path, sizeof(path), "%s/%u.bin", argv[2], i);
@@ -223,37 +223,37 @@ int main(int argc, char **argv) {
     }
     auto &image = images[0];
     const auto original = *image.payload;
-    bcm::Payload altered = original;
+    ath::Payload altered = original;
     image.payload = &altered;
     auto reset = [&]() {
         altered = original;
         image.stubUsed = 0;
-        assert(bcm::restorePayload(image));
+        assert(ath::restorePayload(image));
     };
     reset();
     image.memory[0] ^= 1;
-    assert(!bcm::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+    assert(!ath::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
     reset();
-    bcm::Relocation bad {original.size, 0, 0, 0, 8, {}};
+    ath::Relocation bad {original.size, 0, 0, 0, 8, {}};
     altered.relocations = &bad;
     altered.relocationCount = 1;
-    assert(!bcm::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+    assert(!ath::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
     reset();
-    bad = {0, bcm::nativeImportCount, 0, 255, 8, {}};
+    bad = {0, ath::nativeImportCount, 0, 255, 8, {}};
     altered.relocations = &bad;
     altered.relocationCount = 1;
-    assert(!bcm::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+    assert(!ath::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
     reset();
     bad = {0, 0, 0, 253, 8, {}};
     altered.relocations = &bad;
     altered.relocationCount = 1;
-    assert(!bcm::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+    assert(!ath::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
     reset();
     altered.stubSize = 0;
-    assert(!bcm::allocateStub(image, 1));
+    assert(!ath::allocateStub(image, 1));
     reset();
     image.editable = false;
-    assert(!bcm::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
+    assert(!ath::relocateImage(image, images, 2, imports.data(), imports.size(), compatibility.data(), compatibility.size()));
     for (auto &entry : images)
         free(entry.memory);
     printf("{\"relocations\":%lu,\"negativeCases\":6,\"restorationChecks\":%u,\"nativeLinkChecks\":%u,\"farBranches\":%s}\n", total, restorationChecks, linkChecks, far ? "true" : "false");
@@ -459,7 +459,7 @@ def verify(configuration, references):
     assert source_fingerprint == fingerprint()
     result = {'version': VERSION, 'configuration': configuration, 'driverLoading': 'embedded',
               'sourceFingerprint': source_fingerprint, 'sha256': digest(binary), 'uuid': image.uuid,
-              'probeSHA256': digest(product.parent / 'bcmprobe'), 'nativeTargets': targets,
+              'probeSHA256': digest(product.parent / 'athprobe'), 'nativeTargets': targets,
               'relocationValidation': runs, 'sanitizers': ['AddressSanitizer', 'UndefinedBehaviorSanitizer'],
               'abiValidation': abi,
               'nativeABIValidation': native_abi,
@@ -504,7 +504,7 @@ def package(configuration, channel='rel'):
     assert report['sourceFingerprint'] == fingerprint()
     assert {target['system'] for target in report['nativeTargets']} == set(SYSTEMS)
     assert report['sha256'] == digest(product / 'SimpleATH.kext/Contents/MacOS/SimpleATH')
-    assert report['probeSHA256'] == digest(product / 'bcmprobe')
+    assert report['probeSHA256'] == digest(product / 'athprobe')
     analysis = json.loads((ROOT / 'build/Analysis-Release.json').read_text())
     assert analysis['passed'] and analysis['sourceFingerprint'] == fingerprint()
     assert analysis['logSHA256'] == digest(ROOT / 'build/analyze-Release.log')
@@ -516,7 +516,7 @@ def package(configuration, channel='rel'):
         shutil.copytree(product / 'SimpleATH.kext', stage / 'EFI/OC/Kexts/SimpleATH.kext')
         extra = stage / 'Extra'
         extra.mkdir()
-        shutil.copy2(product / 'bcmprobe', extra / 'bcmprobe')
+        shutil.copy2(product / 'athprobe', extra / 'athprobe')
         shutil.copytree(product / 'SimpleATH.kext.dSYM', extra / 'SimpleATH.kext.dSYM')
         for filename in ('README.md', 'README.en.md', 'NOTICE.md'):
             shutil.copy2(ROOT / filename, stage / filename)

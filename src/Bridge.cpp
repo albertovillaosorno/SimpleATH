@@ -23,7 +23,7 @@
 #include <sys/errno.h>
 #include <sys/systm.h>
 
-namespace bcm {
+namespace ath {
 
 Counters counters {};
 static uint32_t state;
@@ -31,7 +31,7 @@ static IOService *observedController;
 static const char *failure = "WaitingForDependencies";
 static IOSimpleLock *contextLock;
 static IOSimpleLock *hubLock;
-static BCM80211UserClient *clients[64];
+static ATH80211UserClient *clients[64];
 static thread_call_t eventCall;
 
 struct CopyContext {
@@ -260,7 +260,7 @@ static IOReturn getHardwareVersion(IOService *controller, OSObject *interface, v
     if (identity.boardVendor == 0x106b)
         count = snprintf(text, 256, "AirPort Extreme (0x%X, 0x%X)", identity.vendor, identity.board);
     else
-        count = snprintf(text, 256, "Broadcom BCM%u (%04x:%04x)", identity.chip, identity.vendor, identity.device);
+        count = snprintf(text, 256, "Broadcom ATH%u (%04x:%04x)", identity.chip, identity.vendor, identity.device);
     length = static_cast<uint16_t>(count);
     memcpy(bytes + 4, &length, sizeof(length));
     return result;
@@ -270,7 +270,7 @@ static IOReturn newClassicClient(IOService *self, task_t task, void *token, uint
                                 OSDictionary *properties, IOUserClient **result) {
     auto status = type || !Bridge::ready() ?
         originalClassicClient(self, task, token, type, properties, result) :
-        BCM80211UserClient::create(self, task, token, properties, InterfaceKind::Classic, result);
+        ATH80211UserClient::create(self, task, token, properties, InterfaceKind::Classic, result);
     return wrapNativeUserClient(status, task, token, type, properties, result);
 }
 
@@ -278,15 +278,15 @@ static IOReturn newVirtualClient(IOService *self, task_t task, void *token, uint
                                 OSDictionary *properties, IOUserClient **result) {
     auto status = type || !Bridge::ready() ?
         originalVirtualClient(self, task, token, type, properties, result) :
-        BCM80211UserClient::create(self, task, token, properties, InterfaceKind::Virtual, result);
+        ATH80211UserClient::create(self, task, token, properties, InterfaceKind::Virtual, result);
     return wrapNativeUserClient(status, task, token, type, properties, result);
 }
 
 static IOReturn newSkywalkClient(IOService *self, task_t task, void *token, uint32_t type,
                                 OSDictionary *properties, IOUserClient **result) {
-    auto status = type || !Bridge::ready() || !self->metaCast("BCMLegacyInterface") ?
+    auto status = type || !Bridge::ready() || !self->metaCast("ATHLegacyInterface") ?
         originalSkywalkClient(self, task, token, type, properties, result) :
-        BCM80211UserClient::create(self, task, token, properties, InterfaceKind::Skywalk, result);
+        ATH80211UserClient::create(self, task, token, properties, InterfaceKind::Skywalk, result);
     return wrapNativeUserClient(status, task, token, type, properties, result);
 }
 
@@ -300,7 +300,7 @@ void Bridge::enableNativeSkywalk() {
     __atomic_fetch_or(&state, 2U, __ATOMIC_RELEASE);
 }
 
-bool Bridge::addClient(BCM80211UserClient *client) {
+bool Bridge::addClient(ATH80211UserClient *client) {
     bool added = false;
     const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
     for (auto &entry : clients) {
@@ -315,8 +315,8 @@ bool Bridge::addClient(BCM80211UserClient *client) {
     return added;
 }
 
-void Bridge::removeClient(BCM80211UserClient *client) {
-    BCM80211UserClient *removed = nullptr;
+void Bridge::removeClient(ATH80211UserClient *client) {
+    ATH80211UserClient *removed = nullptr;
     const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
     for (auto &entry : clients) {
         if (entry == client) {
@@ -373,7 +373,7 @@ static IOReturn captureJoinEvent(OSObject *, void *argument, void *, void *, voi
 static void drainEvents(thread_call_param_t, thread_call_param_t) {
     PendingEvent event;
     for (;;) {
-        BCM80211UserClient *targets[64];
+        ATH80211UserClient *targets[64];
         size_t count = 0;
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
         if (pendingRead == pendingWrite) {

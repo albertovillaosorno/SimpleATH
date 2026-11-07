@@ -20,53 +20,53 @@
 #include <sys/systm.h>
 #include <mach-o/loader.h>
 
-extern "C" OSObject *bcmLookupKext(const char *) asm("__ZN6OSKext24lookupKextWithIdentifierEPKc");
-extern "C" const section_64 *bcmLookupSection(OSObject *, const char *, const char *) asm("__ZN6OSKext13lookupSectionEPKcS1_");
-extern "C" bool bcmTryRetain(const OSObject *, const void *) asm("__ZNK8OSObject15taggedTryRetainEPKv");
+extern "C" OSObject *athLookupKext(const char *) asm("__ZN6OSKext24lookupKextWithIdentifierEPKc");
+extern "C" const section_64 *athLookupSection(OSObject *, const char *, const char *) asm("__ZN6OSKext13lookupSectionEPKcS1_");
+extern "C" bool athTryRetain(const OSObject *, const void *) asm("__ZNK8OSObject15taggedTryRetainEPKv");
 
-namespace bcm { struct InterfaceContext; }
+namespace ath { struct InterfaceContext; }
 
-extern "C" const uint8_t bcmEthernetMetaClass[] asm("__ZN26IOSkywalkEthernetInterface10gMetaClassE");
+extern "C" const uint8_t athEthernetMetaClass[] asm("__ZN26IOSkywalkEthernetInterface10gMetaClassE");
 
-class BCMNativeMeta final : public OSMetaClass {
+class ATHNativeMeta final : public OSMetaClass {
 public:
-    BCMNativeMeta() : OSMetaClass("BCMNativeInterface", reinterpret_cast<const OSMetaClass *>(bcmEthernetMetaClass), 296) {}
+    ATHNativeMeta() : OSMetaClass("ATHNativeInterface", reinterpret_cast<const OSMetaClass *>(athEthernetMetaClass), 296) {}
     OSObject *alloc() const override { return nullptr; }
 };
 
-static BCMNativeMeta nativeMetaClass;
+static ATHNativeMeta nativeMetaClass;
 
-class BCMLegacyInterface : public IOService {
-    OSDeclareDefaultStructors(BCMLegacyInterface)
+class ATHLegacyInterface : public IOService {
+    OSDeclareDefaultStructors(ATHLegacyInterface)
 public:
     bool init(OSDictionary *) override;
     bool start(IOService *) override;
     void stop(IOService *) override;
     void free() override;
-    bcm::InterfaceContext *context() const { return bridgeContext; }
+    ath::InterfaceContext *context() const { return bridgeContext; }
 private:
     uint8_t storage[272 - sizeof(IOService) - sizeof(void *)] __attribute__((unused));
-    bcm::InterfaceContext *bridgeContext {nullptr};
+    ath::InterfaceContext *bridgeContext {nullptr};
 };
 
-static_assert(sizeof(BCMLegacyInterface) == 272, "Legacy interface layout");
+static_assert(sizeof(ATHLegacyInterface) == 272, "Legacy interface layout");
 
-OSDefineMetaClassAndStructors(BCMLegacyInterface, IOService)
+OSDefineMetaClassAndStructors(ATHLegacyInterface, IOService)
 
-extern "C" void bcmNativeDestructor(IOService *);
-extern "C" void bcmNativeDeletingDestructor(IOService *);
-extern "C" const OSMetaClass *bcmNativeMetaClass(IOService *);
-extern "C" void bcmNativeInterfaceFree(IOService *);
-extern "C" void bcmNativeJoinPowerTree(IOService *, IOService *);
-extern "C" uintptr_t bcmLegacySkywalkVtable[512];
-extern "C" uintptr_t bcmPacketCompatibilityVtable[128];
-uintptr_t bcmLegacySkywalkVtable[512] {};
-uintptr_t bcmPacketCompatibilityVtable[128] {};
+extern "C" void athNativeDestructor(IOService *);
+extern "C" void athNativeDeletingDestructor(IOService *);
+extern "C" const OSMetaClass *athNativeMetaClass(IOService *);
+extern "C" void athNativeInterfaceFree(IOService *);
+extern "C" void athNativeJoinPowerTree(IOService *, IOService *);
+extern "C" uintptr_t athLegacySkywalkVtable[512];
+extern "C" uintptr_t athPacketCompatibilityVtable[128];
+uintptr_t athLegacySkywalkVtable[512] {};
+uintptr_t athPacketCompatibilityVtable[128] {};
 
-namespace bcm {
+namespace ath {
 
 struct InterfaceContext {
-    BCMLegacyInterface *owner;
+    ATHLegacyInterface *owner;
     IOService *native;
     IOPCIDevice *powerProvider;
     OSArray *queues;
@@ -106,7 +106,7 @@ static void setNativeContext(IOService *service, InterfaceContext *context) {
 }
 
 template<typename Function> static Function api(SkyAPI index) {
-    auto address = bcmNativeImports[skyAPIImports[static_cast<uint32_t>(index)]];
+    auto address = athNativeImports[skyAPIImports[static_cast<uint32_t>(index)]];
     if (index == SkyAPI::RegisterEthernetLink)
         address = ethernetLink;
     return reinterpret_cast<Function>(address);
@@ -114,9 +114,9 @@ template<typename Function> static Function api(SkyAPI index) {
 
 static uintptr_t entry(const SkyEntry &item) {
     switch (item.source) {
-        case 0: return item.index < nativeImportCount ? bcmNativeImports[item.index] : 0;
-        case 1: return item.index < compatibilityImportCount ? bcmCompatibilityImports[item.index] : 0;
-        case 2: return item.index < skyMethodCount ? bcmSkyForwarders[item.index] : 0;
+        case 0: return item.index < nativeImportCount ? athNativeImports[item.index] : 0;
+        case 1: return item.index < compatibilityImportCount ? athCompatibilityImports[item.index] : 0;
+        case 2: return item.index < skyMethodCount ? athSkyForwarders[item.index] : 0;
         case 3: return api<const uintptr_t *>(SkyAPI::PacketTable)[item.index + 2];
         case 4: return activeImages[1].address + item.index;
         case 5: return activeImages[0].address + item.index;
@@ -136,7 +136,7 @@ static void releaseContext(InterfaceContext *context) {
 }
 
 static InterfaceContext *contextFor(IOService *service) {
-    auto context = static_cast<BCMLegacyInterface *>(service)->context();
+    auto context = static_cast<ATHLegacyInterface *>(service)->context();
     if (!context || !context->native)
         panic("SimpleATH: native interface is unavailable");
     return context;
@@ -180,7 +180,7 @@ bool validateNativeSkywalk() {
     for (uint32_t i = 0; i < nativeSystem->classGuardCount; ++i) {
         const auto &guard = nativeSystem->classGuards[i];
         if (guard.meta >= nativeImportCount ||
-            reinterpret_cast<const OSMetaClass *>(bcmNativeImports[guard.meta])->getClassSize() != guard.size) {
+            reinterpret_cast<const OSMetaClass *>(athNativeImports[guard.meta])->getClassSize() != guard.size) {
             nativeStatus = "NativeClassLayoutMismatch";
             return false;
         }
@@ -188,19 +188,19 @@ bool validateNativeSkywalk() {
     for (uint32_t i = 0; i < nativeSystem->vtableGuardCount; ++i) {
         const auto &guard = nativeSystem->vtableGuards[i];
         if (guard.parent >= nativeImportCount || guard.method >= nativeImportCount ||
-            *reinterpret_cast<const uintptr_t *>(bcmNativeImports[guard.parent] + guard.offset) != bcmNativeImports[guard.method]) {
+            *reinterpret_cast<const uintptr_t *>(athNativeImports[guard.parent] + guard.offset) != athNativeImports[guard.method]) {
             nativeStatus = "NativeMethodLayoutMismatch";
             return false;
         }
     }
-    auto module = bcmLookupKext("com.apple.iokit.IOSkywalkFamily");
+    auto module = athLookupKext("com.apple.iokit.IOSkywalkFamily");
     if (!module) {
         nativeStatus = "NativeSkywalkMissing";
         return false;
     }
-    auto section = bcmLookupSection(module, "__TEXT_EXEC", "__text");
+    auto section = athLookupSection(module, "__TEXT_EXEC", "__text");
     if (!section)
-        section = bcmLookupSection(module, "__TEXT", "__text");
+        section = athLookupSection(module, "__TEXT", "__text");
     if (section && section->addr && section->size <= 32 * 1024 * 1024 &&
         section->addr <= UINTPTR_MAX - section->size) {
         if (nativeSystem->ethernetLinkSlot < skyNativeSlotCount) {
@@ -209,7 +209,7 @@ bool validateNativeSkywalk() {
                 ethernetLink = 0;
         } else {
             ethernetLink = findNativeLink(reinterpret_cast<const uint8_t *>(section->addr), section->size,
-                section->addr, nativeSystem->ethernetLinkPattern, bcmNativeImports, nativeImportCount);
+                section->addr, nativeSystem->ethernetLinkPattern, athNativeImports, nativeImportCount);
         }
     }
     module->release();
@@ -240,13 +240,13 @@ bool prepareNativeSkywalk(LinkedImage *images, size_t count) {
         auto value = entry(skyLegacyEntries[i]);
         if (!value)
             return false;
-        bcmLegacySkywalkVtable[i + 2] = value;
+        athLegacySkywalkVtable[i + 2] = value;
     }
     for (uint32_t i = 0; i < skyPacketSlotCount; ++i) {
         auto value = entry(skyPacketEntries[i]);
         if (!value)
             return false;
-        bcmPacketCompatibilityVtable[i + 2] = value;
+        athPacketCompatibilityVtable[i + 2] = value;
     }
     auto native = api<const uintptr_t *>(SkyAPI::EthernetTable);
     for (uint32_t type = 0; type < skyClassCount; ++type) {
@@ -255,16 +255,16 @@ bool prepareNativeSkywalk(LinkedImage *images, size_t count) {
             return false;
         oldViews[type] = images[source.image].address + source.vtable + 16;
         memcpy(nativeViews[type], native, (skyNativeSlotCount + 2) * sizeof(uintptr_t));
-        nativeViews[type][2] = reinterpret_cast<uintptr_t>(bcmNativeDestructor);
-        nativeViews[type][3] = reinterpret_cast<uintptr_t>(bcmNativeDeletingDestructor);
-        nativeViews[type][2 + 0x38 / 8] = reinterpret_cast<uintptr_t>(bcmNativeMetaClass);
-        nativeViews[type][2 + 0x90 / 8] = reinterpret_cast<uintptr_t>(bcmNativeInterfaceFree);
-        nativeViews[type][2 + 0x7a0 / 8] = reinterpret_cast<uintptr_t>(bcmNativeJoinPowerTree);
+        nativeViews[type][2] = reinterpret_cast<uintptr_t>(athNativeDestructor);
+        nativeViews[type][3] = reinterpret_cast<uintptr_t>(athNativeDeletingDestructor);
+        nativeViews[type][2 + 0x38 / 8] = reinterpret_cast<uintptr_t>(athNativeMetaClass);
+        nativeViews[type][2 + 0x90 / 8] = reinterpret_cast<uintptr_t>(athNativeInterfaceFree);
+        nativeViews[type][2 + 0x7a0 / 8] = reinterpret_cast<uintptr_t>(athNativeJoinPowerTree);
         for (uint32_t i = 0; i < source.count; ++i) {
             const auto &callback = source.callbacks[i];
             if (callback.nativeSlot >= skyNativeSlotCount || callback.method >= skyMethodCount)
                 return false;
-            nativeViews[type][callback.nativeSlot + 2] = bcmSkyCallbacks[callback.method];
+            nativeViews[type][callback.nativeSlot + 2] = athSkyCallbacks[callback.method];
         }
     }
     for (uint32_t i = 0; i < skyPacketSubclassSlotCount; ++i) {
@@ -359,17 +359,17 @@ struct ForwardTarget {
     IOService *receiver;
 };
 
-extern "C" ForwardTarget bcmResolveOldSkywalk(IOService *self, uint32_t index) {
+extern "C" ForwardTarget athResolveOldSkywalk(IOService *self, uint32_t index) {
     if (index >= skyMethodCount)
         panic("SimpleATH: invalid native method");
     auto context = contextFor(self);
     auto target = skyMethods[index].nativeIndex;
     if (target >= nativeImportCount)
         panic("SimpleATH: unresolved native method");
-    return {bcmNativeImports[target], context->native};
+    return {athNativeImports[target], context->native};
 }
 
-extern "C" ForwardTarget bcmResolveNativeSkywalk(IOService *self, uint32_t index) {
+extern "C" ForwardTarget athResolveNativeSkywalk(IOService *self, uint32_t index) {
     auto context = nativeContext(self);
     if (index >= skyMethodCount || !context)
         panic("SimpleATH: invalid legacy callback");
@@ -378,55 +378,55 @@ extern "C" ForwardTarget bcmResolveNativeSkywalk(IOService *self, uint32_t index
         panic("SimpleATH: invalid legacy callback slot");
     IOSimpleLockLock(context->lock);
     auto owner = context->activeOwner ? context->owner : nullptr;
-    if (owner && !bcmTryRetain(owner, nullptr))
+    if (owner && !athTryRetain(owner, nullptr))
         owner = nullptr;
     IOSimpleLockUnlock(context->lock);
     if (!owner) {
         auto target = skyMethods[index].nativeIndex;
         if (target >= nativeImportCount)
             panic("SimpleATH: invalid native callback fallback");
-        return {bcmNativeImports[target], self};
+        return {athNativeImports[target], self};
     }
     auto vtable = *reinterpret_cast<uintptr_t **>(owner);
     return {vtable[slot], reinterpret_cast<IOService *>(reinterpret_cast<uintptr_t>(owner) | 1)};
 }
 
-extern "C" void bcmReleaseNativeReceiver(uintptr_t receiver) {
+extern "C" void athReleaseNativeReceiver(uintptr_t receiver) {
     if (receiver & 1)
         reinterpret_cast<IOService *>(receiver & ~uintptr_t(1))->release();
 }
 
-extern "C" bool bcmLegacySkywalkInit(IOService *self, OSDictionary *dictionary) {
-    return static_cast<BCMLegacyInterface *>(self)->BCMLegacyInterface::init(dictionary);
+extern "C" bool athLegacySkywalkInit(IOService *self, OSDictionary *dictionary) {
+    return static_cast<ATHLegacyInterface *>(self)->ATHLegacyInterface::init(dictionary);
 }
 
-extern "C" bool bcmLegacySkywalkStart(IOService *self, IOService *provider) {
-    return static_cast<BCMLegacyInterface *>(self)->BCMLegacyInterface::start(provider);
+extern "C" bool athLegacySkywalkStart(IOService *self, IOService *provider) {
+    return static_cast<ATHLegacyInterface *>(self)->ATHLegacyInterface::start(provider);
 }
 
-extern "C" void bcmLegacySkywalkStop(IOService *self, IOService *provider) {
-    static_cast<BCMLegacyInterface *>(self)->BCMLegacyInterface::stop(provider);
+extern "C" void athLegacySkywalkStop(IOService *self, IOService *provider) {
+    static_cast<ATHLegacyInterface *>(self)->ATHLegacyInterface::stop(provider);
 }
 
-extern "C" bool bcmLegacyWillTerminate(IOService *self, IOService *provider, uint32_t options) {
+extern "C" bool athLegacyWillTerminate(IOService *self, IOService *provider, uint32_t options) {
     return self->IOService::willTerminate(provider, options);
 }
 
-extern "C" bool bcmLegacyDidTerminate(IOService *self, IOService *provider, uint32_t options, bool *defer) {
+extern "C" bool athLegacyDidTerminate(IOService *self, IOService *provider, uint32_t options, bool *defer) {
     return self->IOService::didTerminate(provider, options, defer);
 }
 
-extern "C" void bcmLegacySkywalkFree(IOService *self __attribute__((os_consumed))) {
-    static_cast<BCMLegacyInterface *>(self)->BCMLegacyInterface::free();
+extern "C" void athLegacySkywalkFree(IOService *self __attribute__((os_consumed))) {
+    static_cast<ATHLegacyInterface *>(self)->ATHLegacyInterface::free();
 }
 
-extern "C" IOReturn bcmLegacySkywalkUserClient(IOService *self, task_t task, void *token,
+extern "C" IOReturn athLegacySkywalkUserClient(IOService *self, task_t task, void *token,
                                               uint32_t type, OSDictionary *properties,
                                               IOUserClient **result) {
     return createSkywalkUserClient(self, task, token, type, properties, result);
 }
 
-extern "C" IOReturn bcmRegisterLegacyEthernet(IOService *self, const void *info,
+extern "C" IOReturn athRegisterLegacyEthernet(IOService *self, const void *info,
                                              OSObject **queues, uint32_t count,
                                              OSObject *txPool, OSObject *rxPool,
                                              uint32_t options) {
@@ -472,17 +472,17 @@ static IOReturn registerLink(IOService *self, const void *info, OSObject *link,
     return result;
 }
 
-extern "C" IOReturn bcmRegisterLegacyEthernetLink(IOService *self, const void *info, OSObject *link,
+extern "C" IOReturn athRegisterLegacyEthernetLink(IOService *self, const void *info, OSObject *link,
                                                  OSObject *txPool, OSObject *rxPool, uint32_t options) {
     return registerLink(self, info, link, txPool, rxPool, options, SkyAPI::RegisterEthernetLink);
 }
 
-extern "C" IOReturn bcmRegisterLegacyNetworkLink(IOService *self, const void *info, OSObject *link,
+extern "C" IOReturn athRegisterLegacyNetworkLink(IOService *self, const void *info, OSObject *link,
                                                 OSObject *txPool, OSObject *rxPool, uint32_t options) {
     return registerLink(self, info, link, txPool, rxPool, options, SkyAPI::RegisterNetworkLink);
 }
 
-extern "C" IOReturn bcmDeregisterLegacyEthernet(IOService *self, uint32_t options) {
+extern "C" IOReturn athDeregisterLegacyEthernet(IOService *self, uint32_t options) {
     auto context = contextFor(self);
     using Method = IOReturn (*)(IOService *, uint32_t);
     auto result = api<Method>(SkyAPI::DeregisterEthernet)(context->native, options);
@@ -529,15 +529,15 @@ static void joinPowerTree(InterfaceContext *context, IOService *child) {
     api<Method>(SkyAPI::JoinPowerTree)(context->native, child);
 }
 
-extern "C" void bcmLegacyJoinPowerTree(IOService *self, IOService *child) {
+extern "C" void athLegacyJoinPowerTree(IOService *self, IOService *child) {
     joinPowerTree(contextFor(self), child);
 }
 
-extern "C" void bcmNativeJoinPowerTree(IOService *self, IOService *child) {
+extern "C" void athNativeJoinPowerTree(IOService *self, IOService *child) {
     joinPowerTree(nativeContext(self), child);
 }
 
-extern "C" IOReturn bcmLegacyDoorbell(IOService *self, OSObject *, uint32_t options) {
+extern "C" IOReturn athLegacyDoorbell(IOService *self, OSObject *, uint32_t options) {
     auto context = contextFor(self);
     if (!context->queues)
         return kIOReturnNotReady;
@@ -563,7 +563,7 @@ extern "C" IOReturn bcmLegacyDoorbell(IOService *self, OSObject *, uint32_t opti
 using TxFree = uint32_t (*)(OSObject *, OSObject *, uint32_t *);
 using TxAction = uint32_t (*)(OSObject *, OSObject *, OSObject *const *, uint32_t, void *);
 
-extern "C" OSObject *bcmLegacyTxWithPool(OSObject *pool, uint32_t capacity, uint32_t serviceClass,
+extern "C" OSObject *athLegacyTxWithPool(OSObject *pool, uint32_t capacity, uint32_t serviceClass,
                                         OSObject *owner, TxFree freeSlots, TxAction action,
                                         void *reference, uint32_t options) {
     using Method = OSObject *(*)(OSObject *, uint32_t, uint32_t, OSObject *, TxFree,
@@ -572,7 +572,7 @@ extern "C" OSObject *bcmLegacyTxWithPool(OSObject *pool, uint32_t capacity, uint
                                          action, reference, options, UINT32_MAX);
 }
 
-extern "C" void *bcmLegacyTypedNew(void *view, size_t size) {
+extern "C" void *athLegacyTypedNew(void *view, size_t size) {
     if (reinterpret_cast<uintptr_t>(view) == poolAllocationView) {
         if (size != 184 && size != 192)
             panic("SimpleATH: unexpected legacy packet pool allocation");
@@ -585,7 +585,7 @@ extern "C" void *bcmLegacyTypedNew(void *view, size_t size) {
     return api<Method>(SkyAPI::TypedNew)(view, size);
 }
 
-extern "C" void bcmLegacyTypedDelete(void *view, void *memory, size_t size) {
+extern "C" void athLegacyTypedDelete(void *view, void *memory, size_t size) {
     if (reinterpret_cast<uintptr_t>(view) == poolAllocationView) {
         if (size != 184 && size != 192)
             panic("SimpleATH: unexpected legacy packet pool deallocation");
@@ -597,7 +597,7 @@ extern "C" void bcmLegacyTypedDelete(void *view, void *memory, size_t size) {
     api<Method>(SkyAPI::TypedDelete)(view, memory, size);
 }
 
-extern "C" void bcmLegacyPoolRelease(const OSObject *self) {
+extern "C" void athLegacyPoolRelease(const OSObject *self) {
     using Method = void (*)(const OSObject *);
     auto table = api<const uintptr_t *>(SkyAPI::PoolTable);
     reinterpret_cast<Method>(table[2 + 0x28 / 8])(self);
@@ -605,19 +605,19 @@ extern "C" void bcmLegacyPoolRelease(const OSObject *self) {
 
 }
 
-bool BCMLegacyInterface::init(OSDictionary *dictionary) {
-    if (!bcm::nativePrepared || !IOService::init(dictionary))
+bool ATHLegacyInterface::init(OSDictionary *dictionary) {
+    if (!ath::nativePrepared || !IOService::init(dictionary))
         return false;
     if (bridgeContext)
         return true;
     uintptr_t *view = nullptr;
     const auto current = *reinterpret_cast<uintptr_t *>(this);
-    for (uint32_t i = 0; i < bcm::skyClassCount; ++i)
-        if (current == bcm::oldViews[i])
-            view = bcm::nativeViews[i] + 2;
+    for (uint32_t i = 0; i < ath::skyClassCount; ++i)
+        if (current == ath::oldViews[i])
+            view = ath::nativeViews[i] + 2;
     if (!view)
         return false;
-    auto context = static_cast<bcm::InterfaceContext *>(IOMalloc(sizeof(bcm::InterfaceContext)));
+    auto context = static_cast<ath::InterfaceContext *>(IOMalloc(sizeof(ath::InterfaceContext)));
     if (!context)
         return false;
     bzero(context, sizeof(*context));
@@ -638,30 +638,30 @@ bool BCMLegacyInterface::init(OSDictionary *dictionary) {
     context->references = 2;
     bzero(static_cast<void *>(peer), 296);
     using Constructor = void (*)(IOService *, const OSMetaClass *);
-    bcm::api<Constructor>(bcm::SkyAPI::EthernetConstructor)(peer, &nativeMetaClass);
-    bcm::setNativeContext(peer, context);
+    ath::api<Constructor>(ath::SkyAPI::EthernetConstructor)(peer, &nativeMetaClass);
+    ath::setNativeContext(peer, context);
     bridgeContext = context;
     *reinterpret_cast<uintptr_t **>(peer) = view;
     nativeMetaClass.instanceConstructed();
     using Method = bool (*)(IOService *, OSDictionary *);
-    if (!bcm::api<Method>(bcm::SkyAPI::EthernetInit)(peer, dictionary)) {
+    if (!ath::api<Method>(ath::SkyAPI::EthernetInit)(peer, dictionary)) {
         peer->release();
         bridgeContext = nullptr;
-        bcm::releaseContext(context);
+        ath::releaseContext(context);
         return false;
     }
     context->counted = true;
-    OSIncrementAtomic(reinterpret_cast<volatile SInt32 *>(&bcm::liveInterfaces));
+    OSIncrementAtomic(reinterpret_cast<volatile SInt32 *>(&ath::liveInterfaces));
     return true;
 }
 
-bool BCMLegacyInterface::start(IOService *provider) {
+bool ATHLegacyInterface::start(IOService *provider) {
     if (!bridgeContext || !bridgeContext->native || !IOService::start(provider))
         return false;
     auto context = bridgeContext;
     auto powerProvider = provider ? OSDynamicCast(IOPCIDevice, provider->getProvider()) : nullptr;
     if (!powerProvider) {
-        bcm::nativeStatus = "UnsupportedPowerProvider";
+        ath::nativeStatus = "UnsupportedPowerProvider";
         return false;
     }
     if (context->powerProvider != powerProvider) {
@@ -671,7 +671,7 @@ bool BCMLegacyInterface::start(IOService *provider) {
         context->powerProvider = powerProvider;
     }
     auto peer = context->native;
-    bcm::copyProperties(context);
+    ath::copyProperties(context);
     if (!peer->attach(provider))
         return false;
     context->attached = true;
@@ -687,12 +687,12 @@ bool BCMLegacyInterface::start(IOService *provider) {
     return true;
 }
 
-void BCMLegacyInterface::stop(IOService *provider) {
-    bcm::deactivateInterface(bridgeContext);
+void ATHLegacyInterface::stop(IOService *provider) {
+    ath::deactivateInterface(bridgeContext);
     IOService::stop(provider);
 }
 
-void BCMLegacyInterface::free() {
+void ATHLegacyInterface::free() {
     auto context = bridgeContext;
     bridgeContext = nullptr;
     if (context) {
@@ -700,40 +700,40 @@ void BCMLegacyInterface::free() {
         context->owner = nullptr;
         context->activeOwner = false;
         IOSimpleLockUnlock(context->lock);
-        bcm::deactivateInterface(context);
+        ath::deactivateInterface(context);
         if (context->native && context->ownsNative) {
             auto peer = context->native;
             context->ownsNative = false;
             peer->release();
         }
-        bcm::releaseContext(context);
+        ath::releaseContext(context);
     }
     IOService::free();
 }
 
-extern "C" void bcmNativeDestructor(IOService *self) {
+extern "C" void athNativeDestructor(IOService *self) {
     using Method = void (*)(IOService *);
-    bcm::api<Method>(bcm::SkyAPI::EthernetDestructor)(self);
+    ath::api<Method>(ath::SkyAPI::EthernetDestructor)(self);
 }
 
-extern "C" void bcmNativeDeletingDestructor(IOService *self) {
-    bcmNativeDestructor(self);
+extern "C" void athNativeDeletingDestructor(IOService *self) {
+    athNativeDestructor(self);
     IOFree(self, 296);
 }
 
-extern "C" const OSMetaClass *bcmNativeMetaClass(IOService *) {
+extern "C" const OSMetaClass *athNativeMetaClass(IOService *) {
     return &nativeMetaClass;
 }
 
-extern "C" void bcmNativeInterfaceFree(IOService *self) {
-    auto saved = bcm::nativeContext(self);
+extern "C" void athNativeInterfaceFree(IOService *self) {
+    auto saved = ath::nativeContext(self);
     using Method = void (*)(IOService *);
-    bcm::api<Method>(bcm::SkyAPI::EthernetFree)(self);
+    ath::api<Method>(ath::SkyAPI::EthernetFree)(self);
     if (saved) {
         if (saved->native == self)
             saved->native = nullptr;
         if (saved->counted)
-            OSDecrementAtomic(reinterpret_cast<volatile SInt32 *>(&bcm::liveInterfaces));
-        bcm::releaseContext(saved);
+            OSDecrementAtomic(reinterpret_cast<volatile SInt32 *>(&ath::liveInterfaces));
+        ath::releaseContext(saved);
     }
 }

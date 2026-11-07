@@ -45,12 +45,12 @@ static unsigned retained;
 static unsigned released;
 static unsigned calls;
 
-extern "C" ForwardTarget bcmResolveOldSkywalk(void *self, uint32_t index) {
+extern "C" ForwardTarget athResolveOldSkywalk(void *self, uint32_t index) {
     assert(self == &oldObject && index == expectedIndex);
     return {selectedTarget, &nativeObject};
 }
 
-extern "C" ForwardTarget bcmResolveNativeSkywalk(void *self, uint32_t index) {
+extern "C" ForwardTarget athResolveNativeSkywalk(void *self, uint32_t index) {
     assert(self == &nativeObject && index == expectedIndex);
     if (fallback)
         return {selectedTarget, &nativeObject};
@@ -58,7 +58,7 @@ extern "C" ForwardTarget bcmResolveNativeSkywalk(void *self, uint32_t index) {
     return {selectedTarget, reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(&oldObject) | 1)};
 }
 
-extern "C" void bcmReleaseNativeReceiver(uintptr_t self) {
+extern "C" void athReleaseNativeReceiver(uintptr_t self) {
     if (self & 1) {
         assert((self & ~uintptr_t(1)) == reinterpret_cast<uintptr_t>(&oldObject));
         ++released;
@@ -170,7 +170,7 @@ def verify_native(temporary, binary, system='Tahoe'):
     if plan.link_slot != 0xffffffff:
         assert plan.model.new_tables['IOSkywalkEthernetInterface'][plan.link_slot] == plan.link_symbol
     assert profile['airPortPayloadIndex'] == (2 if plan.profile['kernel'] == 25 else 1)
-    assert plan.compat['__ZNK25IOSkywalkPacketBufferPool7releaseEv'] == '_bcmLegacyPoolRelease'
+    assert plan.compat['__ZNK25IOSkywalkPacketBufferPool7releaseEv'] == '_athLegacyPoolRelease'
     guards = manifest['nativeRuntimeGuards'][system]
     for meta, size in guards['classes']:
         cls = re.fullmatch(r'__ZN\d+(.+)10gMetaClassE', meta)[1]
@@ -199,16 +199,16 @@ def verify_native(temporary, binary, system='Tahoe'):
     assert all(not payload['powerDomainPatches'] for payload in manifest['payloads'])
     assert class_size(plan.air, 'AirPort_BrcmNIC') > 6816
     assert method_key(plan.model.new_tables['IOSkywalkEthernetInterface'][0x7a0 // 8]) == 'joinPMtree(IOService*)'
-    assert plan.compat['__ZN25IOSkywalkNetworkInterface10joinPMtreeEP9IOService'] == '_bcmLegacyJoinPowerTree'
+    assert plan.compat['__ZN25IOSkywalkNetworkInterface10joinPMtreeEP9IOService'] == '_athLegacyJoinPowerTree'
     topology = manifest['nativeAdapter']['powerDomain']
     assert topology['strategy'] == 'pci-provider' and topology['airPortTablePreserved']
     checks.append('Original Broadcom power table preserved; native power joins use the verified joinPMtree slot')
     product = Mach(binary)
-    assert '__ZN18BCM80211UserClient10gMetaClassE' in product.names
+    assert '__ZN18ATH80211UserClient10gMetaClassE' in product.names
     assert '__ZN20IO80211APIUserClient10gMetaClassE' not in product.defined()
-    assert class_size(product, 'BCMLegacyInterface') == 272
+    assert class_size(product, 'ATHLegacyInterface') == 272
     base = table(plan.model.kernel, 'IOService', plan.model.kernel)
-    legacy = table(product, 'BCMLegacyInterface')
+    legacy = table(product, 'ATHLegacyInterface')
     assert len(base) == len(legacy)
     for index, name in enumerate(legacy):
         assert method_key(name) == method_key(base[index])
@@ -270,9 +270,9 @@ def verify_native(temporary, binary, system='Tahoe'):
     declarations = []
     old_entries, new_entries = [], []
     for i in range(len(plan.methods)):
-        declarations.extend((f'extern "C" void bcmSkyForward{i}();', f'extern "C" void bcmSkyCallback{i}();'))
-        old_entries.append(f'reinterpret_cast<uintptr_t>(bcmSkyForward{i})')
-        new_entries.append(f'reinterpret_cast<uintptr_t>(bcmSkyCallback{i})')
+        declarations.extend((f'extern "C" void athSkyForward{i}();', f'extern "C" void athSkyCallback{i}();'))
+        old_entries.append(f'reinterpret_cast<uintptr_t>(athSkyForward{i})')
+        new_entries.append(f'reinterpret_cast<uintptr_t>(athSkyCallback{i})')
     source = HOST.replace('@DECLARATIONS@', '\n'.join(declarations)).replace('@FORWARDERS@', ','.join(old_entries)).replace('@CALLBACKS@', ','.join(new_entries))
     host = folder / 'ForwardingValidation.cpp'
     host.write_text(source)

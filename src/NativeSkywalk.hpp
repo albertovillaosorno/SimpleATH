@@ -13,7 +13,7 @@
 #include "NativeProfile.hpp"
 #include <IOKit/IOService.h>
 
-namespace bcm {
+namespace ath {
 
 bool validateNativeSkywalk();
 bool prepareNativeSkywalk(LinkedImage *, size_t);

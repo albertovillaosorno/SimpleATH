@@ -175,7 +175,7 @@ def generate():
                 native.add(name)
     native = sorted(native)
     native_index = {name: i for i, name in enumerate(native)}
-    cpp = [header('Payloads.cpp'), '#include "Payload.hpp"', '#include "NativeProfile.hpp"', 'namespace bcm {']
+    cpp = [header('Payloads.cpp'), '#include "Payload.hpp"', '#include "NativeProfile.hpp"', 'namespace ath {']
     assembly = [header('Payloads.S'), '.section __TEXT,__const', '.p2align 3']
     descriptors = []
     expanded_images = []
@@ -283,7 +283,7 @@ def generate():
                 fields[14:] = [0, 0, 0, 0]
                 struct.pack_into('<18I', data, 8, *fields)
             new_commands.append(data)
-        new_commands.append(struct.pack('<II16sQQQQiiII', 0x19, 72, b'__BCM_EXEC', size, stub_size,
+        new_commands.append(struct.pack('<II16sQQQQiiII', 0x19, 72, b'__ATH_EXEC', size, stub_size,
                                         size, stub_size, 7, 5, 0, 0))
         load_commands = b''.join(new_commands)
         first_section = min(off for _, _, _, n, off in image.sections if n and off)
@@ -305,8 +305,8 @@ def generate():
         stored_blob = OUTPUT / (label + '.delta') if label == 'AirPort' else blob
         if label == 'AirPort':
             stored_blob.write_bytes(stored)
-        assembly += [f'.globl _bcmPayload{index}', f'_bcmPayload{index}:', f'.incbin "{stored_blob}"', '.p2align 3']
-        cpp.append(f'extern "C" const uint8_t bcmPayload{index}[];')
+        assembly += [f'.globl _athPayload{index}', f'_athPayload{index}:', f'.incbin "{stored_blob}"', '.p2align 3']
+        cpp.append(f'extern "C" const uint8_t athPayload{index}[];')
         relocation_table = emit_table('Relocation', f'relocs{index}',
             (f'{{{a}, {t}, {v}LL, {p}, {w}, {{}}}}' for a, t, v, p, w in relocations))
         value_table = emit_table('uint32_t', f'values{index}', map(str, symbol_values))
@@ -324,8 +324,8 @@ def generate():
         literal = json.dumps(plist).replace('?', '\\?')
         cpp.append(f'static const char plist{index}[] = {literal};')
         sha = hashlib.sha256(image.path.read_bytes()).hexdigest()
-        delta_pointer = f'bcmPayload{index}' if delta else 'nullptr'
-        descriptors.append(f'{{{json.dumps(info["CFBundleIdentifier"])}, "{sha}", bcmPayload{base_index}, {len(expanded_images[base_index])}, {delta_pointer}, {len(delta)}, {size}, {size + stub_size}, {size}, {stub_size}, {kmod}, plist{index}, {relocation_table}, {len(relocations)}, {value_table}, {len(symbol_values)}, {symbol_table}, {len(named)}, {route_table}, {len(routes)}, {checksum(expanded)}ULL}}')
+        delta_pointer = f'athPayload{index}' if delta else 'nullptr'
+        descriptors.append(f'{{{json.dumps(info["CFBundleIdentifier"])}, "{sha}", athPayload{base_index}, {len(expanded_images[base_index])}, {delta_pointer}, {len(delta)}, {size}, {size + stub_size}, {size}, {stub_size}, {kmod}, plist{index}, {relocation_table}, {len(relocations)}, {value_table}, {len(symbol_values)}, {symbol_table}, {len(named)}, {route_table}, {len(routes)}, {checksum(expanded)}ULL}}')
         manifest['payloads'].append({'label': label, 'identifier': info['CFBundleIdentifier'], 'sourceSHA256': sha,
                                     'expandedSHA256': hashlib.sha256(expanded).hexdigest(), 'size': size,
                                     'mappedSize': size + stub_size, 'relocations': len(relocations), 'routes': routes,
@@ -346,7 +346,7 @@ def generate():
             '};', f'const uint32_t nativeVtableGuardCount = {len(vtable_guards)};']
     sky_cpp, sky_assembly = plan.emit(native_index)
     cpp += sky_cpp + emit_system_profiles(plans, native_index) + ['}']
-    assembly += ['.section __DATA_CONST,__const', '.p2align 3', '.globl _bcmNativeImports', '_bcmNativeImports:']
+    assembly += ['.section __DATA_CONST,__const', '.p2align 3', '.globl _athNativeImports', '_athNativeImports:']
     assembly.extend('.quad ' + name for name in native)
     assembly += sky_assembly
     (OUTPUT / 'Payloads.cpp').write_text('\n'.join(cpp) + '\n')

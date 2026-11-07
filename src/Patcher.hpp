@@ -38,7 +38,7 @@ public:
             original(reinterpret_cast<uintptr_t *>(&saved)) {}
     };
 
-    explicit KernelPatcher(bcm::LinkedImage &value) : image(value) {}
+    explicit KernelPatcher(ath::LinkedImage &value) : image(value) {}
     uintptr_t solveSymbol(size_t index, const char *name);
     uintptr_t branchTarget(uintptr_t target, uintptr_t pc);
     bool routeMultipleLong(size_t, RouteRequest *routes, size_t count, uintptr_t, size_t);
@@ -47,7 +47,7 @@ public:
     }
     void clearError() {}
 private:
-    bcm::LinkedImage &image;
+    ath::LinkedImage &image;
 };
 
 #endif

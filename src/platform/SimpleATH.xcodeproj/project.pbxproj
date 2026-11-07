@@ -76,7 +76,7 @@
 		00000000000000000000007A /* Loader.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Loader.cpp; sourceTree = "<group>"; };
 		00000000000000000000007B /* Probe/main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = src/platform/probe/main.mm; sourceTree = "<group>"; };
 		000000000000000000000082 /* SimpleATH.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = SimpleATH.kext; sourceTree = BUILT_PRODUCTS_DIR; };
-		000000000000000000000083 /* bcmprobe */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = bcmprobe; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000083 /* athprobe */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = athprobe; sourceTree = BUILT_PRODUCTS_DIR; };
 		00000000000000000000012C = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Relocate.cpp; sourceTree = "<group>"; };
 		00000000000000000000012D = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Patcher.cpp; sourceTree = "<group>"; };
 		00000000000000000000012E = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = build/Embedded/Payloads.cpp; sourceTree = "<group>"; };
@@ -200,7 +200,7 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000082 /* SimpleATH.kext */,
-				000000000000000000000083 /* bcmprobe */,
+				000000000000000000000083 /* athprobe */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -235,9 +235,9 @@
 			productReference = 000000000000000000000082 /* SimpleATH.kext */;
 			productType = "com.apple.product-type.kernel-extension";
 		};
-		0000000000000000000000D3 /* bcmprobe */ = {
+		0000000000000000000000D3 /* athprobe */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 0000000000000000000000CA /* Build configuration list for PBXNativeTarget "bcmprobe" */;
+			buildConfigurationList = 0000000000000000000000CA /* Build configuration list for PBXNativeTarget "athprobe" */;
 			buildPhases = (
 				0000000000000000000000A1 /* Sources */,
 			);
@@ -245,9 +245,9 @@
 			);
 			dependencies = (
 			);
-			name = bcmprobe;
-			productName = bcmprobe;
-			productReference = 000000000000000000000083 /* bcmprobe */;
+			name = athprobe;
+			productName = athprobe;
+			productReference = 000000000000000000000083 /* athprobe */;
 			productType = "com.apple.product-type.tool";
 		};
 /* End PBXNativeTarget section */
@@ -271,7 +271,7 @@
 			projectRoot = "";
 			targets = (
 				0000000000000000000000D2 /* SimpleATH */,
-				0000000000000000000000D3 /* bcmprobe */,
+				0000000000000000000000D3 /* athprobe */,
 			);
 		};
 /* End PBXProject section */
@@ -405,7 +405,7 @@
 					"-framework",
 					IOKit,
 				);
-				PRODUCT_NAME = bcmprobe;
+				PRODUCT_NAME = athprobe;
 			};
 			name = Debug;
 		};
@@ -432,7 +432,7 @@
 					"-framework",
 					IOKit,
 				);
-				PRODUCT_NAME = bcmprobe;
+				PRODUCT_NAME = athprobe;
 			};
 			name = Release;
 		};
@@ -457,7 +457,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		0000000000000000000000CA /* Build configuration list for PBXNativeTarget "bcmprobe" */ = {
+		0000000000000000000000CA /* Build configuration list for PBXNativeTarget "athprobe" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0000000000000000000000BE /* Debug */,

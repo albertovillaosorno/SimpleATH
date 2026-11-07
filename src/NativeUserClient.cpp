@@ -12,7 +12,7 @@
 #include "Payload.hpp"
 #include <libkern/c++/OSBoolean.h>
 
-namespace bcm {
+namespace ath {
 
 struct ClientContext {
     IOUserClient *implementation;
@@ -34,7 +34,7 @@ static void setContext(IOUserClient *self, ClientContext *value) {
 }
 
 template<typename Method> static Method native(uint32_t index) {
-    return reinterpret_cast<Method>(bcmNativeImports[index]);
+    return reinterpret_cast<Method>(athNativeImports[index]);
 }
 
 static IOReturn close(IOUserClient *self, bool died) {
@@ -159,7 +159,7 @@ IOReturn wrapNativeUserClient(IOReturn status, task_t task, void *token, uint32_
         return status;
     auto implementation = *result;
     uint32_t profile;
-    if (implementation->metaCast("BCM80211UserClient"))
+    if (implementation->metaCast("ATH80211UserClient"))
         profile = 0;
     else if (implementation->metaCast("SB80211AsyncEventUserClient"))
         profile = 1;

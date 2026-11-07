@@ -45,7 +45,7 @@ def main():
             'com.apple.kpi.iokit', 'com.apple.kpi.libkern',
             'com.apple.kpi.mach', 'com.apple.kpi.private'}
         stage1 = (ROOT / 'SimpleATH/SimpleATH.cpp').read_text()
-        assert 'bcm::' not in stage1
+        assert 'ath::' not in stage1
         assert 'IOTimerEventSource' not in stage1
         assert 'IOResources' in plistlib.dumps(info).decode()
     else:

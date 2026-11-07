@@ -42,7 +42,7 @@ SYMBOLS = {
         "__ZN17IO80211Controller22apple80211RequestIoctlEjiP16IO80211InterfacePv",
         "__ZN16IO80211Interface25updateCountryCodePropertyEb",
     ],
-    "AirPort": ["_bcm_decode_anqp_nai_realm_print", "__dma_detach", "_dma64_txfast", "__dma_rxfill", "__dma_getnextrxp",
+    "AirPort": ["_ath_decode_anqp_nai_realm_print", "__dma_detach", "_dma64_txfast", "__dma_rxfill", "__dma_getnextrxp",
                 "__ZN15AirPort_BrcmNIC9getLOCALEEP8OSObjectP22apple80211_locale_data",
                 "__ZN15AirPort_BrcmNIC15getCOUNTRY_CODEEP8OSObjectP28apple80211_country_code_data"],
 }
@@ -82,7 +82,7 @@ def numbers(data):
 
 
 def main():
-    lines = ["//", "//  Profiles.hpp", "//  SimpleATH", "//", "//  Created by laobamac on 2026/9/15.", "//  Copyright © 2026 laobamac. All rights reserved.", "//", "", "#ifndef SIMPLEATH_PROFILES_HPP", "#define SIMPLEATH_PROFILES_HPP", "", "#include <stdint.h>", "", "namespace bcm {", "struct ByteGuard { uint32_t offset; uint8_t bytes[32]; uint8_t mask[32]; };", "struct CopySite { uint32_t offset; bool output; };", ""]
+    lines = ["//", "//  Profiles.hpp", "//  SimpleATH", "//", "//  Created by laobamac on 2026/9/15.", "//  Copyright © 2026 laobamac. All rights reserved.", "//", "", "#ifndef SIMPLEATH_PROFILES_HPP", "#define SIMPLEATH_PROFILES_HPP", "", "#include <stdint.h>", "", "namespace ath {", "struct ByteGuard { uint32_t offset; uint8_t bytes[32]; uint8_t mask[32]; };", "struct CopySite { uint32_t offset; bool output; };", ""]
     manifest = {"copyright": "Copyright © 2026 laobamac. All rights reserved.", "supportedKernel": "23.x / 24.x / 25.x", "images": {}}
     for label, path in IMAGES.items():
         if label not in SYMBOLS:

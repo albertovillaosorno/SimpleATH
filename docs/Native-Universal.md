@@ -34,7 +34,7 @@ These versions and UUIDs pin build references; they are **not** a runtime allowl
 | IOSkywalkNetworkBSDClient size | 328 | 328 | 336 |
 | IO80211API/AsyncEventUserClient size | 224 | 224 | 224 |
 
-Legacy stores the controller at `this+0x118`, whereas the native Tahoe Ethernet superclass stores an extension pointer at that same location. `NativeSkywalk.cpp` preserves the old layout with a 272-byte `BCMLegacyInterface` and separately constructs a native Ethernet object. Native derived objects are allocated with 296 bytes, storing context at offset 288. Method forwarding switches the receiver object and temporarily retains the legacy object while callbacks execute.
+Legacy stores the controller at `this+0x118`, whereas the native Tahoe Ethernet superclass stores an extension pointer at that same location. `NativeSkywalk.cpp` preserves the old layout with a 272-byte `ATHLegacyInterface` and separately constructs a native Ethernet object. Native derived objects are allocated with 296 bytes, storing context at offset 288. Method forwarding switches the receiver object and temporarily retains the legacy object while callbacks execute.
 
 Interface callbacks are generated from the complete virtual table for each OS. On Sonoma, the logical-link registration entry is found through the native Ethernet virtual table. On Sequoia and Tahoe, the loader pattern-matches a registration wrapper within the native code segment and checks the Ethernet deregistration entry it calls. The signature must match uniquely, tolerating relocated addresses without fixed function offsets.
 
@@ -44,7 +44,7 @@ Packets and queues use native Skywalk objects without introducing per-packet ada
 
 Conflicting Legacy and native IO80211Family metaclass names are rewritten in payload C strings without changing the allocated string lengths or C++ symbol resolution. The old controller registers under `AirPortDriver` so that SystemConfiguration classifies it as a wireless controller.
 
-`NativeUserClient.cpp` uses native API/AsyncEvent user-client constructors and metaclasses, forwarding instance methods to `BCM80211UserClient`. System processes continue receiving native user-client types, and privilege checks remain with the original control implementation. `WirelessABI.hpp` handles differences among the three OS versions in selectors, association structures, scan results, and event formats.
+`NativeUserClient.cpp` uses native API/AsyncEvent user-client constructors and metaclasses, forwarding instance methods to `ATH80211UserClient`. System processes continue receiving native user-client types, and privilege checks remain with the original control implementation. `WirelessABI.hpp` handles differences among the three OS versions in selectors, association structures, scan results, and event formats.
 
 ## Power management and payloads
 

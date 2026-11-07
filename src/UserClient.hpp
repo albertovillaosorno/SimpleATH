@@ -15,11 +15,11 @@
 #include <IOKit/IOUserClient.h>
 #include <IOKit/IOWorkLoop.h>
 
-class BCM80211UserClient final : public IOUserClient {
-    OSDeclareDefaultStructors(BCM80211UserClient)
+class ATH80211UserClient final : public IOUserClient {
+    OSDeclareDefaultStructors(ATH80211UserClient)
 public:
     static IOReturn create(IOService *provider, task_t task, void *token,
-                           OSDictionary *properties, bcm::InterfaceKind kind,
+                           OSDictionary *properties, ath::InterfaceKind kind,
                            IOUserClient **result);
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
@@ -34,7 +34,7 @@ public:
     void receive(IOService *controller, const char *name, uint32_t event,
                  const void *payload, size_t length, uint64_t seconds, uint64_t microseconds, uint64_t serial);
 private:
-    bcm::Endpoint endpoint {};
+    ath::Endpoint endpoint {};
     task_t ownerTask {nullptr};
     IOWorkLoop *workLoop {nullptr};
     IOCommandGate *commandGate {nullptr};
@@ -42,7 +42,7 @@ private:
     IOBufferMemoryDescriptor *ringMemory {nullptr};
     IOBufferMemoryDescriptor *stateMemory {nullptr};
     OSAsyncReference64 asyncReference {};
-    bcm::EventFilter filter {};
+    ath::EventFilter filter {};
     uint32_t writeOffset {0};
     uint16_t sequence {0};
     uint64_t monitorSerial {0};

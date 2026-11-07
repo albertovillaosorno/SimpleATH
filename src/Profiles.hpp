@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-namespace bcm {
+namespace ath {
 struct ByteGuard { uint32_t offset; uint8_t bytes[32]; uint8_t mask[32]; };
 struct CopySite { uint32_t offset; bool output; };
 

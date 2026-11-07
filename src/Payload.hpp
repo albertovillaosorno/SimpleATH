@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace bcm {
+namespace ath {
 
 struct Relocation {
     uint32_t offset;
@@ -73,7 +73,7 @@ struct LinkedImage {
 };
 
 extern const Payload payloads[3];
-extern "C" const uintptr_t bcmNativeImports[];
+extern "C" const uintptr_t athNativeImports[];
 extern const uint32_t nativeImportCount;
 extern const char *const nativeImportNames[];
 extern const NativeVtableGuard nativeVtableGuards[];

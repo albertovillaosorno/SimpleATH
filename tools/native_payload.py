@@ -92,7 +92,7 @@ class SkywalkPlan:
             elif name.startswith('IO'):
                 replacement = 'SB' + name[2:]
             elif name.startswith('Log'):
-                replacement = 'BCM' + name[3:]
+                replacement = 'ATH' + name[3:]
             else:
                 raise ValueError('Unknown class collision: ' + name)
             self.namespace[name] = replacement
@@ -113,33 +113,33 @@ class SkywalkPlan:
         self.method_slots = [old_slots.get(method_key(name), 0xffffffff) for name in needed]
         for name, i in self.method_index.items():
             if interface_method(name):
-                self.compat[name] = f'_bcmSkyForward{i}'
+                self.compat[name] = f'_athSkyForward{i}'
         self.compat.update({
-            '__bcm_interface_start': '_bcmLegacySkywalkStart',
-            '__ZN25IOSkywalkNetworkInterface10joinPMtreeEP9IOService': '_bcmLegacyJoinPowerTree',
-            '__ZN26IOSkywalkEthernetInterfaceC2EPK11OSMetaClass': '__ZN18BCMLegacyInterfaceC2EPK11OSMetaClass',
-            '__ZN26IOSkywalkEthernetInterfaceD2Ev': '__ZN18BCMLegacyInterfaceD2Ev',
-            '__ZN26IOSkywalkEthernetInterfaceD1Ev': '__ZN18BCMLegacyInterfaceD1Ev',
-            '__ZN26IOSkywalkEthernetInterfaceD0Ev': '__ZN18BCMLegacyInterfaceD0Ev',
-            '__ZNK26IOSkywalkEthernetInterface12getMetaClassEv': '__ZNK18BCMLegacyInterface12getMetaClassEv',
-            '__ZN26IOSkywalkEthernetInterface10gMetaClassE': '__ZN18BCMLegacyInterface10gMetaClassE',
-            '__ZTV26IOSkywalkEthernetInterface': '_bcmLegacySkywalkVtable',
-            '__ZTV22IOSkywalkNetworkPacket': '_bcmPacketCompatibilityVtable',
-            '__ZN26IOSkywalkEthernetInterface4initEP12OSDictionary': '_bcmLegacySkywalkInit',
-            '__ZN26IOSkywalkEthernetInterface4freeEv': '_bcmLegacySkywalkFree',
-            '__ZN25IOSkywalkNetworkInterface4stopEP9IOService': '_bcmLegacySkywalkStop',
-            '__ZN18IOSkywalkInterface13willTerminateEP9IOServicej': '_bcmLegacyWillTerminate',
-            '__ZN18IOSkywalkInterface12didTerminateEP9IOServicejPb': '_bcmLegacyDidTerminate',
-            '__ZN26IOSkywalkEthernetInterface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient': '_bcmLegacySkywalkUserClient',
-            API_SYMBOLS[7]: '_bcmRegisterLegacyEthernet',
-            API_SYMBOLS[10]: '_bcmDeregisterLegacyEthernet',
-            '__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j': '_bcmRegisterLegacyEthernetLink',
-            API_SYMBOLS[9]: '_bcmRegisterLegacyNetworkLink',
-            '__ZN25IOSkywalkNetworkInterface22handleDoorbellForQueueEP20IOSkywalkPacketQueuej': '_bcmLegacyDoorbell',
-            '__ZN26IOSkywalkTxSubmissionQueue8withPoolEP25IOSkywalkPacketBufferPooljjP8OSObjectPFjS3_PS_PjEPFjS3_S4_PKP15IOSkywalkPacketjPvESC_j': '_bcmLegacyTxWithPool',
-            '__ZNK25IOSkywalkPacketBufferPool7releaseEv': '_bcmLegacyPoolRelease',
-            '_OSObject_typed_operator_new': '_bcmLegacyTypedNew',
-            '_OSObject_typed_operator_delete': '_bcmLegacyTypedDelete',
+            '__ath_interface_start': '_athLegacySkywalkStart',
+            '__ZN25IOSkywalkNetworkInterface10joinPMtreeEP9IOService': '_athLegacyJoinPowerTree',
+            '__ZN26IOSkywalkEthernetInterfaceC2EPK11OSMetaClass': '__ZN18ATHLegacyInterfaceC2EPK11OSMetaClass',
+            '__ZN26IOSkywalkEthernetInterfaceD2Ev': '__ZN18ATHLegacyInterfaceD2Ev',
+            '__ZN26IOSkywalkEthernetInterfaceD1Ev': '__ZN18ATHLegacyInterfaceD1Ev',
+            '__ZN26IOSkywalkEthernetInterfaceD0Ev': '__ZN18ATHLegacyInterfaceD0Ev',
+            '__ZNK26IOSkywalkEthernetInterface12getMetaClassEv': '__ZNK18ATHLegacyInterface12getMetaClassEv',
+            '__ZN26IOSkywalkEthernetInterface10gMetaClassE': '__ZN18ATHLegacyInterface10gMetaClassE',
+            '__ZTV26IOSkywalkEthernetInterface': '_athLegacySkywalkVtable',
+            '__ZTV22IOSkywalkNetworkPacket': '_athPacketCompatibilityVtable',
+            '__ZN26IOSkywalkEthernetInterface4initEP12OSDictionary': '_athLegacySkywalkInit',
+            '__ZN26IOSkywalkEthernetInterface4freeEv': '_athLegacySkywalkFree',
+            '__ZN25IOSkywalkNetworkInterface4stopEP9IOService': '_athLegacySkywalkStop',
+            '__ZN18IOSkywalkInterface13willTerminateEP9IOServicej': '_athLegacyWillTerminate',
+            '__ZN18IOSkywalkInterface12didTerminateEP9IOServicejPb': '_athLegacyDidTerminate',
+            '__ZN26IOSkywalkEthernetInterface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient': '_athLegacySkywalkUserClient',
+            API_SYMBOLS[7]: '_athRegisterLegacyEthernet',
+            API_SYMBOLS[10]: '_athDeregisterLegacyEthernet',
+            '__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j': '_athRegisterLegacyEthernetLink',
+            API_SYMBOLS[9]: '_athRegisterLegacyNetworkLink',
+            '__ZN25IOSkywalkNetworkInterface22handleDoorbellForQueueEP20IOSkywalkPacketQueuej': '_athLegacyDoorbell',
+            '__ZN26IOSkywalkTxSubmissionQueue8withPoolEP25IOSkywalkPacketBufferPooljjP8OSObjectPFjS3_PS_PjEPFjS3_S4_PKP15IOSkywalkPacketjPvESC_j': '_athLegacyTxWithPool',
+            '__ZNK25IOSkywalkPacketBufferPool7releaseEv': '_athLegacyPoolRelease',
+            '_OSObject_typed_operator_new': '_athLegacyTypedNew',
+            '_OSObject_typed_operator_delete': '_athLegacyTypedDelete',
         })
         for image in (self.legacy, self.air):
             for name in image.undef():
@@ -273,7 +273,7 @@ class SkywalkPlan:
         old = self.model.old_tables['IOSkywalkEthernetInterface']
         entries = [(self.compat_index[name], 1) if name in self.compat_index else (native_index[name], 0)
                    for name in old]
-        entries[0x5c0 // 8] = (self.compat_index['__bcm_interface_start'], 1)
+        entries[0x5c0 // 8] = (self.compat_index['__ath_interface_start'], 1)
         self.emit_rows(cpp, 'SkyEntry', 'skyLegacyEntries', entries)
         cpp.append(f'const uint32_t skyLegacySlotCount = {len(entries)};')
         packet_base = self.model.old_views['IOSkywalkNetworkPacket']
@@ -303,26 +303,26 @@ class SkywalkPlan:
         cpp.append(f'const uint32_t skyPoolVtable = {self.air.names[vtable_name(POOL_CLASS)][4]};')
         cpp.append(f'const uint32_t skyPacketVtable = {self.air.names[vtable_name(PACKET_CLASS)][4]};')
         assembly += ['.section __DATA_CONST,__const', '.p2align 3',
-                     '.globl _bcmCompatibilityImports', '_bcmCompatibilityImports:']
+                     '.globl _athCompatibilityImports', '_athCompatibilityImports:']
         assembly += ['.quad ' + self.compat[name] for name in self.compat_names]
-        for array, prefix in [('bcmSkyForwarders', 'bcmSkyForward'), ('bcmSkyCallbacks', 'bcmSkyCallback')]:
+        for array, prefix in [('athSkyForwarders', 'athSkyForward'), ('athSkyCallbacks', 'athSkyCallback')]:
             assembly += ['.p2align 3', '.globl _' + array, '_' + array + ':']
             assembly += [f'.quad _{prefix}{i}' for i in range(len(self.methods))]
         assembly += ['.section __TEXT,__text']
-        for prefix, resolver in [('bcmSkyForward', 'bcmResolveOldSkywalk'),
-                                 ('bcmSkyCallback', 'bcmResolveNativeSkywalk')]:
+        for prefix, resolver in [('athSkyForward', 'athResolveOldSkywalk'),
+                                 ('athSkyCallback', 'athResolveNativeSkywalk')]:
             for i in range(len(self.methods)):
                 assembly += ['.p2align 4', f'.globl _{prefix}{i}', f'_{prefix}{i}:',
                              'pushq %rax', 'pushq %rdi', 'pushq %rsi', 'pushq %rdx',
                              'pushq %rcx', 'pushq %r8', 'pushq %r9', ('movl $' + str(i) + ', %esi'),
                              f'callq _{resolver}', 'movq %rax, %r11']
-                if prefix == 'bcmSkyCallback':
+                if prefix == 'athSkyCallback':
                     assembly += ['movq %rdx, %r10', 'andq $-2, %rdx']
                 assembly += ['movq %rdx, 40(%rsp)', 'popq %r9', 'popq %r8', 'popq %rcx',
                              'popq %rdx', 'popq %rsi', 'popq %rdi', 'popq %rax']
-                if prefix == 'bcmSkyCallback':
+                if prefix == 'athSkyCallback':
                     assembly += ['pushq %r10', 'callq *%r11', 'pushq %rax', 'pushq %rdx',
-                                 'movq 16(%rsp), %rdi', 'callq _bcmReleaseNativeReceiver',
+                                 'movq 16(%rsp), %rdi', 'callq _athReleaseNativeReceiver',
                                  'popq %rdx', 'popq %rax', 'addq $8, %rsp', 'retq']
                 else:
                     assembly += ['jmpq *%r11']

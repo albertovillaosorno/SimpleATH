@@ -13,9 +13,9 @@
 #include "Patcher.hpp"
 #include <IOKit/IOService.h>
 
-class BCM80211UserClient;
+class ATH80211UserClient;
 
-namespace bcm {
+namespace ath {
 
 enum class InterfaceKind : uint8_t { Classic, Virtual, Skywalk };
 
@@ -75,8 +75,8 @@ public:
     static int refreshAvailability(const Endpoint &endpoint);
     static bool isScalarGet(uint32_t request);
     static bool identify(IOService *interface, InterfaceKind kind, Endpoint &endpoint);
-    static bool addClient(BCM80211UserClient *client);
-    static void removeClient(BCM80211UserClient *client);
+    static bool addClient(ATH80211UserClient *client);
+    static void removeClient(ATH80211UserClient *client);
     static int command(const Endpoint &endpoint, bool set, LegacyRequest &request, void *shadow, size_t size);
     static void publish(IOService *service);
     static bool prepareImage(LinkedImage &image, size_t index);
