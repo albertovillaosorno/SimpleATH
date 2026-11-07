@@ -42,6 +42,8 @@
 		000000000000000000000798 /* Ar9003TxControl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A8 /* Ar9003TxControl.cpp */; };
 		000000000000000000000799 /* DataPath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007A9 /* DataPath.cpp */; };
 		00000000000000000000079A /* LinkMonitor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0000000000000000000007AA /* LinkMonitor.cpp */; };
+		000000000000000000000860 /* Wpa2Primitives.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000870 /* Wpa2Primitives.cpp */; };
+		000000000000000000000861 /* Wpa2CryptoAdapter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000871 /* Wpa2CryptoAdapter.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -105,6 +107,11 @@
 		0000000000000000000007B9 /* DataPath.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/DataPath.hpp; sourceTree = "<group>"; };
 		0000000000000000000007AA /* LinkMonitor.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/LinkMonitor.cpp; sourceTree = "<group>"; };
 		0000000000000000000007BA /* LinkMonitor.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/LinkMonitor.hpp; sourceTree = "<group>"; };
+		000000000000000000000870 /* Wpa2Primitives.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/crypto/Wpa2Primitives.cpp; sourceTree = "<group>"; };
+		000000000000000000000880 /* Wpa2Primitives.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/crypto/Wpa2Primitives.hpp; sourceTree = "<group>"; };
+		000000000000000000000871 /* Wpa2CryptoAdapter.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = wifi/crypto/Wpa2CryptoAdapter.cpp; sourceTree = "<group>"; };
+		000000000000000000000881 /* Wpa2CryptoAdapter.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/crypto/Wpa2CryptoAdapter.hpp; sourceTree = "<group>"; };
+		000000000000000000000882 /* AesTables.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = wifi/crypto/AesTables.hpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -135,6 +142,11 @@
 				0000000000000000000007BA /* LinkMonitor.hpp */,
 				0000000000000000000007B9 /* DataPath.hpp */,
 				0000000000000000000007A7 /* Wpa2Supplicant.cpp */,
+				000000000000000000000870 /* Wpa2Primitives.cpp */,
+				000000000000000000000880 /* Wpa2Primitives.hpp */,
+				000000000000000000000871 /* Wpa2CryptoAdapter.cpp */,
+				000000000000000000000881 /* Wpa2CryptoAdapter.hpp */,
+				000000000000000000000882 /* AesTables.hpp */,
 				0000000000000000000007B7 /* Wpa2Supplicant.hpp */,
 				0000000000000000000007B6 /* DataFrames.hpp */,
 				0000000000000000000007B4 /* Station.hpp */,
@@ -268,6 +280,8 @@
 				000000000000000000000799 /* DataPath.cpp in Sources */,
 				00000000000000000000079A /* LinkMonitor.cpp in Sources */,
 				000000000000000000000797 /* Wpa2Supplicant.cpp in Sources */,
+				000000000000000000000860 /* Wpa2Primitives.cpp in Sources */,
+				000000000000000000000861 /* Wpa2CryptoAdapter.cpp in Sources */,
 				000000000000000000000193 /* Ar9565Eeprom.cpp in Sources */,
 				000000000000000000000190 /* Ar9565PciSession.cpp in Sources */,
                 000000000000000000000180 /* Ar9565Core.cpp in Sources */,

@@ -54,7 +54,9 @@ state machine are also staged. They are
 **not active** on the PCI card and do not provide WPA2 or a network device;
 see [Wi-Fi MAC and DMA source status](docs/design/WIFI-MAC-AND-DMA.md). WPA2 handshake sources also
 coordinate key derivation, MIC verification and installation via a required
-platform crypto provider that is **not yet implemented**.
+portable SHA-1/PBKDF2/PTK/AES key-wrap primitives that are **uncompiled
+and unaudited**, plus a hardware CSPRNG/keycache provider that is **not
+yet implemented**. See [WPA2 crypto status](docs/design/WPA2-CRYPTO-SOURCE.md).
 
 The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
 the PCI ownership contract from a verified native adapter. The
