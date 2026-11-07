@@ -16,11 +16,12 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | Station protocol state | src/wifi/Station.* | Scan/candidate, authentication and association state transitions; explicit stop at unimplemented WPA2 crypto or network-interface registration |
 | EAPOL-Key parsing | src/wifi/Eapol.* | EAPOL version/length/RSN descriptor and key-info validation, message 1-4 and group 1-2 classification, replay guard requiring confirmed MIC before advancing |
 | WPA2-PSK handshake | src/wifi/Wpa2Supplicant.* | EAPOL messages 2/4, MIC verification, GTK unwrap and pairwise/group key installation through mandatory reviewed crypto callbacks; no active hardware backend |
+| WPA2 primitives | src/wifi/crypto/ | SHA-1/HMAC, PBKDF2, PTK derivation, AES key unwrap and callback bridge; uncompiled and no platform CSPRNG or keycache backend |
 | Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
 | Infrastructure data path | src/wifi/DataPath.* | Builds ToDS frames from Ethernet-II/LLC-SNAP, gates outgoing EAPOL versus WPA2 CCMP data, filters received AP-to-station frames by BSSID and decryption integrity; no physical TX/RX or network interface |
 | Link monitoring | src/wifi/LinkMonitor.* | Bounds-checked AP beacon/deauth/disassoc handling, mandatory PMF verification when negotiated, beacon-loss timeout, bounded reconnect backoff; no actual radio scan or reconnect scheduler |
 
-All eleven C++ translation units were added to the existing Xcode target
+All thirteen C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
 
 ## Critical restrictions
@@ -42,9 +43,10 @@ for the **next separately authorized build**.
 - **WPA2 depends on unavailable crypto and keycache backends.** The
   supplicant prepares EAPOL M2/M4 and coordinates PTK derivation, MIC
   validation, GTK AES unwrap, and pairwise/group key installation through
-  required platform callbacks. No PBKDF2/PMK provider, HMAC-SHA1, AES unwrap,
-  CCMP, hardware keycache or EAPOL TX/RX path is integrated. It cannot
-  independently establish a secure connection or pass traffic.
+  required platform callbacks. Portable PBKDF2, HMAC-SHA1 and AES unwrap
+  sources are staged but uncompiled and unaudited. There is no validated
+  CSPRNG, installed CCMP keycache, OS credentials or EAPOL TX/RX path.
+  It cannot independently establish secure traffic.
 - **No association means Wi-Fi connected.** The station's source-level
   state machine explicitly refuses to report a complete network interface.
 
