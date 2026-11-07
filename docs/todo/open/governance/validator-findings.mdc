@@ -236,6 +236,37 @@ No kext build, CI/tag, device or RF operation was performed.
 **P0 remains open** until every failing Clang-Tidy check is fixed without
 suppressing mandatory coverage. The 51 failures are not a green report.
 
+## Clean Wi-Fi scan and DMA ring checkpoint, 2026-11-07 17:11 CST
+
+On **clean main `1f2ba9b`**, after DCO commits `81b69d6`
+(hidden-SSID cache eviction must not inherit another BSSID's name),
+`b7c2581` (previous stable validator evidence) and `1f2ba9b`
+(DMA ring reserve output must not alias live ring ownership), a new
+`python3 -B tools/validate.py --no-cache` completed with exit status 1.
+It was full **`scope=repository`, `source_only=true`,
+`tests_requested=true`**: **161 files, 410 checks, zero cached,
+410 executed, 359 passed, 51 failed, zero skipped**. **Every failure
+was Clang-Tidy**; Clang-Format, Ruff check/format, BasedPyright and the
+offline host tests reported no failed or skipped checks. The process JSON
+and saved `.cache/validate/report.json` were byte-identical, and the
+source/config/test-manifest snapshot remained stable. This is a complete,
+unsuppressed failed result, not a green acceptance.
+
+The new offline Wi-Fi regression reproduced cross-BSSID SSID retention in a
+full 48-entry scan cache before the fix (exit 23), and verified that the
+same BSSID still retains a previously visible name after a hidden beacon.
+The DMA reservation regression reproduced live slot corruption with a forged
+caller-output alias before its guard (exit 1). Both fixed programs passed
+strict C++14 and C++17 host compiles/runs with AddressSanitizer and
+UndefinedBehaviorSanitizer, plus Clang-Format. They exercise portable
+metadata only; no PCI, DMA, radio or kext execution occurred.
+
+The remaining 51 translation-unit failures include header-guard and
+include-cleaner naming rules, C-array/pointer cast guidance, and the
+unavailable macOS CoreWLAN SDK header on this Linux host. Do not remove
+those checks, mislabel the unsupported host environment as a pass, or infer
+hardware readiness. **P0 stays OPEN** until those findings are resolved.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
