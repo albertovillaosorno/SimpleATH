@@ -2,6 +2,7 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic, bounded Mach-O header and load-command parsing tests."""
 
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -9,6 +10,7 @@ from unittest import TestCase
 from unittest import mock
 
 from tools.macho import Image
+from tools.macho import MAX_MACHO_BYTES
 
 HEADER_BYTES = 32
 FAT_TABLE_BYTES = 40
@@ -107,6 +109,24 @@ class MachoLoadCommandSafety(TestCase):
         assert image.symbols == {"_sample": 0x1000}
 
     @staticmethod
+    def test_nonregular_linked_and_large_inputs_fail_closed() -> None:
+        """Reject links, pipes and declared huge files without parsing."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.macho"
+            original = root / "original.macho"
+            _ = original.write_bytes(_thin())
+            source.symlink_to(original)
+            assert _unsafe_input_rejected(source)
+            source.unlink()
+            os.mkfifo(source)
+            assert _unsafe_input_rejected(source)
+            source.unlink()
+            with source.open("wb") as stream:
+                _ = stream.truncate(MAX_MACHO_BYTES + 1)
+            assert _unsafe_input_rejected(source)
+
+    @staticmethod
     def test_fat64_slice_round_trip() -> None:
         """Select a present x86_64 slice with exact bounded metadata."""
         thin = _thin((_uuid_command(),))
@@ -191,6 +211,20 @@ class MachoLoadCommandSafety(TestCase):
     def test_truncated_or_oversized_leb_rejected() -> None:
         """Bound malformed LEB128 decoding without hanging the parser."""
         assert all(_leb_rejected(data) for data in (b"\x80", b"\x80" * 16))
+
+
+def _unsafe_input_rejected(path: Path) -> bool:
+    """Check that unsafe path types fail before Mach-O parsing.
+
+    Returns:
+        True if input is refused for safety.
+
+    """
+    try:
+        _ = Image(path)
+    except OSError, ValueError:
+        return True
+    return False
 
 
 def _leb_rejected(data: bytes) -> bool:

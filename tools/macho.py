@@ -12,9 +12,11 @@
 import argparse
 import bisect
 import hashlib
+import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv and explicit shell=False.
 
 if __package__:
@@ -29,13 +31,51 @@ else:
     from abi_types import unpack_values
 
 
+MAX_MACHO_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def read_macho_source(path: Path) -> bytes:
+    """Read bounded regular image bytes without following symbolic links.
+
+    Returns:
+        The stable, complete image bytes.
+
+    Raises:
+        ValueError: Invalid source file type, size or concurrent mutation.
+
+    """
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW
+    with os.fdopen(os.open(path, flags), "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or not 0 < before.st_size <= MAX_MACHO_BYTES
+        ):
+            message = "Mach-O input must be a bounded regular file"
+            raise ValueError(message)
+        data = stream.read(MAX_MACHO_BYTES + 1)
+        after = os.fstat(stream.fileno())
+    stable_identity = (
+        after.st_dev == before.st_dev
+        and after.st_ino == before.st_ino
+        and after.st_size == before.st_size
+    )
+    stable_content = (
+        len(data) == before.st_size and after.st_mtime_ns == before.st_mtime_ns
+    )
+    if not stable_identity or not stable_content:
+        message = "Mach-O input changed while being read"
+        raise ValueError(message)
+    return data
+
+
 class Image:
     """Parse pinned offline Mach-O metadata; never load or execute an image."""
 
     def __init__(self, path: str | Path) -> None:
         """Read and validate the selected x86_64 Mach-O byte stream."""
         self.path: Path = Path(path)
-        self.data: bytes = self.path.read_bytes()
+        self.data: bytes = read_macho_source(self.path)
         if self.data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
             if len(self.data) < 8:
                 raise ValueError("Truncated Mach-O fat header")
