@@ -4,11 +4,19 @@
 
 from unittest import TestCase
 
+from tools.audit_codecs import analyze_scalar_handler
 from tools.audit_codecs import disassembly_blocks
+from tools.audit_codecs import verify_copy_counts
+from tools.macho import Image
 
 CAPABILITY_NAME = "_getCapability"
 SCAN_LENGTH_CHECK = "0x48c"
 EXPECTED_BLOCK_COUNT = 2
+COPY_TOTAL = 18
+BACKEND_EXPECTED = 16
+SCALAR_ADDRESS = 0x1234
+SCALAR_REQUEST = 7
+SCALAR_SYMBOL = "_safeScalar"
 SAMPLE_DISASSEMBLY = (
     "1234 <_getCapability>:\n"
     "    1234: movl $0xc, %eax\n\n"
@@ -61,3 +69,92 @@ class CodecDisassemblyBlockInventory(TestCase):
         """Only accept exact expected lowercase hexadecimal heading shape."""
         assert disassembly_blocks("") == {}
         assert disassembly_blocks("ABCD <_symbol>:\n  ret\n") == {}
+
+
+def _fake_image() -> Image:
+    """Build only the symbol-lookup fields of an offline Image.
+
+    Returns:
+        A synthetic image that never reads an on-disk Mach-O.
+
+    """
+    image = object.__new__(Image)
+    image.binds = {SCALAR_ADDRESS: SCALAR_SYMBOL}
+    image.addresses = []
+    image.keys = []
+    return image
+
+
+def _rejects_scalar(block: str) -> bool:
+    """Check that unsafe scalar request memory layouts are fatal.
+
+    Returns:
+        True when the scalar request is rejected before emitting evidence.
+
+    """
+    try:
+        _ = analyze_scalar_handler(
+            _fake_image(), SCALAR_REQUEST, SCALAR_ADDRESS, block=block
+        )
+    except RuntimeError:
+        return True
+    return False
+
+
+def _rejects_copy_counts(copies: list[dict[str, str]]) -> bool:
+    """Check invalid copy relocation totals are fatal.
+
+    Returns:
+        True when the supplied counts are rejected.
+
+    """
+    try:
+        verify_copy_counts(copies)
+    except RuntimeError:
+        return True
+    return False
+
+
+class CodecScalarAndCopyGuards(TestCase):
+    """Exercise fail-closed guards without KDK or disassembler access."""
+
+    @staticmethod
+    def test_valid_scalar_store_is_admitted() -> None:
+        """Emit request, address and source symbol for a guarded scalar."""
+        entry = analyze_scalar_handler(
+            _fake_image(),
+            SCALAR_REQUEST,
+            SCALAR_ADDRESS,
+            block="movl %eax, 0x14(%r8)",
+        )
+        assert entry is not None
+        assert entry["request"] == SCALAR_REQUEST
+        assert entry["symbol"] == SCALAR_SYMBOL
+
+    @staticmethod
+    def test_scalar_pointer_dereference_is_rejected() -> None:
+        """Never mistake a handler accessing data pointers for a scalar."""
+        assembly = "movl %eax, 0x14(%r8)\nmovl 0x20(%r8), %eax"
+        assert _rejects_scalar(assembly)
+
+    @staticmethod
+    def test_unverified_scalar_register_is_rejected() -> None:
+        """Require a proven apple80211req alias for an indirect store."""
+        assert _rejects_scalar("movl %eax, 0x14(%rbx)")
+
+    @staticmethod
+    def test_copy_relocations_require_exact_backend_counts() -> None:
+        """Accept only the legacy and two backend totals from pinned ABI."""
+        copies = [{"image": "Legacy"}] * (COPY_TOTAL - 2 * 2)
+        copies += [{"image": "AirPort"}, {"image": "AirPort"}]
+        copies += [{"image": "AirPortOriginal"}, {"image": "AirPortOriginal"}]
+        assert len(copies) == COPY_TOTAL
+        assert verify_copy_counts(copies) is None
+        assert _rejects_copy_counts(copies[:-1])
+        shifted = [dict(entry) for entry in copies]
+        shifted[-1]["image"] = "AirPort"
+        assert _rejects_copy_counts(shifted)
+        assert (
+            sum(e["image"] in {"Legacy", "AirPort"} for e in copies)
+            == BACKEND_EXPECTED
+        )
