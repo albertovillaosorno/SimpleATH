@@ -32,7 +32,8 @@ namespace simpleath
     {
         if (configured_ || claimed_ || bar_ || owner_ || pci_ || !owner ||
             !pci || !power.context || !power.isConfirmedD0 ||
-            owner->isInactive() || pci->isInactive())
+            owner->isInactive() || pci->isInactive() ||
+            owner->getProvider() != pci)
             return false;
         owner_ = owner;
         pci_ = pci;
@@ -76,6 +77,7 @@ namespace simpleath
         auto &self = *static_cast<NativePciBackend *>(context);
         if (!self.configured_ || self.claimed_ || self.bar_ ||
             self.owner_->isInactive() || self.pci_->isInactive() ||
+            self.owner_->getProvider() != self.pci_ ||
             self.pci_->isOpen(nullptr))
             return false;
         // IOPCIDevice's provider open protocol is the ownership operation.
@@ -110,6 +112,7 @@ namespace simpleath
         auto &self = *static_cast<NativePciBackend *>(context);
         return self.configured_ && self.claimed_ &&
                !self.owner_->isInactive() && !self.pci_->isInactive() &&
+               self.owner_->getProvider() == self.pci_ &&
                self.pci_->isOpen(self.owner_) &&
                self.power_.isConfirmedD0(self.power_.context);
     }
@@ -171,9 +174,12 @@ namespace simpleath
             return false;
         const auto length = mapping->getLength();
         const auto address = mapping->getVirtualAddress();
+        // The provider supplies a virtual address and length separately.
+        // Reject a wrapping window before publishing it or later deriving
+        // a register pointer by adding an offset to the mapped base.
         if (!inD0(context) || !address || (address & 3u) ||
             length < kRtcStatusRegister + sizeof(uint32_t) ||
-            length > UINT32_MAX)
+            length > UINT32_MAX || length > UINTPTR_MAX - address)
         {
             mapping->release();
             return false;
@@ -205,7 +211,9 @@ namespace simpleath
             offset > self.length_ || self.length_ - offset < sizeof(uint32_t))
             return false;
         const auto address = self.bar_->getVirtualAddress();
-        if (!address || (address & 3u))
+        // A mapping invalidated or unexpectedly changed after publication
+        // must never wrap the address calculation in OSReadLittleInt32.
+        if (!address || (address & 3u) || self.length_ > UINTPTR_MAX - address)
             return false;
         // The pinned SDK's OSSynchronizeIO is empty on Intel. Use Clang's full
         // hardware/compiler fence around the volatile little-endian MMIO load.

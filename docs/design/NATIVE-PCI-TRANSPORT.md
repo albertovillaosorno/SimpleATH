@@ -9,8 +9,11 @@ read, MMIO or power transition was performed.
 
 ## Ownership and scope
 
-configure retains the controlling IOService and IOPCIDevice. A successful
-claim requires no existing provider open, then uses open(owner, 0, nullptr)
+configure retains the controlling IOService and IOPCIDevice, but only if
+the PCI function is the service's direct provider; a different PCI device may
+not be handed to an unrelated owner. Claim and D0 checks also reject a
+service whose provider has changed since configuration. A successful claim
+requires no existing provider open, then uses open(owner, 0, nullptr)
 without seizing another client and confirms isOpen(owner). The preflight
 check is not the lock: the provider open protocol arbitrates ownership.
 Apple's [IOPCIDevice source](https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp)
@@ -43,7 +46,9 @@ assigned range by configuration register. No destructive BAR sizing, assumed
 array index, user-injected address or raw physical-memory mapping is used.
 Mapping success requires a nonzero aligned virtual address and a provider map
 length covering the RTC status register without exceeding the 32-bit length
-contract. Failure releases the temporary map and publishes no mapping.
+contract. The virtual base plus map length must also fit without integer
+wraparound, including when the map address is retrieved again for a register
+read. Failure releases the temporary map and publishes no mapping.
 
 Only 16-bit writes to PCI command are available. The adapter rejects bus-master
 enable and any change other than memory-decode bit 1 relative to the current
