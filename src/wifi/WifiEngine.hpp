@@ -107,6 +107,8 @@ namespace simpleath
                                                    uint8_t *out,
                                                    size_t capacity,
                                                    EngineAction &action);
+                // Authentication RX that requires an association reply first
+                // checks TX capacity before consuming the station transition.
                 // Data payloads are rejected when LinkMonitor has moved to
                 // ReconnectPending, even before native key/DMA teardown.
                 EngineResult acceptRx(const uint8_t *frame, size_t length,

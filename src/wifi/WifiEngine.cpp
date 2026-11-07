@@ -178,6 +178,16 @@ namespace simpleath
             if (state == StationState::AuthenticationFramePrepared &&
                 header.subtype == 11)
             {
+                // Station::onAuthenticationResponse consumes the pending
+                // authentication state. Provision the exact association TX
+                // body first so a small or absent buffer cannot strand the
+                // station in Authenticated with no retryable response path.
+                const Beacon &network = station_.candidate().beacon;
+                const size_t associationBytes =
+                    28u + 2u + network.ssidLength + 10u + 6u +
+                    (network.rsn.security == Security::Wpa2Personal ? 22u : 0u);
+                if (!out || capacity < associationBytes)
+                    return EngineResult::BufferTooSmall;
                 if (station_.onAuthenticationResponse(frame, length) !=
                     StationResult::Ok)
                     return EngineResult::InvalidReceivedFrame;

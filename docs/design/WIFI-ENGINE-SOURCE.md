@@ -9,6 +9,9 @@ The new WifiEngine interface wires together existing portable modules:
   invalid/unmeasured values within the same security class; unsuccessful BSS
   lookups clear the returned snapshot.
 - Explicit per-channel selection and station authentication/association.
+  The authentication response handler preflights the exact association TX
+  buffer size before consuming the station state transition; allocation
+  failures can be retried without stranding authentication.
 - WPA2 EAPOL M1 -> M2 and M3 -> M4 with the separately staged crypto
   adapter, requiring real CSPRNG and pairwise/group keycache callbacks.
 - Ethernet-II/LLC-SNAP encapsulation for source-level open-mode data.
