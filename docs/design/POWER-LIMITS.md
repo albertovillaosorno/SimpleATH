@@ -53,7 +53,11 @@ ath9k, its target curve is interpolated at the control frequency and its CTL
 is looked up at the synth center. EEPROM HT20/HT40-disable flags are honored.
 Channel 14 has only CCK candidates and cannot have an HT40 secondary.
 The rate selector handles CCK long/short preamble, OFDM and single-stream
-MCS0..7; multi-stream and unknown codes fail.
+MCS0..7; multi-stream and unknown codes fail. Because the selector accepts a
+caller-owned structure, it also verifies secondary-channel geometry, synth
+center, HT mode consistency and that selected values are within the 0..63
+hardware field range and the supplied conducted ceiling. A manually forged
+PowerCandidates structure still cannot confer regulatory or hardware authority.
 
 ## What remains before any transmission
 

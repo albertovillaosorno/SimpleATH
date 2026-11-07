@@ -71,9 +71,10 @@ namespace simpleath
                                          PowerCandidates &out);
 
     // Select an AR9565 single-stream rate's candidate limit. Rejects unknown,
-    // multi-stream or channel-14 non-CCK rates. This is NOT an index conversion
-    // for TxRate::powerIndex and does not populate TxSafetyPolicy readiness
-    // flags.
+    // multi-stream or channel-14 non-CCK rates. Also rejects contradictory
+    // HT40 center/extension geometry and power outside 0..63/its ceiling.
+    // This is NOT an index conversion for TxRate::powerIndex and does not
+    // populate TxSafetyPolicy readiness flags.
     PowerResult candidatePowerForRate(const PowerCandidates &candidates,
                                       uint8_t rateCode, bool ht40,
                                       uint8_t &halfDbm);

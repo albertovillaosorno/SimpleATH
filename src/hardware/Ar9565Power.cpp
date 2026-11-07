@@ -20,7 +20,9 @@
 // ar9003_eeprom.c:
 // 9af461f68c73fdbe553619534f0474dca637a7c5191729251fa479af2ad75dc6
 // ar9003_eeprom.h:
-// 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd eeprom.h:
+// 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd
+//
+// eeprom.h:
 // b6bc5f1bffd56f5b8828d14635eac4846487ff6f2ef06344d474ac4c1c11b7b0
 // common-init.c:
 // c6f047abac0931612ed3e392d2fc5c4839d46a6fbf5175d54ad2c3c3ffc0ed80
@@ -297,8 +299,33 @@ namespace simpleath
               (candidate.controlMhz - 2407) % 5 != 0)) ||
             candidate.legacyOnlyChannel14 != channel14)
             return PowerResult::InvalidChannel;
-        if (ht40 && (!candidate.ht40Present || candidate.legacyOnlyChannel14))
+        // This selector is public: callers can supply arbitrary candidate
+        // structs. A set HT40 flag is not proof of a valid extension channel.
+        // Check the geometry that calculatePowerCandidates would produce.
+        if (candidate.conductedCeilingHalfDbm > 63 ||
+            (channel14 && candidate.ht20Present))
+            return PowerResult::InvalidCurve;
+        if (candidate.ht40Present)
+        {
+            const int32_t delta = static_cast<int32_t>(candidate.extensionMhz) -
+                                  static_cast<int32_t>(candidate.controlMhz);
+            if (!candidate.ht20Present || channel14 ||
+                candidate.extensionMhz < 2412 ||
+                candidate.extensionMhz > 2472 ||
+                (candidate.extensionMhz - 2407u) % 5u != 0 ||
+                (delta != 20 && delta != -20) ||
+                candidate.synthMhz !=
+                    (candidate.controlMhz + candidate.extensionMhz) / 2u)
+                return PowerResult::InvalidChannel;
+        }
+        else if (candidate.extensionMhz != 0 ||
+                 candidate.synthMhz != candidate.controlMhz)
+        {
             return PowerResult::InvalidChannel;
+        }
+        if (ht40 && !candidate.ht40Present)
+            return PowerResult::InvalidChannel;
+        uint8_t selected = 0;
         if (rateCode >= 0x80 && rateCode <= 0x87 &&
             !candidate.legacyOnlyChannel14)
         {
@@ -306,7 +333,10 @@ namespace simpleath
                 return PowerResult::UnsupportedRate;
             const uint8_t mcs = rateCode & 7u;
             const size_t index = mcs <= 3 ? (mcs ? 1 : 0) : mcs - 2;
-            halfDbm = (ht40 ? candidate.ht40 : candidate.ht20)[index];
+            selected = (ht40 ? candidate.ht40 : candidate.ht20)[index];
+            if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+                return PowerResult::InvalidCurve;
+            halfDbm = selected;
             return PowerResult::Ok;
         }
         if (ht40)
@@ -317,16 +347,16 @@ namespace simpleath
             case 0x1a:
             case 0x19:
             case 0x1e:
-                halfDbm = candidate.cck[0];
+                selected = candidate.cck[0];
                 break;
             case 0x1d:
-                halfDbm = candidate.cck[1];
+                selected = candidate.cck[1];
                 break;
             case 0x18:
-                halfDbm = candidate.cck[2];
+                selected = candidate.cck[2];
                 break;
             case 0x1c:
-                halfDbm = candidate.cck[3];
+                selected = candidate.cck[3];
                 break;
             default:
                 if (candidate.legacyOnlyChannel14)
@@ -338,21 +368,24 @@ namespace simpleath
                     case 0x0a:
                     case 0x0e:
                     case 0x09:
-                        halfDbm = candidate.ofdm[0];
+                        selected = candidate.ofdm[0];
                         break;
                     case 0x0d:
-                        halfDbm = candidate.ofdm[1];
+                        selected = candidate.ofdm[1];
                         break;
                     case 0x08:
-                        halfDbm = candidate.ofdm[2];
+                        selected = candidate.ofdm[2];
                         break;
                     case 0x0c:
-                        halfDbm = candidate.ofdm[3];
+                        selected = candidate.ofdm[3];
                         break;
                     default:
                         return PowerResult::UnsupportedRate;
                 }
         }
+        if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+            return PowerResult::InvalidCurve;
+        halfDbm = selected;
         return PowerResult::Ok;
     }
 
