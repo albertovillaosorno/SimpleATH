@@ -115,10 +115,10 @@ namespace simpleath
                         result = clock(now);
                         if (result != NvmResult::Ok)
                             return result;
-                        if (now - wordStarted >= timeoutMicros)
-                            break;
                         if (reg == kEepromData && (value & kEepromAbsentAccess))
                             return NvmResult::StorageAbsent;
+                        if (now - wordStarted >= timeoutMicros)
+                            break;
                         if ((value & mask) == expected)
                             return NvmResult::Ok;
                         if (i == timeoutMicros / kPollMicros)
@@ -169,6 +169,10 @@ namespace simpleath
         NvmResult result = capture.read(kRevisionRegister, value);
         if (result != NvmResult::Ok)
             return status.result = result;
+        // A disconnected BAR can read as all ones. This is a transport fault,
+        // not evidence that a different silicon revision was discovered.
+        if (value == 0xffffffffu)
+            return status.result = NvmResult::RegisterReadFailed;
         if (decodeRevision(value, status.silicon) != Result::Ok)
             return status.result = NvmResult::UnsupportedSilicon;
         result = capture.read(kRtcStatusRegister, value);

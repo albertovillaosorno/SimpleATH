@@ -25,9 +25,11 @@ Owner permission to edit source does not authorize invoking this capability.
 - OTP: read trigger 0x14000 + wordIndex*4, wait for status at 0x15f18 with
   low three bits equal to 4, then collect data at 0x15f1c. Never write OTP.
 - Validate aligned accesses against the assigned BAR length and recheck
-  owner/D0 before each register access. Treat all-ones status as a failed
-  transaction. Erased NVM *data* words may be all ones and remain valid input
-  to the reconstruction parser.
+  owner/D0 before each register access. Treat an all-ones SREV or status as
+  a failed register transaction, not an unsupported silicon revision. Detect
+  EEPROM absent-access status even if it arrives on the timeout poll; it
+  never counts as a successful read. Erased NVM *data* words may be all ones
+  and remain valid input to the reconstruction parser.
 - Bound each EEPROM word to 100 ms, each OTP word to 1 ms, the capture to
   2 s plus bounded callback overhead, and the overall poll count to 200,000.
   Poll every 10 microseconds. A stalled clock cannot produce an infinite
