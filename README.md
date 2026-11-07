@@ -101,16 +101,13 @@ standard-library orchestrator** that calls system-installed linters and
 uses the existing rules in the repository root:
 
 - C, Objective-C and C++: Clang Format using .clang-format.
-- C, Objective-C and C++: Clang-Tidy by default using .clang-tidy,
-  **only** with an existing compile_commands.json (or opt out).
+- C, Objective-C and C++: mandatory Clang-Tidy using .clang-tidy,
+  requiring an existing compile_commands.json.
 - Python: Ruff lint + Ruff format using ruff.toml and BasedPyright
   using pyrightconfig.json.
 
     python3 -B tools/validate.py
-    python3 -B tools/validate.py tools/validate.py
-    python3 -B tools/validate.py --no-tidy src/wifi/Frames.cpp
-    python3 -B tools/validate.py --no-tests --no-json tools/validate.py
-    python3 -B tools/validate.py --no-cache --no-tidy tools/validate.py
+    python3 -B tools/validate.py --no-cache
 
 The tracked `compile_commands.json` now supplies explicit **host-side,
 source-only** Clang-Tidy parse commands for existing C++/Objective-C++
@@ -137,27 +134,38 @@ root rule files, or installed linter version invalidate the cache.
 Use --no-cache when changes to imported headers/modules may affect an
 unchanged file. The latest structured agent/CLI report is always written
 to .cache/validate/report.json after a completed run; JSON is emitted on
-stdout by default (--no-json selects human-readable results). Read its scope
-and the CLI exit status before interpreting a pass count; another agent may
-overwrite the shared report.
-Pass/fail/cached/skipped counts and bounded diagnostics are explicit;
-a cached failure stays a failure.
+stdout on every run. Read the `"scope": "repository"` marker and the CLI
+exit status before interpreting a pass count. An exclusive advisory lock on
+`.cache/validate/run.lock` serializes concurrent validator instances so no
+agent can replace another's cache or report with an out-of-order write.
+Every run checks **all repository sources** under `src/`, `tools/` and
+`tests/`, including tracked and untracked files, excluding the Linux reference
+tree. Legacy positional file arguments are accepted but ignored; they can
+never produce a misleading partial report. The report declares
+`"scope": "repository"`. Both JSON stdout and
+`.cache/validate/report.json` show **only failed and skipped checks**,
+including cached findings; successful checks are omitted from the result rows
+but included in the complete pass/fail/cached/skipped summary. Diagnostics are
+bounded per check; a cached failure stays a failure. All five source tools are
+listed in `tools`, including unavailable tools; missing compilation commands
+are reported as skipped checks rather than passing silently.
 
 By owner instruction, Clang-Tidy, offline host tests and JSON output are
-**enabled by default**. Missing Clang-Tidy or `compile_commands.json` is an
-explicit skipped check that fails validation, never a fabricated pass. Use
-`--no-tidy` for a machine without a previously created compilation database;
-`--no-tests` and `--no-json` opt out of host tests and JSON output. Positive
-`--tidy`, `--tests` and `--json` flags remain supported.
+**mandatory**. `--no-tidy`, `--no-tests`, and `--no-json` are rejected before
+any cache or report writes. Missing Clang-Tidy or `compile_commands.json`
+remains an explicit skipped check that fails validation, never a fabricated
+pass. `--no-cache` forces a fresh full-repository analysis; the resulting
+per-file tool outcomes still populate the shared cache. Positive `--tidy`,
+`--tests`, and `--json` flags remain accepted for compatibility.
 
 Offline host tests use root `tests/`: Python standard-library unittest and
 C++/Objective-C++ host-only compilation/execution in temporary directories.
 No kext compilation, device test or tool installation is authorized. Host
-results are never cached, and file arguments limit only lint scope. See
+results are never cached, and file arguments cannot narrow checks. See
 [tests/README.md](tests/README.md) for supported test fixtures and errors.
 These tests exercise synthetic data/fakes, never actual PCI/RF or kernel
 objects. The local `linux/` reference tree is ignored by Git and by this
-validator; explicit Linux source arguments are refused instead of passing.
+validator; legacy path arguments never override whole-repo discovery.
 
 The script never formats files in place, builds a kext, generates a
 compilation database, installs software or touches hardware. Existing lint

@@ -11,15 +11,16 @@ Run the existing validator (host tests are enabled by default):
 python3 -B tools/validate.py
 ```
 
-The default includes offline host tests and JSON output. Explicit source
-arguments restrict lint scope only; tests still discover all supported files
-below root tests/. Use `--no-tests` to run only lint, `--no-json` for a text
-summary, and `--no-tidy` when no prior Clang-Tidy compilation database exists.
-A scoped lint + all-host-test check is:
+Every invocation checks all repository source files with Clang-Format,
+Clang-Tidy, Ruff and BasedPyright, plus all available offline host tests.
+The report is always structured JSON; only failed/skipped rows are included,
+but its summary counts every check. The validator locks its shared cache and
+report across concurrent runs. Positional file arguments are ignored, and
+`--no-tidy`, `--no-tests`, and `--no-json` are rejected. `--no-cache`
+forces all tools to run again and refreshes the full-repository cache.
 
 ```sh
-python3 -B tools/validate.py --no-cache --tests tools/validate.py \
-  tests/test_validate.py tests/test_ar9565_core.cpp tests/test_data_frames.mm
+python3 -B tools/validate.py --no-cache
 ```
 
 Python tests use standard-library unittest: name modules `test_*.py` and add

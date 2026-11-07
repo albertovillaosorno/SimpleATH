@@ -2,6 +2,10 @@
 # Copyright (c) 2026 Alberto Villa Osorno.
 """Exercise real validator failure paths and offline language execution."""
 
+from contextlib import redirect_stderr
+from contextlib import redirect_stdout
+import fcntl
+import io
 import json
 from pathlib import Path
 import shutil
@@ -23,6 +27,7 @@ EXPECTED_TIMEOUT = "timed out"
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
+ARGPARSE_FAILURE = 2
 PYTHON_FAILURE = """\
 import unittest
 class Failure(unittest.TestCase):
@@ -308,6 +313,168 @@ class ClangTidyDatabase(unittest.TestCase):
             ready.assert_not_called()
 
 
+def _sample_finding(
+    file: str,
+    tool: str,
+    status: validator.Status,
+    *,
+    details: tuple[str, ...] = (),
+) -> validator.Finding:
+    """Construct a finding without invoking an installed tool.
+
+    Returns:
+        A synthetic check result.
+
+    """
+    return {
+        "file": file,
+        "tool": tool,
+        "status": status,
+        "cached": False,
+        "diagnostics": list(details),
+    }
+
+
+class CompactReports(unittest.TestCase):
+    """Only actionable findings are shown; summary retains pass counts."""
+
+    @staticmethod
+    def test_report_keeps_every_failure_and_skip_including_cache_hits() -> None:
+        """Count checks while preserving each non-pass result."""
+        passed = _sample_finding("src/clean.cpp", "clang-format", "pass")
+        failed = _sample_finding(
+            "src/bad.cpp",
+            "clang-tidy",
+            "fail",
+            details=("bad header",),
+        )
+        failed["cached"] = True
+        skipped = _sample_finding(
+            "tools/missing.py",
+            "basedpyright",
+            "skipped",
+            details=("tool absent",),
+        )
+        newer = _sample_finding(
+            "tests/test_bad.py",
+            "host-test",
+            "fail",
+            details=("assertion",),
+        )
+        report = validator.build_report(
+            [passed, failed, skipped, newer],
+            files=3,
+            tests=True,
+            tools={},
+        )
+        assert report["summary"] == {
+            "files": 3,
+            "checks": 4,
+            "cached": 1,
+            "executed": 2,
+            "pass": 1,
+            "fail": 2,
+            "skipped": 1,
+        }
+        assert report["results"] == [failed, skipped, newer]
+        assert failed["cached"]
+        assert failed["diagnostics"] == ["bad header"]
+
+
+class FullRepositoryRun(unittest.TestCase):
+    """Ensure the shared report cannot omit checks or race between agents."""
+
+    @staticmethod
+    def test_multiline_tidy_version_is_not_the_llvm_heading() -> None:
+        """Report the actual Clang-Tidy version in the tools manifest."""
+        llvm_output = "LLVM (http://llvm.org/):\n LLVM version 23.1.2\n0"
+        expected = "LLVM version 23.1.2"
+        with mock.patch.object(validator, "_version", return_value=llvm_output):
+            actual = validator.tool_version("clang-tidy", Path.cwd())
+        assert actual == expected
+
+    @staticmethod
+    def test_file_arguments_do_not_narrow_scope_or_skip_tidy() -> None:
+        """Legacy paths do not suppress discovered files, tools, or tests."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            native = root / "src/driver.cpp"
+            python = root / "tools/check.py"
+            seen: list[tuple[str, str]] = []
+
+            def checked(file: Path, tool: str) -> validator.Finding:
+                seen.append((file.name, tool))
+                return _sample_finding(file.name, tool, "pass")
+
+            host = _sample_finding("tests/test_fake.py", "host-test", "pass")
+            output = io.StringIO()
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[native, python]
+                ) as discovered,
+                mock.patch.object(
+                    validator.LintRun, "check", side_effect=checked
+                ),
+                mock.patch.object(validator, "run_tests", return_value=[host]),
+                mock.patch.object(
+                    validator, "_version", return_value="fixture"
+                ),
+                mock.patch.object(
+                    sys, "argv", ["validate.py", "src/driver.cpp"]
+                ),
+                redirect_stdout(output),
+            ):
+                assert validator.main() == 0
+            discovered.assert_called_once_with(root, ())
+            assert seen == [
+                (native.name, "clang-format"),
+                (native.name, "clang-tidy"),
+                (python.name, "ruff-check"),
+                (python.name, "ruff-format"),
+                (python.name, "basedpyright"),
+            ]
+            report = (root / ".cache/validate/report.json").read_text()
+            assert report == output.getvalue()
+            expected_tidy = '"clang-tidy"'
+            expected_scope = '"scope": "repository"'
+            assert expected_tidy in report
+            assert expected_scope in report
+            expected_results = '"results": []'
+            assert expected_results in report
+
+    @staticmethod
+    def test_exclusive_lock_covers_shared_cache_write() -> None:
+        """A second writer must not hold the validator lock concurrently."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            locked = False
+
+            def inspected(_: validator.Options) -> int:
+                nonlocal locked
+                path = root / ".cache/validate/run.lock"
+                with path.open("a+b") as contender:
+                    try:
+                        fcntl.flock(
+                            contender.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                        )
+                    except BlockingIOError:
+                        locked = True
+                    else:
+                        fcntl.flock(contender.fileno(), fcntl.LOCK_UN)
+                return 0
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "_validate", side_effect=inspected
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+            ):
+                assert validator.main() == 0
+            assert locked
+
+
 class DefaultCliOptions(unittest.TestCase):
     """Keep CLI defaults aligned with the configured validation policy."""
 
@@ -323,30 +490,22 @@ class DefaultCliOptions(unittest.TestCase):
         assert not options.no_cache
 
     @staticmethod
-    def test_opt_out_flags_are_explicit_and_independent() -> None:
-        """Permit each opt-out without silently disabling another check."""
-        for flag, field in (
-            ("--no-tidy", "tidy"),
-            ("--no-tests", "tests"),
-            ("--no-json", "json_output"),
-        ):
-            with mock.patch.object(sys, "argv", ["validate.py", flag]):
-                options = validator.parse_options()
-            assert getattr(options, field) is False
-            assert all(
-                getattr(options, other)
-                for other in ("tidy", "tests", "json_output")
-                if other != field
-            )
-        with mock.patch.object(
-            sys,
-            "argv",
-            ["validate.py", "--no-tidy", "--no-tests", "--no-json"],
-        ):
-            options = validator.parse_options()
-        assert not options.tidy
-        assert not options.tests
-        assert not options.json_output
+    def test_disabled_mandatory_checks_are_rejected() -> None:
+        """Do not mutate shared cache/report after reduced-scope flags."""
+        for flag in ("--no-tidy", "--no-tests", "--no-json"):
+            output = io.StringIO()
+            code: int | None = None
+            try:
+                with (
+                    mock.patch.object(sys, "argv", ["validate.py", flag]),
+                    redirect_stderr(output),
+                ):
+                    _ = validator.parse_options()
+            except SystemExit as error:
+                if isinstance(error.code, int):
+                    code = error.code
+            assert code == ARGPARSE_FAILURE
+            assert flag in output.getvalue()
 
     @staticmethod
     def test_explicit_flags_and_files_preserve_cli_contract() -> None:

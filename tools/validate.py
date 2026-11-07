@@ -7,6 +7,7 @@ import argparse
 from contextlib import suppress
 from dataclasses import dataclass
 from dataclasses import field
+import fcntl
 from functools import cache
 import hashlib
 import json
@@ -32,6 +33,7 @@ ROOT = next(
 )
 CACHE_VERSION = "simpleath.validate.v2"
 CLANG_TIDY_TOOL = "clang-tidy"
+VERSION_WORD = "version"
 MISSING_TIDY_COMMAND = "No matching compile command in compile_commands.json"
 NATIVE = frozenset({
     ".c",
@@ -51,8 +53,6 @@ SUPPORTED = NATIVE | {".py"}
 TIMEOUT_SECONDS = 60.0
 OUTPUT_LIMIT = 256 * 1024
 DIAGNOSTIC_LIMIT = 12
-DISPLAY_LIMIT = 2
-DISPLAY_WIDTH = 240
 EXIT_FAILURE = 1
 EXIT_SKIPPED = 5
 PYTHON_TEST_DRIVER = """\
@@ -105,7 +105,7 @@ class Process:
 
 @dataclass(frozen=True)
 class Options:
-    """Select lint checks, host tests and report presentation independently."""
+    """Select mandatory full-repo checks and cache refresh behavior."""
 
     files: tuple[str, ...] = ()
     tidy: bool = True
@@ -415,6 +415,20 @@ def _version(executable: str, root: Path) -> str:
     return result.stdout + result.stderr + str(result.code)
 
 
+def tool_version(executable: str, root: Path) -> str:
+    """Retain version numbers when tools print a heading first.
+
+    Returns:
+        A recognizable version line, or an explicit unknown marker.
+
+    """
+    lines = _version(executable, root).splitlines()
+    return next(
+        (line.strip() for line in lines if VERSION_WORD in line.lower()),
+        lines[0] if lines else "unknown",
+    )
+
+
 def _dependencies(root: Path) -> bytes:
     digest = hashlib.sha256()
     files = sorted(
@@ -527,7 +541,6 @@ class LintRun:
         self, file: Path, tool: str, command: list[str]
     ) -> Finding:
         relative = file.relative_to(self.root).as_posix()
-        self.versions[tool] = _version(command[0], self.root).splitlines()[0]
         fingerprint = _signature(command, file, self.root, tool=tool)
         key = relative + "::" + tool
         old = self.entries.get(key)
@@ -698,15 +711,22 @@ def _save(path: Path, payload: object) -> None:
     _ = temporary.replace(path)
 
 
-def _report(
+def build_report(
     results: list[Finding], *, files: int, tests: bool, tools: dict[str, str]
 ) -> dict[str, object]:
+    """Summarize checks, retaining only non-passes in detail rows.
+
+    Returns:
+        All counts and only actionable results for the requested scope.
+
+    """
     counts = {
         s: sum(r["status"] == s for r in results)
         for s in ("pass", "fail", "skipped")
     }
     return {
         "schema": CACHE_VERSION,
+        "scope": "repository",
         "source_only": not tests,
         "tests_requested": tests,
         "tools": tools,
@@ -719,22 +739,14 @@ def _report(
             ),
             **counts,
         },
-        "results": results,
+        # PASS checks remain in the full summary and lint cache, but all
+        # cached/new failures and skips stay visible without noisy PASS rows.
+        "results": [r for r in results if r["status"] != STATUS_OK],
     }
 
 
-def _display(results: list[Finding]) -> None:
-    for item in results:
-        cached = "CACHED " if item["cached"] else ""
-        label = f"{item["status"].upper():7} {cached:7}{item["tool"]:14}"
-        _ = sys.stdout.write(f"{label} {item["file"]}\n")
-        if item["status"] != STATUS_OK:
-            for line in item["diagnostics"][:DISPLAY_LIMIT]:
-                _ = sys.stdout.write(f"  {line[:DISPLAY_WIDTH]}\n")
-
-
 def parse_options() -> Options:
-    """Parse the default-on CLI, preserving explicit check opt-outs.
+    """Parse full-repository validation without optional check omissions.
 
     Returns:
         Validated CLI choices for lint, host tests and JSON reports.
@@ -743,7 +755,9 @@ def parse_options() -> Options:
     defaults = Options()
     parser = argparse.ArgumentParser(description=__doc__)
     _ = parser.add_argument(
-        "files", nargs="*", help="Optional lint source paths"
+        "files",
+        nargs="*",
+        help="Legacy paths are accepted but ignored; the full repo is checked",
     )
     _ = parser.add_argument(
         "--tidy",
@@ -766,6 +780,13 @@ def parse_options() -> Options:
     _ = parser.add_argument("--no-cache", action="store_true")
     namespace = parser.parse_args()
     values: dict[str, object] = vars(namespace)
+    for name, option_name in (
+        ("--no-tidy", "tidy"),
+        ("--no-tests", "tests"),
+        ("--no-json", "json_output"),
+    ):
+        if values.get(option_name) is False:
+            parser.error(f"{name} is forbidden for the full-repository report")
     files = values.get("files")
     return Options(
         tuple(files) if _strings(files) else (),
@@ -785,23 +806,44 @@ def main() -> int:
     """
     options = parse_options()
     try:
-        return _validate(options)
+        # Serialize the entire read/validate/write operation. Otherwise
+        # parallel agents can overwrite a newer full report or lose cache
+        # entries by reading and saving the same cache independently.
+        lock_path = ROOT / ".cache/validate/run.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a+b") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            return _validate(options)
     except (OSError, ValueError) as error:
         _ = sys.stderr.write(f"Validation error: {error}\n")
         return EXIT_FAILURE
 
 
 def _validate(options: Options) -> int:
-    sources = source_files(ROOT, options.files)
-    lint = LintRun(ROOT, options, read_cache(ROOT))
+    if not options.tidy or not options.tests or not options.json_output:
+        message = "All checks and JSON reporting are mandatory"
+        raise ValueError(message)
+    # File arguments are accepted for backwards compatibility, never as a
+    # scope limiter: the owner requires every repository source in each run.
+    sources = source_files(ROOT, ())
+    # Include the requested tools even if a missing prerequisite prevents a
+    # tool from executing. An omitted clang-tidy key must never imply success.
+    versions: dict[str, str] = {}
+    for tool, name in EXECUTABLE.items():
+        executable = shutil.which(name)
+        versions[tool] = (
+            tool_version(executable, ROOT)
+            if executable is not None
+            else "unavailable"
+        )
+    lint = LintRun(ROOT, options, read_cache(ROOT), versions=versions)
     results = [
         lint.check(file, tool)
         for file in sources
         for tool in _tools(file, options)
     ]
-    if options.tests:
-        results.extend(run_tests(ROOT))
-    report = _report(
+    results.extend(run_tests(ROOT))
+    report = build_report(
         results, files=len(sources), tests=options.tests, tools=lint.versions
     )
     _save(
@@ -809,11 +851,7 @@ def _validate(options: Options) -> int:
         {"schema": CACHE_VERSION, "entries": lint.entries},
     )
     _save(ROOT / ".cache/validate/report.json", report)
-    if options.json_output:
-        _ = sys.stdout.write(json.dumps(report, indent=2) + "\n")
-    else:
-        _display(results)
-        _ = sys.stdout.write(json.dumps(report["summary"]) + "\n")
+    _ = sys.stdout.write(json.dumps(report, indent=2) + "\n")
     return EXIT_FAILURE if any(r["status"] != STATUS_OK for r in results) else 0
 
 
