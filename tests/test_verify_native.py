@@ -3,6 +3,7 @@
 """Fake-only forwarding ABI fixture tests; never invoke a Darwin compiler."""
 
 import ast
+import os
 from pathlib import Path
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import]
@@ -12,6 +13,8 @@ from unittest import TestCase
 from unittest import mock
 
 from tools import native_forwarding_probe as probe
+from tools.native_invariants import MAX_NATIVE_ARTIFACT_BYTES
+from tools.native_invariants import read_native_artifact
 from tools.native_invariants import require
 
 if TYPE_CHECKING:
@@ -34,7 +37,7 @@ GOOD_OUTPUT = (
 def _reject(action: Callable[[], object]) -> bool:
     try:
         _ = action()
-    except ValueError, FileNotFoundError:
+    except ValueError, OSError:
         return True
     return False
 
@@ -212,3 +215,40 @@ class NativeAbiInvariantTests(TestCase):
                 errors.append("Accepted malformed native ABI condition")
         assert len(errors) == len(invalid)
         assert all(FAILURE_MARKER in error for error in errors)
+
+
+class NativeArtifactReadTests(TestCase):
+    """Artifact verification refuses unsafe disk input before binary checks."""
+
+    @staticmethod
+    def test_regular_product_is_read_exactly() -> None:
+        """Preserve all bytes of a synthetic native product."""
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory) / "product.bin"
+            source = b"\x00\x01\xfe\xffnative"
+            _ = product.write_bytes(source)
+            assert read_native_artifact(product) == source
+
+    @staticmethod
+    def test_symlink_fifo_and_empty_source_are_refused() -> None:
+        """Never follow a link or block on a named pipe."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "real.bin"
+            _ = source.write_bytes(b"real")
+            (root / "link.bin").symlink_to(source)
+            fifo = root / "fifo.bin"
+            os.mkfifo(fifo)
+            empty = root / "empty.bin"
+            _ = empty.write_bytes(b"")
+            for path in (root / "link.bin", fifo, empty):
+                assert _reject(lambda path=path: read_native_artifact(path))
+
+    @staticmethod
+    def test_oversize_sparse_artifact_is_refused_without_reading() -> None:
+        """Reject a huge synthetic artifact from its metadata alone."""
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory) / "oversized.bin"
+            _ = product.write_bytes(b"a")
+            os.truncate(product, MAX_NATIVE_ARTIFACT_BYTES + 1)
+            assert _reject(lambda: read_native_artifact(product))

@@ -32,8 +32,10 @@ from profiles import IMAGES
 from native_forwarding_probe import run_probe
 
 if __package__:
+    from tools.native_invariants import read_native_artifact
     from tools.native_invariants import require
 else:
+    from native_invariants import read_native_artifact
     from native_invariants import require
 
 
@@ -412,7 +414,7 @@ def verify_native(temporary, binary, system="Tahoe"):
         .split(".section __TEXT,__text", 1)[1]
     )
     forwarding = run_probe(Path(temporary), forwarders, len(plan.methods))
-    blob = Path(binary).read_bytes()
+    blob = read_native_artifact(Path(binary))
     old_code = next(
         section for section in plan.old.sects if section[0] == "__text"
     )
