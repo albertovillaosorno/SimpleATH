@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 SimpleATH contributors.
 """Read-only PCI/wireless symbol inventory; never a native ABI approval gate.
 
-Reads a retained JSON reference, an x86_64 Mach-O fileset or extracted KDK files.
+Reads a retained JSON reference, x86_64 Mach-O fileset or extracted KDK
+files.
 Does not invoke build tools, execute target code, mount volumes, fetch files,
-read the running kernel or access PCI hardware. Output goes to stdout only.
+read the running kernel or access PCI hardware.
+Output is stdout only.
 Mach-O nlist candidates do not establish KPI eligibility, C++ layout, export
 trie/reexport resolution, dependency versions or OpenCore relocatability.
 """
@@ -13,24 +16,34 @@ import argparse
 import hashlib
 import json
 import mmap
+import os
+from pathlib import Path
 import plistlib
+import stat
 import struct
 import uuid
-from pathlib import Path
-
 
 GROUPS = {
     "pci": ("com.apple.iokit.IOPCIFamily", ("IOPCIDevice",)),
     "dma": ("com.apple.kernel", ("IODMACommand", "IOMapper")),
-    "wireless": ("com.apple.iokit.IO80211Family", (
-        "IO80211Controller", "IO80211SkywalkInterface", "IO80211Interface")),
-    "skywalk": ("com.apple.iokit.IOSkywalkFamily", (
-        "IOSkywalkNetworkInterface", "IOSkywalkPacketBufferPool")),
+    "wireless": (
+        "com.apple.iokit.IO80211Family",
+        ("IO80211Controller", "IO80211SkywalkInterface", "IO80211Interface"),
+    ),
+    "skywalk": (
+        "com.apple.iokit.IOSkywalkFamily",
+        ("IOSkywalkNetworkInterface", "IOSkywalkPacketBufferPool"),
+    ),
 }
 
 
 def checked_range(data, offset, size):
-    if offset < 0 or size < 0 or offset > len(data) or size > len(data) - offset:
+    if (
+        offset < 0
+        or size < 0
+        or offset > len(data)
+        or size > len(data) - offset
+    ):
         raise ValueError("Mach-O range exceeds supplied file")
     return offset, offset + size
 
@@ -52,15 +65,21 @@ def image_inventory(data, header_offset):
     """
     checked_range(data, header_offset, 32)
     magic, cpu, _, filetype, count, command_bytes, _, _ = struct.unpack_from(
-        "<8I", data, header_offset)
-    if magic != 0xfeedfacf or cpu != 0x01000007:
+        "<8I", data, header_offset
+    )
+    if magic != 0xFEEDFACF or cpu != 0x01000007:
         raise ValueError("Expected thin little-endian x86_64 Mach-O")
     position = header_offset + 32
     _, commands_end = checked_range(data, position, command_bytes)
     if count > command_bytes // 8:
         raise ValueError("Invalid Mach-O command count")
-    result = {"uuid": None, "symbols": {}, "entries": {},
-              "exportTriePresent": False, "symbolEvidence": "defined_global_nlist_candidates"}
+    result = {
+        "uuid": None,
+        "symbols": {},
+        "entries": {},
+        "exportTriePresent": False,
+        "symbolEvidence": "defined_global_nlist_candidates",
+    }
     symtab = None
     for _ in range(count):
         if commands_end - position < 8:
@@ -68,10 +87,12 @@ def image_inventory(data, header_offset):
         command, size = struct.unpack_from("<II", data, position)
         if size < 8 or size % 8 or size > commands_end - position:
             raise ValueError("Invalid Mach-O load command size")
-        if command == 0x1b:  # LC_UUID
+        if command == 0x1B:  # LC_UUID
             if size != 24 or result["uuid"] is not None:
                 raise ValueError("Invalid or duplicate LC_UUID")
-            result["uuid"] = str(uuid.UUID(bytes=data[position + 8:position + 24])).upper()
+            result["uuid"] = str(
+                uuid.UUID(bytes=data[position + 8 : position + 24])
+            ).upper()
         elif command == 0x2:  # LC_SYMTAB
             if size != 24 or symtab is not None:
                 raise ValueError("Invalid or duplicate LC_SYMTAB")
@@ -79,7 +100,9 @@ def image_inventory(data, header_offset):
         elif command == 0x80000035:  # LC_FILESET_ENTRY
             if size < 32:
                 raise ValueError("Truncated LC_FILESET_ENTRY")
-            _, offset, string_offset, _ = struct.unpack_from("<QQII", data, position + 8)
+            _, offset, string_offset, _ = struct.unpack_from(
+                "<QQII", data, position + 8
+            )
             if string_offset < 32 or string_offset >= size:
                 raise ValueError("Invalid fileset entry name offset")
             name = cstring(data, position + string_offset, position + size)
@@ -108,11 +131,17 @@ def image_inventory(data, header_offset):
         _, strings_end = checked_range(data, strings, string_bytes)
         for index in range(count):
             name_index, kind, section, _, _ = struct.unpack_from(
-                "<IBBHQ", data, offset + index * 16)
+                "<IBBHQ", data, offset + index * 16
+            )
             # Exclude STAB, private externals, undefined and indirect symbols.
             # Keep only public external N_SECT or N_ABS definitions.
-            definition = kind & 0x0e
-            if kind & 0xe0 or kind & 0x10 or not kind & 1 or definition not in (2, 14):
+            definition = kind & 0x0E
+            if (
+                kind & 0xE0
+                or kind & 0x10
+                or not kind & 1
+                or definition not in (2, 14)
+            ):
                 continue
             if definition == 14 and section == 0:
                 raise ValueError("Defined section symbol has no section")
@@ -128,12 +157,20 @@ def image_inventory(data, header_offset):
 
 
 def load_collection(path):
-    with path.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
+    with (
+        path.open("rb") as stream,
+        mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data,
+    ):
         digest = hashlib.sha256(data).hexdigest()
         root = image_inventory(data, 0)
-        if root["filetype"] != 0xc:  # MH_FILESET
-            raise ValueError("Expected a Mach-O fileset, not a standalone image")
-        images = {name: image_inventory(data, offset) for name, offset in root["entries"].items()}
+        if root["filetype"] != 0xC:  # MH_FILESET
+            raise ValueError(
+                "Expected a Mach-O fileset, not a standalone image"
+            )
+        images = {
+            name: image_inventory(data, offset)
+            for name, offset in root["entries"].items()
+        }
     return digest, {"collectionUUID": root["uuid"]}, images
 
 
@@ -141,34 +178,49 @@ def load_reference(path):
     data = path.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     reference = json.loads(data)
-    if reference.get("schemaVersion") != 1 or not isinstance(reference.get("images"), dict):
+    if reference.get("schemaVersion") != 1 or not isinstance(
+        reference.get("images"), dict
+    ):
         raise ValueError("Unsupported reference schema")
     manifest_path = path.with_name("manifest.json")
     expected = None
     if manifest_path.is_file():
         expected = json.loads(manifest_path.read_text())["files"].get(path.name)
         if expected is not None and digest != expected:
-            raise ValueError("Retained reference does not match its manifest hash")
+            raise ValueError(
+                "Retained reference does not match its manifest hash"
+            )
     images = {}
     for name, image in reference["images"].items():
         symbols = image["symbols"]
         listed_exports = image["exports"]
-        if not isinstance(symbols, dict) or not isinstance(listed_exports, list):
+        if not isinstance(symbols, dict) or not isinstance(
+            listed_exports, list
+        ):
             raise ValueError("Invalid snapshot symbol/export inventory")
-        if not all(isinstance(symbol, str) for symbol in (*symbols, *listed_exports)):
+        if not all(
+            isinstance(symbol, str) for symbol in (*symbols, *listed_exports)
+        ):
             raise ValueError("Non-string snapshot symbol name")
         exports = set(listed_exports)
         images[name] = {
-            "uuid": image["uuid"], "symbolEvidence": "retained_snapshot_reported_exports",
-            "symbols": {symbol: "snapshot_reported_export" if symbol in exports
-                        else "snapshot_symbol_not_reported_export" for symbol in set(symbols) | exports},
+            "uuid": image["uuid"],
+            "symbolEvidence": "retained_snapshot_reported_exports",
+            "symbols": {
+                symbol: "snapshot_reported_export"
+                if symbol in exports
+                else "snapshot_symbol_not_reported_export"
+                for symbol in set(symbols) | exports
+            },
             "recordedTableNames": sorted(image.get("tables", {})),
             "recordedFunctionNames": sorted(image.get("functions", {})),
         }
-    metadata = {"profile": reference.get("profile"),
-                "kernelVersion": reference.get("kernelVersion"),
-                "collectionUUID": reference.get("collectionUUID"),
-                "manifestHashMatched": expected is not None}
+    metadata = {
+        "profile": reference.get("profile"),
+        "kernelVersion": reference.get("kernelVersion"),
+        "collectionUUID": reference.get("collectionUUID"),
+        "manifestHashMatched": expected is not None,
+    }
     return digest, metadata, images
 
 
@@ -186,9 +238,15 @@ def x86_slice(data):
     selected = None
     ranges = []
     for index in range(count):
-        cpu, _, offset, size, alignment = struct.unpack_from(">5I", data, 8 + index * 20)
+        cpu, _, offset, size, alignment = struct.unpack_from(
+            ">5I", data, 8 + index * 20
+        )
         checked_range(data, offset, size)
-        if offset < 8 + count * 20 or alignment > 31 or offset % (1 << alignment):
+        if (
+            offset < 8 + count * 20
+            or alignment > 31
+            or offset % (1 << alignment)
+        ):
             raise ValueError("Invalid fat slice offset/alignment")
         if any(offset < end and start < offset + size for start, end in ranges):
             raise ValueError("Overlapping fat slices")
@@ -196,10 +254,65 @@ def x86_slice(data):
         if cpu == 0x01000007:
             if selected is not None:
                 raise ValueError("Ambiguous x86_64 slices")
-            selected = data[offset:offset + size]
+            selected = data[offset : offset + size]
     if selected is None:
         raise ValueError("No x86_64 slice")
     return selected
+
+
+KDK_FILE_LIMIT = 128 * 1024 * 1024
+KDK_READ_CHUNK = 1024 * 1024
+
+
+def read_kdk_file(root: Path, relative: str) -> bytes:
+    """Read a bounded regular file within root without following symlinks.
+
+    Each directory is opened relative to an already-open parent descriptor.
+    Never trust a pre-open resolve/stat check: a hostile offline package could
+    replace a symlink between validation and read. No live path is permitted
+    through a symlink within the supplied KDK root.
+    """
+    path = Path(relative)
+    parts = path.parts
+    if path.is_absolute() or not parts or any(p in (".", "..") for p in parts):
+        raise ValueError("KDK path must remain below the selected root")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    parent = os.open(root, directory_flags)
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, directory_flags, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        descriptor = os.open(parts[-1], file_flags, dir_fd=parent)
+        try:
+            before = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size > KDK_FILE_LIMIT
+            ):
+                raise ValueError("KDK input must be a bounded regular file")
+            result = bytearray()
+            while True:
+                chunk = os.read(
+                    descriptor,
+                    min(KDK_READ_CHUNK, KDK_FILE_LIMIT + 1 - len(result)),
+                )
+                if not chunk:
+                    break
+                result.extend(chunk)
+                if len(result) > KDK_FILE_LIMIT:
+                    raise ValueError("KDK input grew beyond inspection limit")
+            after = os.fstat(descriptor)
+            old = (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            new = (after.st_size, after.st_mtime_ns, after.st_ctime_ns)
+            if old != new or len(result) != before.st_size:
+                raise ValueError("KDK input changed during inspection")
+            return bytes(result)
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(parent)
 
 
 def load_kdk(root):
@@ -207,21 +320,33 @@ def load_kdk(root):
     files = {}
 
     def read(relative):
-        path = root / relative
-        if path.stat().st_size > 128 * 1024 * 1024:
-            raise ValueError("KDK input exceeds per-file inspection limit")
-        data = path.read_bytes()
-        files[relative] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+        data = read_kdk_file(root, relative)
+        files[relative] = {
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
         return data
 
-    version = plistlib.loads(read("System/Library/CoreServices/SystemVersion.plist"))
-    metadata = {"systemVersion": {key: version.get(key) for key in
-                ("ProductName", "ProductVersion", "ProductBuildVersion")},
-                "loadedImageProvenanceVerified": False, "files": files, "images": {}}
+    version = plistlib.loads(
+        read("System/Library/CoreServices/SystemVersion.plist")
+    )
+    if not isinstance(version, dict):
+        raise ValueError("KDK SystemVersion.plist is not a dictionary")
+    metadata = {
+        "systemVersion": {
+            key: version.get(key)
+            for key in ("ProductName", "ProductVersion", "ProductBuildVersion")
+        },
+        "loadedImageProvenanceVerified": False,
+        "files": files,
+        "images": {},
+    }
     images = {}
     for family in ("IOPCIFamily", "IO80211Family", "IOSkywalkFamily"):
         contents = "System/Library/Extensions/" + family + ".kext/Contents/"
         info = plistlib.loads(read(contents + "Info.plist"))
+        if not isinstance(info, dict):
+            raise ValueError("KDK family Info.plist is not a dictionary")
         identifier = "com.apple.iokit." + family
         if info.get("CFBundleIdentifier") != identifier:
             raise ValueError("Unexpected KDK bundle identifier")
@@ -233,23 +358,40 @@ def load_kdk(root):
             "compatibleVersion": info.get("OSBundleCompatibleVersion"),
             "dependencies": info.get("OSBundleLibraries"),
             "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
-            "x86_64SliceBytes": len(selected), "uuid": image["uuid"],
+            "x86_64SliceBytes": len(selected),
+            "uuid": image["uuid"],
         }
         if family == "IOPCIFamily":
             relative = contents + "Resources/config/IOPCIFamily.exports"
-            exports = {line.strip() for line in read(relative).decode("utf-8").splitlines()
-                       if line.strip() and not line.lstrip().startswith("#")}
-            image["symbols"] = {name: "kdk_config_export_and_defined_global_nlist"
-                                if name in exports else "defined_global_nlist_candidate_only"
-                                for name in image["symbols"]}
-            metadata["images"][identifier]["configExportListEntries"] = len(exports)
+            exports = {
+                line.strip()
+                for line in read(relative).decode("utf-8").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            }
+            image["symbols"] = {
+                name: "kdk_config_export_and_defined_global_nlist"
+                if name in exports
+                else "defined_global_nlist_candidate_only"
+                for name in image["symbols"]
+            }
+            metadata["images"][identifier]["configExportListEntries"] = len(
+                exports
+            )
     kernel_path = "System/Library/Kernels/kernel"
-    if (root / kernel_path).is_file():
-        selected = x86_slice(read(kernel_path))
+    try:
+        kernel_data = read(kernel_path)
+    except FileNotFoundError:
+        # KDK packages may omit the standalone kernel. Do not follow optional
+        # symlinks for the existence test or silently skip hostile paths.
+        kernel_data = None
+    if kernel_data is not None:
+        selected = x86_slice(kernel_data)
         images["com.apple.kernel"] = image_inventory(selected, 0)
         metadata["images"]["com.apple.kernel"] = {
             "x86_64SliceSha256": hashlib.sha256(selected).hexdigest(),
-            "x86_64SliceBytes": len(selected), "uuid": images["com.apple.kernel"]["uuid"]}
+            "x86_64SliceBytes": len(selected),
+            "uuid": images["com.apple.kernel"]["uuid"],
+        }
     # A directory has no file hash; each actual input and selected slice is hashed above.
     return None, metadata, images
 
@@ -258,59 +400,97 @@ def inventory(path, reference_mode, system_version=None, kdk_mode=False):
     if kdk_mode:
         digest, metadata, images = load_kdk(path)
     else:
-        digest, metadata, images = load_reference(path) if reference_mode else load_collection(path)
+        digest, metadata, images = (
+            load_reference(path) if reference_mode else load_collection(path)
+        )
     groups = {}
     for label, (image_name, classes) in GROUPS.items():
         image = images.get(image_name)
         if image is None:
-            groups[label] = {"image": image_name, "state": "image_not_in_supplied_evidence"}
+            groups[label] = {
+                "image": image_name,
+                "state": "image_not_in_supplied_evidence",
+            }
             continue
-        symbols = {name: evidence for name, evidence in sorted(image["symbols"].items())
-                   if any(class_name in name for class_name in classes)}
-        groups[label] = {"image": image_name, "uuid": image["uuid"],
-                         "state": "symbol_inventory_only", "symbols": symbols,
-                         "symbolEvidence": image["symbolEvidence"],
-                         "exportTriePresent": image.get("exportTriePresent"),
-                         "recordedTableNames": image.get("recordedTableNames"),
-                         "recordedFunctionNames": image.get("recordedFunctionNames")}
+        symbols = {
+            name: evidence
+            for name, evidence in sorted(image["symbols"].items())
+            if any(class_name in name for class_name in classes)
+        }
+        groups[label] = {
+            "image": image_name,
+            "uuid": image["uuid"],
+            "state": "symbol_inventory_only",
+            "symbols": symbols,
+            "symbolEvidence": image["symbolEvidence"],
+            "exportTriePresent": image.get("exportTriePresent"),
+            "recordedTableNames": image.get("recordedTableNames"),
+            "recordedFunctionNames": image.get("recordedFunctionNames"),
+        }
     supplied_system = None
     if system_version is not None:
         data = system_version.read_bytes()
         version = plistlib.loads(data)
-        supplied_system = {"sha256": hashlib.sha256(data).hexdigest(),
-                           "version": version.get("ProductVersion"),
-                           "build": version.get("ProductBuildVersion"),
-                           "pairedToCollectionVerified": False}
-    return {"schemaVersion": 1, "source": str(path), "sha256": digest,
-            "sourceKind": "extracted_kdk_files" if kdk_mode else
-                          "retained_reference" if reference_mode else "provided_collection",
-            "metadata": metadata, "suppliedSystemVersion": supplied_system,
-            "imageNames": sorted(images), "groups": groups,
-            "nativePciAbiVerified": False, "nativeWirelessAbiVerified": False,
-            "limitations": [
-                "Missing images mean missing evidence, not missing OS APIs.",
-                "Nlist definitions are candidates, not a verified KPI export allowlist.",
-                "Export tries, reexports and KPI dependency/version eligibility are not resolved.",
-                "No C++ class size, vtable, selector, key-path or packet-lifetime contract is proven.",
-                "A supplied SystemVersion plist is not proof of collection provenance or pairing.",
-                "KDK files/export lists are package evidence, not attested loaded production images.",
-                "No source compilation, Mach-O import/relocation validation, load or hardware test is performed.",
-            ]}
+        supplied_system = {
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "version": version.get("ProductVersion"),
+            "build": version.get("ProductBuildVersion"),
+            "pairedToCollectionVerified": False,
+        }
+    return {
+        "schemaVersion": 1,
+        "source": str(path),
+        "sha256": digest,
+        "sourceKind": "extracted_kdk_files"
+        if kdk_mode
+        else "retained_reference"
+        if reference_mode
+        else "provided_collection",
+        "metadata": metadata,
+        "suppliedSystemVersion": supplied_system,
+        "imageNames": sorted(images),
+        "groups": groups,
+        "nativePciAbiVerified": False,
+        "nativeWirelessAbiVerified": False,
+        "limitations": [
+            "Missing images mean missing evidence, not missing OS APIs.",
+            "Nlist definitions are candidates, not a verified KPI export allowlist.",
+            "Export tries, reexports and KPI dependency/version eligibility are not resolved.",
+            "No C++ class size, vtable, selector, key-path or packet-lifetime contract is proven.",
+            "A supplied SystemVersion plist is not proof of collection provenance or pairing.",
+            "KDK files/export lists are package evidence, not attested loaded production images.",
+            "No source compilation, Mach-O import/relocation validation, load or hardware test is performed.",
+        ],
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     inputs = parser.add_mutually_exclusive_group(required=True)
-    inputs.add_argument("--reference", type=Path, help="retained native ABI JSON reference")
-    inputs.add_argument("--collection", type=Path, help="already acquired x86_64 kernel fileset")
-    inputs.add_argument("--kdk-root", type=Path,
-                        help="already extracted KDK root containing System/Library; no install/mount")
-    parser.add_argument("--system-version", type=Path, help="optional already acquired SystemVersion.plist")
+    inputs.add_argument(
+        "--reference", type=Path, help="retained native ABI JSON reference"
+    )
+    inputs.add_argument(
+        "--collection", type=Path, help="already acquired x86_64 kernel fileset"
+    )
+    inputs.add_argument(
+        "--kdk-root",
+        type=Path,
+        help="already extracted KDK root containing System/Library; no install/mount",
+    )
+    parser.add_argument(
+        "--system-version",
+        type=Path,
+        help="optional already acquired SystemVersion.plist",
+    )
     args = parser.parse_args()
     try:
-        result = inventory(args.reference or args.collection or args.kdk_root,
-                           args.reference is not None, args.system_version,
-                           args.kdk_root is not None)
+        result = inventory(
+            args.reference or args.collection or args.kdk_root,
+            args.reference is not None,
+            args.system_version,
+            args.kdk_root is not None,
+        )
     except (OSError, ValueError, KeyError, TypeError, struct.error) as error:
         parser.exit(2, f"Static ABI inventory failed: {error}\n")
     print(json.dumps(result, indent=2, sort_keys=True))
