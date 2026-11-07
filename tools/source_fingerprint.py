@@ -20,7 +20,7 @@ SOURCE_FILES = (
     "TODO.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
-    "linux-port-ledger.jsonl",
+    "src/linux/linux-port-ledger.jsonl",
     ".clang-format",
     ".clang-tidy",
     ".editorconfig",
@@ -57,10 +57,10 @@ def _regular_file(path: Path) -> bool:
 
 
 def _root_files(root: Path) -> list[Path]:
-    """Require each pinned root-level source policy input.
+    """Require every pinned policy file and the tracked Linux port ledger.
 
     Returns:
-        Root-relative file paths.
+        Repository-relative file paths.
 
     Raises:
         ValueError: A required source file is missing or not regular.
@@ -113,12 +113,13 @@ def _inputs(root: Path) -> list[Path]:
     if root.is_symlink() or not root.is_dir():
         message = "Source fingerprint root must be a real directory"
         raise ValueError(message)
-    inputs = _root_files(root)
+    inputs = set(_root_files(root))
     for name in SOURCE_DIRECTORIES:
-        inputs.extend(_directory_files(root, name))
+        inputs.update(_directory_files(root, name))
         if len(inputs) > MAX_SOURCE_FILES:
             message = "Source fingerprint has too many inputs"
             raise ValueError(message)
+    # The required ledger also appears under src/. Hash each source once.
     return sorted(inputs)
 
 

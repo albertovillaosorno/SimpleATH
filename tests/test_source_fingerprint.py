@@ -20,10 +20,12 @@ SAMPLE_FILE = "sample.txt"
 def _fixture(root: Path) -> None:
     """Create all required paths within a disposable synthetic project."""
     for name in SOURCE_FILES:
-        _ = (root / name).write_text(name, encoding="utf-8")
+        source = root / name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        _ = source.write_text(name, encoding="utf-8")
     for name in SOURCE_DIRECTORIES:
         folder = root / name
-        folder.mkdir()
+        folder.mkdir(exist_ok=True)
         _ = (folder / SAMPLE_FILE).write_text(SAMPLE_SOURCE, encoding="utf-8")
 
 
@@ -63,6 +65,19 @@ class SourceFingerprintTests(TestCase):
                     encoding="utf-8",
                 )
                 assert source_fingerprint(root) == baseline
+
+    @staticmethod
+    def test_moved_linux_ledger_is_required_and_included() -> None:
+        """Track the moved ledger without depending on its deleted old path."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _fixture(root)
+            ledger = root / "src/linux/linux-port-ledger.jsonl"
+            baseline = source_fingerprint(root)
+            _ = ledger.write_text(CHANGED_SOURCE, encoding="utf-8")
+            assert source_fingerprint(root) != baseline
+            ledger.unlink()
+            assert _rejects(root)
 
     @staticmethod
     def test_runtime_state_caches_and_local_linux_tree_are_excluded() -> None:
