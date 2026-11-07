@@ -179,3 +179,14 @@ References:
 - The temporary received MIC is wiped on both success and provider
   failure, alongside the expected MIC and signed-frame snapshot. This is
   static dataflow hardening, not evidence of a safe native RX DMA owner.
+- M1 also snapshots and reparses its bounded EAPOL input before copying
+  the replay/ANonce and deriving the PTK. M1 is not MIC-protected; this is
+  protection against inconsistent DMA buffer views, not AP authentication.
+- The original KeyFrame also held borrowed nonce and wrapped GTK pointers
+  into the caller's potentially mutable RX/DMA buffer. M3 handling now
+  uses an initial parse only to bound the local copy, then reparses that
+  snapshot and checks MIC, replay/ANonce, Key RSC and encrypted GTK from
+  the same bytes. The buffer remains alive until AES unwrap and is wiped
+  on every post-copy failure or completion path. Changing the original
+  DMA image after the copy cannot substitute unauthenticated key data.
+  This is a source-level guarantee, not proof of native DMA ownership.

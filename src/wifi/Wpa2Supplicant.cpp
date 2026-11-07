@@ -13,7 +13,7 @@ namespace simpleath
                 kEapolHeaderBytes + kKeyFixedBytes;
             constexpr size_t kRsnIeBytes = 22;
             constexpr size_t kMessage2Length = kMessage4Length + kRsnIeBytes;
-            constexpr size_t kMaximumMessage3Bytes = 1024;
+            constexpr size_t kMaximumEapolHandshakeBytes = 1024;
             constexpr size_t kMaximumGtkPlaintext = 512;
             const uint8_t kRsnCcmpPskIe[kRsnIeBytes] = {
                 48, 20,                   // RSN element header; version 1.
@@ -255,23 +255,50 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             if (!outMessage2 || capacity < kMessage2Length)
                 return Wpa2Result::BufferTooSmall;
-            KeyFrame parsed {};
-            if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
+            // M1 is not MIC-protected. Still capture its complete input once
+            // so the stored ANonce/replay counter and PTK derivation cannot
+            // observe different versions of a mutable RX/DMA buffer.
+            KeyFrame preflight {};
+            if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
                 return Wpa2Result::MalformedEapol;
+            if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
+                return Wpa2Result::WrongMessage;
+            uint8_t receivedM1[kMaximumEapolHandshakeBytes] {};
+            copyBytes(receivedM1, eapol, preflight.eapolLength);
+            KeyFrame parsed {};
+            if (parseEapolKey(receivedM1, preflight.eapolLength, parsed) !=
+                EapolResult::Ok)
+            {
+                secureClear(receivedM1, sizeof(receivedM1));
+                return Wpa2Result::MalformedEapol;
+            }
             if (parsed.message != KeyMessage::Pairwise1 ||
                 parsed.keyLength != 16)
+            {
+                secureClear(receivedM1, sizeof(receivedM1));
                 return Wpa2Result::WrongMessage;
+            }
             if (replay_.acceptMessage1(parsed) != EapolResult::Ok)
+            {
+                secureClear(receivedM1, sizeof(receivedM1));
                 return Wpa2Result::InvalidReplayCounter;
+            }
             if (!crypto_.generateNonce(crypto_.context, snonce_) ||
                 !nonzero(snonce_, sizeof(snonce_)))
+            {
+                secureClear(receivedM1, sizeof(receivedM1));
                 return fail(Wpa2Result::RandomFailure);
+            }
             if (!crypto_.derivePtk(crypto_.context, pmk_, ap_, station_,
                                    parsed.nonce, snonce_, ptk_))
+            {
+                secureClear(receivedM1, sizeof(receivedM1));
                 return fail(Wpa2Result::KeyDerivationFailure);
+            }
+            eapolVersion_ = parsed.eapolBytes[0];
+            secureClear(receivedM1, sizeof(receivedM1));
 
             uint8_t response[kMessage2Length] {};
-            eapolVersion_ = parsed.eapolBytes[0];
             populateEapolKey(response, sizeof(response), eapolVersion_, 0x010au,
                              parsed.replayCounter, snonce_);
             copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
@@ -302,21 +329,35 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             if (!outMessage4 || capacity < kMessage4Length)
                 return Wpa2Result::BufferTooSmall;
-            KeyFrame parsed {};
-            if (parseEapolKey(eapol, length, parsed) != EapolResult::Ok)
+            // Preflight the untrusted input only to bound the copy. Reparse
+            // the private snapshot: KeyFrame contains borrowed pointers and
+            // scalar replay/key-length fields, none of which may describe a
+            // different DMA image than the bytes authenticated by the MIC.
+            KeyFrame preflight {};
+            if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
                 return Wpa2Result::MalformedEapol;
-            if (parsed.message != KeyMessage::Pairwise3 ||
-                parsed.keyLength != 16 ||
-                parsed.eapolLength > kMaximumMessage3Bytes ||
-                parsed.keyDataLength < 24 ||
-                parsed.keyDataLength > kMaximumGtkPlaintext)
+            if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
                 return Wpa2Result::WrongMessage;
+            uint8_t signedEapol[kMaximumEapolHandshakeBytes] {};
+            copyBytes(signedEapol, eapol, preflight.eapolLength);
+            KeyFrame parsed {};
+            if (parseEapolKey(signedEapol, preflight.eapolLength, parsed) !=
+                EapolResult::Ok)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
+                return Wpa2Result::MalformedEapol;
+            }
+            if (parsed.message != KeyMessage::Pairwise3 ||
+                parsed.keyLength != 16 || parsed.keyDataLength < 24 ||
+                parsed.keyDataLength > kMaximumGtkPlaintext)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
+                return Wpa2Result::WrongMessage;
+            }
 
-            // MIC is computed with the received MIC field zeroed, in a bounded
-            // private buffer. Never modify the caller's potentially DMA-backed
-            // data.
-            uint8_t signedEapol[kMaximumMessage3Bytes] {};
-            copyBytes(signedEapol, parsed.eapolBytes, parsed.eapolLength);
+            // All subsequent authenticated fields, including nonce, replay
+            // counter, Key RSC and GTK ciphertext, now belong to this bounded
+            // private copy rather than potentially mutable RX/DMA memory.
             // The received MIC and the signed bytes must come from the same
             // bounded RX snapshot; never reread mutable caller/DMA memory
             // after creating that snapshot.
@@ -344,22 +385,36 @@ namespace simpleath
                 copyBytes(authenticatedRsc,
                           signedEapol + kEapolHeaderBytes + 61u,
                           sizeof(authenticatedRsc));
-            secureClear(signedEapol, sizeof(signedEapol));
             secureClear(expectedMic, sizeof(expectedMic));
             if (!micValid)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
                 return fail(Wpa2Result::MicMismatch);
+            }
             if (replay_.acceptVerifiedMessage3(parsed, true) != EapolResult::Ok)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
                 return fail(Wpa2Result::InvalidReplayCounter);
+            }
             // IEEE 802.11 CCMP Key RSC has six PN octets then two zero octets.
             if (authenticatedRsc[6] != 0 || authenticatedRsc[7] != 0)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
                 return fail(Wpa2Result::InvalidKeySequenceCounter);
+            }
 
             uint8_t decrypted[kMaximumGtkPlaintext] {};
             size_t decryptedLength = 0;
-            if (!crypto_.unwrapGtk(crypto_.context, ptk_ + 16u, parsed.keyData,
-                                   parsed.keyDataLength, decrypted,
-                                   sizeof(decrypted), &decryptedLength) ||
-                decryptedLength == 0 || decryptedLength > sizeof(decrypted))
+            const bool unwrapped =
+                crypto_.unwrapGtk(crypto_.context, ptk_ + 16u, parsed.keyData,
+                                  parsed.keyDataLength, decrypted,
+                                  sizeof(decrypted), &decryptedLength);
+            // The ciphertext and nonce are not needed after unwrap; ensure
+            // even a provider failure cannot leave the authenticated RX image
+            // in kernel stack memory past this operation.
+            secureClear(signedEapol, sizeof(signedEapol));
+            if (!unwrapped || decryptedLength == 0 ||
+                decryptedLength > sizeof(decrypted))
             {
                 secureClear(decrypted, sizeof(decrypted));
                 return fail(Wpa2Result::GtkUnwrapFailure);
