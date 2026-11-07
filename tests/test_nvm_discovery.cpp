@@ -1,0 +1,342 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Offline 168c:0036 fake MMIO only: no PCI access or kext build.
+#include "hardware/Ar9565NvmReader.hpp"
+
+namespace
+{
+    struct Fake
+    {
+            uint8_t eeprom[4096];
+            uint8_t otp[1024];
+            uint32_t currentWord = 0;
+            uint32_t finalReads = 0;
+            uint32_t readCount = 0;
+            uint32_t ownerChecks = 0;
+            uint64_t time = 0;
+            bool eepromAbsent = false;
+            bool absentOnWordFive = false;
+            bool mutateHeaderOnFullRead = false;
+            bool mutateSrevBetweenReads = false;
+            uint32_t revisionReads = 0;
+            bool d0 = true;
+            uint32_t failOwnerAfter = 0;
+    };
+
+    void fill(uint8_t *bytes, size_t length, uint8_t value)
+    {
+        for (size_t i = 0; i < length; ++i)
+            bytes[i] = value;
+    }
+
+    bool zeroed(const uint8_t *bytes, size_t length)
+    {
+        for (size_t i = 0; i < length; ++i)
+            if (bytes[i] != 0)
+                return false;
+        return true;
+    }
+
+    bool owner(void *context)
+    {
+        auto &fake = *static_cast<Fake *>(context);
+        ++fake.ownerChecks;
+        return fake.d0 &&
+               (!fake.failOwnerAfter || fake.ownerChecks < fake.failOwnerAfter);
+    }
+
+    bool read(void *context, uint32_t offset, uint32_t *value)
+    {
+        auto &fake = *static_cast<Fake *>(context);
+        ++fake.readCount;
+        if (offset == simpleath::kRevisionRegister)
+        {
+            ++fake.revisionReads;
+            *value =
+                (static_cast<uint32_t>(simpleath::kMacFamily) << 12) |
+                (fake.mutateSrevBetweenReads && fake.revisionReads > 1 ? 0x1ffu
+                                                                       : 0xffu);
+        }
+        else if (offset == simpleath::kRtcStatusRegister)
+            *value = simpleath::kRtcOn;
+        else if (offset >= 0x2000 && offset < 0x4000 && (offset & 3u) == 0)
+        {
+            fake.currentWord = (offset - 0x2000) / 4;
+            fake.finalReads = 0;
+            if (fake.mutateHeaderOnFullRead && fake.currentWord == 0)
+            {
+                // The header probe at word 510/511 already succeeded.
+                fake.eeprom[0x3ff] ^= 1;
+                fake.mutateHeaderOnFullRead = false;
+            }
+            *value = 0;
+        }
+        else if (offset == 0x4084)
+        {
+            ++fake.finalReads;
+            if (fake.eepromAbsent ||
+                (fake.absentOnWordFive && fake.currentWord == 5))
+                *value = 0x80000;
+            else if (fake.finalReads == 1)
+                *value = 0;
+            else
+            {
+                const uint32_t index = fake.currentWord * 2;
+                *value = fake.eeprom[index] |
+                         (static_cast<uint32_t>(fake.eeprom[index + 1]) << 8);
+            }
+        }
+        else if (offset >= 0x14000 && offset < 0x14400 && (offset & 3u) == 0)
+        {
+            fake.currentWord = (offset - 0x14000) / 4;
+            *value = 0;
+        }
+        else if (offset == 0x15f18)
+            *value = 4;
+        else if (offset == 0x15f1c)
+        {
+            const uint32_t i = fake.currentWord * 4;
+            *value = static_cast<uint32_t>(fake.otp[i]) |
+                     (static_cast<uint32_t>(fake.otp[i + 1]) << 8) |
+                     (static_cast<uint32_t>(fake.otp[i + 2]) << 16) |
+                     (static_cast<uint32_t>(fake.otp[i + 3]) << 24);
+        }
+        else
+            return false;
+        return true;
+    }
+
+    uint64_t now(void *context)
+    {
+        return ++static_cast<Fake *>(context)->time;
+    }
+
+    void delay(void *, uint32_t)
+    {
+    }
+
+    void reset(Fake &fake)
+    {
+        fake = {};
+        fill(fake.eeprom, sizeof(fake.eeprom), 0xff);
+        fill(fake.otp, sizeof(fake.otp), 0xff);
+    }
+
+    // The pinned id-2 template has a generic 0x77 chain mask. This valid
+    // compressed frame MUST supply a distinct actual-board MAC and 0x11 mask;
+    // no naked/default template can pass selection for AR9565.
+    void writeBoard(uint8_t *bytes, uint16_t origin, bool corrupt,
+                    bool placeholderMac = false)
+    {
+        constexpr uint8_t payload[] = {2,    6,    0x02, 0xa0, 0xb1, 0xc2,
+                                       0xd3, 0xe4, 24,   1,    0x11};
+        uint8_t frame[sizeof(payload) + 6] {};
+        uint8_t updated[sizeof(payload)] {};
+        for (size_t i = 0; i < sizeof(payload); ++i)
+            updated[i] = payload[i];
+        if (placeholderMac)
+        {
+            constexpr uint8_t genericMac[] = {0, 2, 3, 4, 5, 6};
+            for (size_t i = 0; i < sizeof(genericMac); ++i)
+                updated[2 + i] = genericMac[i];
+        }
+        frame[0] = 0x62; // block compression, pinned template id 2.
+        frame[1] = 0;
+        frame[2] = static_cast<uint8_t>(sizeof(payload) << 4);
+        frame[3] = 1;
+        uint16_t checksum = 0;
+        for (size_t i = 0; i < sizeof(payload); ++i)
+        {
+            frame[4 + i] = updated[i];
+            checksum = static_cast<uint16_t>(checksum + updated[i]);
+        }
+        frame[4 + sizeof(payload)] = static_cast<uint8_t>(checksum);
+        frame[5 + sizeof(payload)] = static_cast<uint8_t>(checksum >> 8);
+        for (size_t i = 0; i < sizeof(frame); ++i)
+            bytes[origin - i] = frame[i];
+        if (corrupt)
+            bytes[origin - 5] ^= 1;
+    }
+
+    struct Fixture
+    {
+            Fake fake;
+            uint8_t storage[4096];
+            uint8_t scratch[simpleath::kAr9565EepromScratchBytes];
+            simpleath::NvmBoardSelection board;
+            simpleath::NvmDiscoveryStatus status;
+    };
+
+    simpleath::NvmDiscoveryResult run(Fixture &fixture)
+    {
+        const simpleath::NvmReadBackend backend {&fixture.fake, owner, read,
+                                                 now,           delay, 0x16000};
+        const simpleath::Identity identity {simpleath::kPciVendor,
+                                            simpleath::kPciDevice, 0, 0, false};
+        fill(fixture.storage, sizeof(fixture.storage), 0xcc);
+        fill(fixture.scratch, sizeof(fixture.scratch), 0xcc);
+        fixture.board.valid = true; // Prove reentry does not retain old state.
+        return simpleath::discoverAr9565Nvm(
+            backend, identity, fixture.storage, sizeof(fixture.storage),
+            fixture.scratch, sizeof(fixture.scratch), fixture.board,
+            fixture.status);
+    }
+
+    bool clean(const Fixture &fixture)
+    {
+        return zeroed(fixture.storage, sizeof(fixture.storage)) &&
+               zeroed(fixture.scratch, sizeof(fixture.scratch));
+    }
+} // namespace
+
+int main()
+{
+    using simpleath::NvmDiscoveryResult;
+    using simpleath::NvmSource;
+    Fixture fixture {};
+
+    // First candidate: actual EEPROM delta, checksum and board identity.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    if (run(fixture) != NvmDiscoveryResult::Ok || !fixture.board.valid ||
+        fixture.board.source != NvmSource::Eeprom ||
+        fixture.board.origin != 0x3ff || fixture.status.attempts != 1 ||
+        fixture.status.lastRestore.appliedBlocks != 1 ||
+        fixture.board.summary.mac[1] != 0xa0 ||
+        fixture.board.summary.txChainMask != 1 ||
+        fixture.board.summary.rxChainMask != 1 ||
+        fixture.board.summary.calibrationValidated ||
+        fixture.board.summary.regulatoryAuthorized || !clean(fixture))
+        return 1;
+
+    // A blank first EEPROM header falls back to 4K in upstream order.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0xfff, false);
+    if (run(fixture) != NvmDiscoveryResult::Ok || !fixture.board.valid ||
+        fixture.board.origin != 0xfff || fixture.status.attempts != 2 ||
+        !clean(fixture))
+        return 2;
+
+    // An absent EEPROM may still have a valid OTP at 512B; don't assume
+    // absent EEPROM is proof of absent OTP, nor synthesize from a template.
+    reset(fixture.fake);
+    fixture.fake.eepromAbsent = true;
+    writeBoard(fixture.fake.otp, 0x1ff, false);
+    if (run(fixture) != NvmDiscoveryResult::Ok || !fixture.board.valid ||
+        fixture.board.source != NvmSource::Otp ||
+        fixture.board.origin != 0x1ff || fixture.status.attempts != 5 ||
+        !clean(fixture))
+        return 3;
+
+    // All headers erased: no fabricated image despite available dictionaries.
+    reset(fixture.fake);
+    if (run(fixture) != NvmDiscoveryResult::NoValidImage ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.attempts != 5 || fixture.fake.readCount >= 100 ||
+        !clean(fixture))
+        return 4;
+
+    // A nonblank, corrupted checksum is fatal: don't accept a later origin.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, true);
+    writeBoard(fixture.fake.otp, 0x1ff, false);
+    if (run(fixture) != NvmDiscoveryResult::CorruptImage ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.attempts != 1 || !clean(fixture))
+        return 5;
+
+    // Revoked D0 must abort immediately and erase any previous selection.
+    reset(fixture.fake);
+    fixture.fake.d0 = false;
+    writeBoard(fixture.fake.otp, 0x1ff, false);
+    if (run(fixture) != NvmDiscoveryResult::CaptureFailed ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.attempts != 1 || !clean(fixture))
+        return 6;
+
+    // The FIRST nonempty header selects the source even if its compression
+    // layout is unsupported. A later valid board cannot silently replace it.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.eeprom[0x3ff] = 0xe2; // Compression code 7, template id 2.
+    writeBoard(fixture.fake.eeprom, 0xfff, false);
+    if (run(fixture) != NvmDiscoveryResult::CorruptImage ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.attempts != 1 || !clean(fixture))
+        return 7;
+
+    // Generic pinned-template MAC is not recovered board provenance, even
+    // if the delta supplies the AR9565 chain mask and has a valid checksum.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false, true);
+    if (run(fixture) != NvmDiscoveryResult::CorruptImage ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.lastBoardResult !=
+            simpleath::EepromResult::InvalidBoardIdentity ||
+        fixture.status.attempts != 1 || !clean(fixture))
+        return 8;
+
+    // D0 revocation after partial acquisition is not a reason to probe OTP.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.failOwnerAfter = 20;
+    if (run(fixture) != NvmDiscoveryResult::CaptureFailed ||
+        fixture.status.attempts != 1 || fixture.board.valid ||
+        fixture.board.image.restored || !clean(fixture))
+        return 9;
+
+    // A full capture can go absent AFTER its header was positively selected;
+    // this fault must stop discovery, not fall back to valid OTP.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    writeBoard(fixture.fake.otp, 0x1ff, false);
+    fixture.fake.absentOnWordFive = true;
+    if (run(fixture) != NvmDiscoveryResult::CaptureFailed ||
+        fixture.status.lastCapture.result !=
+            simpleath::NvmResult::StorageAbsent ||
+        fixture.status.attempts != 1 || fixture.board.valid ||
+        fixture.board.image.restored || !clean(fixture))
+        return 10;
+
+    // A source replacing its selected header between probe and full read
+    // cannot silently promote the altered payload to a valid board image.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.mutateHeaderOnFullRead = true;
+    if (run(fixture) != NvmDiscoveryResult::CorruptImage ||
+        fixture.status.attempts != 1 || fixture.board.valid ||
+        fixture.board.image.restored ||
+        fixture.status.lastRestore.appliedBlocks || !clean(fixture))
+        return 11;
+
+    // A changed but still supported silicon revision between the probe and
+    // full capture must not accept a board snapshot across owner epochs.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.mutateSrevBetweenReads = true;
+    if (run(fixture) != NvmDiscoveryResult::CaptureFailed ||
+        fixture.status.lastCapture.result !=
+            simpleath::NvmResult::UnstableStatus ||
+        fixture.status.lastCapture.captureComplete ||
+        fixture.status.attempts != 1 || fixture.board.valid ||
+        fixture.board.image.restored || !clean(fixture))
+        return 12;
+
+    // A fully overlapping pair of writable buffers is rejected without
+    // touching any output or triggering a single active NVM read.
+    reset(fixture.fake);
+    fill(fixture.storage, sizeof(fixture.storage), 0xaa);
+    fixture.board.valid = true;
+    const simpleath::NvmReadBackend backend {&fixture.fake, owner, read,
+                                             now,           delay, 0x16000};
+    const simpleath::Identity identity {simpleath::kPciVendor,
+                                        simpleath::kPciDevice, 0, 0, false};
+    if (simpleath::discoverAr9565Nvm(
+            backend, identity, fixture.storage, sizeof(fixture.storage),
+            fixture.storage, sizeof(fixture.storage), fixture.board,
+            fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        fixture.fake.readCount != 0 || !fixture.board.valid ||
+        fixture.storage[0] != 0xaa)
+        return 13;
+
+    return 0;
+}

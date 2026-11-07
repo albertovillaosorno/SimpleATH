@@ -1,9 +1,10 @@
 # AR9565 active EEPROM/OTP read protocol — source only
 
 `src/hardware/Ar9565NvmReader.*` stages the ath9k PCI EEPROM and AR9003 OTP
-read protocols. The translation unit is in the SimpleATH Xcode target, but
-has not been compiled, tested or connected to a native PCI owner. No NVM
-transaction or physical dump has been acquired by this work.
+read protocols. The translation unit is in the SimpleATH Xcode target and
+has portable fake-I/O host regressions, but no authorized kext build or
+native PCI owner connection. No physical NVM transaction or dump has been
+acquired by this work.
 
 This advances acquisition source, not hardware validation. The passive
 IOService does not call it. Its three-register read-only bus cannot be used
@@ -21,8 +22,9 @@ Owner permission to edit source does not authorize invoking this capability.
 - EEPROM: read trigger 0x2000 + wordIndex*4, wait on status/data at 0x4084
   for BUSY and PROT_ACCESS to clear, then read 0x4084 **again** and collect
   its lower 16 bits. Never consume the wait-loop sample as payload. Reject
-  an all-ones second read, absent/protected status, or a return to BUSY; the
-  latter is reported as `UnstableStatus`. This follows ath_pci_eeprom_read;
+  an all-ones second read, absent/protected status, or a return to BUSY or
+  the separate BUSY_ACCESS bit; those unstable conditions report
+  `UnstableStatus`. The wait mask follows ath_pci_eeprom_read;
   no EEPROM program/write command exists in this module.
 - OTP: read trigger 0x14000 + wordIndex*4, wait for status at 0x15f18 with
   low three bits equal to 4, then collect data at 0x15f1c. Never write OTP.
@@ -46,8 +48,26 @@ Owner permission to edit source does not authorize invoking this capability.
   the descending-address stream expected by ath9k's compression format.
 - Only the spans used by upstream AR9565 origin search are supported:
   up to 4096 EEPROM bytes and 1024 OTP bytes. Those are supported acquisition
-  bounds, not a measurement of physical storage capacity. Source/origin
-  selection remains explicit and does not silently switch on errors.
+  bounds, not a measurement of physical storage capacity.
+- `discoverAr9565Nvm` now sequences five candidates in upstream order:
+  EEPROM 0x3ff, 0xfff, 0x1ff; then OTP 0x3ff, 0x1ff. Each active read is
+  bounded by `captureAr9565Nvm`, using caller-owned 4096-byte storage and
+  1029-byte scratch. It checks a four-byte header at each origin, then
+  captures one full image at the FIRST nonempty header. Thus at most five
+  probe reads and one 2-second full capture can occur, each with a 2-second
+  capture bound plus callback overhead. Only a blank/erased header or
+  StorageAbsent during a probe can advance. A selected header forbids
+  fallback on later checksum, layout, mid-capture absence, changed header
+  or silicon revision, board identity, clock, transport or D0 failures.
+- The discovered board snapshot retains actual source, origin and silicon
+  together with a checksum-restored image and structurally checked summary.
+  Reject pinned dictionary placeholder MACs, unknown gain profiles and
+  malformed board identity rather than turning a template into a device.
+  Transient capture/scratch bytes are wiped even after success. Error
+  cleanup clears the board selection; the future native owner must also
+  invalidate it on reset, D0 loss, teardown and resume. Neither the
+  `valid` snapshot flag nor plausible calibration bins grants RF permission;
+  `calibrationValidated` and `regulatoryAuthorized` remain false.
 - Reject overlapping destination, status, backend and identity storage
   before initializing diagnostics or clearing capture bytes. Reject a
   backend context pointer that points into either writable output, too;
@@ -63,20 +83,21 @@ and require separately authorized hardware validation.
 
 ## Remaining integration and evidence
 
-The verified Tahoe PCI/power adapter, source/origin discovery policy and
-hardware comparison are still missing. An EEPROM-absent indication must not
-be treated as proof that AR9565 OTP is absent; acquisition chooses the source
-explicitly and OTP has its own protocol. A reconstructed image still needs
-physical MAC/provenance checks and complete board calibration, antenna,
-RF-kill, coexistence and regulatory/power validation before RF transmission.
+The verified Tahoe PCI/power owner and actual acquisition activation remain
+missing; offline source/origin discovery is not a live hardware path. An
+EEPROM-absent indication is not proof that AR9565 OTP is absent. The
+source search probes OTP through its separate protocol. A reconstructed
+image still needs physical MAC/provenance checks, board calibration,
+antenna/RF-kill/coexistence and regulatory/power validation before TX.
 
 The reader records upstream hashes and retains Atheros notices in its source.
 The permissive Linux references are pci.c (ath_pci_eeprom_read), hw.c
 (ath9k_hw_wait), reg.h and ar9003_eeprom.c/.h (OTP and normalization).
 No Linux objects are linked into the kext.
 
-After separate build/test authorization, validate register ordering, erased
-data, busy/protection/absence, timeouts, disappearing ownership, clock faults,
-BAR truncation, output invalidation and EEPROM/OTP byte order using an offline
-backend. Actual NVM acquisition requires a separate explicitly authorized
-hardware step with the verified owner. Neither check has been performed.
+The authorized offline host tests now exercise synthetic register ordering,
+post-ready BUSY_ACCESS, disappearing ownership, source/origin fallback,
+checksum rejection, placeholder MAC rejection and failure erasure. They do
+not establish Tahoe kernel linkage, true register ordering, RF calibration
+or physical NVM behavior. Native kext compilation and any device experiment
+remain separately owner-authorized and have not been performed.

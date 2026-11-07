@@ -3,6 +3,7 @@
 #define SIMPLEATH_AR9565_NVM_READER_HPP
 
 #include "Ar9565Core.hpp"
+#include "Ar9565Eeprom.hpp"
 
 namespace simpleath
 {
@@ -86,6 +87,66 @@ namespace simpleath
                                const Identity &physicalIdentity,
                                NvmSource source, uint8_t *destination,
                                size_t byteCount, NvmReadStatus &status);
+
+    enum class NvmDiscoveryResult : uint8_t
+    {
+        Ok,
+        InvalidArgument,
+        NoValidImage,
+        CaptureFailed,
+        CorruptImage
+    };
+
+    // A recovered image and its structurally checked board summary, NOT RF
+    // authorization. Source, origin and silicon come from the same serialized
+    // exclusive PCI transaction; "valid" means only that the pinned delta
+    // chain, permanent MAC, single chain and supported gain indexes passed
+    // static checks. Calibration/regulatory flags stay false. No fallbacks to
+    // template-only images. Caller owns lifetime and must discard on teardown,
+    // D0 loss, reset/resume or a subsequent acquisition failure.
+    struct NvmBoardSelection
+    {
+            EepromImage image;
+            BoardDataSummary summary;
+            Silicon silicon;
+            NvmSource source;
+            uint16_t origin;
+            TxGainProfile txGain;
+            RxGainProfile rxGain;
+            bool valid;
+    };
+
+    struct NvmDiscoveryStatus
+    {
+            NvmDiscoveryResult result;
+            NvmReadStatus lastCapture;
+            EepromRestoreStatus lastRestore;
+            EepromResult lastBoardResult;
+            NvmSource lastSource;
+            uint16_t lastOrigin;
+            uint8_t attempts;
+    };
+
+    // Bounded ath9k origin order: EEPROM 0x3ff, 0xfff, 0x1ff, then OTP
+    // 0x3ff, 0x1ff. Probes each four-byte origin header first, then captures
+    // the full span only for the first nonempty selected candidate.
+    // Storage >=4096 and scratch >=kAr9565EepromScratchBytes are caller-owned;
+    // no kernel-stack-sized allocations. Outputs, inputs, backend, physical
+    // identity and callback context allocation must remain disjoint. Detectable
+    // aliases return InvalidArgument without altering output; other failures
+    // wipe board, storage and scratch. A blank header or StorageAbsent during
+    // the four-byte probe may advance; once a header is selected, all later
+    // failures (including mid-capture absence, layout, checksum or identity)
+    // abort instead of silently choosing another board. At most five probes
+    // plus one full capture, each bounded by the reader's 2 s cap.
+    // Does not grant permission to access devices or transmit: no native
+    // owner is currently connected, and board calibration is incomplete.
+    NvmDiscoveryResult discoverAr9565Nvm(const NvmReadBackend &backend,
+                                         const Identity &physicalIdentity,
+                                         uint8_t *storage, size_t storageBytes,
+                                         uint8_t *scratch, size_t scratchBytes,
+                                         NvmBoardSelection &board,
+                                         NvmDiscoveryStatus &status);
 
 } // namespace simpleath
 #endif

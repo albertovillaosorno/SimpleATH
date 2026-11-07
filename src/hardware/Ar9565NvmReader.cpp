@@ -155,10 +155,13 @@ namespace simpleath
         }
     } // namespace
 
-    NvmResult captureAr9565Nvm(const NvmReadBackend &backend,
-                               const Identity &physicalIdentity,
-                               NvmSource source, uint8_t *destination,
-                               size_t byteCount, NvmReadStatus &status)
+    // Internal byte-range capture is used for exact four-byte origin probes;
+    // public captureAr9565Nvm retains its ascending-zero address semantics.
+    static NvmResult captureRange(const NvmReadBackend &backend,
+                                  const Identity &physicalIdentity,
+                                  NvmSource source, size_t firstByte,
+                                  uint8_t *destination, size_t byteCount,
+                                  NvmReadStatus &status)
     {
         // The output could alias the caller's backend callbacks or identity.
         // Reject such a contract breach BEFORE clearing either output or
@@ -181,7 +184,8 @@ namespace simpleath
         status = {};
         status.source = source;
         const size_t maximum = source == NvmSource::Eeprom ? 4096 : 1024;
-        if (!destination || byteCount == 0 || byteCount > maximum ||
+        if (!destination || byteCount == 0 || firstByte >= maximum ||
+            byteCount > maximum - firstByte ||
             (source != NvmSource::Eeprom && source != NvmSource::Otp))
             return status.result = NvmResult::InvalidArgument;
         clearBytes(destination, byteCount);
@@ -212,11 +216,13 @@ namespace simpleath
             return status.result = NvmResult::RadioAsleep;
 
         const uint32_t wordBytes = source == NvmSource::Eeprom ? 2 : 4;
-        const size_t words = (byteCount + wordBytes - 1) / wordBytes;
+        const size_t firstWord = firstByte / wordBytes;
+        const size_t words =
+            (firstByte % wordBytes + byteCount + wordBytes - 1) / wordBytes;
         // Validate the entire requested MMIO span BEFORE a trigger read.
         const uint32_t lastTrigger =
             (source == NvmSource::Eeprom ? kEepromWindow : kOtpWindow) +
-            static_cast<uint32_t>((words - 1) * 4);
+            static_cast<uint32_t>((firstWord + words - 1) * 4);
         const uint32_t lastRegister =
             source == NvmSource::Eeprom
                 ? (lastTrigger > kEepromData ? lastTrigger : kEepromData)
@@ -228,7 +234,7 @@ namespace simpleath
         {
             const uint32_t trigger =
                 (source == NvmSource::Eeprom ? kEepromWindow : kOtpWindow) +
-                static_cast<uint32_t>(word * 4);
+                static_cast<uint32_t>((firstWord + word) * 4);
             result =
                 capture.read(trigger, value); // Starts the NVM transaction.
             if (result != NvmResult::Ok)
@@ -266,10 +272,13 @@ namespace simpleath
                 if (result != NvmResult::Ok)
                     break;
             }
-            for (uint32_t byte = 0;
-                 byte < wordBytes && status.bytesAcquired < byteCount; ++byte)
-                destination[status.bytesAcquired++] =
-                    static_cast<uint8_t>(value >> (byte * 8));
+            for (uint32_t byte = 0; byte < wordBytes; ++byte)
+            {
+                const size_t absolute = (firstWord + word) * wordBytes + byte;
+                if (absolute >= firstByte && absolute - firstByte < byteCount)
+                    destination[status.bytesAcquired++] =
+                        static_cast<uint8_t>(value >> (byte * 8));
+            }
         }
         if (result != NvmResult::Ok)
         {
@@ -278,6 +287,204 @@ namespace simpleath
         }
         status.captureComplete = true;
         return status.result = NvmResult::Ok;
+    }
+
+    NvmResult captureAr9565Nvm(const NvmReadBackend &backend,
+                               const Identity &physicalIdentity,
+                               NvmSource source, uint8_t *destination,
+                               size_t byteCount, NvmReadStatus &status)
+    {
+        return captureRange(backend, physicalIdentity, source, 0, destination,
+                            byteCount, status);
+    }
+
+    NvmDiscoveryResult discoverAr9565Nvm(const NvmReadBackend &backend,
+                                         const Identity &physicalIdentity,
+                                         uint8_t *storage, size_t storageBytes,
+                                         uint8_t *scratch, size_t scratchBytes,
+                                         NvmBoardSelection &board,
+                                         NvmDiscoveryStatus &status)
+    {
+        // Check every writable span against all other spans before touching
+        // status/board: even error cleanup may corrupt an aliased callback or
+        // the physical identity otherwise. Context allocation disjointness
+        // beyond its pointer remains an explicit backend-owner contract.
+        struct Span
+        {
+                const void *address;
+                size_t bytes;
+        };
+
+        const Span spans[] = {{storage, storageBytes},
+                              {scratch, scratchBytes},
+                              {&board, sizeof(board)},
+                              {&status, sizeof(status)},
+                              {&backend, sizeof(backend)},
+                              {&physicalIdentity, sizeof(physicalIdentity)}};
+        for (size_t i = 0; i < 4; ++i)
+        {
+            if (overlaps(spans[i].address, spans[i].bytes, backend.context, 1))
+                return NvmDiscoveryResult::InvalidArgument;
+            for (size_t j = i + 1; j < sizeof(spans) / sizeof(spans[0]); ++j)
+            {
+                if (overlaps(spans[i].address, spans[i].bytes, spans[j].address,
+                             spans[j].bytes))
+                    return NvmDiscoveryResult::InvalidArgument;
+            }
+        }
+        board = {};
+        board.txGain = TxGainProfile::Unknown;
+        board.rxGain = RxGainProfile::Unknown;
+        status = {};
+        if (!storage || storageBytes < 4096 || !scratch ||
+            scratchBytes < kAr9565EepromScratchBytes)
+            return status.result = NvmDiscoveryResult::InvalidArgument;
+
+        struct Candidate
+        {
+                NvmSource source;
+                uint16_t origin;
+        };
+
+        // The reference search falls back to OTP only after EEPROM has no
+        // usable header. Never infer an EEPROM's size from a BAR window.
+        constexpr Candidate candidates[] = {{NvmSource::Eeprom, 0x3ff},
+                                            {NvmSource::Eeprom, 0xfff},
+                                            {NvmSource::Eeprom, 0x1ff},
+                                            {NvmSource::Otp, 0x3ff},
+                                            {NvmSource::Otp, 0x1ff}};
+        NvmDiscoveryResult outcome = NvmDiscoveryResult::NoValidImage;
+        const EepromTemplates templates = pinnedEepromTemplates();
+        for (const auto &candidate : candidates)
+        {
+            status.lastSource = candidate.source;
+            status.lastOrigin = candidate.origin;
+            ++status.attempts;
+            const size_t length = static_cast<size_t>(candidate.origin) + 1;
+            // ath9k checks only the four bytes at the origin before
+            // selecting a source. Once a nonempty header has been found,
+            // NONE of the later read/restore/board errors permits fallback.
+            uint8_t header[4] {};
+            const NvmResult probeResult =
+                captureRange(backend, physicalIdentity, candidate.source,
+                             length - sizeof(header), header, sizeof(header),
+                             status.lastCapture);
+            if (probeResult == NvmResult::StorageAbsent)
+                continue;
+            if (probeResult != NvmResult::Ok)
+            {
+                outcome = NvmDiscoveryResult::CaptureFailed;
+                break;
+            }
+            bool empty = true, erased = true;
+            for (const uint8_t byte : header)
+            {
+                empty = empty && byte == 0;
+                erased = erased && byte == 0xff;
+            }
+            if (empty || erased)
+                continue;
+            const uint32_t probedSrev = status.lastCapture.silicon.rawSrev;
+            // A second bounded capture gathers the entire chosen storage
+            // chain. StorageAbsent here is a fatal mid-transaction fault.
+            const NvmResult captureResult =
+                captureAr9565Nvm(backend, physicalIdentity, candidate.source,
+                                 storage, length, status.lastCapture);
+            if (captureResult != NvmResult::Ok)
+            {
+                outcome = NvmDiscoveryResult::CaptureFailed;
+                break;
+            }
+            if (status.lastCapture.silicon.rawSrev != probedSrev)
+            {
+                status.lastCapture.captureComplete = false;
+                status.lastCapture.result = NvmResult::UnstableStatus;
+                outcome = NvmDiscoveryResult::CaptureFailed;
+                break;
+            }
+            // Reject any change to the selected header between the probe
+            // and full acquisition (including a disappearing/replaced NVM).
+            bool headerStable = true;
+            for (size_t i = 0; i < sizeof(header); ++i)
+                headerStable =
+                    headerStable &&
+                    header[i] == storage[length - sizeof(header) + i];
+            if (!headerStable)
+            {
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
+            status.lastRestore = {};
+            const EepromResult restored = restoreEepromDump(
+                storage, length, candidate.origin, templates, scratch,
+                scratchBytes, board.image, status.lastRestore);
+            if (restored != EepromResult::Ok)
+            {
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
+            const EepromResult parsed =
+                summarizeBoardData(board.image, board.summary);
+            status.lastBoardResult = parsed;
+            if (parsed != EepromResult::Ok)
+            {
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
+            // Pinned dictionaries contain placeholder MAC addresses; a
+            // reference/delta with no actual board MAC must not be promoted
+            // to a recovered device identity, even if its chain mask fits.
+            constexpr uint8_t templateIds[] = {2, 3, 4, 5, 6};
+            bool placeholderMac = false;
+            for (const uint8_t id : templateIds)
+            {
+                size_t templateLength = 0;
+                const uint8_t *defaults =
+                    templates.find(templates.context, id, &templateLength);
+                if (!defaults || templateLength != sizeof(board.image.bytes))
+                    continue;
+                bool identical = true;
+                for (size_t i = 0; i < sizeof(board.summary.mac); ++i)
+                    identical =
+                        identical && board.summary.mac[i] == defaults[2 + i];
+                if (identical)
+                {
+                    placeholderMac = true;
+                    break;
+                }
+            }
+            if (placeholderMac)
+            {
+                status.lastBoardResult = EepromResult::InvalidBoardIdentity;
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
+            const EepromResult gains = selectBoardGainProfiles(
+                board.summary, board.txGain, board.rxGain);
+            status.lastBoardResult = gains;
+            if (gains != EepromResult::Ok)
+            {
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
+            board.source = candidate.source;
+            board.origin = candidate.origin;
+            board.silicon = status.lastCapture.silicon;
+            board.valid = true;
+            outcome = NvmDiscoveryResult::Ok;
+            break;
+        }
+        // Erase all transient NVM bytes, even when a reconstructed immutable
+        // snapshot was accepted. Never hand back a partially accepted image.
+        clearBytes(storage, 4096);
+        clearBytes(scratch, kAr9565EepromScratchBytes);
+        if (outcome != NvmDiscoveryResult::Ok)
+        {
+            board = {};
+            board.txGain = TxGainProfile::Unknown;
+            board.rxGain = RxGainProfile::Unknown;
+        }
+        return status.result = outcome;
     }
 
 } // namespace simpleath

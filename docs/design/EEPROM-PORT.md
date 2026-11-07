@@ -1,6 +1,7 @@
 # AR9565 EEPROM source port
 
-Status: uncompiled source only; no tests executed and no device EEPROM read.
+Status: offline portable fake-I/O host tests pass; no kext build, native
+owner connection or physical EEPROM/OTP read has occurred.
 
 `Ar9565Eeprom.*` reconstructs one normalized ath9k NVM block at a time. It
 implements the four-byte compression header, 16-bit additive payload checksum,
@@ -38,11 +39,16 @@ malformed chains and never silently falls back to another origin or default
 image. On an alias error, the caller must discard any prior image explicitly.
 The caller supplies bounded scratch storage, avoiding a frame-sized kernel-stack
 allocation. The separate [active NVM reader](NVM-READ-PROTOCOL.md) now stages
-EEPROM/OTP access and word normalization; it remains uncompiled and unwired.
-Acquisition still needs the verified PCI/power adapter, source/origin discovery
-and separate hardware authorization. The block primitive supports full
-uncompressed 1088-byte images; these do not fit the AR9565 compressed
-storage-chain limit.
+EEPROM/OTP access, word normalization and bounded candidate origin selection.
+It selects EEPROM 0x3ff/0xfff/0x1ff before OTP 0x3ff/0x1ff, rejecting damaged
+chains and unsupported board identity without using template MAC defaults.
+The first nonempty four-byte header irrevocably selects one candidate:
+subsequent capture/restore/identity errors abort rather than trying another
+board source.
+Only the synthetic host backend exercises this path; the native PCI/power
+owner and hardware authorization remain missing. The block primitive
+supports full uncompressed 1088-byte images; these do not fit the
+AR9565 compressed storage-chain limit.
 Flash-format images require a separate validated path.
 
 ## Layout evidence

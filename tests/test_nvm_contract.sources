@@ -1,2 +1,3 @@
 src/hardware/Ar9565Core.cpp
 src/hardware/Ar9565NvmReader.cpp
+src/hardware/Ar9565Eeprom.cpp
