@@ -1,33 +1,34 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565Core.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace simpleath
 {
-    namespace
-    {
-        constexpr InitStep kCommonPlan[] = {
-            InitStep::PowerOnReset,
-            InitStep::WakeRtc,
-            InitStep::ReadAndValidateEeprom,
-            InitStep::ValidateRegulatoryDomain,
-            InitStep::ProgramSocPreamble,
-            InitStep::ProgramMacCore,
-            InitStep::ProgramBasebandCore,
-            InitStep::ProgramRadioCore,
-            InitStep::ProgramRxGain,
-            InitStep::ProgramTxGain,
-            InitStep::ProgramSocPostamble,
-            InitStep::ProgramMacPostamble,
-            InitStep::ProgramBasebandPostamble,
-            InitStep::ProgramRadioPostamble,
-            InitStep::CalibrateRxIq,
-            InitStep::CalibrateTxIq,
-            InitStep::ProgramBluetoothCoexistence,
-            InitStep::AllocateTxRxDma,
-            InitStep::InstallInterrupts,
-            InitStep::RegisterNativeWirelessInterface};
-        constexpr uint32_t kMinimumMappedBar = 0x7048;
-    } // namespace
+    static constexpr InitStep K_COMMON_PLAN[] = {
+        InitStep::PowerOnReset,
+        InitStep::WakeRtc,
+        InitStep::ReadAndValidateEeprom,
+        InitStep::ValidateRegulatoryDomain,
+        InitStep::ProgramSocPreamble,
+        InitStep::ProgramMacCore,
+        InitStep::ProgramBasebandCore,
+        InitStep::ProgramRadioCore,
+        InitStep::ProgramRxGain,
+        InitStep::ProgramTxGain,
+        InitStep::ProgramSocPostamble,
+        InitStep::ProgramMacPostamble,
+        InitStep::ProgramBasebandPostamble,
+        InitStep::ProgramRadioPostamble,
+        InitStep::CalibrateRxIq,
+        InitStep::CalibrateTxIq,
+        InitStep::ProgramBluetoothCoexistence,
+        InitStep::AllocateTxRxDma,
+        InitStep::InstallInterrupts,
+        InitStep::RegisterNativeWirelessInterface,
+    };
+    static constexpr uint32_t K_MINIMUM_MAPPED_BAR = 0x7048;
 
     bool isSupportedPci(uint16_t vendor, uint16_t device)
     {
@@ -40,14 +41,20 @@ namespace simpleath
         out = {};
         // ath9k type-2 SREV is used by the AR9003 generation. The lower byte
         // is 0xff, and the version is encoded in bits 18..31, shifted by 12.
-        if (raw == 0xffffffffu || (raw & 0xffu) != 0xffu)
+        if (raw == 0xffffffffU || (raw & 0xffU) != 0xffU)
+        {
             return Result::UnsupportedSilicon;
-        const uint32_t family = (raw & 0xfffc0000u) >> 12u;
-        const uint32_t revision = (raw & 0x00000f00u) >> 8u;
+        }
+        const uint32_t family = (raw & 0xfffc0000U) >> 12U;
+        const uint32_t revision = (raw & 0x00000f00U) >> 8U;
         if (family != kMacFamily)
+        {
             return Result::UnsupportedSilicon;
-        if (revision > 2u)
+        }
+        if (revision > 2U)
+        {
             return Result::UnsupportedRevision;
+        }
         Silicon result {};
         result.macFamily = kMacFamily;
         result.macRevision = static_cast<uint8_t>(revision);
@@ -66,13 +73,15 @@ namespace simpleath
         // invalid request. This static mapping never grants radio permission.
         out = {};
         if (number == 0 || number > 14)
+        {
             return Result::InvalidChannel;
+        }
         Channel result {};
         result.number = number;
         result.centerMhz =
             number == 14 ? static_cast<uint16_t>(2484)
                          : static_cast<uint16_t>(
-                               2407u + static_cast<uint16_t>(number) * 5u);
+                               2407U + static_cast<uint16_t>(number) * 5U);
         result.requiresJapanAuthorization = number == 14;
         out = result;
         return Result::Ok;
@@ -80,14 +89,16 @@ namespace simpleath
 
     bool validatePermanentMac(const uint8_t mac[6])
     {
-        if (!mac || (mac[0] & 0x01u) != 0)
+        if (!mac || (mac[0] & 0x01U) != 0)
+        {
             return false; // Multicast or broadcast cannot identify a station.
+        }
         bool allZero = true;
         bool allOnes = true;
         for (size_t index = 0; index < 6; ++index)
         {
-            allZero = allZero && mac[index] == 0u;
-            allOnes = allOnes && mac[index] == 0xffu;
+            allZero = allZero && mac[index] == 0U;
+            allOnes = allOnes && mac[index] == 0xffU;
         }
         return !allZero && !allOnes;
     }
@@ -95,30 +106,38 @@ namespace simpleath
     Result decodeEepromMac(const uint16_t words[3], uint8_t out[6])
     {
         if (!out)
+        {
             return Result::InvalidMacAddress;
+        }
         // Build the candidate before modifying out, so source words may
         // overlap the output on success. On failure, clear stale identity.
         if (!words)
         {
             for (size_t index = 0; index < 6; ++index)
+            {
                 out[index] = 0;
+            }
             return Result::InvalidMacAddress;
         }
         uint8_t candidate[6] {};
         for (size_t index = 0; index < 3; ++index)
         {
-            candidate[index * 2] = static_cast<uint8_t>(words[index] >> 8u);
+            candidate[index * 2] = static_cast<uint8_t>(words[index] >> 8U);
             candidate[index * 2 + 1] =
-                static_cast<uint8_t>(words[index] & 0xffu);
+                static_cast<uint8_t>(words[index] & 0xffU);
         }
         if (!validatePermanentMac(candidate))
         {
             for (size_t index = 0; index < 6; ++index)
+            {
                 out[index] = 0;
+            }
             return Result::InvalidMacAddress;
         }
         for (size_t index = 0; index < 6; ++index)
+        {
             out[index] = candidate[index];
+        }
         return Result::Ok;
     }
 
@@ -140,8 +159,8 @@ namespace simpleath
                 break;
         }
         const InitPlan plan {
-            revision, source, source ? kCommonPlan : nullptr,
-            source ? (sizeof(kCommonPlan) / sizeof(kCommonPlan[0])) : 0u,
+            revision, source, source ? K_COMMON_PLAN : nullptr,
+            source ? (sizeof(K_COMMON_PLAN) / sizeof(K_COMMON_PLAN[0])) : 0U,
             false};
         return plan;
     }
@@ -162,9 +181,13 @@ namespace simpleath
                             uint16_t subsystemVendor, uint16_t subsystemDevice)
     {
         if (status_.stage != Stage::Detached)
+        {
             return fail(Result::WrongState);
+        }
         if (!isSupportedPci(vendor, device))
+        {
             return fail(Result::UnsupportedPci);
+        }
         status_.pci = {vendor, device, subsystemVendor, subsystemDevice, false};
         status_.stage = Stage::PciMatched;
         return fail(Result::Ok);
@@ -173,10 +196,14 @@ namespace simpleath
     Result Device::attachReadOnlyBus(const RegisterBus &bus)
     {
         if (status_.stage != Stage::PciMatched)
+        {
             return fail(Result::WrongState);
+        }
         if (!bus.read32 || !bus.context ||
-            bus.barLengthBytes < kMinimumMappedBar)
+            bus.barLengthBytes < K_MINIMUM_MAPPED_BAR)
+        {
             return fail(Result::BusNotReady);
+        }
         // This core must never acquire a write capability through an otherwise
         // read-only attachment, even if a caller supplied one.
         bus_ = {bus.context, bus.read32, nullptr, bus.barLengthBytes};
@@ -186,49 +213,69 @@ namespace simpleath
 
     Result Device::readRegister(uint32_t offset, uint32_t &value)
     {
-        if (!bus_.read32 || !bus_.context || (offset & 3u) != 0 ||
+        if (!bus_.read32 || !bus_.context || (offset & 3U) != 0 ||
             offset > bus_.barLengthBytes ||
             bus_.barLengthBytes - offset < sizeof(uint32_t))
+        {
             return Result::InvalidRegister;
-        if (!bus_.read32(bus_.context, offset, &value) || value == 0xffffffffu)
+        }
+        if (!bus_.read32(bus_.context, offset, &value) || value == 0xffffffffU)
+        {
             return Result::RegisterReadFailed;
+        }
         return Result::Ok;
     }
 
     Result Device::inspect()
     {
         if (status_.stage != Stage::RegisterTransportReady)
+        {
             return fail(Result::WrongState);
+        }
 
         uint32_t srev = 0;
         Result result = readRegister(kRevisionRegister, srev);
         if (result != Result::Ok)
+        {
             return fail(result);
+        }
 
         Silicon silicon {};
         result = decodeRevision(srev, silicon);
         if (result != Result::Ok)
+        {
             return fail(result);
+        }
         status_.silicon = silicon;
         status_.stage = Stage::SiliconIdentified;
 
         uint32_t rtc = 0;
         result = readRegister(kRtcStatusRegister, rtc);
         if (result != Result::Ok)
+        {
             return fail(result);
+        }
         status_.rtcStatus = rtc & kRtcStatusMask;
         if (status_.rtcStatus != kRtcOn)
+        {
             return fail(Result::RadioAsleep);
+        }
 
         uint32_t eeprom = 0;
         result = readRegister(kEepromStatusRegister, eeprom);
         if (result != Result::Ok)
+        {
             return fail(result);
+        }
         status_.eepromStatus = eeprom;
         if (eeprom & kEepromAbsent)
+        {
             return fail(Result::EepromUnavailable);
+        }
         if (eeprom & kEepromCorrupt)
+        {
             return fail(Result::EepromCorrupt);
+        }
 
         // "Accessible" only means the EEPROM status register looked sane.
         // It DOES NOT mean the board data was read, checked or applied.
