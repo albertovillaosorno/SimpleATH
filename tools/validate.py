@@ -280,6 +280,13 @@ def _inventory(root: Path) -> list[str]:
     )
     if result.code:
         raise ValueError(result.stderr)
+    # run_process bounds stdout. A truncated -z inventory silently drops files,
+    # which could otherwise produce a false repository-wide success report.
+    if len(result.stdout.encode("utf-8")) >= OUTPUT_LIMIT or (
+        result.stdout and not result.stdout.endswith("\0")
+    ):
+        message = "Incomplete git source inventory"
+        raise ValueError(message)
     return list(dict.fromkeys(p for p in result.stdout.split("\0") if p))
 
 
@@ -462,6 +469,30 @@ def _signature(
             _dependencies(root) if dependencies is None else dependencies
         )
     return digest.hexdigest()
+
+
+def input_snapshot(root: Path, sources: list[Path]) -> bytes:
+    """Fingerprint the complete selected source, rule, and test-manifest state.
+
+    Returns:
+        A digest suitable for rejecting reports assembled across live edits.
+
+    """
+    configurations = {
+        root / config for names in CONFIGS.values() for config in names
+    }
+    manifests = set((root / "tests").rglob("*.sources"))
+    inputs = sorted(set(sources) | configurations | manifests)
+    digest = hashlib.sha256()
+    for path in inputs:
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        if path.is_file():
+            digest.update(b"present\0")
+            digest.update(path.read_bytes())
+        else:
+            digest.update(b"absent\0")
+    return digest.digest()
 
 
 def _compile_entry_target(entry: object) -> Path | None:
@@ -846,6 +877,7 @@ def _validate(options: Options) -> int:
     # File arguments are accepted for backwards compatibility, never as a
     # scope limiter: the owner requires every repository source in each run.
     sources = source_files(ROOT, ())
+    initial_snapshot = input_snapshot(ROOT, sources)
     # Include the requested tools even if a missing prerequisite prevents a
     # tool from executing. An omitted clang-tidy key must never imply success.
     versions: dict[str, str] = {}
@@ -863,6 +895,20 @@ def _validate(options: Options) -> int:
         for tool in _tools(file, options)
     ]
     results.extend(run_tests(ROOT))
+    # The run lock serializes validators, not other agents' source writes.
+    # A changed source, rule, test manifest or inventory makes a mixed-revision
+    # report unsafe even when every individual check happened to pass.
+    if sources != source_files(ROOT, ()) or initial_snapshot != input_snapshot(
+        ROOT, sources
+    ):
+        results.append(
+            _finding(
+                "src/ tools/ tests/",
+                "source-snapshot",
+                "fail",
+                details=["Inputs changed during scan; rerun on a stable tree"],
+            )
+        )
     report = build_report(
         results, files=len(sources), tests=options.tests, tools=lint.versions
     )

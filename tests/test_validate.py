@@ -25,6 +25,9 @@ EXPECTED_SKIP = "skipped"
 EXPECTED_FAIL = "fail"
 SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
+FULL_SCOPE_FRAGMENT = '"scope": "repository"'
+ONE_FAILURE_FRAGMENT = '"fail": 1'
+SNAPSHOT_FAILURE_FRAGMENT = '"tool": "source-snapshot"'
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
@@ -134,6 +137,30 @@ class CacheValidation(unittest.TestCase):
 
 class SourceDiscovery(unittest.TestCase):
     """Protect source boundaries without hiding explicit unsupported inputs."""
+
+    @staticmethod
+    def test_incomplete_git_inventory_fails_closed() -> None:
+        """Do not count a truncated -z response as all repository sources."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            for output in ("src/example.py", "x" * validator.OUTPUT_LIMIT):
+                with mock.patch.object(
+                    validator,
+                    "run_process",
+                    return_value=validator.Process(0, output, ""),
+                ):
+                    assert _rejects(
+                        lambda: validator.source_files(root, ()),
+                        "Incomplete git source inventory",
+                    )
+            source = root / "src/example.py"
+            _ = source.write_text("", encoding="utf-8")
+            with mock.patch.object(
+                validator,
+                "run_process",
+                return_value=validator.Process(0, "src/example.py\0", ""),
+            ):
+                assert validator.source_files(root, ()) == [source]
 
     @staticmethod
     def test_path_outside_repository_is_rejected() -> None:
@@ -422,6 +449,112 @@ class FullRepositoryRun(unittest.TestCase):
     """Ensure the shared report cannot omit checks or race between agents."""
 
     @staticmethod
+    def test_snapshot_tracks_source_rules_and_native_manifests() -> None:
+        """A source or test-build input change invalidates the same report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/example.py"
+            rule = root / ".clang-tidy"
+            manifest = root / "tests/test_native.sources"
+            _ = source.write_text("before", encoding="utf-8")
+            _ = rule.write_text("rule-1", encoding="utf-8")
+            _ = manifest.write_text("src/example.py", encoding="utf-8")
+            initial = validator.input_snapshot(root, [source])
+            _ = manifest.write_text("src/other.cpp", encoding="utf-8")
+            manifest_changed = validator.input_snapshot(root, [source])
+            assert initial != manifest_changed
+            _ = rule.write_text("rule-2", encoding="utf-8")
+            rules_changed = validator.input_snapshot(root, [source])
+            assert manifest_changed != rules_changed
+            _ = source.write_text("after", encoding="utf-8")
+            assert rules_changed != validator.input_snapshot(root, [source])
+
+    @staticmethod
+    def test_source_edit_during_validation_fails_report() -> None:
+        """Never publish an apparent clean pass from mixed source revisions."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/example.py"
+            _ = source.write_text("before", encoding="utf-8")
+            host = _sample_finding("tests/test_fake.py", "host-test", "pass")
+
+            def edit_during_tests(
+                working_root: Path,
+            ) -> list[validator.Finding]:
+                _ = (working_root / "src/example.py").write_text(
+                    "after", encoding="utf-8"
+                )
+                return [host]
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "src/example.py", "ruff", "pass"
+                    ),
+                ),
+                mock.patch.object(
+                    validator, "run_tests", side_effect=edit_during_tests
+                ),
+                mock.patch.object(validator, "_version", return_value="test"),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 1
+            report = (root / ".cache/validate/report.json").read_text()
+            assert FULL_SCOPE_FRAGMENT in report
+            assert ONE_FAILURE_FRAGMENT in report
+            assert SNAPSHOT_FAILURE_FRAGMENT in report
+
+    @staticmethod
+    def test_new_source_during_validation_fails_report() -> None:
+        """Concurrent additions must not disappear from an apparent pass."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            first = root / "src/first.py"
+            added = root / "src/second.py"
+            _ = first.write_text("before", encoding="utf-8")
+
+            def add_during_tests(working_root: Path) -> list[validator.Finding]:
+                _ = (working_root / "src/second.py").write_text(
+                    "added", encoding="utf-8"
+                )
+                return [
+                    _sample_finding("tests/test_fake.py", "host-test", "pass")
+                ]
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator,
+                    "source_files",
+                    side_effect=[[first], [first, added]],
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "src/first.py", "ruff", "pass"
+                    ),
+                ),
+                mock.patch.object(
+                    validator, "run_tests", side_effect=add_during_tests
+                ),
+                mock.patch.object(validator, "_version", return_value="test"),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 1
+            report = (root / ".cache/validate/report.json").read_text()
+            assert ONE_FAILURE_FRAGMENT in report
+            assert SNAPSHOT_FAILURE_FRAGMENT in report
+
+    @staticmethod
     def test_multiline_tidy_version_is_not_the_llvm_heading() -> None:
         """Report the actual Clang-Tidy version in the tools manifest."""
         llvm_output = "LLVM (http://llvm.org/):\n LLVM version 23.1.2\n0"
@@ -463,7 +596,10 @@ class FullRepositoryRun(unittest.TestCase):
                 redirect_stdout(output),
             ):
                 assert validator.main() == 0
-            discovered.assert_called_once_with(root, ())
+            assert discovered.call_args_list == [
+                mock.call(root, ()),
+                mock.call(root, ()),
+            ]
             assert seen == [
                 (native.name, "clang-format"),
                 (native.name, "clang-tidy"),
