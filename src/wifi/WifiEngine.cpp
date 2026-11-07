@@ -153,6 +153,7 @@ namespace simpleath
                                                        size_t capacity,
                                                        EngineAction &action)
         {
+            action = {};
             if (!selected_)
                 return EngineResult::InvalidState;
             size_t written = 0;
@@ -348,6 +349,7 @@ namespace simpleath
                                           const InputTrust &trust, uint8_t *out,
                                           size_t capacity, EngineAction &action)
         {
+            action = {};
             if (!frame || !trust.radioReady || !trust.channelAuthorized ||
                 !trust.dmaAndFcsVerified)
                 return EngineResult::InvalidInput;
@@ -378,6 +380,7 @@ namespace simpleath
         EngineResult WifiEngine::checkBeaconTimeout(uint64_t nowMs,
                                                     EngineAction &action)
         {
+            action = {};
             if (link_.observeTimeout(nowMs) != LinkMonitorResult::Ok)
                 return EngineResult::NoAction;
             // OS / radio owner must quiesce DMA, clear keycache and reconnect.
@@ -391,8 +394,17 @@ namespace simpleath
             // hardware and remain able to remove keys before it releases the
             // backend.
             supplicant_.reset();
+            // Callback context may be freed after the owner has quiesced the
+            // device and removeInstalledKeys has returned. Do not retain a
+            // borrowed native provider across suspend or surprise removal.
+            crypto_.clear();
             station_.reset();
+            cache_.clear();
+            stationAddress_ = {};
+            nextSequence_ = 0;
             selected_ = false;
+            keysConfigured_ = false;
+            channelAuthorized_ = false;
         }
 
         EngineResult WifiEngine::encodeOutgoingEthernet(
@@ -400,6 +412,7 @@ namespace simpleath
             const InputTrust &trust, uint8_t *out, size_t capacity,
             EngineAction &action)
         {
+            action = {};
             const StationState state = station_.state();
             if ((state != StationState::AssociatedOpen &&
                  state != StationState::HardwareKeysInstalled) ||

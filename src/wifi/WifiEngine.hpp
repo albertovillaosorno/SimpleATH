@@ -48,6 +48,9 @@ namespace simpleath
             LinkLost
         };
 
+        // Borrowed RX payloads are valid only for the successful call.
+        // Every public action-producing call clears the action at entry so
+        // failure or NoAction never preserves a previous borrowed pointer.
         struct EngineAction
         {
                 ActionKind kind;
@@ -113,6 +116,9 @@ namespace simpleath
 
                 EngineResult checkBeaconTimeout(uint64_t nowMs,
                                                 EngineAction &action);
+                // Caller must quiesce hardware before invalidating its key
+                // backend. This resets security callbacks and channel policy;
+                // a resumed radio must reconfigure its provider and rescan.
                 void radioStopped(uint64_t nowMs, bool suspended);
                 // Generic Ethernet-II transmission only. This never sends
                 // cleartext EAPOL after WPA2 key install; the private M2/M4
