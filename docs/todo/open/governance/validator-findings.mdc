@@ -363,6 +363,31 @@ failures are Clang-Tidy. The process output and saved JSON match
 byte-for-byte, and the source snapshot did not drift. This is a fresh
 complete failed report, not a validator acceptance. **P0 remains OPEN**.
 
+## NVM owner-epoch diagnostic checkpoint, 2026-11-07 17:44 CST
+
+Source-only DCO `1633488` changes `NvmBoardLease::acquire` so an invalid
+or previously retired owner epoch clears `NvmDiscoveryStatus` before
+returning `InvalidArgument`. Previously the board lease was revoked but
+its caller status could retain `Ok`, `captureComplete=true` and the prior
+attempt count. The alias preflight still leaves overlapping outputs
+untouched, and no hardware callback runs for an invalid epoch.
+
+Synthetic replay tests for two retired epochs reproduced the stale status
+before the fix (first failure exit 15) and passed after it under strict
+C++14 and C++17 with AddressSanitizer/UndefinedBehaviorSanitizer. The two
+changed files pass Clang-Format and diff whitespace checks. These are
+host-only tests, not native PCI or device validation.
+
+On **clean main `1633488`**, the mandatory default
+`python3 -B tools/validate.py` covered `scope=repository`,
+`source_only=true`, `tests_requested=true`: **161 source files, 410
+checks, 303 cached, 107 executed, 359 passed, 51 failed, zero skipped**.
+All 51 failures are Clang-Tidy, with no snapshot drift. Stdout and saved
+`.cache/validate/report.json` were byte-identical. This is a complete
+cache-backed report; the preceding `32401ca` report independently ran
+all 410 checks uncached. **P0 remains OPEN**. No kext build, CI, RF or
+hardware activity occurred.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
