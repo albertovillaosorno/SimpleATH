@@ -28,6 +28,9 @@ EXPECTED_TIMEOUT = "timed out"
 FULL_SCOPE_FRAGMENT = '"scope": "repository"'
 ONE_FAILURE_FRAGMENT = '"fail": 1'
 SNAPSHOT_FAILURE_FRAGMENT = '"tool": "source-snapshot"'
+SOURCE_ONLY_FRAGMENT = '"source_only": true'
+TESTS_REQUESTED_FRAGMENT = '"tests_requested": true'
+FORBIDDEN_CHECK_OPTIONS = ("--no-tidy", "--no-tests", "--no-json")
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
@@ -508,6 +511,8 @@ class FullRepositoryRun(unittest.TestCase):
                 assert validator.main() == 1
             report = (root / ".cache/validate/report.json").read_text()
             assert FULL_SCOPE_FRAGMENT in report
+            assert SOURCE_ONLY_FRAGMENT in report
+            assert TESTS_REQUESTED_FRAGMENT in report
             assert ONE_FAILURE_FRAGMENT in report
             assert SNAPSHOT_FAILURE_FRAGMENT in report
 
@@ -665,7 +670,7 @@ class DefaultCliOptions(unittest.TestCase):
     @staticmethod
     def test_disabled_mandatory_checks_are_rejected() -> None:
         """Do not mutate shared cache/report after reduced-scope flags."""
-        for flag in ("--no-tidy", "--no-tests", "--no-json"):
+        for flag in FORBIDDEN_CHECK_OPTIONS:
             output = io.StringIO()
             code: int | None = None
             try:
@@ -679,6 +684,25 @@ class DefaultCliOptions(unittest.TestCase):
                     code = error.code
             assert code == ARGPARSE_FAILURE
             assert flag in output.getvalue()
+
+    @staticmethod
+    def test_help_does_not_offer_unavailable_check_opt_outs() -> None:
+        """Forbidden switches are errors, not listed feature controls."""
+        output = io.StringIO()
+        status: int | None = None
+        try:
+            with (
+                mock.patch.object(sys, "argv", ["validate.py", "--help"]),
+                redirect_stdout(output),
+            ):
+                _ = validator.parse_options()
+        except SystemExit as error:
+            if isinstance(error.code, int):
+                status = error.code
+        assert status == 0
+        assert all(
+            flag not in output.getvalue() for flag in FORBIDDEN_CHECK_OPTIONS
+        )
 
     @staticmethod
     def test_explicit_flags_and_files_preserve_cli_contract() -> None:

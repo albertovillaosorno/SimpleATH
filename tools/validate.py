@@ -778,7 +778,8 @@ def build_report(
     return {
         "schema": CACHE_VERSION,
         "scope": "repository",
-        "source_only": not tests,
+        # Offline host tests do not turn a source-only scan into hardware QA.
+        "source_only": True,
         "tests_requested": tests,
         "tools": tools,
         "summary": {
@@ -812,32 +813,25 @@ def parse_options() -> Options:
     )
     _ = parser.add_argument(
         "--tidy",
-        action=argparse.BooleanOptionalAction,
+        action="store_true",
         default=defaults.tidy,
         help="Check Clang-Tidy with an existing compilation database",
     )
     _ = parser.add_argument(
         "--tests",
-        action=argparse.BooleanOptionalAction,
+        action="store_true",
         default=defaults.tests,
         help="Run offline host tests under tests/; never build the kext",
     )
     _ = parser.add_argument(
         "--json",
         dest="json_output",
-        action=argparse.BooleanOptionalAction,
+        action="store_true",
         default=defaults.json_output,
     )
     _ = parser.add_argument("--no-cache", action="store_true")
     namespace = parser.parse_args()
     values: dict[str, object] = vars(namespace)
-    for name, option_name in (
-        ("--no-tidy", "tidy"),
-        ("--no-tests", "tests"),
-        ("--no-json", "json_output"),
-    ):
-        if values.get(option_name) is False:
-            parser.error(f"{name} is forbidden for the full-repository report")
     files = values.get("files")
     return Options(
         tuple(files) if _strings(files) else (),
