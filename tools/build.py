@@ -33,6 +33,7 @@ from native_references import reference_paths
 from profiles import IMAGES
 from system_profiles import SYSTEMS
 from system_profiles import validate_reference_systems
+from source_fingerprint import source_fingerprint
 from verification_runtime import require_assertions_active
 
 CONFIGURATIONS = ("Debug", "Release")
@@ -278,30 +279,14 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def fingerprint():
-    files = [ROOT / name for name in ("README.md", "README.en.md", "NOTICE.md")]
-    for folder in [
-        "SimpleATH",
-        "SimpleATH.xcodeproj",
-        "Config",
-        "Tools",
-        "Probe",
-        "Docs",
-        "Resources",
-        ".github",
-    ]:
-        files.extend(
-            p
-            for p in (ROOT / folder).rglob("*")
-            if p.is_file()
-            and "__pycache__" not in p.parts
-            and "xcuserdata" not in p.parts
-            and p.name != ".DS_Store"
-        )
-    hashes = {str(p.relative_to(ROOT)): digest(p) for p in sorted(files)}
-    return hashlib.sha256(
-        json.dumps(hashes, sort_keys=True).encode()
-    ).hexdigest()
+def fingerprint() -> str:
+    """Hash the actual SimpleATH source tree before building or packaging.
+
+    Returns:
+        A reproducible digest of the current source/policy snapshot.
+
+    """
+    return source_fingerprint(ROOT)
 
 
 def fragment(optional=False):
