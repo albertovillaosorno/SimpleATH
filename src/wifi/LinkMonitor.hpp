@@ -70,11 +70,14 @@ namespace simpleath
 
                 // Call only after a validated association; WPA2 keys may
                 // still be pending and interfaceReady must then be false.
+                // The station and BSSID must be distinct unicast identities.
                 // This class never claims native operations have occurred.
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
                                           uint16_t beaconIntervalTu,
                                           uint64_t nowMs, bool pmfNegotiated,
                                           bool interfaceReady);
+                // A liveness refresh requires infrastructure beacon/probe
+                // metadata matching the associated beacon interval.
                 LinkMonitorResult
                 observeManagement(const uint8_t *frame, size_t frameLength,
                                   uint64_t nowMs, bool fcsVerified,

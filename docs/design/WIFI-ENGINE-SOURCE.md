@@ -23,6 +23,9 @@ The new WifiEngine interface wires together existing portable modules:
   stop/suspend transitions to a non-retrying RadioUnavailable state, cancels
   any pending reconnect and discards stale association identity. Only native
   reinitialization and a new actual association may restore link monitoring.
+  The monitor rejects identical STA/BSSID identities and does not refresh AP
+  liveness from an IBSS, zero-interval or changed-interval advertisement;
+  a changed beacon cadence requires renewed association instead.
 
 The caller passes a separate receive-trust report from a real device
 backend. Such a backend is NOT implemented: the flags must never be

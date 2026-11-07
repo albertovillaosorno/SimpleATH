@@ -46,7 +46,8 @@ namespace simpleath
         {
             if (status_.state == LinkState::Associated)
                 return LinkMonitorResult::AlreadyMonitoring;
-            if (!validStationMac(station) || !validStationMac(bssid))
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
                 return LinkMonitorResult::InvalidMac;
             if (beaconIntervalTu == 0)
                 return LinkMonitorResult::InvalidBeaconInterval;
@@ -123,8 +124,13 @@ namespace simpleath
                 // Beacons/probe responses update liveness only after full
                 // parsing.
                 Beacon beacon {};
-                if (parseBeacon(frame, frameLength, beacon) != Result::Ok)
+                if (parseBeacon(frame, frameLength, beacon) != Result::Ok ||
+                    !beacon.infrastructure || beacon.intervalTu == 0 ||
+                    beacon.intervalTu != beaconIntervalTu_)
                     return LinkMonitorResult::InvalidFrame;
+                // A parsed foreign/IBSS/zero-interval advertisement must not
+                // keep a previously associated infrastructure link alive.
+                // A changed beacon cadence requires association renegotiation.
                 status_.lastBeaconMs = nowMs;
                 if (status_.acceptedBeacons != 0xffffffffu)
                     ++status_.acceptedBeacons;
