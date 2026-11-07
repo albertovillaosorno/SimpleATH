@@ -305,6 +305,55 @@ namespace
         return state.rollbackCalls == (installationFailed ? 1u : 0u);
     }
 
+    bool rejectEapolParserInputAlias()
+    {
+        uint8_t independent[99] {};
+        makeM1(independent);
+        KeyFrame parsed {};
+        if (parseEapolKey(independent, sizeof(independent), parsed) !=
+                EapolResult::Ok ||
+            parsed.message != KeyMessage::Pairwise1 ||
+            parsed.eapolBytes != independent || parsed.eapolLength != 99)
+            return false;
+
+        struct AliasedInput
+        {
+                KeyFrame result;
+                uint8_t storage[128];
+        } input {};
+
+        auto *bytes = reinterpret_cast<uint8_t *>(&input);
+        makeM1(bytes);
+        uint8_t before[sizeof(input)] {};
+        std::memcpy(before, &input, sizeof(input));
+        if (parseEapolKey(bytes, 99, input.result) !=
+                EapolResult::OverlappingBuffers ||
+            std::memcmp(&input, before, sizeof(input)) != 0)
+            return false;
+
+        ReplayGuard guard;
+        const auto *guardBytes = reinterpret_cast<const uint8_t *>(&guard);
+        KeyFrame aliasedNonce = parsed;
+        aliasedNonce.nonce = guardBytes;
+        if (guard.acceptMessage1(aliasedNonce) !=
+                EapolResult::OverlappingBuffers ||
+            guard.phase() != HandshakePhase::Empty ||
+            guard.lastReplayCounter() != 0)
+            return false;
+        if (guard.acceptMessage1(parsed) != EapolResult::Ok ||
+            guard.phase() != HandshakePhase::AwaitingMessage3 ||
+            guard.lastReplayCounter() != 1)
+            return false;
+        aliasedNonce.message = KeyMessage::Pairwise3;
+        aliasedNonce.replayCounter = 2;
+        if (guard.acceptVerifiedMessage3(aliasedNonce, true) !=
+                EapolResult::OverlappingBuffers ||
+            guard.phase() != HandshakePhase::AwaitingMessage3 ||
+            guard.lastReplayCounter() != 1)
+            return false;
+        return true;
+    }
+
     struct alignas(size_t) RxWord
     {
             size_t word;
@@ -314,6 +363,8 @@ namespace
 
 int main()
 {
+    if (!rejectEapolParserInputAlias())
+        return 25;
     FakeCrypto fake {};
     Wpa2Supplicant supplicant;
     uint8_t pmk[32] {};

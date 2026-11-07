@@ -51,12 +51,34 @@ namespace simpleath
             return aggregate != 0;
         }
 
+        static bool overlaps_storage(const void *const first_buffer,
+                                     size_t first_bytes,
+                                     const void *const second_buffer,
+                                     size_t second_bytes)
+        {
+            if (!first_buffer || !second_buffer || !first_bytes ||
+                !second_bytes)
+            {
+                return false;
+            }
+            const auto first = reinterpret_cast<uintptr_t>(first_buffer);
+            const auto second = reinterpret_cast<uintptr_t>(second_buffer);
+            return first <= second ? second - first < first_bytes
+                                   : first - second < second_bytes;
+        }
+
         EapolResult parseEapolKey(const uint8_t *const frame, size_t length,
                                   KeyFrame &out)
         {
             if (frame == nullptr)
             {
                 return EapolResult::NullBuffer;
+            }
+            // A borrowed EAPOL-Key frame must not be overwritten with parsed
+            // metadata: the MIC, nonce and replay counter still refer to it.
+            if (overlaps_storage(frame, length, &out, sizeof(out)))
+            {
+                return EapolResult::OverlappingBuffers;
             }
             if (length < K_EAPOL_HEADER_BYTES)
             {
@@ -206,6 +228,14 @@ namespace simpleath
 
         EapolResult ReplayGuard::acceptMessage1(const KeyFrame &frame)
         {
+            // A caller may not borrow its nonce or frame metadata from the
+            // replay guard: advancing it would corrupt the still-read input.
+            if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlaps_storage(this, sizeof(*this), frame.nonce,
+                                 K_KEY_NONCE_BYTES))
+            {
+                return EapolResult::OverlappingBuffers;
+            }
             if (frame.message != KeyMessage::Pairwise1 ||
                 frame.nonce == nullptr)
             {
@@ -227,6 +257,12 @@ namespace simpleath
         EapolResult ReplayGuard::acceptVerifiedMessage3(const KeyFrame &frame,
                                                         bool mic_verified)
         {
+            if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlaps_storage(this, sizeof(*this), frame.nonce,
+                                 K_KEY_NONCE_BYTES))
+            {
+                return EapolResult::OverlappingBuffers;
+            }
             if (phase_ != HandshakePhase::AwaitingMessage3 ||
                 frame.message != KeyMessage::Pairwise3)
             {

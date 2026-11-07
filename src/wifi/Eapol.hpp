@@ -26,7 +26,8 @@ namespace simpleath
             UnsupportedMessage,
             ReplayDetected,
             InvalidState,
-            MicNotVerified
+            MicNotVerified,
+            OverlappingBuffers
         };
 
         enum class KeyMessage : uint8_t
@@ -63,6 +64,8 @@ namespace simpleath
                 bool installationRequested;
         };
 
+        // KeyFrame borrows pointers into frame; the result object cannot
+        // overlap those input bytes. On an overlap no input or output changes.
         EapolResult parseEapolKey(const uint8_t *frame, size_t length,
                                   KeyFrame &out);
 
@@ -75,7 +78,8 @@ namespace simpleath
 
         // This is only a replay guard. A verified MIC is necessary for message
         // 3, but it is not sufficient to claim a completed WPA2 four-way
-        // handshake.
+        // handshake. The borrowed frame metadata and nonce must not overlap
+        // this guard's persistent state.
         class ReplayGuard
         {
             public:
