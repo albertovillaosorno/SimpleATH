@@ -3,6 +3,7 @@
 """Synthetic Mach-O parser safety checks with no real system images."""
 
 import mmap
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -320,3 +321,57 @@ class MachOResourceLifecycleTests(TestCase):
             assert _reject(image)
         assert len(handles) == 1
         assert handles[0].closed
+
+
+class MachOInputPathSafetyTests(TestCase):
+    """No mmap or blocked FIFO open for untrusted native source paths."""
+
+    @staticmethod
+    def _refuses_path(path: Path) -> bool:
+        """Check that only a validated regular file reaches the mapper.
+
+        Returns:
+            True when the source fails without creating a mapped image.
+
+        """
+        try:
+            opened = native_abi.Mach(path)
+        except OSError, ValueError:
+            return True
+        opened.close()
+        return False
+
+    @staticmethod
+    def test_symlinks_and_fifo_are_refused_without_mapping() -> None:
+        """Avoid symlink traversal and blocking nonregular device streams."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "valid.macho"
+            _ = original.write_bytes(_thin())
+            link = root / "link.macho"
+            link.symlink_to(original)
+            pipe = root / "pipe.macho"
+            os.mkfifo(pipe)
+            with mock.patch.object(mmap, "mmap", side_effect=AssertionError):
+                assert MachOInputPathSafetyTests._refuses_path(link)
+                assert MachOInputPathSafetyTests._refuses_path(pipe)
+
+    @staticmethod
+    def test_empty_and_sparse_oversized_images_rejected_before_mmap() -> None:
+        """Validate metadata without reading or mapping a giant fixture."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            empty = root / "empty.macho"
+            _ = empty.write_bytes(b"")
+            oversized = root / "sparse.macho"
+            _ = oversized.touch()
+            os.truncate(oversized, native_abi.MAX_NATIVE_MACHO_BYTES + 1)
+            with mock.patch.object(mmap, "mmap", side_effect=AssertionError):
+                assert MachOInputPathSafetyTests._refuses_path(empty)
+                assert MachOInputPathSafetyTests._refuses_path(oversized)
+
+    @staticmethod
+    def test_valid_regular_image_keeps_existing_mapped_reads() -> None:
+        """Preserve Mach-O bytes and resource cleanup for normal files."""
+        data = _thin()
+        assert _open(data, lambda mach: mach.read(VM_BASE, 4)) == data[:4]

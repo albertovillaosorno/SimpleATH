@@ -12,11 +12,17 @@ import ctypes
 import functools
 import hashlib
 import mmap
+import os
 from pathlib import Path
 import re
+import stat
 import struct
 import subprocess
+from typing import TYPE_CHECKING
 import uuid
+
+if TYPE_CHECKING:
+    from typing import BinaryIO
 
 if __package__:
     from tools.native_references import ReferenceImage
@@ -46,6 +52,36 @@ PATHS = {
 }
 
 
+MAX_NATIVE_MACHO_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def _open_mach_source(path: Path) -> BinaryIO:
+    """Open an immutable-path, bounded regular Mach-O image for mmap.
+
+    Returns:
+        The caller-owned binary stream, positioned at its start.
+
+    Raises:
+        ValueError: A source is empty, nonregular or exceeds the byte limit.
+
+    System opening errors, including symlink rejection, propagate as OSError.
+
+    """
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW
+    stream = os.fdopen(os.open(path, flags), "rb")
+    try:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or not (
+            0 < info.st_size <= MAX_NATIVE_MACHO_BYTES
+        ):
+            message = "Mach-O source must be a bounded regular file"
+            raise ValueError(message)
+        return stream
+    except BaseException:
+        stream.close()
+        raise
+
+
 def _require_span(start: int, size: int, limit: int) -> None:
     """Reject negative or out-of-range file/mapping spans.
 
@@ -66,7 +102,7 @@ class Mach:
 
     def __init__(self, path, entry=None):
         self.path = str(path)
-        self.f = Path(path).open("rb")
+        self.f = _open_mach_source(Path(path))
         try:
             self.b = mmap.mmap(self.f.fileno(), 0, access=mmap.ACCESS_READ)
         except BaseException:
