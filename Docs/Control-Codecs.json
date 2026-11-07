@@ -1,0 +1,651 @@
+{
+  "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+  "legacySHA256": "ac2dc15b77f8eaf97b71b34c5d0e1b59f862bfeac618396449306e1837e73894",
+  "getTableCapacity": 417,
+  "populatedGetEntries": 211,
+  "uniqueGetCodecs": 207,
+  "scalarGetRequests": [
+    {
+      "request": 5,
+      "symbol": "__ZL12getPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x78617",
+      "stores": [
+        "78699:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 8,
+      "symbol": "__ZL7getRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x788a6",
+      "stores": [
+        "7892e:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 13,
+      "symbol": "__ZL11getStateReqP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x78d9e",
+      "stores": [
+        "78e20:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 15,
+      "symbol": "__ZL9getOpModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x78f30",
+      "stores": [
+        "78fb2:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 18,
+      "symbol": "__ZL9getIntMitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x791d4",
+      "stores": [
+        "79260:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 21,
+      "symbol": "__ZL18getAssociateResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79377",
+      "stores": [
+        "793a8:      \tmovl\t%ecx, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 26,
+      "symbol": "__ZL9getApModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x793c7",
+      "stores": [
+        "79449:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 28,
+      "symbol": "__ZL9getLocaleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79589",
+      "stores": [
+        "7960b:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 31,
+      "symbol": "__ZL16getFragThresholdP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79716",
+      "stores": [
+        "797a2:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 33,
+      "symbol": "__ZL12getShortSlotP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x798dd",
+      "stores": [
+        "7996a:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 34,
+      "symbol": "__ZL16getMulticastRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79995",
+      "stores": [
+        "79a1d:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 35,
+      "symbol": "__ZL13getRetryLimitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79a3f",
+      "stores": [
+        "79b13:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 36,
+      "symbol": "__ZL13getRetryLimitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79a3f",
+      "stores": [
+        "79b13:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 41,
+      "symbol": "__ZL10getDTIMIntP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x79e1e",
+      "stores": [
+        "79ea0:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 45,
+      "symbol": "__ZL7getRandP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7a177",
+      "stores": [
+        "7a203:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 50,
+      "symbol": "__ZL20getAssociationStatusP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7a6a3",
+      "stores": [
+        "7a725:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 52,
+      "symbol": "__ZL13getDebugFlagsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7a820",
+      "stores": [
+        "7a851:      \tmovl\t%eax, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 55,
+      "symbol": "__ZL16getGuardIntervalP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7aa53",
+      "stores": [
+        "7aadf:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 56,
+      "symbol": "__ZL16getMimoPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7ab0a",
+      "stores": [
+        "7ab96:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 57,
+      "symbol": "__ZL6getMCSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7abc1",
+      "stores": [
+        "7ac43:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 58,
+      "symbol": "__ZL7getRIFSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7ac65",
+      "stores": [
+        "7acf1:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 59,
+      "symbol": "__ZL7getLDPCP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7ad1c",
+      "stores": [
+        "7ada8:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 60,
+      "symbol": "__ZL7getMSDUP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7add3",
+      "stores": [
+        "7ae5f:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 63,
+      "symbol": "__ZL6getPLSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7b081",
+      "stores": [
+        "7b10d:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 64,
+      "symbol": "__ZL7getPSMPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7b138",
+      "stores": [
+        "7b1c4:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 70,
+      "symbol": "__ZL13getWoWEnabledP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7b991",
+      "stores": [
+        "7ba81:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 71,
+      "symbol": "__ZL18get40MhzIntolerantP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7babb",
+      "stores": [
+        "7bb3d:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 72,
+      "symbol": "__ZL12getPidLockedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7bb5f",
+      "stores": [
+        "7bb8b:      \tmovl\t%eax, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 82,
+      "symbol": "__ZL17getCacheAgeThreshP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c188",
+      "stores": [
+        "7c1a8:      \tmovl\t%eax, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 87,
+      "symbol": "__ZL13getBTCoexModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c44e",
+      "stores": [
+        "7c4da:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 88,
+      "symbol": "__ZL10getWoWTestP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c505",
+      "stores": [
+        "7c591:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 96,
+      "symbol": "__ZL16getVirtualIfRoleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c5bc",
+      "stores": [
+        "7c5cb:      \tmovl\t%eax, 0x14(%r8)"
+      ]
+    },
+    {
+      "request": 100,
+      "symbol": "__ZL11getP2POppPSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c71e",
+      "stores": [
+        "7c770:      \tmovl\t%eax, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 101,
+      "symbol": "__ZL14getP2PCTWindowP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x7c791",
+      "stores": [
+        "7c7e3:      \tmovl\t%eax, 0x14(%rbx)"
+      ]
+    },
+    {
+      "request": 235,
+      "symbol": "__ZL16getBTCoexOptionsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x81096",
+      "stores": [
+        "81122:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 241,
+      "symbol": "__ZL16getRangingEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x81452",
+      "stores": [
+        "81486:      \tmovl\t%eax, 0x14(%r8)"
+      ]
+    },
+    {
+      "request": 256,
+      "symbol": "__ZL23getUCMCoexProfileActiveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x81ced",
+      "stores": [
+        "81d79:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 258,
+      "symbol": "__ZL15getThermalIndexP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x81ec4",
+      "stores": [
+        "81f46:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 259,
+      "symbol": "__ZL33getMaxSupportedNSSForAssociatedAPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x81f68",
+      "stores": [
+        "81ff4:      \tmovl\t%eax, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 261,
+      "symbol": "__ZL14getPowerBudgetP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x8211f",
+      "stores": [
+        "821a1:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 265,
+      "symbol": "__ZL21getOffloadTcpkaEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x8228b",
+      "stores": [
+        "8230d:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 267,
+      "symbol": "__ZL18getScansSuppressedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x823c4",
+      "stores": [
+        "82446:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 336,
+      "symbol": "__ZL19getHostApModeHiddenP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x82468",
+      "stores": [
+        "824ea:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 353,
+      "symbol": "__ZL6getNSSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x82ee4",
+      "stores": [
+        "82f66:      \tmovl\t%ecx, 0x14(%r14)"
+      ]
+    },
+    {
+      "request": 369,
+      "symbol": "__ZL26getAssociateExtendedResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0",
+      "address": "0x83145",
+      "stores": [
+        "83176:      \tmovl\t%ecx, 0x14(%rbx)"
+      ]
+    }
+  ],
+  "adaptedCopySites": [
+    {
+      "image": "Legacy",
+      "address": "0x7e4b2",
+      "symbol": "__ZL10getAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x5a",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x8932d",
+      "symbol": "__ZL12setDebugInfoP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x8c",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x89489",
+      "symbol": "__ZL10setAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x5a",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x8c151",
+      "symbol": "__ZL16setRangingEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x6e",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x8c20d",
+      "symbol": "__ZL15setRangingStartP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x6e",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x8d3d5",
+      "symbol": "__ZL20setRangingIdentifierP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x4e",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x8d3fa",
+      "symbol": "__ZL20setRangingIdentifierP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x73",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x91dc5",
+      "symbol": "__ZN17IO80211Controller6copyInEyPvm+0x59",
+      "operation": "_copyin"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x7e56f",
+      "symbol": "__ZL10getAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x117",
+      "operation": "_copyout"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x81524",
+      "symbol": "__ZL17getRangingResultsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x96",
+      "operation": "_copyout"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x823a3",
+      "symbol": "__ZL22getRangingCapabilitiesP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x74",
+      "operation": "_copyout"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x893b2",
+      "symbol": "__ZL12setDebugInfoP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x111",
+      "operation": "_copyout"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x89546",
+      "symbol": "__ZL10setAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x117",
+      "operation": "_copyout"
+    },
+    {
+      "image": "Legacy",
+      "address": "0x92d63",
+      "symbol": "__ZN17IO80211Controller7copyOutEPKvym+0x59",
+      "operation": "_copyout"
+    },
+    {
+      "image": "AirPort",
+      "address": "0x38538",
+      "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x70",
+      "operation": "_copyin"
+    },
+    {
+      "image": "AirPort",
+      "address": "0x386c6",
+      "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x1fe",
+      "operation": "_copyout"
+    },
+    {
+      "image": "AirPortOriginal",
+      "address": "0x38538",
+      "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x70",
+      "operation": "_copyin"
+    },
+    {
+      "image": "AirPortOriginal",
+      "address": "0x386c6",
+      "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x1fe",
+      "operation": "_copyout"
+    }
+  ],
+  "associateTransfer": {
+    "request": 20,
+    "legacySize": 548,
+    "nativeSize": {
+      "Sonoma": 856,
+      "Sequoia": 900,
+      "Tahoe": 908
+    },
+    "legacyCodec": "0x84430",
+    "nativeProducer": {
+      "Sequoia": "0xa053",
+      "Tahoe": "0xa094"
+    },
+    "driverConsumer": "0x42b8e",
+    "extendedLayoutSystems": [
+      "Sequoia",
+      "Tahoe"
+    ],
+    "authLower": {
+      "legacyOffset": 6,
+      "legacyWidth": 2,
+      "nativeOffset": 8,
+      "nativeWidth": 4
+    },
+    "authUpper": {
+      "legacyOffset": 8,
+      "legacyWidth": 2,
+      "nativeOffset": 12,
+      "nativeWidth": 4
+    },
+    "ssidLength": {
+      "legacyOffset": 12,
+      "nativeOffset": 16
+    },
+    "key": {
+      "legacyOffset": 56,
+      "nativeOffset": 60
+    },
+    "rsnLength": {
+      "legacyOffset": 204,
+      "nativeOffset": 208
+    },
+    "pmkLength": {
+      "legacyOffset": 468,
+      "nativeOffset": 472
+    },
+    "bssidCount": {
+      "legacyOffset": 514,
+      "nativeOffset": 518,
+      "legacyMaximum": 3,
+      "nativeMaximum": 10
+    },
+    "scopeLength": {
+      "legacyOffset": 536,
+      "nativeOffset": 580
+    }
+  },
+  "roamProfileTransfer": {
+    "request": 216,
+    "legacyBandSize": 124,
+    "nativeBandSize": 128,
+    "aggregateSystems": [
+      "Sequoia",
+      "Tahoe"
+    ],
+    "sonomaTransfer": "Single 0x7C-byte Legacy band, passed through unchanged",
+    "nativeAllBandsSize": 384,
+    "nativeValidOffset": 12,
+    "legacyRecordsOffset": 12,
+    "nativeRecordsOffset": 16,
+    "legacySetCodec": "0x8b211",
+    "legacyGetCodec": "0x806fb",
+    "nativeBandParser": {
+      "Sequoia": "0x33d0a",
+      "Tahoe": "0x37432"
+    },
+    "bands": [
+      2,
+      4
+    ]
+  },
+  "capabilityTransfer": {
+    "request": 12,
+    "legacySize": 12,
+    "nativeSize": {
+      "Sonoma": 16,
+      "Sequoia": 19,
+      "Tahoe": 21
+    },
+    "legacyCodec": "0x78cb7",
+    "nativeBindSizeInstruction": {
+      "Sequoia": "0x2672a",
+      "Tahoe": "0x26a29"
+    },
+    "scanCompletionCapability": 46,
+    "nativeScanWaitTest": "0x4259",
+    "scope": "Native-sized output for all endpoints; only Classic advertises bridge scan completion events; other hardware bits are preserved."
+  },
+  "scanResultTransfer": {
+    "request": 11,
+    "legacySize": 1164,
+    "nativeSize": {
+      "Sonoma": 1228,
+      "Sequoia": 2264,
+      "Tahoe": 2272
+    },
+    "commonHeaderSize": 140,
+    "ieLengthOffset": 138,
+    "legacyIECapacity": 1024,
+    "nativeIECapacity": {
+      "Sequoia": 2048,
+      "Tahoe": 2048
+    },
+    "legacyCodec": "0x78a33",
+    "nativeCallerSizeInstruction": "0x4333",
+    "nativeParser": "0x6d4f",
+    "nativeControllerSizeInstruction": "0x7ff8007d28a9"
+  },
+  "nativeCaller": {
+    "imageUUID": "A7A35846-4067-3182-B70E-F7477FBC32BD",
+    "symbol": "Apple80211RawGet",
+    "instructionOffset": "0x6984",
+    "behavior": "If req_data is NULL, the native caller supplies &req_val and length 4 as IOUC output."
+  },
+  "sonoma": {
+    "OSBuild": "23J620",
+    "kernel": "23.6.0",
+    "airPortBackend": "Original",
+    "nativeIO80211UUID": "0a93a0f4c12532fe918856f7c24ddc41",
+    "nativeIO80211FamilyUUID": "ec4ba6726e083ad2b88201690a960ff4",
+    "scanResultSizeInstruction": "0x4baa",
+    "capabilitySizeInstruction": "0x20e10",
+    "associateSizeInstruction": "0xa5fe",
+    "associateTransfer": {
+      "nativeSize": 856,
+      "legacyPrefixSize": 548,
+      "prefixUnchanged": true,
+      "authLowerOffset": 6,
+      "authUpperOffset": 8,
+      "authWidth": 2,
+      "ssidLengthOffset": 12,
+      "keyOffset": 56,
+      "rsnLengthOffset": 204,
+      "pmkLengthOffset": 468,
+      "bssidCountOffset": 514,
+      "bssidMaximum": 3,
+      "authWriteInstructions": [
+        "0xa99c",
+        "0xa9be"
+      ]
+    },
+    "scanMultipleSize": 5344,
+    "roamProfileSize": 124,
+    "selectorCount": 7,
+    "commandPacketSize": 15408,
+    "largeCommandPacketSize": 245808,
+    "eventHeaderSize": 48,
+    "driverAvailableSize": 184,
+    "associationDonePolicy": "Preserve Legacy empty event; no synthetic JoinStatus",
+    "associationDoneConsumer": {
+      "symbol": "__eventRead",
+      "eventDispatch": "0x22376",
+      "resultRequest21": "0x224d7",
+      "getterCall": "0x224e5",
+      "emptyPayloadCallback": [
+        "0x22502",
+        "0x22517"
+      ]
+    },
+    "validation": "Native binary analysis and host-executed codec vectors",
+    "upstreamWireless": "https://github.com/dortania/OpenCore-Legacy-Patcher/blob/8da38565fa1551a8e5ce8613ea835d04dd97e089/opencore_legacy_patcher/efi_builder/networking/wireless.py"
+  }
+}

@@ -1,0 +1,35 @@
+name: SimpleATH Xcode Compile
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+      - name: Validate source and native ABI
+        run: |
+          python3 Tools/check.py
+          python3 Tools/native_references.py verify
+      - name: Prepare dependencies
+        run: python3 Tools/bootstrap.py
+      - name: Build Release
+        run: python3 Tools/build.py build --configuration Release
+      - name: Upload compiled kernel extension and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimpleATH-Xcode-Build
+          path: |
+            build/DerivedData/Build/Products/Release/SimpleATH.kext/**
+            build/*.log
+            build/*.json
+          if-no-files-found: warn

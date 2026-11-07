@@ -1,0 +1,738 @@
+{
+  "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+  "supportedKernel": "23.x / 24.x / 25.x",
+  "images": {
+    "Legacy": {
+      "path": ".research/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/MacOS/IO80211FamilyLegacy",
+      "uuid": "4c07538b62eb3d6daef993bcdcf45fab",
+      "sha256": "ac2dc15b77f8eaf97b71b34c5d0e1b59f862bfeac618396449306e1837e73894",
+      "guards": [
+        {
+          "address": "0x9d978",
+          "symbol": "__ZN16IO80211Interface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient"
+        },
+        {
+          "address": "0xb59ca",
+          "symbol": "__ZN23IO80211VirtualInterface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient"
+        },
+        {
+          "address": "0x96590",
+          "symbol": "__ZN16IO80211Interface27IO80211InterfacePostMessageEjPvm"
+        },
+        {
+          "address": "0xb19e2",
+          "symbol": "__ZN23IO80211VirtualInterface27IO80211InterfacePostMessageEjPvm"
+        },
+        {
+          "address": "0xd35a4",
+          "symbol": "__ZN21IO80211InfraInterface19postMessageInternalEjPvm"
+        },
+        {
+          "address": "0x91e1a",
+          "symbol": "__ZN17IO80211Controller20apple80211_ioctl_getEP16IO80211InterfaceP23IO80211VirtualInterfaceP23IO80211SkywalkInterfacePv"
+        },
+        {
+          "address": "0x91ede",
+          "symbol": "__ZN17IO80211Controller20apple80211_ioctl_setEP16IO80211InterfaceP23IO80211VirtualInterfaceP23IO80211SkywalkInterfacePv"
+        },
+        {
+          "address": "0x95964",
+          "symbol": "__ZN16IO80211Interface13getControllerEv"
+        },
+        {
+          "address": "0xb09c4",
+          "symbol": "__ZN23IO80211VirtualInterface13getControllerEv"
+        },
+        {
+          "address": "0x91b3c",
+          "symbol": "__ZNK17IO80211Controller11getWorkLoopEv"
+        },
+        {
+          "address": "0x96086",
+          "symbol": "__ZN16IO80211Interface10getBSDNameEv"
+        },
+        {
+          "address": "0xb0872",
+          "symbol": "__ZN23IO80211VirtualInterface10getBSDNameEv"
+        },
+        {
+          "address": "0xa730e",
+          "symbol": "__ZN23IO80211SkywalkInterface10getBSDNameEv"
+        },
+        {
+          "address": "0x9576e",
+          "symbol": "__ZN16IO80211Interface14performCommandEP19IONetworkControllermPvS2_"
+        },
+        {
+          "address": "0x8ee5c",
+          "symbol": "__ZN17IO80211Controller22apple80211RequestIoctlEjiP16IO80211InterfacePv"
+        },
+        {
+          "address": "0x97bc4",
+          "symbol": "__ZN16IO80211Interface25updateCountryCodePropertyEb"
+        },
+        {
+          "address": "0x78617",
+          "symbol": "__ZL12getPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x788a6",
+          "symbol": "__ZL7getRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x78d9e",
+          "symbol": "__ZL11getStateReqP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x78f30",
+          "symbol": "__ZL9getOpModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x791d4",
+          "symbol": "__ZL9getIntMitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79377",
+          "symbol": "__ZL18getAssociateResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x793c7",
+          "symbol": "__ZL9getApModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79589",
+          "symbol": "__ZL9getLocaleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79716",
+          "symbol": "__ZL16getFragThresholdP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x798dd",
+          "symbol": "__ZL12getShortSlotP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79995",
+          "symbol": "__ZL16getMulticastRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79a3f",
+          "symbol": "__ZL13getRetryLimitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x79e1e",
+          "symbol": "__ZL10getDTIMIntP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7a177",
+          "symbol": "__ZL7getRandP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7a6a3",
+          "symbol": "__ZL20getAssociationStatusP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7a820",
+          "symbol": "__ZL13getDebugFlagsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7aa53",
+          "symbol": "__ZL16getGuardIntervalP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7ab0a",
+          "symbol": "__ZL16getMimoPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7abc1",
+          "symbol": "__ZL6getMCSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7ac65",
+          "symbol": "__ZL7getRIFSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7ad1c",
+          "symbol": "__ZL7getLDPCP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7add3",
+          "symbol": "__ZL7getMSDUP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7b081",
+          "symbol": "__ZL6getPLSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7b138",
+          "symbol": "__ZL7getPSMPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7b991",
+          "symbol": "__ZL13getWoWEnabledP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7babb",
+          "symbol": "__ZL18get40MhzIntolerantP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7bb5f",
+          "symbol": "__ZL12getPidLockedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c188",
+          "symbol": "__ZL17getCacheAgeThreshP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c44e",
+          "symbol": "__ZL13getBTCoexModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c505",
+          "symbol": "__ZL10getWoWTestP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c5bc",
+          "symbol": "__ZL16getVirtualIfRoleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c71e",
+          "symbol": "__ZL11getP2POppPSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7c791",
+          "symbol": "__ZL14getP2PCTWindowP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x81096",
+          "symbol": "__ZL16getBTCoexOptionsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x81452",
+          "symbol": "__ZL16getRangingEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x81ced",
+          "symbol": "__ZL23getUCMCoexProfileActiveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x81ec4",
+          "symbol": "__ZL15getThermalIndexP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x81f68",
+          "symbol": "__ZL33getMaxSupportedNSSForAssociatedAPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x8211f",
+          "symbol": "__ZL14getPowerBudgetP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x8228b",
+          "symbol": "__ZL21getOffloadTcpkaEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x823c4",
+          "symbol": "__ZL18getScansSuppressedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x82468",
+          "symbol": "__ZL19getHostApModeHiddenP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x82ee4",
+          "symbol": "__ZL6getNSSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x83145",
+          "symbol": "__ZL26getAssociateExtendedResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "address": "0x7e4b2",
+          "symbol": "__ZL10getAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x5a"
+        },
+        {
+          "address": "0x8932d",
+          "symbol": "__ZL12setDebugInfoP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x8c"
+        },
+        {
+          "address": "0x89489",
+          "symbol": "__ZL10setAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x5a"
+        },
+        {
+          "address": "0x8c151",
+          "symbol": "__ZL16setRangingEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x6e"
+        },
+        {
+          "address": "0x8c20d",
+          "symbol": "__ZL15setRangingStartP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x6e"
+        },
+        {
+          "address": "0x8d3d5",
+          "symbol": "__ZL20setRangingIdentifierP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x4e"
+        },
+        {
+          "address": "0x8d3fa",
+          "symbol": "__ZL20setRangingIdentifierP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x73"
+        },
+        {
+          "address": "0x91dc5",
+          "symbol": "__ZN17IO80211Controller6copyInEyPvm+0x59"
+        },
+        {
+          "address": "0x7e56f",
+          "symbol": "__ZL10getAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x117"
+        },
+        {
+          "address": "0x81524",
+          "symbol": "__ZL17getRangingResultsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x96"
+        },
+        {
+          "address": "0x823a3",
+          "symbol": "__ZL22getRangingCapabilitiesP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x74"
+        },
+        {
+          "address": "0x893b2",
+          "symbol": "__ZL12setDebugInfoP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x111"
+        },
+        {
+          "address": "0x89546",
+          "symbol": "__ZL10setAwdlCtlP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x117"
+        },
+        {
+          "address": "0x92d63",
+          "symbol": "__ZN17IO80211Controller7copyOutEPKvym+0x59"
+        }
+      ],
+      "copySites": [
+        {
+          "address": "0x7e4b2",
+          "output": false
+        },
+        {
+          "address": "0x7e56f",
+          "output": true
+        },
+        {
+          "address": "0x81524",
+          "output": true
+        },
+        {
+          "address": "0x823a3",
+          "output": true
+        },
+        {
+          "address": "0x8932d",
+          "output": false
+        },
+        {
+          "address": "0x893b2",
+          "output": true
+        },
+        {
+          "address": "0x89489",
+          "output": false
+        },
+        {
+          "address": "0x89546",
+          "output": true
+        },
+        {
+          "address": "0x8c151",
+          "output": false
+        },
+        {
+          "address": "0x8c20d",
+          "output": false
+        },
+        {
+          "address": "0x8d3d5",
+          "output": false
+        },
+        {
+          "address": "0x8d3fa",
+          "output": false
+        },
+        {
+          "address": "0x91dc5",
+          "output": false
+        },
+        {
+          "address": "0x92d63",
+          "output": true
+        }
+      ],
+      "scalarGetRequests": [
+        {
+          "request": 5,
+          "address": "0x78617",
+          "symbol": "__ZL12getPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 8,
+          "address": "0x788a6",
+          "symbol": "__ZL7getRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 13,
+          "address": "0x78d9e",
+          "symbol": "__ZL11getStateReqP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 15,
+          "address": "0x78f30",
+          "symbol": "__ZL9getOpModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 18,
+          "address": "0x791d4",
+          "symbol": "__ZL9getIntMitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 21,
+          "address": "0x79377",
+          "symbol": "__ZL18getAssociateResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 26,
+          "address": "0x793c7",
+          "symbol": "__ZL9getApModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 28,
+          "address": "0x79589",
+          "symbol": "__ZL9getLocaleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 31,
+          "address": "0x79716",
+          "symbol": "__ZL16getFragThresholdP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 33,
+          "address": "0x798dd",
+          "symbol": "__ZL12getShortSlotP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 34,
+          "address": "0x79995",
+          "symbol": "__ZL16getMulticastRateP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 35,
+          "address": "0x79a3f",
+          "symbol": "__ZL13getRetryLimitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 36,
+          "address": "0x79a3f",
+          "symbol": "__ZL13getRetryLimitP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 41,
+          "address": "0x79e1e",
+          "symbol": "__ZL10getDTIMIntP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 45,
+          "address": "0x7a177",
+          "symbol": "__ZL7getRandP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 50,
+          "address": "0x7a6a3",
+          "symbol": "__ZL20getAssociationStatusP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 52,
+          "address": "0x7a820",
+          "symbol": "__ZL13getDebugFlagsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 55,
+          "address": "0x7aa53",
+          "symbol": "__ZL16getGuardIntervalP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 56,
+          "address": "0x7ab0a",
+          "symbol": "__ZL16getMimoPowersaveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 57,
+          "address": "0x7abc1",
+          "symbol": "__ZL6getMCSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 58,
+          "address": "0x7ac65",
+          "symbol": "__ZL7getRIFSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 59,
+          "address": "0x7ad1c",
+          "symbol": "__ZL7getLDPCP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 60,
+          "address": "0x7add3",
+          "symbol": "__ZL7getMSDUP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 63,
+          "address": "0x7b081",
+          "symbol": "__ZL6getPLSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 64,
+          "address": "0x7b138",
+          "symbol": "__ZL7getPSMPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 70,
+          "address": "0x7b991",
+          "symbol": "__ZL13getWoWEnabledP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 71,
+          "address": "0x7babb",
+          "symbol": "__ZL18get40MhzIntolerantP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 72,
+          "address": "0x7bb5f",
+          "symbol": "__ZL12getPidLockedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 82,
+          "address": "0x7c188",
+          "symbol": "__ZL17getCacheAgeThreshP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 87,
+          "address": "0x7c44e",
+          "symbol": "__ZL13getBTCoexModeP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 88,
+          "address": "0x7c505",
+          "symbol": "__ZL10getWoWTestP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 96,
+          "address": "0x7c5bc",
+          "symbol": "__ZL16getVirtualIfRoleP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 100,
+          "address": "0x7c71e",
+          "symbol": "__ZL11getP2POppPSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 101,
+          "address": "0x7c791",
+          "symbol": "__ZL14getP2PCTWindowP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 235,
+          "address": "0x81096",
+          "symbol": "__ZL16getBTCoexOptionsP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 241,
+          "address": "0x81452",
+          "symbol": "__ZL16getRangingEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 256,
+          "address": "0x81ced",
+          "symbol": "__ZL23getUCMCoexProfileActiveP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 258,
+          "address": "0x81ec4",
+          "symbol": "__ZL15getThermalIndexP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 259,
+          "address": "0x81f68",
+          "symbol": "__ZL33getMaxSupportedNSSForAssociatedAPP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 261,
+          "address": "0x8211f",
+          "symbol": "__ZL14getPowerBudgetP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 265,
+          "address": "0x8228b",
+          "symbol": "__ZL21getOffloadTcpkaEnableP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 267,
+          "address": "0x823c4",
+          "symbol": "__ZL18getScansSuppressedP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 336,
+          "address": "0x82468",
+          "symbol": "__ZL19getHostApModeHiddenP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 353,
+          "address": "0x82ee4",
+          "symbol": "__ZL6getNSSP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        },
+        {
+          "request": 369,
+          "address": "0x83145",
+          "symbol": "__ZL26getAssociateExtendedResultP17IO80211ControllerP16IO80211InterfaceP23IO80211VirtualInterfaceP21IO80211InfraInterfaceP13apple80211reqb+0x0"
+        }
+      ]
+    },
+    "AirPortOriginal": {
+      "path": ".research/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext/Contents/MacOS/AirPortBrcmNIC",
+      "uuid": "e4678feb1dc135cc930648021083d04a",
+      "sha256": "884e90b27cff151e432bb36275936f57b43e72419e95b51b3ac067d3f2ccd331",
+      "guards": [
+        {
+          "address": "0x1affb",
+          "symbol": "_bcm_decode_anqp_nai_realm_print"
+        },
+        {
+          "address": "0x2c1ae8",
+          "symbol": "__dma_detach"
+        },
+        {
+          "address": "0x2c2514",
+          "symbol": "_dma64_txfast"
+        },
+        {
+          "address": "0x2c3b78",
+          "symbol": "__dma_rxfill"
+        },
+        {
+          "address": "0x2c41da",
+          "symbol": "__dma_getnextrxp"
+        },
+        {
+          "address": "0x3cf70",
+          "symbol": "__ZN15AirPort_BrcmNIC9getLOCALEEP8OSObjectP22apple80211_locale_data"
+        },
+        {
+          "address": "0x3e05a",
+          "symbol": "__ZN15AirPort_BrcmNIC15getCOUNTRY_CODEEP8OSObjectP28apple80211_country_code_data"
+        },
+        {
+          "address": "0x38538",
+          "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x70"
+        },
+        {
+          "address": "0x386c6",
+          "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x1fe"
+        },
+        {
+          "address": "0x2c2612",
+          "symbol": "TX backend identity"
+        },
+        {
+          "address": "0x2c3d78",
+          "symbol": "RX fill backend identity"
+        },
+        {
+          "address": "0x2c4286",
+          "symbol": "RX consume backend identity"
+        }
+      ],
+      "copySites": [
+        {
+          "address": "0x38538",
+          "output": false
+        },
+        {
+          "address": "0x386c6",
+          "output": true
+        }
+      ],
+      "rejectsOtherBackendAt": [
+        "0x1affb",
+        "0x2c1ae8",
+        "0x2c2612",
+        "0x2c3d78",
+        "0x2c4286"
+      ]
+    },
+    "AirPort": {
+      "path": ".research/binaries/AirPortBrcmNIC-Tahoe-v1.0.0/AirPortBrcmNIC-Tahoe.kext/Contents/MacOS/AirPortBrcmNIC",
+      "uuid": "e4678feb1dc135cc930648021083d04a",
+      "sha256": "0b6cf936e594d1372960a60c8f17b6cbf68e3535a191574bd91498da49713775",
+      "guards": [
+        {
+          "address": "0x1affb",
+          "symbol": "_bcm_decode_anqp_nai_realm_print"
+        },
+        {
+          "address": "0x2c1ae8",
+          "symbol": "__dma_detach"
+        },
+        {
+          "address": "0x2c2514",
+          "symbol": "_dma64_txfast"
+        },
+        {
+          "address": "0x2c3b78",
+          "symbol": "__dma_rxfill"
+        },
+        {
+          "address": "0x2c41da",
+          "symbol": "__dma_getnextrxp"
+        },
+        {
+          "address": "0x3cf70",
+          "symbol": "__ZN15AirPort_BrcmNIC9getLOCALEEP8OSObjectP22apple80211_locale_data"
+        },
+        {
+          "address": "0x3e05a",
+          "symbol": "__ZN15AirPort_BrcmNIC15getCOUNTRY_CODEEP8OSObjectP28apple80211_country_code_data"
+        },
+        {
+          "address": "0x38538",
+          "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x70"
+        },
+        {
+          "address": "0x386c6",
+          "symbol": "__ZN15AirPort_BrcmNIC11wlIocCommonEP13apple80211reqP8OSObjectbb+0x1fe"
+        },
+        {
+          "address": "0x2c2612",
+          "symbol": "TX backend identity"
+        },
+        {
+          "address": "0x2c3d78",
+          "symbol": "RX fill backend identity"
+        },
+        {
+          "address": "0x2c4286",
+          "symbol": "RX consume backend identity"
+        }
+      ],
+      "copySites": [
+        {
+          "address": "0x38538",
+          "output": false
+        },
+        {
+          "address": "0x386c6",
+          "output": true
+        }
+      ],
+      "rejectsOtherBackendAt": [
+        "0x1affb",
+        "0x2c1ae8",
+        "0x2c2612",
+        "0x2c3d78",
+        "0x2c4286"
+      ]
+    }
+  }
+}
