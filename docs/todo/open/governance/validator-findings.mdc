@@ -127,6 +127,41 @@ guard tests pass strict Ruff, format and BasedPyright. The final concurrent
 Python host suite run observed 284 passing tests, zero skips. No kext, device,
 CI, build/publish pipeline or downloaded dependencies were executed.
 
+## Stable whole-repository checkpoint, 2026-11-07 15:47 CST
+
+A default-on `python3 -B tools/validate.py` completed on **clean main
+`e49bec3`** after the concurrent ABI refactor had been committed. Its new
+source/configuration/test-manifest snapshot check detected no input drift.
+The saved `.cache/validate/report.json` and process JSON were byte-identical:
+`scope=repository`, `source_only=true`, `tests_requested=true`, 160 source
+files, **406 checks executed, zero cached**, 354 passed, **52 failed**,
+zero skipped. The check tools were Clang-Format 23.1.2, Clang-Tidy LLVM
+23.1.2, Ruff check and format 0.16.10, and BasedPyright 1.40.1; offline
+host tests were requested and executed. The complete Python host suite
+separately passed **301 tests**. Zero cache hits resulted from invalidating
+all fingerprints through the validator source edit; every check actually ran.
+
+Failures remain **51 Clang-Tidy translation-unit checks** across native
+source/test fixtures and **one Ruff-check failure** in `tools/embed.py`:
+`generate()` exceeds the strict locals, statements and complexity limits.
+All other requested checks passed; zero skipped means no acceptance
+exemptions. P0 stays **OPEN**; no clean validation or source/hardware
+readiness is claimed. This was an unmodified source checkout during the
+scan, not the mandatory final acceptance after remediation. Peer work after
+this exact commit requires another full report.
+
+Three source-only DCO main commits were pushed during this continuation:
+`2c445b3` rejects incomplete git inventories and reports concurrent
+source/configuration/test-manifest drift as failures; `b4a04a0` updates
+native forwarding fixture headers and macOS probe include ordering;
+`e49bec3` removes the misleading `--no-tidy`, `--no-tests`, and `--no-json`
+CLI switches and correctly labels default offline tests as source-only.
+The validator and associated tests pass scoped Ruff, Ruff format and strict
+BasedPyright checks, plus 33 focused validator tests. The two changed native
+sources pass Clang Format but still have broader Clang-Tidy findings. No
+kext build, CI, source-changing generator, hardware or network diagnostic
+was executed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
