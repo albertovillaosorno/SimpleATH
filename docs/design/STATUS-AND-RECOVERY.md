@@ -91,19 +91,24 @@ association and traffic remain unverified/not implemented.
    authentication/association, WPA2/RSN/EAPOL/key/replay handling, rates,
    aggregation, disconnect/reconnect and OS packet delivery. Frame codecs or
    a station state machine alone do not establish association or key security.
-9. **Validation:** compilation and tests remain unauthorized; physical
-   acceptance remains unperformed. Every source milestone needs appropriate
-   verification once explicitly authorized.
+9. **Validation:** necessary offline Python, C++ and Objective-C++ host tests
+   are authorized under root `tests/` through `tools/validate.py --tests`.
+   These may compile isolated host-only programs but never a kext or access
+   hardware. Active kext compilation/CI and physical acceptance remain
+   unauthorized and unperformed. Source formatting or host test success is
+   not device readiness.
 
 ## Separate owner authorizations needed
 
 These are future scopes, not authorization supplied by this document:
 
-- **Build and offline tests:** identify an immutable source commit; authorize
-  compiling that commit on Intel macOS, producing the kext and running named
-  offline tests plus import/relocation inspection. If CI is chosen, separately
-  authorize one named build-v* tag and its workflow. An ordinary main push
-  remains source publication only and must not create any tag or dispatch.
+- **Kext build and import validation:** identify an immutable source commit;
+  separately authorize compiling that exact commit on Intel macOS and
+  inspecting its actual imports/relocations. Necessary isolated host tests
+  are **already authorized** above, but do not authorize a kext build. If CI
+  is chosen, separately authorize one named `build-v*` tag and its workflow.
+  An ordinary main push remains source publication only and must not create
+  any tag or dispatch.
 - **Installation:** approve a specific reviewed artifact/hash and a specific
   disposable test EFI destination. Authorize only that copy/config change.
   Do not treat build approval as USB, EFI, SSD, root-patch or boot approval.
