@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "scope": "Static API candidate inventory for disabled NativeDmaBuffer source; not compiled imports or ABI approval",
+  "kernelSha256": "a91aad0da9d0a2f545c06859524bb048f4e2e392e46aa12da9fabe652081be53",
+  "kernelUUID": "28267FD5-3E1E-3686-8A1C-E73E2466FCFB",
+  "sdkRevision": "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+  "sdkHeaderSha256": {
+    "IOWorkLoop.h": "4a14f3bbb23eacd1c51a82a8bbabc63951e9c036631ba47e7fef6dba1e6b5bb6",
+    "IOBufferMemoryDescriptor.h": "9f1e16358541ff84b9841597f9c5adaa7dc12594b3a880837bcefff141f32d7d",
+    "IOMapper.h": "daad3e992b0c69345137b882aaf5225d828376ea36bfe17a7a247f1d073b449f",
+    "IODMACommand.h": "35d9513d987857f08df26b85ab664791feac444f504c05241c0a93aa6faec43d"
+  },
+  "candidates": {
+    "mapper": {
+      "IOMapper19copyMapperForDevice": {
+        "__ZN8IOMapper19copyMapperForDeviceEP9IOService": "global_definition_candidate"
+      }
+    },
+    "allocation": {
+      "IOBufferMemoryDescriptor17inTaskWithOptions": {
+        "__ZN24IOBufferMemoryDescriptor17inTaskWithOptionsEP4taskjmm": "global_definition_candidate",
+        "__ZN24IOBufferMemoryDescriptor17inTaskWithOptionsEP4taskjmmjj": "global_definition_candidate"
+      },
+      "IOBufferMemoryDescriptor14getBytesNoCopy": {
+        "__ZN24IOBufferMemoryDescriptor14getBytesNoCopyEmm": "global_definition_candidate",
+        "__ZN24IOBufferMemoryDescriptor14getBytesNoCopyEv": "global_definition_candidate"
+      }
+    },
+    "dmaCommand": {
+      "IODMACommand12OutputHost32": {
+        "__ZN12IODMACommand12OutputHost32EPS_NS_9Segment64EPvj": "global_definition_candidate"
+      },
+      "IODMACommand17withSpecification": {
+        "__ZN12IODMACommand17withSpecificationEPFbPS_NS_9Segment64EPvjEPKNS_14SegmentOptionsEjP8IOMapperS2_": "global_definition_candidate",
+        "__ZN12IODMACommand17withSpecificationEPFbPS_NS_9Segment64EPvjEhyNS_14MappingOptionsEyjP8IOMapperS2_": "global_definition_candidate"
+      },
+      "IODMACommand19setMemoryDescriptor": {
+        "__ZN12IODMACommand19setMemoryDescriptorEPK18IOMemoryDescriptorb": "global_definition_candidate"
+      },
+      "IODMACommand7prepare": {
+        "__ZN12IODMACommand7prepareEyybb": "global_definition_candidate"
+      },
+      "IODMACommand8complete": {
+        "__ZN12IODMACommand8completeEbb": "global_definition_candidate"
+      },
+      "IODMACommand11synchronize": {
+        "__ZN12IODMACommand11synchronizeEj": "global_definition_candidate"
+      },
+      "IODMACommand15genIOVMSegmentsEPyPvPj": {
+        "__ZN12IODMACommand15genIOVMSegmentsEPyPvPj": "global_definition_candidate"
+      },
+      "IODMACommand21clearMemoryDescriptor": {
+        "__ZN12IODMACommand21clearMemoryDescriptorEb": "global_definition_candidate"
+      }
+    },
+    "memoryDescriptor": {
+      "IOMemoryDescriptor10writeBytes": {
+        "__ZN18IOMemoryDescriptor10writeBytesEyPKvy": "global_definition_candidate"
+      },
+      "IOMemoryDescriptor9readBytes": {
+        "__ZN18IOMemoryDescriptor9readBytesEyPvy": "global_definition_candidate"
+      },
+      "IOMemoryDescriptor7prepare": {},
+      "IOMemoryDescriptor8complete": {}
+    },
+    "workLoop": {
+      "IOWorkLoop6inGate": {
+        "__ZNK10IOWorkLoop6inGateEv": "global_definition_candidate"
+      },
+      "IOWorkLoop8onThread": {
+        "__ZNK10IOWorkLoop8onThreadEv": "global_definition_candidate"
+      }
+    },
+    "support": {
+      "_kernel_task": {
+        "_kernel_task": "global_definition_candidate"
+      },
+      "_bzero": {
+        "_bzero": "global_definition_candidate"
+      },
+      "_IOLog": {
+        "_IOLog": "global_definition_candidate"
+      }
+    }
+  },
+  "virtualDispatchSlotsVerified": false,
+  "productionExportEligibilityVerified": false,
+  "deviceMapperVerified": false,
+  "nativeDmaExercised": false
+}

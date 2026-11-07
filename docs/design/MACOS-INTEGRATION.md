@@ -89,7 +89,13 @@ candidates; it deliberately cannot approve the native PCI or wireless ABI.
    only controls matching competition; it is not an exclusive hardware claim.
    Claim through the PCI provider's open protocol before touching config/MMIO,
    retain the provider for the whole session, and stop if another owner exists.
-2. Serialize start, stop, power, interrupts and recovery on one work loop/gate.
+2. Serialize hardware start/stop, power, interrupts and recovery on one work
+   loop/gate. Blocking buffer allocation and IODMACommand preparation must run
+   on a separate sleepable client thread. Reserve lifetime/epoch under the
+   gate, allocate privately, then reenter the gate and reject stale epochs
+   before publishing any device address. See
+   [native DMA buffers](NATIVE-DMA-BUFFERS.md) for the staged, disabled resource
+   implementation and the controller/worker integration still required.
    Establish D0 through the PCI/power family and observe completion before
    config/MMIO. A boot argument or a registry property cannot establish D0.
 3. Read physical vendor/device, subsystem, class and header from configuration
