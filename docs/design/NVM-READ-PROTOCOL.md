@@ -32,7 +32,10 @@ Owner permission to edit source does not authorize invoking this capability.
   2 s plus bounded callback overhead, and the overall poll count to 200,000.
   Poll every 10 microseconds. A stalled clock cannot produce an infinite
   polling loop. The backend must implement bounded callbacks and a monotonic
-  clock. The future owner must use thread/work-loop context, not a hard IRQ.
+  clock; every consecutive observed clock sample is checked for regression,
+  including samples around MMIO reads. Unobserved backward/forward excursions
+  cannot be ruled out by sampling alone. The future owner must use
+  thread/work-loop context, not a hard IRQ.
 - Capture ascending-address bytes, extracting low bytes first from the
   little-endian EEPROM/OTP words. restoreEepromDump reverses each block into
   the descending-address stream expected by ath9k's compression format.
