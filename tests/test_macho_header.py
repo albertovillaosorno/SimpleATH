@@ -24,6 +24,8 @@ SEGMENT_COMMAND = 0x19
 SYMTAB_COMMAND = 2
 UUID_BYTES = bytes(range(16))
 SAMPLE_NAME = b"\0_sample\0"
+SOURCE_CHANGED = "source changed"
+FAKE_XCRUN = "/mock/xcrun"
 
 
 def _thin(commands: tuple[bytes, ...] = (), payload: bytes = b"") -> bytes:
@@ -193,7 +195,6 @@ class MachoLoadCommandSafety(TestCase):
     @staticmethod
     def test_disassembly_command_uses_fixed_shell_free_argv() -> None:
         """Never invoke a shell or use an unqualified xcrun process name."""
-        image = _parse(_symbol_image())
         calls: list[list[str]] = []
 
         class _Output:
@@ -205,11 +206,17 @@ class MachoLoadCommandSafety(TestCase):
             assert options.get("check") is True
             return _Output()
 
-        with (
-            mock.patch("tools.macho.shutil.which", return_value="/mock/xcrun"),
-            mock.patch("tools.macho.subprocess.run", side_effect=fake_run),
-        ):
-            _ = image.disassemble("^_sample$")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic.macho"
+            _ = path.write_bytes(_symbol_image())
+            image = Image(path)
+            with (
+                mock.patch(
+                    "tools.macho.shutil.which", return_value="/mock/xcrun"
+                ),
+                mock.patch("tools.macho.subprocess.run", side_effect=fake_run),
+            ):
+                _ = image.disassemble("^_sample$")
         assert len(calls) == 1
         assert calls[0][:2] == ["/mock/xcrun", "llvm-objdump"]
 
@@ -219,8 +226,69 @@ class MachoLoadCommandSafety(TestCase):
         assert all(_leb_rejected(data) for data in (b"\x80", b"\x80" * 16))
 
 
+def _disassembly_change_rejected(image: Image) -> bool:
+    """Detect stale source-path evidence without launching a real disassembler.
+
+    Returns:
+        True when the source snapshot mismatch is rejected.
+
+    """
+    try:
+        _ = image.disassemble("^_sample$")
+    except ValueError as error:
+        return SOURCE_CHANGED in str(error)
+    return False
+
+
 class MachoSnapshotHashSafety(TestCase):
     """Use hashes of bounded source bytes, never later path reopens."""
+
+    @staticmethod
+    def test_disassembler_rejects_changed_snapshot_before_subprocess() -> None:
+        """Refuse an input replaced after the initial checked Mach-O read."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "original.macho"
+            source = _symbol_image()
+            _ = path.write_bytes(source)
+            image = Image(path)
+            _ = path.write_bytes(source + b"tampered")
+            with (
+                mock.patch(
+                    "tools.macho.shutil.which", return_value="/mock/xcrun"
+                ),
+                mock.patch("tools.macho.subprocess.run") as launch,
+            ):
+                assert _disassembly_change_rejected(image)
+            launch.assert_not_called()
+
+    @staticmethod
+    def test_disassembler_rejects_source_change_during_subprocess() -> None:
+        """Do not return disassembly evidence if a source changes in flight."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "original.macho"
+            source = _symbol_image()
+            _ = path.write_bytes(source)
+            image = Image(path)
+
+            class _Output:
+                stdout: str = "synthetic disassembly"
+
+            def fake_run(argv: list[str], **kwargs: object) -> _Output:
+                assert argv[0] == FAKE_XCRUN
+                assert kwargs.get("shell") is False
+                _ = path.write_bytes(source + b"tampered")
+                return _Output()
+
+            with (
+                mock.patch(
+                    "tools.macho.shutil.which", return_value="/mock/xcrun"
+                ),
+                mock.patch(
+                    "tools.macho.subprocess.run", side_effect=fake_run
+                ) as launch,
+            ):
+                assert _disassembly_change_rejected(image)
+            launch.assert_called_once()
 
     @staticmethod
     def test_cli_hash_uses_verified_bytes_without_path_reread() -> None:

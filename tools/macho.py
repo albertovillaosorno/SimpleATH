@@ -400,6 +400,18 @@ class Image:
             else ""
         )
 
+    def _require_original_image(self) -> None:
+        """Require the offline disassembler input to match parsed source bytes.
+
+        Raises:
+            ValueError: The original bounded input changed since parsing.
+
+        """
+        observed = hashlib.sha256(read_macho_source(self.path)).hexdigest()
+        if observed != self.source_sha256:
+            message = "Mach-O disassembly source changed after inspection"
+            raise ValueError(message)
+
     def disassemble(self, pattern: str) -> str:
         """Disassemble pinned symbols with an explicit argument vector.
 
@@ -413,6 +425,7 @@ class Image:
         xcrun = shutil.which("xcrun")
         if xcrun is None:
             raise FileNotFoundError("xcrun is required for offline disassembly")
+        self._require_original_image()
         output = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argument vector without shell interpolation.
             [
                 xcrun,
@@ -428,6 +441,7 @@ class Image:
             text=True,
             capture_output=True,
         ).stdout
+        self._require_original_image()
         return "\n".join(self.annotate(line) for line in output.splitlines())
 
 
