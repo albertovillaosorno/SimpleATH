@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 Alberto Villa Osorno.
-"""Run cached source lint with installed tools; never build or run tests."""
-
-from __future__ import annotations
+"""Check source with installed linters; optionally run offline host tests."""
 
 import argparse
+from contextlib import suppress
 from dataclasses import dataclass
+from dataclasses import field
+from functools import cache
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed Git discovery and installed linters only, without a shell.
+import signal
+
+# Reviewed boundary: installed linters and opt-in host tests use argv only.
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import sys
+import tempfile
 from typing import Literal
 from typing import TYPE_CHECKING
 from typing import TypeIs
@@ -22,490 +27,703 @@ from typing import TypedDict
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-ROOT = Path(__file__).resolve().parent.parent
-CACHE = ROOT / ".cache" / "validate"
-NATIVE = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".m", ".mm"}
-UNITS = {".c", ".cc", ".cpp", ".cxx", ".m", ".mm"}
+ROOT = next(
+    p for p in Path(__file__).resolve().parents if (p / ".git").exists()
+)
+CACHE_VERSION = "simpleath.validate.v2"
+NATIVE = frozenset({
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cxx",
+    ".h",
+    ".hh",
+    ".hpp",
+    ".hxx",
+    ".m",
+    ".mm",
+})
+UNITS = frozenset({".c", ".cc", ".cpp", ".cxx", ".m", ".mm"})
+NATIVE_TESTS = frozenset({".cpp", ".mm"})
 SUPPORTED = NATIVE | {".py"}
-CLANG_FORMAT = "clang-format"
-CLANG_TIDY = "clang-tidy"
-RUFF_CHECK = "ruff-check"
-RUFF_FORMAT = "ruff-format"
-BASEDPYRIGHT = "basedpyright"
-SUCCESS = "pass"
-FAIL = "fail"
-SKIPPED = "skipped"
-MAX_DIAGNOSTICS = 12
-JSON_SWITCH = "--outputjson"
-TIMEOUT_SECONDS = 120
-CONFIGS = {
-    CLANG_FORMAT: (".clang-format", ".editorconfig"),
-    CLANG_TIDY: (".clang-tidy", ".editorconfig", "compile_commands.json"),
-    RUFF_CHECK: ("ruff.toml", ".editorconfig"),
-    RUFF_FORMAT: ("ruff.toml", ".editorconfig"),
-    BASEDPYRIGHT: ("pyrightconfig.json",),
-}
-EXECUTABLE = {
-    CLANG_FORMAT: "clang-format",
-    CLANG_TIDY: "clang-tidy",
-    RUFF_CHECK: "ruff",
-    RUFF_FORMAT: "ruff",
-    BASEDPYRIGHT: "basedpyright",
-}
-
-type _Status = Literal["pass", "fail", "skipped"]
-type _CacheStatus = Literal["pass", "fail"]
+TIMEOUT_SECONDS = 60.0
+OUTPUT_LIMIT = 256 * 1024
+DIAGNOSTIC_LIMIT = 12
+DISPLAY_LIMIT = 2
+DISPLAY_WIDTH = 240
+EXIT_FAILURE = 1
+EXIT_SKIPPED = 5
+PYTHON_TEST_DRIVER = """\
+import sys
+import unittest
+suite = unittest.TestLoader().discover(
+    sys.argv[1], pattern=sys.argv[2], top_level_dir=sys.argv[3])
+if not suite.countTestCases():
+    raise SystemExit(5)
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+counts = f"Tests run: {result.testsRun}; skipped: {len(result.skipped)}"
+sys.stdout.write(counts + chr(10))
+code = 1 if not result.wasSuccessful() else 0
+if not code and result.skipped:
+    code = 5
+raise SystemExit(code)
+"""
+PYTHON_SUFFIX = ".py"
+STATUS_OK: Literal["pass"] = "pass"
+SKIPPED: Literal["skipped"] = "skipped"
+type Status = Literal["pass", "fail", "skipped"]
 
 
-class _Options(argparse.Namespace):
-    def __init__(self) -> None:
-        super().__init__()
-        self.files: list[str] = []
-        self.tidy: bool = False
-        self.json: bool = False
-        self.no_cache: bool = False
+class Finding(TypedDict):
+    """Describe one actual check with bounded diagnostic output."""
 
-
-class _CacheEntry(TypedDict):
-    fingerprint: str
-    status: _CacheStatus
-    diagnostics: list[str]
-
-
-class _Result(TypedDict):
     file: str
     tool: str
-    status: _Status
+    status: Status
     cached: bool
     diagnostics: list[str]
 
 
-@dataclass
-class _Context:
-    """Mutable per-invocation cache and tool-version state."""
+class CacheEntry(TypedDict):
+    """Store only a validated lint result and its input fingerprint."""
 
-    options: _Options
-    entries: dict[str, object]
-    versions: dict[str, str]
-
-
-def digest(data: bytes) -> str:
-    """Return a source/configuration content hash.
-
-    Returns:
-        The SHA-256 digest encoded as hexadecimal text.
-
-    """
-    return hashlib.sha256(data).hexdigest()
+    fingerprint: str
+    status: Status
+    diagnostics: list[str]
 
 
-def _is_sequence(value: object) -> TypeIs[list[object]]:
-    return isinstance(value, list)
+@dataclass(frozen=True)
+class Process:
+    """Hold a subprocess outcome without untyped JSON or subprocess data."""
+
+    code: int
+    stdout: str
+    stderr: str
 
 
-def _is_strings(value: object) -> TypeIs[list[str]]:
-    return _is_sequence(value) and all(isinstance(item, str) for item in value)
+@dataclass(frozen=True)
+class Options:
+    """Select lint options separately from opt-in host test execution."""
+
+    files: tuple[str, ...] = ()
+    tidy: bool = False
+    tests: bool = False
+    json_output: bool = False
+    no_cache: bool = False
 
 
-def _is_object_dict(value: object) -> TypeIs[dict[object, object]]:
+CONFIGS = {
+    "clang-format": (".clang-format", ".editorconfig"),
+    "clang-tidy": (".clang-tidy", ".editorconfig", "compile_commands.json"),
+    "ruff-check": ("ruff.toml", ".editorconfig"),
+    "ruff-format": ("ruff.toml", ".editorconfig"),
+    "basedpyright": ("pyrightconfig.json",),
+}
+EXECUTABLE = {
+    "clang-format": "clang-format",
+    "clang-tidy": "clang-tidy",
+    "ruff-check": "ruff",
+    "ruff-format": "ruff",
+    "basedpyright": "basedpyright",
+}
+
+
+def _decode(text: str, decoder: Callable[[str], object] = json.loads) -> object:
+    return decoder(text)
+
+
+def _object_mapping(value: object) -> TypeIs[dict[object, object]]:
     return isinstance(value, dict)
 
 
-def _is_mapping(value: object) -> TypeIs[dict[str, object]]:
-    return _is_object_dict(value) and all(isinstance(key, str) for key in value)
+def _object_list(value: object) -> TypeIs[list[object]]:
+    return isinstance(value, list)
 
 
-def _decode_json(data: str, decoder: Callable[[str], object]) -> object:
-    return decoder(data)
+def _mapping(value: object) -> TypeIs[dict[str, object]]:
+    return _object_mapping(value) and all(isinstance(k, str) for k in value)
 
 
-def read_json(path: Path) -> dict[str, object]:
-    """Read a valid JSON object or return an empty cache.
+def _strings(value: object) -> TypeIs[list[str]]:
+    return _object_list(value) and all(isinstance(v, str) for v in value)
+
+
+def _status(value: object) -> TypeIs[Status]:
+    return isinstance(value, str) and value in {"pass", "fail", "skipped"}
+
+
+def _entry(value: object) -> CacheEntry | None:
+    result: CacheEntry | None = None
+    if _mapping(value):
+        result = _valid_entry(value)
+    return result
+
+
+def _valid_entry(value: dict[str, object]) -> CacheEntry | None:
+    fingerprint, status = value.get("fingerprint"), value.get("status")
+    diagnostics = value.get("diagnostics")
+    if not isinstance(fingerprint, str) or not _strings(diagnostics):
+        return None
+    if not _status(status):
+        return None
+    return {
+        "fingerprint": fingerprint,
+        "status": status,
+        "diagnostics": diagnostics[:DIAGNOSTIC_LIMIT],
+    }
+
+
+def read_cache(root: Path) -> dict[str, CacheEntry]:
+    """Read validated cached lint results.
 
     Returns:
-        The decoded object, or an empty dictionary on read/parse failure.
+        Accepted records, or an empty mapping for absent/malformed data.
 
     """
+    path = root / ".cache/validate/cache.json"
     try:
-        value = _decode_json(path.read_text(encoding="utf-8"), json.loads)
-    except OSError, ValueError:
+        value = _decode(path.read_text(encoding="utf-8"))
+    except OSError, ValueError, RecursionError:
         return {}
-    return value if _is_mapping(value) else {}
+    return _cache_entries(value)
 
 
-def _git_paths() -> list[str]:
-    git = shutil.which("git")
-    if git is None:
-        message = "Git executable is missing"
-        raise ValueError(message)
-    # Include untracked (but not gitignored) source, too. No Git mutations.
-    result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed read-only Git enumeration.
-        [
-            git,
-            "ls-files",
-            "-z",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "--",
-            "src/",
-            "tools/",
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        check=True,
-    )
-    return [item.decode() for item in result.stdout.split(b"\0") if item]
+def _cache_entries(value: object) -> dict[str, CacheEntry]:
+    if not _mapping(value) or value.get("schema") != CACHE_VERSION:
+        return {}
+    entries = value.get("entries")
+    if not _mapping(entries):
+        return {}
+    return {
+        k: item for k, v in entries.items() if (item := _entry(v)) is not None
+    }
 
 
-def _reject_explicit(message: str, *, explicit: bool) -> None:
-    if explicit:
-        raise ValueError(message)
+def _stop(process: subprocess.Popen[bytes]) -> None:
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    _ = process.wait()
 
 
-def _source_path(name: str, *, explicit: bool) -> Path | None:
-    path = (ROOT / name).resolve()
-    if not path.is_relative_to(ROOT):
+def _wait(process: subprocess.Popen[bytes], seconds: float) -> int:
+    try:
+        return process.wait(timeout=seconds)
+    except subprocess.TimeoutExpired, KeyboardInterrupt:
+        _stop(process)
+        raise
+
+
+def run_process(
+    argv: list[str], *, cwd: Path, seconds: float = TIMEOUT_SECONDS
+) -> Process:
+    """Run argv with bounded time/output and reap its process group on timeout.
+
+    Returns:
+        Exit code and bounded output, including explicit timeout errors.
+
+    """
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            # Installed tools/test argv only; POSIX session isolates cleanup.
+            with subprocess.Popen(  # ruff: ignore[subprocess-without-shell-equals-true]
+                argv,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=errors,
+                start_new_session=True,
+            ) as process:
+                code = _wait(process, seconds)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return Process(EXIT_FAILURE, "", str(error))
+        _ = output.seek(0)
+        _ = errors.seek(0)
+        return Process(
+            code,
+            output.read(OUTPUT_LIMIT).decode(errors="replace"),
+            errors.read(OUTPUT_LIMIT).decode(errors="replace"),
+        )
+
+
+def _checked_path(root: Path, name: str) -> Path:
+    path = (root / name).resolve()
+    if not path.is_relative_to(root.resolve()):
         message = f"Outside repository: {name}"
         raise ValueError(message)
     if not path.is_file():
-        _reject_explicit(f"Missing file: {name}", explicit=explicit)
-        return None
-    if path.suffix.lower() in SUPPORTED:
-        return path
-    _reject_explicit(f"Unsupported extension: {name}", explicit=explicit)
-    return None
+        message = f"Missing file: {name}"
+        raise ValueError(message)
+    return path
 
 
-def files_to_check(names: list[str]) -> list[Path]:
-    """Resolve explicit paths or all tracked and new non-vendored source.
+def _inventory(root: Path) -> list[str]:
+    git = shutil.which("git")
+    if git is None:
+        message = "Missing installed git executable"
+        raise ValueError(message)
+    result = run_process(
+        [
+            git,
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            "src/",
+            "tools/",
+            "tests/",
+        ],
+        cwd=root,
+    )
+    if result.code:
+        raise ValueError(result.stderr)
+    return list(dict.fromkeys(p for p in result.stdout.split("\0") if p))
+
+
+def source_files(root: Path, names: tuple[str, ...]) -> list[Path]:
+    """Select canonical supported sources within the repository.
 
     Returns:
-        The sorted unique source paths to validate.
+        Explicit or tracked/untracked project source paths.
+
+    Raises:
+        ValueError: If an explicit extension is unsupported.
 
     """
-    explicit = bool(names)
-    candidates = names if explicit else _git_paths()
-    sources: set[Path] = set()
-    for name in candidates:
-        path = _source_path(name, explicit=explicit)
-        if path is not None:
-            sources.add(path)
-    return sorted(sources)
+    if names and any(Path(n).suffix.lower() not in SUPPORTED for n in names):
+        message = "Unsupported explicit source extension"
+        raise ValueError(message)
+    paths = (
+        _checked_path(root, name) for name in (names or tuple(_inventory(root)))
+    )
+    return sorted({p for p in paths if p.suffix.lower() in SUPPORTED})
+
+
+def _tools(file: Path, options: Options) -> list[str]:
+    if file.suffix.lower() == PYTHON_SUFFIX:
+        return ["ruff-check", "ruff-format", "basedpyright"]
+    return ["clang-format"] + (
+        ["clang-tidy"] if options.tidy and file.suffix.lower() in UNITS else []
+    )
+
+
+def _command(tool: str, file: Path, root: Path) -> list[str] | None:
+    executable = shutil.which(EXECUTABLE[tool])
+    if executable is None:
+        return None
+    flags = {
+        "clang-format": [
+            f"--style=file:{root / ".clang-format"}",
+            "--dry-run",
+            "--Werror",
+            "--ferror-limit=1",
+        ],
+        "clang-tidy": [
+            f"--config-file={root / ".clang-tidy"}",
+            "-p",
+            str(root),
+            "--quiet",
+        ],
+        "ruff-check": [
+            "check",
+            "--config",
+            str(root / "ruff.toml"),
+            "--output-format",
+            "concise",
+        ],
+        "ruff-format": [
+            "format",
+            "--check",
+            "--config",
+            str(root / "ruff.toml"),
+        ],
+        "basedpyright": [
+            "-p",
+            str(root / "pyrightconfig.json"),
+            "--outputjson",
+        ],
+    }
+    return [executable, *flags[tool], str(file)]
 
 
 def _read_diagnostic(item: object) -> str:
-    if not _is_mapping(item):
+    if not _mapping(item):
         return "Invalid diagnostic object"
     file = item.get("file")
     name = Path(file).name if isinstance(file, str) else "<unknown>"
     location = item.get("range")
-    start = location.get("start") if _is_mapping(location) else None
-    line = start.get("line") if _is_mapping(start) else None
-    number = (
-        line + 1 if isinstance(line, int) and not isinstance(line, bool) else 1
-    )
-    severity = item.get("severity", "error")
-    message = item.get("message", "")
-    return f"{name}:{number} {severity}: {message}"
+    start = location.get("start") if _mapping(location) else None
+    line = start.get("line") if _mapping(start) else None
+    number = line + 1 if isinstance(line, int) else 1
+    label = f"{name}:{number} {item.get("severity", "error")} "
+    return f"{label}: {item.get("message", "")}"
 
 
-def _json_diagnostics(stdout: str, stderr: str) -> list[str] | None:
+def _diagnostics(process: Process) -> list[str]:
     try:
-        payload = _decode_json(stdout, json.loads)
-    except ValueError:
-        return None
-    issues = payload.get("generalDiagnostics") if _is_mapping(payload) else None
-    if not _is_sequence(issues):
-        return None
-    details = [_read_diagnostic(item) for item in issues[:MAX_DIAGNOSTICS]]
-    if stderr.strip() and _is_sequence(issues):
-        details.append(stderr.strip().splitlines()[0])
-    return details
+        payload = _decode(process.stdout)
+    except ValueError, RecursionError:
+        payload = None
+    issues = payload.get("generalDiagnostics") if _mapping(payload) else None
+    if _object_list(issues):
+        return [_read_diagnostic(item) for item in issues[:DIAGNOSTIC_LIMIT]]
+    text = process.stdout + "\n" + process.stderr
+    return text.strip().splitlines()[:DIAGNOSTIC_LIMIT]
 
 
-def execute(command: list[str]) -> tuple[int, list[str]]:
-    """Run one installed linter in a fixed cwd, never using shell execution.
+def _finding(
+    file: str, tool: str, status: Status, *, details: list[str]
+) -> Finding:
+    return {
+        "file": file,
+        "tool": tool,
+        "status": status,
+        "cached": False,
+        "diagnostics": details[:DIAGNOSTIC_LIMIT],
+    }
+
+
+@cache
+def _version(executable: str, root: Path) -> str:
+    result = run_process([executable, "--version"], cwd=root)
+    return result.stdout + result.stderr + str(result.code)
+
+
+def _dependencies(root: Path) -> bytes:
+    digest = hashlib.sha256()
+    files = sorted(
+        p
+        for d in ("src", "tools", "tests")
+        for p in (root / d).rglob("*")
+        if p.is_file() and p.suffix in SUPPORTED
+    )
+    for path in files:
+        digest.update(str(path.relative_to(root)).encode())
+        digest.update(path.read_bytes())
+    return digest.digest()
+
+
+def _signature(command: list[str], file: Path, root: Path, *, tool: str) -> str:
+    digest = hashlib.sha256(file.read_bytes())
+    digest.update(Path(__file__).read_bytes())
+    digest.update(json.dumps(command).encode())
+    digest.update(_version(command[0], root).encode())
+    for config in CONFIGS[tool]:
+        digest.update((root / config).read_bytes())
+    if tool in {"basedpyright", "clang-tidy"}:
+        digest.update(_dependencies(root))
+    return digest.hexdigest()
+
+
+@dataclass
+class LintRun:
+    """Collect actual checks and validated lint cache entries."""
+
+    root: Path
+    options: Options
+    entries: dict[str, CacheEntry]
+    versions: dict[str, str] = field(default_factory=dict)
+
+    def check(self, file: Path, tool: str) -> Finding:
+        """Run or reuse one lint check.
+
+        Returns:
+            An explicit pass, fail or skipped result.
+
+        """
+        relative = file.relative_to(self.root).as_posix()
+        missing = [c for c in CONFIGS[tool] if not (self.root / c).is_file()]
+        command = _command(tool, file, self.root)
+        if missing or command is None:
+            return _finding(
+                relative,
+                tool,
+                "skipped",
+                details=[
+                    "Missing: " + ", ".join(missing or [EXECUTABLE[tool]])
+                ],
+            )
+        return self._check_ready(file, tool, command)
+
+    def _check_ready(
+        self, file: Path, tool: str, command: list[str]
+    ) -> Finding:
+        relative = file.relative_to(self.root).as_posix()
+        self.versions[tool] = _version(command[0], self.root).splitlines()[0]
+        fingerprint = _signature(command, file, self.root, tool=tool)
+        key = relative + "::" + tool
+        old = self.entries.get(key)
+        if (
+            not self.options.no_cache
+            and old is not None
+            and old["fingerprint"] == fingerprint
+        ):
+            result = _finding(
+                relative, tool, old["status"], details=old["diagnostics"]
+            )
+            result["cached"] = True
+            return result
+        process = run_process(command, cwd=self.root)
+        status: Status = "pass" if process.code == 0 else "fail"
+        details = _diagnostics(process)
+        self.entries[key] = {
+            "fingerprint": fingerprint,
+            "status": status,
+            "diagnostics": details,
+        }
+        return _finding(relative, tool, status, details=details)
+
+
+def _test_files(root: Path) -> list[Path]:
+    directory = root / "tests"
+    if not directory.is_dir():
+        return []
+    names = sorted(p for p in directory.rglob("test_*.*") if p.is_file())
+    files = [_checked_path(root, str(p.relative_to(root))) for p in names]
+    return [p for p in files if p.suffix in NATIVE_TESTS | {".py"}]
+
+
+def _native_sources(root: Path, test: Path) -> list[Path]:
+    companion = test.with_suffix(".sources")
+    if not companion.exists():
+        return []
+    paths = [
+        _checked_path(root, line.strip())
+        for line in _checked_path(root, str(companion.relative_to(root)))
+        .read_text()
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if any(p.suffix not in UNITS for p in paths):
+        message = f"Non-source path in {companion.relative_to(root)}"
+        raise ValueError(message)
+    return paths
+
+
+def _native_test(root: Path, test: Path) -> Finding:
+    relative = test.relative_to(root).as_posix()
+    compiler = shutil.which("clang++")
+    if compiler is None:
+        return _finding(
+            relative,
+            "native-test",
+            "skipped",
+            details=["Missing installed clang++"],
+        )
+    sources = _native_sources(root, test)
+    with tempfile.TemporaryDirectory(
+        prefix="simpleath-host-test-"
+    ) as directory:
+        executable = Path(directory) / "test"
+        command = [
+            compiler,
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-I",
+            str(root / "src"),
+            str(test),
+            *map(str, sources),
+            "-o",
+            str(executable),
+        ]
+        build = run_process(command, cwd=root)
+        if build.code:
+            return _finding(
+                relative,
+                "native-test",
+                "fail",
+                details=["Host test compilation failed", *_diagnostics(build)],
+            )
+        result = run_process([str(executable)], cwd=root)
+        return _finding(
+            relative,
+            "native-test",
+            "pass" if result.code == 0 else "fail",
+            details=[
+                f"Host test exit status: {result.code}",
+                *_diagnostics(result),
+            ],
+        )
+
+
+def _python_test(root: Path, test: Path) -> Finding:
+    relative = test.relative_to(root).as_posix()
+    result = run_process(
+        [
+            sys.executable,
+            "-E",
+            "-B",
+            "-c",
+            PYTHON_TEST_DRIVER,
+            str(test.parent),
+            test.name,
+            str(root),
+        ],
+        cwd=root,
+    )
+    status: Status = "pass" if result.code == 0 else "fail"
+    if result.code == EXIT_SKIPPED:
+        status = "skipped"
+    return _finding(
+        relative,
+        "python-test",
+        status,
+        details=_diagnostics(result) or ["No runnable tests or tests skipped"],
+    )
+
+
+def _one_test(root: Path, path: Path) -> Finding:
+    try:
+        return (
+            _python_test(root, path)
+            if path.suffix == PYTHON_SUFFIX
+            else _native_test(root, path)
+        )
+    except (OSError, ValueError) as error:
+        return _finding(
+            path.relative_to(root).as_posix(),
+            "host-test",
+            "fail",
+            details=[str(error)],
+        )
+
+
+def run_tests(root: Path) -> list[Finding]:
+    """Run discovered offline host tests without caching their outcomes.
 
     Returns:
-        Its exit code and the first diagnostics, bounded by policy.
+        Separate findings for each Python or native test source.
 
     """
-    try:
-        result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Tool command vectors are constructed internally.
-            command,
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        message = (
-            "Linter exceeded 120 seconds (not a build)."
-            if isinstance(error, subprocess.TimeoutExpired)
-            else f"Linter could not start: {error}"
-        )
-        return 2, [message]
-    details = (
-        _json_diagnostics(result.stdout, result.stderr)
-        if JSON_SWITCH in command
-        else None
-    )
-    if details is not None:
-        return result.returncode, details
-    output = (result.stdout + "\n" + result.stderr).strip().splitlines()
-    return result.returncode, output[:MAX_DIAGNOSTICS]
+    files = _test_files(root)
+    if not files:
+        return [
+            _finding(
+                "tests/",
+                "host-tests",
+                "skipped",
+                details=["No test_*.py/.cpp/.mm tests found"],
+            )
+        ]
+    return [_one_test(root, p) for p in files]
 
 
-def save_json(path: Path, payload: object) -> None:
-    """Write an ignored cache/report atomically without changing source."""
+def _save(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    _ = temporary.write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", dir=path.parent, delete=False, encoding="utf-8"
+    ) as file:
+        _ = file.write(json.dumps(payload, indent=2) + "\n")
+        temporary = Path(file.name)
     _ = temporary.replace(path)
 
 
-def _args_parser() -> argparse.ArgumentParser:
+def _report(
+    results: list[Finding], *, files: int, tests: bool, tools: dict[str, str]
+) -> dict[str, object]:
+    counts = {
+        s: sum(r["status"] == s for r in results)
+        for s in ("pass", "fail", "skipped")
+    }
+    return {
+        "schema": CACHE_VERSION,
+        "source_only": not tests,
+        "tests_requested": tests,
+        "tools": tools,
+        "summary": {
+            "files": files,
+            "checks": len(results),
+            "cached": sum(r["cached"] for r in results),
+            "executed": sum(
+                not r["cached"] and r["status"] != SKIPPED for r in results
+            ),
+            **counts,
+        },
+        "results": results,
+    }
+
+
+def _display(results: list[Finding]) -> None:
+    for item in results:
+        cached = "CACHED " if item["cached"] else ""
+        label = f"{item["status"].upper():7} {cached:7}{item["tool"]:14}"
+        _ = sys.stdout.write(f"{label} {item["file"]}\n")
+        if item["status"] != STATUS_OK:
+            for line in item["diagnostics"][:DISPLAY_LIMIT]:
+                _ = sys.stdout.write(f"  {line[:DISPLAY_WIDTH]}\n")
+
+
+def _options() -> Options:
     parser = argparse.ArgumentParser(description=__doc__)
-    _ = parser.add_argument("files", nargs="*", help="Optional source paths")
+    _ = parser.add_argument(
+        "files", nargs="*", help="Optional lint source paths"
+    )
     _ = parser.add_argument(
         "--tidy",
         action="store_true",
-        help="Clang-Tidy, only with existing compile_commands.json",
+        help="Use an existing compilation database",
     )
     _ = parser.add_argument(
-        "--json",
+        "--tests",
         action="store_true",
-        help="Machine-readable report on stdout",
+        help="Run offline host tests under tests/; never build the kext",
     )
-    _ = parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Force fresh checks without changing source files",
+    _ = parser.add_argument("--json", dest="json_output", action="store_true")
+    _ = parser.add_argument("--no-cache", action="store_true")
+    namespace = parser.parse_args()
+    values: dict[str, object] = vars(namespace)
+    files = values.get("files")
+    return Options(
+        tuple(files) if _strings(files) else (),
+        values.get("tidy") is True,
+        values.get("tests") is True,
+        values.get("json_output") is True,
+        values.get("no_cache") is True,
     )
-    return parser
-
-
-def _toolset(file: Path, *, tidy: bool) -> list[str]:
-    if file.suffix.lower() not in NATIVE:
-        return [RUFF_CHECK, RUFF_FORMAT, BASEDPYRIGHT]
-    tools = [CLANG_FORMAT]
-    if tidy and file.suffix.lower() in UNITS:
-        tools.append(CLANG_TIDY)
-    return tools
-
-
-def _command(
-    tool: str, executable: str, configs: list[Path], *, file: Path
-) -> list[str]:
-    if tool == CLANG_FORMAT:
-        command = [
-            executable,
-            f"--style=file:{configs[0]}",
-            "--dry-run",
-            "--Werror",
-            "--ferror-limit=1",
-            str(file),
-        ]
-    elif tool == CLANG_TIDY:
-        command = [
-            executable,
-            f"--config-file={configs[0]}",
-            "-p",
-            str(ROOT),
-            "--quiet",
-            str(file),
-        ]
-    elif tool == RUFF_CHECK:
-        command = [
-            executable,
-            "check",
-            "--config",
-            str(configs[0]),
-            "--output-format",
-            "concise",
-            str(file),
-        ]
-    elif tool == RUFF_FORMAT:
-        command = [
-            executable,
-            "format",
-            "--check",
-            "--config",
-            str(configs[0]),
-            str(file),
-        ]
-    else:
-        command = [executable, "-p", str(configs[0]), JSON_SWITCH, str(file)]
-    return command
-
-
-def _fingerprint(
-    file: Path, tool: str, version: str, *, configs: list[Path]
-) -> str:
-    signature = {
-        "file_sha256": digest(file.read_bytes()),
-        "tool": tool,
-        "version": version,
-        "rules": [(path.name, digest(path.read_bytes())) for path in configs],
-    }
-    return digest(json.dumps(signature, sort_keys=True).encode())
-
-
-def _cache_entry(value: object) -> _CacheEntry | None:
-    if not _is_mapping(value):
-        return None
-    fingerprint = value.get("fingerprint")
-    status = value.get("status")
-    diagnostics = value.get("diagnostics")
-    if (
-        isinstance(fingerprint, str)
-        and _is_strings(diagnostics)
-        and status in {SUCCESS, FAIL}
-    ):
-        return {
-            "fingerprint": fingerprint,
-            "status": SUCCESS if status == SUCCESS else FAIL,
-            "diagnostics": diagnostics,
-        }
-    return None
-
-
-def _version(ctx: _Context, tool: str, executable: str) -> str:
-    if tool not in ctx.versions:
-        code, lines = execute([executable, "--version"])
-        ctx.versions[tool] = lines[0] if lines else f"unknown/{code}"
-    return ctx.versions[tool]
-
-
-def _result(
-    relative: str,
-    tool: str,
-    outcome: tuple[_Status, list[str]],
-    *,
-    cached: bool,
-) -> _Result:
-    status, diagnostics = outcome
-    return {
-        "file": relative,
-        "tool": tool,
-        "status": status,
-        "cached": cached,
-        "diagnostics": diagnostics,
-    }
-
-
-def _check_one(ctx: _Context, file: Path, tool: str) -> _Result:
-    configs = [ROOT / name for name in CONFIGS[tool]]
-    executable = shutil.which(EXECUTABLE[tool])
-    missing = [path.name for path in configs if not path.is_file()]
-    if executable is None:
-        missing.append(EXECUTABLE[tool])
-    relative = file.relative_to(ROOT).as_posix()
-    if missing or executable is None:
-        return _result(
-            relative,
-            tool,
-            (SKIPPED, ["Missing: " + ", ".join(missing)]),
-            cached=False,
-        )
-    fingerprint = _fingerprint(
-        file, tool, _version(ctx, tool, executable), configs=configs
-    )
-    key = f"{relative}::{tool}"
-    old = _cache_entry(ctx.entries.get(key))
-    if (
-        not ctx.options.no_cache
-        and old is not None
-        and old["fingerprint"] == fingerprint
-    ):
-        return _result(
-            relative, tool, (old["status"], old["diagnostics"]), cached=True
-        )
-    code, diagnostics = execute(_command(tool, executable, configs, file=file))
-    status: _CacheStatus = SUCCESS if code == 0 else FAIL
-    ctx.entries[key] = {
-        "fingerprint": fingerprint,
-        "status": status,
-        "diagnostics": diagnostics,
-    }
-    return _result(relative, tool, (status, diagnostics), cached=False)
-
-
-def _summary(sources: list[Path], results: list[_Result]) -> dict[str, int]:
-    return {
-        "files": len(sources),
-        "checks": len(results),
-        "executed": sum(
-            not row["cached"] and row["status"] != SKIPPED for row in results
-        ),
-        "cached": sum(row["cached"] for row in results),
-        SUCCESS: sum(row["status"] == SUCCESS for row in results),
-        FAIL: sum(row["status"] == FAIL for row in results),
-        SKIPPED: sum(row["status"] == SKIPPED for row in results),
-    }
-
-
-def _display(results: list[_Result], summary: dict[str, int]) -> None:
-    for result in results:
-        flag = "CACHED " if result["cached"] else ""
-        prefix = f"{result["status"].upper():7} {flag:7}"
-        _ = sys.stdout.write(f"{prefix} {result["tool"]:12} {result["file"]}\n")
-        if result["status"] != SUCCESS:
-            for line in result["diagnostics"][:2]:
-                _ = sys.stdout.write(f"  {line[:240]}\n")
-    count_lines = [
-        f"\nSource-only: {summary["files"]} files, ",
-        f"{summary["checks"]} checks, ",
-        f"{summary["executed"]} executed, {summary["cached"]} cached, ",
-        f"{summary[FAIL]} failures, {summary[SKIPPED]} skipped.\n",
-    ]
-    _ = sys.stdout.write("".join(count_lines))
-    _ = sys.stdout.write("Agent report: .cache/validate/report.json\n")
 
 
 def main() -> int:
-    """Validate known source files and persist the structured report.
+    """Run selected lint checks and optional offline host tests.
 
     Returns:
-        Zero only if every requested check passed, or one on any failure.
+        Zero only when all requested checks pass; skipped checks fail closed.
 
     """
-    parser = _args_parser()
-    args = parser.parse_args(namespace=_Options())
+    options = _options()
     try:
-        sources = files_to_check(args.files)
-    except (ValueError, subprocess.CalledProcessError) as error:
-        parser.error(str(error))
-    previous = read_json(CACHE / "cache.json")
-    existing = previous.get("entries")
-    ctx = _Context(args, existing if _is_mapping(existing) else {}, {})
+        return _validate(options)
+    except (OSError, ValueError) as error:
+        _ = sys.stderr.write(f"Validation error: {error}\n")
+        return EXIT_FAILURE
+
+
+def _validate(options: Options) -> int:
+    sources = source_files(ROOT, options.files)
+    lint = LintRun(ROOT, options, read_cache(ROOT))
     results = [
-        _check_one(ctx, file, tool)
+        lint.check(file, tool)
         for file in sources
-        for tool in _toolset(file, tidy=args.tidy)
+        for tool in _tools(file, options)
     ]
-    summary = _summary(sources, results)
-    report = {
-        "schema": "simpleath.validate.v1",
-        "source_only": True,
-        "tools": ctx.versions,
-        "summary": summary,
-        "results": results,
-    }
-    save_json(
-        CACHE / "cache.json",
-        {"schema": "simpleath.validate.v1", "entries": ctx.entries},
+    if options.tests:
+        results.extend(run_tests(ROOT))
+    report = _report(
+        results, files=len(sources), tests=options.tests, tools=lint.versions
     )
-    save_json(CACHE / "report.json", report)
-    if args.json:
+    _save(
+        ROOT / ".cache/validate/cache.json",
+        {"schema": CACHE_VERSION, "entries": lint.entries},
+    )
+    _save(ROOT / ".cache/validate/report.json", report)
+    if options.json_output:
         _ = sys.stdout.write(json.dumps(report, indent=2) + "\n")
     else:
-        _display(results, summary)
-    return 1 if summary[FAIL] or summary[SKIPPED] else 0
+        _display(results)
+        _ = sys.stdout.write(json.dumps(report["summary"]) + "\n")
+    return EXIT_FAILURE if any(r["status"] != STATUS_OK for r in results) else 0
 
 
 if __name__ == "__main__":
