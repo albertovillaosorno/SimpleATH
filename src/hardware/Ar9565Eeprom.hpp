@@ -34,11 +34,15 @@ struct EepromImage {
 
 // Caller supplies a pinned, immutable upstream template catalog. It is not a
 // board fallback. Returns exactly 1088 bytes for the requested template ID.
-// No catalog is supplied by the current driver. Missing templates fail closed.
+// The pinned source catalog below is explicit; missing IDs fail closed.
 struct EepromTemplates {
     void *context;
     const uint8_t *(*find)(void *context, uint8_t reference, size_t *length);
 };
+
+// Five exact ath9k reconstruction dictionaries. Calling this does not select
+// a fallback board or authorize transmitting with template calibration data.
+EepromTemplates pinnedEepromTemplates();
 
 // The first byte is the byte at the highest NVM address; following bytes
 // descend, as in ath9k ar9300_read_eeprom/read_otp. Caller normalizes the
