@@ -432,15 +432,50 @@ def method_key(name):
     return METHOD_KEYS[name]
 
 
+MAX_VTABLE_SLOTS = 4096
+VTABLE_HEADER_BYTES = 16
+VTABLE_SLOT_BYTES = 8
+
+
+def _vtable_addresses(start: int, end: int) -> range:
+    """Bound vtable slots before touching any untrusted image bytes.
+
+    Returns:
+        Validated pointer-slot addresses within the symbol span.
+
+    Raises:
+        ValueError: The vtable span is empty, unaligned or too large.
+
+    """
+    payload = end - start - VTABLE_HEADER_BYTES
+    if (
+        start < 0
+        or payload <= 0
+        or payload % VTABLE_SLOT_BYTES
+        or payload // VTABLE_SLOT_BYTES > MAX_VTABLE_SLOTS
+    ):
+        message = "Malformed or oversized native ABI vtable span"
+        raise ValueError(message)
+    return range(start + VTABLE_HEADER_BYTES, end, VTABLE_SLOT_BYTES)
+
+
 def table(image, cls, kernel=None):
     if isinstance(image, ReferenceImage):
         return list(image.tables[cls])
     sym = image.names[vtable_name(cls)]
     start = sym[4]
-    end = min(s[4] for s in image.syms if s[2] == sym[2] and s[4] > start)
+    following = [
+        symbol[4]
+        for symbol in image.syms
+        if symbol[2] == sym[2] and symbol[4] > start
+    ]
+    if not following:
+        message = "Native ABI vtable has no terminating symbol"
+        raise ValueError(message)
+    addresses = _vtable_addresses(start, min(following))
     relocs = image.relocs()
     result = []
-    for address in range(start + 16, end, 8):
+    for address in addresses:
         raw = struct.unpack("<Q", image.read(address, 8))[0]
         if address in relocs and relocs[address][0] != "LOCAL":
             name = relocs[address][0]
