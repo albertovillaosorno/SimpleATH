@@ -27,3 +27,6 @@ __pycache__/
 build/
 .research/
 .venv/
+
+# Downloaded macOS CI artifacts (not source).
+.build-artifacts/
