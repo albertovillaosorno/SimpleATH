@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+from native_payload import SkywalkPlan
 from native_payload import checked_client_profile_rows
 from native_payload import checked_system_profile_names
 from native_payload import emit_system_profiles
@@ -21,6 +22,7 @@ from system_profiles import SYSTEMS
 
 MISSING_PROFILE = "Incomplete native user-client profile catalog"
 EMPTY_PROFILES = "Incomplete or reordered native system profile catalog"
+MISSING_GUARDS = "Native ABI guards were not prepared"
 
 
 def _error(action: Callable[[], object]) -> Exception | None:
@@ -99,6 +101,23 @@ class NativeProfileCatalogContracts(TestCase):
             )
             assert isinstance(error, ValueError)
             assert EMPTY_PROFILES in str(error)
+
+    @staticmethod
+    def test_unprepared_guard_tables_cannot_be_emitted() -> None:
+        """No C++ metadata may be written before all source guards pass."""
+        plans: list[SkywalkPlan] = []
+        for system in SYSTEMS:
+            # Skip image loading; the preflight must reject before using it.
+            plan = object.__new__(SkywalkPlan)
+            plan.system = system
+            plan.guards_ready = False
+            plans.append(plan)
+        error = _error(lambda: emit_system_profiles(plans, {}))
+        assert isinstance(error, ValueError)
+        assert MISSING_GUARDS in str(error)
+        error = _error(lambda: plans[0].emit({}))
+        assert isinstance(error, ValueError)
+        assert MISSING_GUARDS in str(error)
 
     @staticmethod
     def test_empty_native_profile_set_is_rejected() -> None:

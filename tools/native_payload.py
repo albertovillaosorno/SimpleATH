@@ -6,14 +6,21 @@
 #  Created by laobamac on 2026/11/1.
 #  Copyright © 2026 laobamac. All rights reserved.
 #
+"""Source-only native Skywalk compatibility metadata and patch guards."""
+
+from __future__ import annotations
 
 import bisect
 import json
-from collections.abc import Callable
-from collections.abc import Mapping
-from collections.abc import Sequence
 import re
 import struct
+from typing import TYPE_CHECKING
+from typing import final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from collections.abc import Mapping
+    from collections.abc import Sequence
 
 from native_abi import Mach
 from native_abi import NATIVE_CLASSES
@@ -82,6 +89,32 @@ PATCH_NATIVE_SLOT_DELTA = 24
 PATCH_OPCODE = 0xFF
 PATCH_MODRM_MASK = 0xF8
 PATCH_MODRM = 0x90
+
+# Stable compatibility-profile and native-dispatch invariants.
+SONOMA_KERNEL = 23
+TAHOE_KERNEL = 25
+USER_CLIENT_LAYOUT_BYTES = 224
+EXPECTED_CLASS_COLLISIONS = 42
+NO_NATIVE_SLOT = 0xFFFFFFFF
+CONTROLLER_CLASS = "IO80211Controller"
+CONTROLLER_ALIAS = "AirPortDriver"
+LEGACY_SOURCE = "Legacy"
+BRCM_TAHOE_SOURCE = "BrcmTahoe"
+NATIVE_SOURCE = "native"
+NATIVE_PACKET_CLASS = "IOSkywalkNetworkPacket"
+TEXT_SECTION = "__text"
+CSTRING_SECTION = "__cstring"
+CALLBACK_PREFIX = "athSkyCallback"
+CALLBACK_START_OFFSET = 0x850
+CALLBACK_OVERRIDE_OFFSET = 0x770
+BRANCH_OPCODES = frozenset({0xE8, 0xE9})
+BRANCH_LENGTH = 5
+RIP_REGISTER = "%rip"
+ETHERNET_LOGICAL_LINK_SYMBOL = (
+    "__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLink"
+    "EPKNS_16RegistrationInfoEP20IOSkywalkLogicalLink"
+    "P25IOSkywalkPacketBufferPoolS6_j"
+)
 
 
 def _matches_patch_instruction(function: str, prefix: str, raw: bytes) -> bool:
@@ -190,57 +223,81 @@ def checked_client_profile_rows(
     ]
 
 
+@final
 class SkywalkPlan:
-    def __init__(self, system="Tahoe"):
+    """Derive a pinned native compatibility plan from offline source images."""
+
+    # Populated only after the checked multi-profile guard preflight.
+    vtable_guards: list[tuple[str, int, str]]
+    class_guards: list[tuple[str, int]]
+    unchecked_overrides: list[tuple[str, int, str]]
+    link_bytes: bytes
+    link_mask: bytes
+    link_references: list[tuple[int, str]]
+
+    def __init__(self, system: str = "Tahoe") -> None:
+        """Load immutable reference profiles and verify their known layout."""
         self.model = NativeModel(system)
+        self.vtable_guards = []
+        self.class_guards = []
+        self.unchecked_overrides = []
+        self.link_bytes = b""
+        self.link_mask = b""
+        self.link_references = []
+        self.guards_ready = False
         self.system = system
         self.profile = SYSTEMS[system]
         if self.model.native.uuid != self.profile["skywalk"]:
-            raise ValueError(
+            message = (
                 "The native Skywalk implementation has no verified profile"
             )
+            raise ValueError(message)
         self.old = self.model.old
         self.native = self.model.native
-        self.legacy = self.model.images["Legacy"]
-        self.air = self.model.images["BrcmTahoe"]
+        self.legacy = self.model.images[LEGACY_SOURCE]
+        self.air = self.model.images[BRCM_TAHOE_SOURCE]
         self.wireless = Mach(self.native.path, "com.apple.iokit.IO80211Family")
         if self.wireless.uuid != self.profile["wireless"]:
-            raise ValueError("Unsupported native IO80211Family")
+            message = "Unsupported native IO80211Family"
+            raise ValueError(message)
         self.link_symbol = (
             API_SYMBOLS[8]
-            if self.profile["kernel"] != 23
-            else "__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j"
+            if self.profile["kernel"] != SONOMA_KERNEL
+            else ETHERNET_LOGICAL_LINK_SYMBOL
         )
         if self.link_symbol not in self.native.defined():
-            raise ValueError(
-                "Missing native Ethernet logical-link registration method"
-            )
-        ethernet = self.model.new_tables["IOSkywalkEthernetInterface"]
+            message = "Missing native Ethernet logical-link registration method"
+            raise ValueError(message)
+        ethernet: list[str] = self.model.new_tables[
+            "IOSkywalkEthernetInterface"
+        ]
         self.link_slot = (
             ethernet.index(self.link_symbol)
             if self.link_symbol in ethernet
-            else 0xFFFFFFFF
+            else NO_NATIVE_SLOT
         )
         self.api_symbols = list(API_SYMBOLS)
         self.api_symbols[8] = API_SYMBOLS[0]
-        self.client_symbols = []
-        self.client_tables = []
+        self.client_symbols: list[list[str]] = []
+        self.client_tables: list[list[str]] = []
         for cls in CLIENT_CLASSES:
-            if class_size(self.wireless, cls) != 224:
-                raise ValueError("Unsupported native user-client layout")
+            if class_size(self.wireless, cls) != USER_CLIENT_LAYOUT_BYTES:
+                message = "Unsupported native user-client layout"
+                raise ValueError(message)
             symbols = [
                 "__ZN" + str(len(cls)) + cls + suffix
                 for suffix in CLIENT_SUFFIXES
             ]
             symbols.append(vtable_name(cls))
             if not set(symbols) <= self.wireless.defined():
-                raise ValueError("Native user-client exports missing")
+                message = "Native user-client exports missing"
+                raise ValueError(message)
             self.client_symbols.append(symbols)
             self.client_tables.append(
                 table(self.wireless, cls, self.model.kernel)
             )
 
-        def classes(image):
+        def classes(image: Mach) -> set[str]:
             return {
                 match[2]
                 for name in image.defined()
@@ -251,27 +308,30 @@ class SkywalkPlan:
         collisions = (classes(self.legacy) | classes(self.air)) & classes(
             self.wireless
         )
-        self.namespace = {}
+        self.namespace: dict[str, str] = {}
         for name in sorted(collisions):
-            if name == "IO80211Controller":
-                replacement = "AirPortDriver"
+            if name == CONTROLLER_CLASS:
+                replacement = CONTROLLER_ALIAS
             elif name.startswith("IO"):
                 replacement = "SB" + name[2:]
             elif name.startswith("Log"):
                 replacement = "ATH" + name[3:]
             else:
-                raise ValueError("Unknown class collision: " + name)
+                message = "Unknown class collision: " + name
+                raise ValueError(message)
             self.namespace[name] = replacement
-        if len(self.namespace) != 42:
-            raise ValueError("Changed legacy/native class collision set")
-        if "AirPortDriver" in classes(self.wireless) | classes(
+        if len(self.namespace) != EXPECTED_CLASS_COLLISIONS:
+            message = "Changed legacy/native class collision set"
+            raise ValueError(message)
+        if CONTROLLER_ALIAS in classes(self.wireless) | classes(
             self.model.kernel
         ):
-            raise ValueError(
-                "Wireless controller compatibility name is already in use"
-            )
-        self.compat = {}
-        ethernet = self.model.old_tables["IOSkywalkEthernetInterface"]
+            message = "Wireless controller compatibility name is already in use"
+            raise ValueError(message)
+        self.compat: dict[str, str] = {}
+        ethernet: list[str] = self.model.old_tables[
+            "IOSkywalkEthernetInterface"
+        ]
         public_callbacks = {
             ethernet[offset // 8] for offset in (0x428, 0x430, 0x780)
         }
@@ -287,11 +347,11 @@ class SkywalkPlan:
             for name in needed
             if interface_method(name) or name in public_callbacks
         )
-        self.methods = needed
+        self.methods: list[str] = needed
         self.method_index = {name: index for index, name in enumerate(needed)}
         old_slots = {method_key(name): i for i, name in enumerate(ethernet)}
-        self.method_slots = [
-            old_slots.get(method_key(name), 0xFFFFFFFF) for name in needed
+        self.method_slots: list[int] = [
+            old_slots.get(method_key(name), NO_NATIVE_SLOT) for name in needed
         ]
         for name, i in self.method_index.items():
             if interface_method(name):
@@ -315,7 +375,7 @@ class SkywalkPlan:
             "__ZN26IOSkywalkEthernetInterface13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient": "_athLegacySkywalkUserClient",
             API_SYMBOLS[7]: "_athRegisterLegacyEthernet",
             API_SYMBOLS[10]: "_athDeregisterLegacyEthernet",
-            "__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j": "_athRegisterLegacyEthernetLink",
+            ETHERNET_LOGICAL_LINK_SYMBOL: "_athRegisterLegacyEthernetLink",
             API_SYMBOLS[9]: "_athRegisterLegacyNetworkLink",
             "__ZN25IOSkywalkNetworkInterface22handleDoorbellForQueueEP20IOSkywalkPacketQueuej": "_athLegacyDoorbell",
             "__ZN26IOSkywalkTxSubmissionQueue8withPoolEP25IOSkywalkPacketBufferPooljjP8OSObjectPFjS3_PS_PjEPFjS3_S4_PKP15IOSkywalkPacketjPvESC_j": "_athLegacyTxWithPool",
@@ -327,11 +387,11 @@ class SkywalkPlan:
             for name in image.undef():
                 if normalized(name) in self.compat:
                     self.compat[name] = self.compat[normalized(name)]
-        self.compat_names = sorted(self.compat)
+        self.compat_names: list[str] = sorted(self.compat)
         self.compat_index = {
             name: index for index, name in enumerate(self.compat_names)
         }
-        self.native_names = set(self.api_symbols)
+        self.native_names: set[str] = set(self.api_symbols)
         self.native_names.update(
             name for group in self.client_symbols for name in group
         )
@@ -339,13 +399,12 @@ class SkywalkPlan:
             name
             for name in needed
             if name in self.native.defined()
-            and name
-            != "__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j"
+            and name != ETHERNET_LOGICAL_LINK_SYMBOL
         )
         self.native_names.update(
             name for name in ethernet if not interface_method(name)
         )
-        self.callbacks = []
+        self.callbacks: list[tuple[int, int, list[tuple[int, int]]]] = []
         native_slots = {
             method_key(name): i
             for i, name in enumerate(
@@ -353,14 +412,14 @@ class SkywalkPlan:
             )
         }
         for label, cls in [
-            ("Legacy", "IO80211SkywalkInterface"),
-            ("Legacy", "IO80211InfraInterface"),
-            ("BrcmTahoe", "AirPort_Brcm43xxLLSkywalkInterface"),
+            (LEGACY_SOURCE, "IO80211SkywalkInterface"),
+            (LEGACY_SOURCE, "IO80211InfraInterface"),
+            (BRCM_TAHOE_SOURCE, "AirPort_Brcm43xxLLSkywalkInterface"),
         ]:
-            old = self.model.old_tables[cls]
-            rows = []
+            old: list[str] = self.model.old_tables[cls]
+            rows: list[tuple[int, int]] = []
             for index, name in enumerate(old[: len(ethernet)]):
-                if index * 8 < 0x850 and index * 8 not in (
+                if index * 8 < CALLBACK_START_OFFSET and index * 8 not in (
                     0x428,
                     0x430,
                     0x770,
@@ -368,38 +427,37 @@ class SkywalkPlan:
                 ):
                     continue
                 base = ethernet[index]
-                if index * 8 != 0x770 and normalized(name) == normalized(base):
+                if index * 8 != CALLBACK_OVERRIDE_OFFSET and normalized(
+                    name
+                ) == normalized(base):
                     continue
                 if method_key(name) not in native_slots:
-                    raise ValueError(
-                        f"Native callback has no equivalent: {name}"
-                    )
+                    message = f"Native callback has no equivalent: {name}"
+                    raise ValueError(message)
                 if base not in self.method_index:
-                    raise ValueError(
-                        f"Callback does not originate in Skywalk: {name}"
-                    )
+                    message = f"Callback does not originate in Skywalk: {name}"
+                    raise ValueError(message)
                 rows.append((
                     native_slots[method_key(name)],
                     self.method_index[base],
                 ))
             self.callbacks.append((
-                0 if label == "Legacy" else 1,
+                0 if label == LEGACY_SOURCE else 1,
                 self.model.images[label].names[vtable_name(cls)][4],
                 rows,
             ))
         self.packet_calls = self.packet_call_patches()
         self.vptr_sites = self.packet_vptr_sites()
-        self.pool_meta = [0x24E2E, 0x24F0C, 0x64AD0]
+        self.pool_meta: list[int] = [0x24E2E, 0x24F0C, 0x64AD0]
         for address in self.pool_meta:
             if self.air.read(address - 1, 5) != bytes.fromhex("b9b8000000"):
-                raise ValueError(
-                    "Unrecognized packet pool class-size initializer"
-                )
+                message = "Unrecognized packet pool class-size initializer"
+                raise ValueError(message)
         self.pool_type = self.air.names[
             "__ZL43AirPort_Brcm43xxSkywalkPacketBufferPool_ktv"
         ][4]
         self.power_template = self.air.names["__ZL20power_state_template"][4]
-        self.power_states = [
+        self.power_states: list[tuple[int, ...]] = [
             struct.unpack(
                 "<12Q", self.air.read(self.power_template + i * 96, 96)
             )
@@ -410,7 +468,8 @@ class SkywalkPlan:
             (1, 0x400, 0x400, 0x400),
             (1, 0xF000, 0, 2),
         ]:
-            raise ValueError("Unrecognized Broadcom power domain")
+            message = "Unrecognized Broadcom power domain"
+            raise ValueError(message)
 
     def packet_call_patches(self) -> list[tuple[int, int, int]]:
         """Check each pinned packet dispatch site against the image bytes.
@@ -421,9 +480,18 @@ class SkywalkPlan:
         """
         return checked_packet_call_patches(self.air.funcs(), self.air.read)
 
-    def packet_vptr_sites(self):
+    def packet_vptr_sites(self) -> list[int]:
+        """Find verified packet vtable construction instructions.
+
+        Returns:
+            Virtual addresses of matching RIP-relative LEA instructions.
+
+        Raises:
+            ValueError: The pinned construction instruction is absent.
+
+        """
         destination = self.air.names[vtable_name(PACKET_CLASS)][4] + 16
-        section = next(s for s in self.air.sects if s[0] == "__text")
+        section = next(s for s in self.air.sects if s[0] == TEXT_SECTION)
         start, length = section[2:4]
         data = self.air.read(start, length)
         rows = []
@@ -438,26 +506,52 @@ class SkywalkPlan:
                     rows.append(start + offset)
             offset += 1
         if not rows:
-            raise ValueError("Packet vtable construction sites were not found")
+            message = "Packet vtable construction sites were not found"
+            raise ValueError(message)
         return rows
 
-    def namespace_payload(self, label, data, image=None):
-        image = image or (self.legacy if label == "Legacy" else self.air)
+    def namespace_payload(
+        self, label: str, data: bytearray, image: Mach | None = None
+    ) -> dict[str, list[int]]:
+        """Rename known class strings in an offline expanded source image.
+
+        Returns:
+            Source class names and the virtual offsets of rewritten strings.
+
+        """
+        image = image or (self.legacy if label == LEGACY_SOURCE else self.air)
         sections = [
             (section[2], section[3])
             for section in image.sects
-            if section[0] == "__cstring"
+            if section[0] == CSTRING_SECTION
         ]
         return rename_class_cstrings(
-            data, sections, self.namespace, require_all=label == "Legacy"
+            data, sections, self.namespace, require_all=label == LEGACY_SOURCE
         )
 
-    def resolve(self, name):
+    def resolve(self, name: str) -> int | None:
+        """Resolve a known native compatibility symbol index.
+
+        Returns:
+            The import index, or None for an unmatched name.
+
+        """
         return self.compat_index.get(name)
 
-    def emit(self, native_index):
-        cpp = []
-        assembly = []
+    def emit(
+        self, native_index: Mapping[str, int]
+    ) -> tuple[list[str], list[str]]:
+        """Emit checked source tables and x86_64 forwarding stubs.
+
+        Returns:
+            Separate generated C++ declarations and assembly source lines.
+
+        """
+        if not self.guards_ready:
+            message = "Native ABI guards were not prepared"
+            raise ValueError(message)
+        cpp: list[str] = []
+        assembly: list[str] = []
         api = [native_index[name] for name in self.api_symbols]
         cpp.append(
             "const uint32_t skyAPIImports[] = {"
@@ -483,7 +577,7 @@ class SkywalkPlan:
             + "};"
         )
         method_rows = [
-            (native_index.get(name, 0xFFFFFFFF), self.method_slots[i])
+            (native_index.get(name, NO_NATIVE_SLOT), self.method_slots[i])
             for i, name in enumerate(self.methods)
         ]
         self.emit_rows(cpp, "SkyMethod", "skyMethods", method_rows)
@@ -498,9 +592,10 @@ class SkywalkPlan:
         entries[0x5C0 // 8] = (self.compat_index["__ath_interface_start"], 1)
         self.emit_rows(cpp, "SkyEntry", "skyLegacyEntries", entries)
         cpp.append(f"const uint32_t skyLegacySlotCount = {len(entries)};")
-        packet_base = self.model.old_views["IOSkywalkNetworkPacket"]
-        if any(row[0] != "native" for row in packet_base):
-            raise ValueError("A native packet base method is missing")
+        packet_base = self.model.old_views[NATIVE_PACKET_CLASS]
+        if any(row[0] != NATIVE_SOURCE for row in packet_base):
+            message = "A native packet base method is missing"
+            raise ValueError(message)
         self.emit_rows(
             cpp,
             "SkyEntry",
@@ -511,14 +606,13 @@ class SkywalkPlan:
         subclass = self.model.tables[PACKET_CLASS]
         packet_entries = []
         for source, name, target in subclass:
-            if source == "native" and name == "IOSkywalkNetworkPacket":
+            if source == NATIVE_SOURCE and name == NATIVE_PACKET_CLASS:
                 packet_entries.append((target // 8, 3))
-            elif source == "BrcmTahoe":
+            elif source == BRCM_TAHOE_SOURCE:
                 packet_entries.append((target, 4))
             else:
-                raise ValueError(
-                    f"Unsupported native packet entry: {source}, {name}"
-                )
+                message = f"Unsupported native packet entry: {source}, {name}"
+                raise ValueError(message)
         self.emit_rows(
             cpp, "SkyEntry", "skyPacketSubclassEntries", packet_entries
         )
@@ -562,7 +656,7 @@ class SkywalkPlan:
         assembly += [".quad " + self.compat[name] for name in self.compat_names]
         for array, prefix in [
             ("athSkyForwarders", "athSkyForward"),
-            ("athSkyCallbacks", "athSkyCallback"),
+            ("athSkyCallbacks", CALLBACK_PREFIX),
         ]:
             assembly += [".p2align 3", ".globl _" + array, "_" + array + ":"]
             assembly += [
@@ -571,7 +665,7 @@ class SkywalkPlan:
         assembly += [".section __TEXT,__text"]
         for prefix, resolver in [
             ("athSkyForward", "athResolveOldSkywalk"),
-            ("athSkyCallback", "athResolveNativeSkywalk"),
+            (CALLBACK_PREFIX, "athResolveNativeSkywalk"),
         ]:
             for i in range(len(self.methods)):
                 assembly += [
@@ -589,7 +683,7 @@ class SkywalkPlan:
                     f"callq _{resolver}",
                     "movq %rax, %r11",
                 ]
-                if prefix == "athSkyCallback":
+                if prefix == CALLBACK_PREFIX:
                     assembly += ["movq %rdx, %r10", "andq $-2, %rdx"]
                 assembly += [
                     "movq %rdx, 40(%rsp)",
@@ -601,7 +695,7 @@ class SkywalkPlan:
                     "popq %rdi",
                     "popq %rax",
                 ]
-                if prefix == "athSkyCallback":
+                if prefix == CALLBACK_PREFIX:
                     assembly += [
                         "pushq %r10",
                         "callq *%r11",
@@ -619,14 +713,23 @@ class SkywalkPlan:
         return cpp, assembly
 
     @staticmethod
-    def emit_rows(cpp, kind, name, rows):
+    def emit_rows(
+        cpp: list[str], kind: str, name: str, rows: Sequence[Sequence[int]]
+    ) -> None:
+        """Append one native ABI integer table to generated C++ source."""
         cpp.append(
             f"const {kind} {name}[] = {{"
             + ",".join("{" + ",".join(map(str, row)) + "}" for row in rows)
             + "};"
         )
 
-    def manifest(self):
+    def manifest(self) -> dict[str, object]:
+        """Return native compatibility evidence without hardware access.
+
+        Returns:
+            The structured source-only compatibility manifest.
+
+        """
         return {
             "system": self.system,
             "kernel": self.profile["kernel"],
@@ -640,9 +743,11 @@ class SkywalkPlan:
             ),
             "ethernetLinkSymbol": self.link_symbol,
             "ethernetLinkSlot": self.link_slot,
-            "airPortPayloadIndex": 2 if self.profile["kernel"] == 25 else 1,
+            "airPortPayloadIndex": 2
+            if self.profile["kernel"] == TAHOE_KERNEL
+            else 1,
             "classNamespace": self.namespace,
-            "wirelessControllerIdentity": "AirPortDriver",
+            "wirelessControllerIdentity": CONTROLLER_ALIAS,
             "userClientStrategy": "native-class-with-delegated-control",
             "interfaceStrategy": "native-interface-adapter",
             "packetStrategy": "native-packets-with-preserved-private-fields",
@@ -687,6 +792,9 @@ def prepare_native_guards(plans: Sequence[SkywalkPlan]) -> set[str]:
 
     """
     checked_system_profile_names([plan.system for plan in plans])
+    # A failed retry must not leave a previously prepared profile marked ready.
+    for plan in plans:
+        plan.guards_ready = False
     common = set.intersection(
         *(
             p.native.defined() | p.model.kernel.defined() | p.wireless.defined()
@@ -702,12 +810,13 @@ def prepare_native_guards(plans: Sequence[SkywalkPlan]) -> set[str]:
             image = plan.wireless if cls in CLIENT_CLASSES else plan.native
             meta = "__ZN" + str(len(cls)) + cls + "10gMetaClassE"
             if meta not in common:
-                raise ValueError("Missing common native metaclass: " + cls)
+                message = "Missing common native metaclass: " + cls
+                raise ValueError(message)
             plan.class_guards.append((meta, class_size(image, cls)))
             imports.add(meta)
         for cls in (
             "IOSkywalkEthernetInterface",
-            "IOSkywalkNetworkPacket",
+            NATIVE_PACKET_CLASS,
             "IOSkywalkPacketBufferPool",
             *CLIENT_CLASSES,
         ):
@@ -721,7 +830,7 @@ def prepare_native_guards(plans: Sequence[SkywalkPlan]) -> set[str]:
                 else:
                     plan.unchecked_overrides.append((cls, slot, method))
         allowed = {
-            "__ZN26IOSkywalkEthernetInterface39registerNetworkInterfaceWithLogicalLinkEPKNS_16RegistrationInfoEP20IOSkywalkLogicalLinkP25IOSkywalkPacketBufferPoolS6_j",
+            ETHERNET_LOGICAL_LINK_SYMBOL,
             "__ZNK25IOSkywalkPacketBufferPool7releaseEv",
             "__ZNK25IOSkywalkPacketBufferPool13taggedReleaseEPKv",
             "__ZN25IOSkywalkNetworkInterface13willTerminateEP9IOServicej",
@@ -730,36 +839,39 @@ def prepare_native_guards(plans: Sequence[SkywalkPlan]) -> set[str]:
         if any(
             method not in allowed for _, _, method in plan.unchecked_overrides
         ):
-            raise ValueError("Unrecognized native vtable override")
+            message = "Unrecognized native vtable override"
+            raise ValueError(message)
         plan.link_bytes, plan.link_mask, plan.link_references = b"", b"", []
-        if plan.link_slot != 0xFFFFFFFF:
+        if plan.link_slot != NO_NATIVE_SLOT:
             continue
         address, data = plan.native.funcbytes(plan.link_symbol)
         mask = bytearray([255] * len(data))
         for pc, length, instruction, raw in insns(data, address):
-            if raw[0] not in (0xE8, 0xE9):
-                if "%rip" in instruction:
-                    raise ValueError(
+            if raw[0] not in BRANCH_OPCODES:
+                if RIP_REGISTER in instruction:
+                    message = (
                         "Unexpected RIP-relative access in logical-link wrapper"
                     )
+                    raise ValueError(message)
                 continue
-            if length != 5:
-                raise ValueError(
-                    "Unexpected branch encoding in logical-link wrapper"
-                )
+            if length != BRANCH_LENGTH:
+                message = "Unexpected branch encoding in logical-link wrapper"
+                raise ValueError(message)
             offset = pc - address + 1
             mask[offset : offset + 4] = b"\0" * 4
             target = pc + length + struct.unpack_from("<i", raw, 1)[0]
             names = set(plan.native.byaddr.get(target, [])) & common
             if names:
-                name = sorted(names)[0]
+                name = min(names)
                 plan.link_references.append((offset, name))
                 imports.add(name)
         if [name for _, name in plan.link_references] != [API_SYMBOLS[10]]:
-            raise ValueError(
-                "Logical-link wrapper must reference native Ethernet deregistration"
-            )
+            message = "Logical-link wrapper must reference native Ethernet deregistration"
+            raise ValueError(message)
         plan.link_bytes, plan.link_mask = data, bytes(mask)
+    # Publish readiness only after every pinned system passes the preflight.
+    for plan in plans:
+        plan.guards_ready = True
     return imports
 
 
@@ -776,6 +888,9 @@ def emit_system_profiles(
 
     """
     checked_system_profile_names([plan.system for plan in plans])
+    if not all(plan.guards_ready for plan in plans):
+        message = "Native ABI guards were not prepared"
+        raise ValueError(message)
     lines: list[str] = []
     rows = []
     for index, plan in enumerate(plans):
@@ -843,7 +958,7 @@ def emit_system_profiles(
             str(profile["ethernetSize"]),
             str(profile["poolSize"]),
             str(profile["ethernetSlots"]),
-            str(2 if profile["kernel"] == 25 else 1),
+            str(2 if profile["kernel"] == TAHOE_KERNEL else 1),
             str(plan.link_slot) + "U",
             pattern,
             guards,
