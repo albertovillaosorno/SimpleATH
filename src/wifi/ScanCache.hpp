@@ -25,6 +25,9 @@ public:
                    int8_t rssiDbm, uint64_t nowMs);
     void expire(uint64_t nowMs, uint64_t ttlMs);
     size_t size() const;
+    // Returns a defensive copy of the Nth occupied BSS for native scan
+    // enumeration. Caller must serialize with observe()/expire()/clear().
+    bool snapshot(size_t ordinal, Bss &out) const;
 
     // Only allows Open or WPA2/CCMP PSK, with a visible SSID and 2.4GHz
     // channel. This does NOT check country-specific regulatory restrictions.
