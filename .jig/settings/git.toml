@@ -1,5 +1,0 @@
-domain = "git"
-schema_version = 1
-required_hooks = []
-required_ignored_paths = [".jig/graph/jig.db", ".jig/graph/jig.db-shm", ".jig/graph/jig.db-wal"]
-binary_extensions = ["a", "dylib", "gz", "kext", "o", "pdf", "png", "so", "zip"]

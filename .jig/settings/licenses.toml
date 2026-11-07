@@ -1,4 +1,0 @@
-domain = "licenses"
-schema_version = 1
-files = ["LICENSE"]
-spdx_expression = "AGPL-3.0-only"
