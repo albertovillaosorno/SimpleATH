@@ -20,23 +20,28 @@ import collections
 from dataclasses import dataclass
 import functools
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Export-only nm with a fixed argv and no shell.
+from typing import Protocol
 from typing import TypeIs
 from typing import TypedDict
 from typing import final
+from typing import runtime_checkable
 
 if __package__:
     from tools.abi_types import json_object
     from tools.bootstrap import ROOT
     from tools.system_profiles import SYSTEMS
+    from tools.system_profiles import native_source_paths
     from tools.system_profiles import system_volumes
 else:
     from abi_types import json_object
     from bootstrap import ROOT
     from system_profiles import SYSTEMS
+    from system_profiles import native_source_paths
     from system_profiles import system_volumes
 
 DIRECTORY = ROOT / "src/platform/abi"
@@ -45,13 +50,12 @@ SKYWALK = "com.apple.iokit.IOSkywalkFamily"
 WIRELESS = "com.apple.iokit.IO80211Family"
 
 
-SOURCE_SNAPSHOT = "snapshot"
-SOURCE_SYSTEM = "system"
 TEXT_SECTION = "__text"
 EXPORT_ACTION = "export"
 VERIFY_ACTION = "verify"
 NM_PROGRAM = "nm"
 PAIR_FIELDS = 2
+VTABLE_FIELDS = 3
 
 
 class _ImageRecord(TypedDict):
@@ -257,32 +261,13 @@ def load_reference(path: str | Path) -> _NativeReference:
 
 
 def reference_paths() -> dict[str, Path]:
-    """Select only snapshots or complete pinned system-mode volumes.
+    """Return pinned snapshot or system-volume paths in the selected mode.
 
     Returns:
-        Paths for all pinned profiles in the selected reference mode.
-
-    Raises:
-        ValueError: The mode is unsupported or system volumes are incomplete.
+        Paths for all pinned OS profiles, or a complete-volume error.
 
     """
-    source = os.environ.get("SIMPLEATH_NATIVE_SOURCE", SOURCE_SNAPSHOT)
-    if source == SOURCE_SNAPSHOT:
-        return {name: DIRECTORY / (name + ".json") for name in SYSTEMS}
-    if source != SOURCE_SYSTEM:
-        message = "SIMPLEATH_NATIVE_SOURCE must be snapshot or system"
-        raise ValueError(message)
-    volumes = system_volumes()
-    if set(volumes) != set(SYSTEMS):
-        message = (
-            "All three reference system volumes are required for system mode"
-        )
-        raise ValueError(message)
-    return {
-        name: volumes[name]
-        / "System/Library/KernelCollections/BootKernelExtensions.kc"
-        for name in SYSTEMS
-    }
+    return native_source_paths(DIRECTORY, system_volumes)
 
 
 @final
@@ -411,144 +396,399 @@ class ReferenceCollection:
         """No-op: snapshot collection uses no mapped resources."""
 
 
-def export_references(binary):
-    from embed import OUTPUT
-    from embed import generate
-    from kernel_collection import KernelCollection
-    from native_abi import NATIVE_CLASSES
-    from native_abi import table
-    from native_payload import CLIENT_CLASSES
-    from native_payload import SkywalkPlan
-    from native_payload import prepare_native_guards
+class _ExportImage(Protocol):
+    """Native image surface consumed by the offline snapshot exporter."""
 
-    os.environ["SIMPLEATH_NATIVE_SOURCE"] = "system"
-    generate()
-    manifest = json.loads((OUTPUT / "manifest.json").read_text())
-    required = set(manifest["nativeImports"])
-    required.update(
-        subprocess.check_output(
-            ["nm", "-u", "-j", str(binary)], text=True
-        ).splitlines()
+    path: str | Path
+    names: dict[str, tuple[str, int, int, int, int]]
+    sects: list[tuple[str, str, int, int, int]]
+    uuid: str | None
+
+    def defined(self) -> set[str]: ...
+
+    def read(self, address: int, size: int) -> bytes: ...
+
+    def funcbytes(self, name: str) -> tuple[int, bytes]: ...
+
+    def close(self) -> None: ...
+
+
+class _ExportModel(Protocol):
+    """Kernel image and release operation for one profile."""
+
+    kernel: _ExportImage
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class _ExportPlan(Protocol):
+    """Subset of a profile plan consumed by snapshot generation."""
+
+    system: str
+    native: _ExportImage
+    wireless: _ExportImage
+    model: _ExportModel
+    link_symbol: str
+    link_bytes: bytes
+    link_mask: bytes
+    vtable_guards: list[tuple[str, int, str]]
+
+
+class _ExportLibrary(Protocol):
+    """Kernel collection symbol index required by the generator."""
+
+    uuid: str | None
+    symbols: dict[str, int]
+    exports: set[str]
+
+
+class _ExportCollectionRoot(Protocol):
+    """Source collection's pinned UUID."""
+
+    uuid: str | None
+
+
+@runtime_checkable
+class _ExportCollection(Protocol):
+    """Bounded collection access for pure record-building helpers."""
+
+    images: dict[str, _ExportLibrary]
+    root: _ExportCollectionRoot
+
+    def pointer(self, address: int) -> int: ...
+
+    def version(self) -> str: ...
+
+    def close(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class _ImageSelection:
+    """One logical image to record with its ABI vtable class set."""
+
+    identifier: str
+    image: _ExportImage
+    classes: tuple[str, ...]
+
+
+def _export_functions(
+    plan: _ExportPlan, selected: _ImageSelection
+) -> dict[str, list[int | str]]:
+    """Collect bounded method body bytes from the selected native image.
+
+    Returns:
+        Function-address and hex-byte pairs for the legacy JSON schema.
+
+    """
+    functions: dict[str, list[int | str]] = {}
+    image = selected.image
+    if selected.identifier != KERNEL:
+        for cls in selected.classes:
+            name = "__ZN" + str(len(cls)) + cls + "9MetaClassC2Ev"
+            address, data = image.funcbytes(name)
+            functions[name] = [address, data.hex()]
+    if selected.identifier == SKYWALK:
+        address, data = image.funcbytes(plan.link_symbol)
+        functions[plan.link_symbol] = [address, data.hex()]
+    if selected.identifier == WIRELESS:
+        functions.update(_client_free_functions(selected))
+    return functions
+
+
+def _client_free_functions(
+    selected: _ImageSelection,
+) -> dict[str, list[int | str]]:
+    """Record the selected client free() methods.
+
+    Returns:
+        Original client free() address/hex-byte pairs.
+
+    """
+    functions: dict[str, list[int | str]] = {}
+    for cls in selected.classes:
+        name = "__ZN" + str(len(cls)) + cls + "4freeEv"
+        address, data = selected.image.funcbytes(name)
+        functions[name] = [address, data.hex()]
+    return functions
+
+
+def _export_ranges(selected: _ImageSelection) -> list[list[int | str]]:
+    """Capture the version, initializer and power-state fixed read slices.
+
+    Returns:
+        Source address and hex bytes for each required fixed-size read.
+
+    """
+    image = selected.image
+    ranges: list[list[int | str]] = []
+    if selected.identifier == KERNEL:
+        for name in ("_version_major", "_version_minor", "_version_revision"):
+            address = image.names[name][4]
+            ranges.append([address, image.read(address, 4).hex()])
+    if selected.identifier == SKYWALK:
+        name = "__ZN26IOSkywalkEthernetInterface4initEP12OSDictionary"
+        address = image.names[name][4] + 38
+        ranges.append([address, image.read(address, 7).hex()])
+        address = image.names["__ZL13myPowerStates"][4]
+        ranges.append([address, image.read(address, 192).hex()])
+    return ranges
+
+
+def _native_table(
+    image: _ExportImage, cls: str, kernel: _ExportImage
+) -> list[str]:
+    """Validate the dynamic legacy native vtable reader at its boundary.
+
+    Returns:
+        String method names from the offline source reader.
+
+    Raises:
+        TypeError: The legacy reader is missing or its result is malformed.
+
+    """
+    name = "tools.native_abi" if __package__ else "native_abi"
+    module = importlib.import_module(name)
+    reader: object = vars(module).get("table")
+    if not callable(reader):
+        message = "Native ABI vtable reader is not callable"
+        raise TypeError(message)
+    result: object = reader(image, cls, kernel)
+    return _strings(result)
+
+
+def _export_image(
+    plan: _ExportPlan, selection: _ImageSelection, required: set[str]
+) -> dict[str, object]:
+    """Collect a snapshot image's named symbols and bounded byte slices.
+
+    Returns:
+        A JSON-serializable image record using the legacy field names.
+
+    """
+    image = selection.image
+    tables = {
+        cls: _native_table(image, cls, plan.model.kernel)
+        for cls in selection.classes
+    }
+    functions = _export_functions(plan, selection)
+    ranges = _export_ranges(selection)
+    names = required | {name for methods in tables.values() for name in methods}
+    names |= {
+        name for name in image.defined() if name.endswith("10gMetaClassE")
+    }
+    if selection.identifier == SKYWALK:
+        names |= image.defined()
+    if selection.identifier == KERNEL:
+        names |= {"_version_major", "_version_minor", "_version_revision"}
+    if selection.identifier == SKYWALK:
+        names.add("__ZL13myPowerStates")
+    names |= set(functions)
+    return {
+        "uuid": _string(image.uuid),
+        "symbols": {
+            name: image.names[name][4]
+            for name in sorted(names & image.names.keys())
+        },
+        "exports": sorted(names & image.defined()),
+        "tables": tables,
+        "functions": functions,
+        "ranges": ranges,
+    }
+
+
+def _export_images(plan: _ExportPlan, required: set[str]) -> dict[str, object]:
+    """Build all three image records in their original order.
+
+    Returns:
+        Image records indexed by their collection bundle identifiers.
+
+    """
+    from native_abi import NATIVE_CLASSES  # ruff: ignore[import-outside-top-level] - Export-only ABI class list.
+    from native_payload import CLIENT_CLASSES  # ruff: ignore[import-outside-top-level] - Export-only native clients.
+
+    selected = (
+        _ImageSelection(KERNEL, plan.model.kernel, ("IOService",)),
+        _ImageSelection(SKYWALK, plan.native, tuple(NATIVE_CLASSES)),
+        _ImageSelection(WIRELESS, plan.wireless, tuple(CLIENT_CLASSES)),
     )
-    plans = [SkywalkPlan(name) for name in SYSTEMS]
-    prepare_native_guards(plans)
-    DIRECTORY.mkdir(parents=True, exist_ok=True)
-    hashes = {}
-    for plan in plans:
-        collection = KernelCollection(plan.native.path)
-        images = {}
-        for identifier, image, classes in (
-            (KERNEL, plan.model.kernel, ("IOService",)),
-            (SKYWALK, plan.native, NATIVE_CLASSES),
-            (WIRELESS, plan.wireless, CLIENT_CLASSES),
-        ):
-            tables = {
-                cls: table(image, cls, plan.model.kernel) for cls in classes
-            }
-            functions = {}
-            ranges = []
-            names = required | {
-                n for methods in tables.values() for n in methods
-            }
-            names |= {
-                name
-                for name in image.defined()
-                if name.endswith("10gMetaClassE")
-            }
-            if identifier == SKYWALK:
-                names |= image.defined()
-            if identifier != KERNEL:
-                for cls in classes:
-                    name = "__ZN" + str(len(cls)) + cls + "9MetaClassC2Ev"
-                    address, data = image.funcbytes(name)
-                    functions[name] = [address, data.hex()]
-                    names.add(name)
-            if identifier == KERNEL:
-                for name in (
-                    "_version_major",
-                    "_version_minor",
-                    "_version_revision",
-                ):
-                    address = image.names[name][4]
-                    ranges.append([address, image.read(address, 4).hex()])
-                    names.add(name)
-            if identifier == SKYWALK:
-                name = "__ZN26IOSkywalkEthernetInterface4initEP12OSDictionary"
-                address = image.names[name][4] + 38
-                ranges.append([address, image.read(address, 7).hex()])
-                name = "__ZL13myPowerStates"
-                address = image.names[name][4]
-                ranges.append([address, image.read(address, 192).hex()])
-                names.add(name)
-                address, data = image.funcbytes(plan.link_symbol)
-                functions[plan.link_symbol] = [address, data.hex()]
-            if identifier == WIRELESS:
-                for cls in CLIENT_CLASSES:
-                    name = "__ZN" + str(len(cls)) + cls + "4freeEv"
-                    address, data = image.funcbytes(name)
-                    functions[name] = [address, data.hex()]
-                    names.add(name)
-            names |= set(functions)
-            images[identifier] = {
-                "uuid": image.uuid,
-                "symbols": {
-                    n: image.names[n][4]
-                    for n in sorted(names & image.names.keys())
-                },
-                "exports": sorted(names & image.defined()),
-                "tables": tables,
-                "functions": functions,
-                "ranges": ranges,
-            }
-        libraries = {}
-        for identifier in dict.fromkeys((
-            KERNEL,
-            *manifest["nativeLibraries"],
-            WIRELESS,
-        )):
-            if identifier not in collection.images:
-                continue
-            image = collection.images[identifier]
-            libraries[identifier] = {
-                "uuid": image.uuid,
-                "symbols": {
-                    n: image.symbols[n]
-                    for n in sorted(required & image.symbols.keys())
-                },
-                "exports": sorted(required & image.exports),
-            }
-        pointers = {}
-        for parent, offset, method in (
-            *manifest["nativeVtableGuards"],
-            *plan.vtable_guards,
-        ):
-            candidates = [
-                image
-                for image in collection.images.values()
-                if parent in image.symbols
-            ]
-            if len(candidates) != 1:
-                raise ValueError("Ambiguous reference vtable: " + parent)
-            address = candidates[0].symbols[parent] + offset
-            pointers[str(address)] = collection.pointer(address)
-        section = next(s for s in plan.native.sects if s[0] == "__text")
-        address, length = section[2:4]
-        text = plan.native.read(address, length)
-        matches = []
-        if plan.link_bytes:
-            for offset in range(len(text) - len(plan.link_bytes) + 1):
-                if all(
-                    (a & m) == (b & m)
-                    for a, b, m in zip(
-                        text[offset : offset + len(plan.link_bytes)],
-                        plan.link_bytes,
-                        plan.link_mask,
-                    )
-                ):
-                    matches.append(address + offset)
-            if matches != [plan.native.names[plan.link_symbol][4]]:
-                raise ValueError("Native logical-link pattern is not unique")
-        reference = {
+    return {
+        item.identifier: _export_image(plan, item, required)
+        for item in selected
+    }
+
+
+def _export_libraries(
+    collection: _ExportCollection, names: list[str], required: set[str]
+) -> dict[str, object]:
+    """Collect only imported or required collection symbols.
+
+    Returns:
+        Per-library export sets for the reference JSON.
+
+    """
+    records: dict[str, object] = {}
+    for identifier in dict.fromkeys((KERNEL, *names, WIRELESS)):
+        if identifier not in collection.images:
+            continue
+        image = collection.images[identifier]
+        records[identifier] = {
+            "uuid": _string(image.uuid),
+            "symbols": {
+                name: image.symbols[name]
+                for name in sorted(required & image.symbols.keys())
+            },
+            "exports": sorted(required & image.exports),
+        }
+    return records
+
+
+def _vtable_guards(value: object) -> list[tuple[str, int, str]]:
+    """Reject malformed generated vtable guard tuples.
+
+    Returns:
+        Checked parent-name, byte offset, and method-name triples.
+
+    Raises:
+        TypeError: The vtable guard list has an invalid field or shape.
+
+    """
+    if not _is_list(value):
+        message = "Native ABI vtable guards must be a list"
+        raise TypeError(message)
+    result: list[tuple[str, int, str]] = []
+    for guard in value:
+        if not _is_list(guard) or len(guard) != VTABLE_FIELDS:
+            message = "Native ABI vtable guard must have three elements"
+            raise TypeError(message)
+        result.append((
+            _string(guard[0]),
+            _integer(guard[1]),
+            _string(guard[2]),
+        ))
+    return result
+
+
+def _export_pointers(
+    collection: _ExportCollection, guards: list[tuple[str, int, str]]
+) -> dict[str, int]:
+    """Require an unambiguous collection owner for every vtable guard.
+
+    Returns:
+        Guarded virtual slot addresses and resolved pointer targets.
+
+    Raises:
+        ValueError: A guard is not uniquely attached to a library image.
+
+    """
+    pointers: dict[str, int] = {}
+    for parent, offset, _ in guards:
+        candidates = [
+            image
+            for image in collection.images.values()
+            if parent in image.symbols
+        ]
+        if len(candidates) != 1:
+            message = "Ambiguous reference vtable: " + parent
+            raise ValueError(message)
+        address = candidates[0].symbols[parent] + offset
+        pointers[str(address)] = collection.pointer(address)
+    return pointers
+
+
+def _link_matches(
+    source: bytes, pattern: bytes, mask: bytes, *, location: tuple[int, int]
+) -> list[int]:
+    """Return exact masked matches or refuse ambiguous/invalid link bytes.
+
+    Returns:
+        Absolute addresses matching the unique native logical-link pattern.
+
+    Raises:
+        ValueError: Malformed mask or nonunique/nonmatching data.
+
+    """
+    if not pattern:
+        return []
+    address, expected = location
+    if len(pattern) != len(mask):
+        message = "Native logical-link mask length does not match pattern"
+        raise ValueError(message)
+    matches = [
+        address + offset
+        for offset in range(max(0, len(source) - len(pattern) + 1))
+        if all(
+            (actual & bits) == (wanted & bits)
+            for actual, wanted, bits in zip(
+                source[offset : offset + len(pattern)],
+                pattern,
+                mask,
+                strict=True,
+            )
+        )
+    ]
+    if matches != [expected]:
+        message = "Native logical-link pattern is not unique"
+        raise ValueError(message)
+    return matches
+
+
+def _export_link_search(plan: _ExportPlan) -> dict[str, object]:
+    """Hash the chosen source text and locate its single masked link site.
+
+    Returns:
+        A text SHA-256 and source-absolute match address list.
+
+    """
+    section = next(
+        section for section in plan.native.sects if section[0] == TEXT_SECTION
+    )
+    address, length = section[2:4]
+    data = plan.native.read(address, length)
+    expected = plan.native.names[plan.link_symbol][4] if plan.link_bytes else 0
+    return {
+        "textSHA256": hashlib.sha256(data).hexdigest(),
+        "matches": _link_matches(
+            data,
+            plan.link_bytes,
+            plan.link_mask,
+            location=(address, expected),
+        ),
+    }
+
+
+def _checked_collection(value: object) -> _ExportCollection:
+    """Require the legacy collection's offline export interface.
+
+    Returns:
+        A runtime-checked collection reader.
+
+    Raises:
+        TypeError: The reader does not provide the expected operations.
+
+    """
+    if not isinstance(value, _ExportCollection):
+        message = "Native ABI collection lacks required export interfaces"
+        raise TypeError(message)
+    return value
+
+
+def _export_one(
+    plan: _ExportPlan, manifest: dict[str, object], required: set[str]
+) -> bytes:
+    """Materialize a single profile's reference record without writing it.
+
+    Returns:
+        Deterministic UTF-8 JSON for the selected pinned system.
+
+    """
+    from kernel_collection import KernelCollection  # ruff: ignore[import-outside-top-level] - Export-only binary collection.
+
+    collection = _checked_collection(KernelCollection(plan.native.path))
+    try:
+        guards = _vtable_guards(manifest.get("nativeVtableGuards"))
+        guards.extend(plan.vtable_guards)
+        record: dict[str, object] = {
             "file": plan.system + ".json",
             "project": "SimpleATH",
             "createdBy": "laobamac",
@@ -557,25 +797,112 @@ def export_references(binary):
             "schemaVersion": 1,
             "system": plan.system,
             "profile": SYSTEMS[plan.system],
-            "collectionUUID": collection.root.uuid,
+            "collectionUUID": _string(collection.root.uuid),
             "kernelVersion": collection.version(),
-            "images": images,
-            "libraries": libraries,
-            "pointers": pointers,
-            "linkSearch": {
-                "textSHA256": hashlib.sha256(text).hexdigest(),
-                "matches": matches,
-            },
+            "images": _export_images(plan, required),
+            "libraries": _export_libraries(
+                collection, _strings(manifest.get("nativeLibraries")), required
+            ),
+            "pointers": _export_pointers(collection, guards),
+            "linkSearch": _export_link_search(plan),
         }
-        path = DIRECTORY / (plan.system + ".json")
-        data = (
-            json.dumps(reference, indent=2, ensure_ascii=False) + "\n"
+        return (
+            json.dumps(record, indent=2, ensure_ascii=False) + "\n"
         ).encode()
-        path.write_bytes(data)
-        hashes[path.name] = hashlib.sha256(data).hexdigest()
+    finally:
         collection.close()
-        plan.wireless.close()
-        plan.model.close()
+
+
+def _export_inputs(
+    binary: Path,
+) -> tuple[dict[str, object], set[str], list[object]]:
+    """Load explicit export-only plans and independently validated manifest.
+
+    Returns:
+        The generator manifest, required symbol set and prepared plans.
+
+    Raises:
+        TypeError: The legacy preparation operation is unavailable.
+
+    """
+    from embed import OUTPUT  # ruff: ignore[import-outside-top-level] - Explicit export operation.
+    from embed import generate  # ruff: ignore[import-outside-top-level] - Explicit export operation.
+    from native_payload import SkywalkPlan  # ruff: ignore[import-outside-top-level] - Explicit export operation.
+
+    os.environ["SIMPLEATH_NATIVE_SOURCE"] = "system"
+    generate()
+    manifest = _mapping(json_object((OUTPUT / "manifest.json").read_bytes()))
+    required = set(_strings(manifest.get("nativeImports")))
+    required.update(
+        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argv, export-only nm.
+            [NM_PROGRAM, "-u", "-j", str(binary)], text=True
+        ).splitlines()
+    )
+    plans: list[object] = [SkywalkPlan(name) for name in SYSTEMS]
+    module = importlib.import_module("native_payload")
+    prepare: object = vars(module).get("prepare_native_guards")
+    if not callable(prepare):
+        message = "Native guard preparer is not callable"
+        raise TypeError(message)
+    _ = prepare(plans)
+    return manifest, required, plans
+
+
+def _checked_plan(value: object) -> _ExportPlan:
+    """Require all fields before reading or writing one native plan.
+
+    Returns:
+        A runtime-checked plan carrying the export source interfaces.
+
+    Raises:
+        TypeError: An incomplete plan lacks required source interfaces.
+
+    """
+    if not isinstance(value, _ExportPlan):
+        message = "Native plan lacks required export interfaces"
+        raise TypeError(message)
+    return value
+
+
+def _write_snapshots(
+    plans: list[object], manifest: dict[str, object], required: set[str]
+) -> dict[str, str]:
+    """Write all generated plan snapshots and compute their exact digests.
+
+    Returns:
+        File names mapped to the bytes written for each system.
+
+    """
+    hashes: dict[str, str] = {}
+    for candidate in plans:
+        plan = _checked_plan(candidate)
+        try:
+            data = _export_one(plan, manifest, required)
+            path = DIRECTORY / (plan.system + ".json")
+            _ = path.write_bytes(data)
+            hashes[path.name] = hashlib.sha256(data).hexdigest()
+        finally:
+            plan.wireless.close()
+            plan.model.close()
+    return hashes
+
+
+def export_references(binary: Path) -> None:
+    """Export pinned native ABI snapshots from an explicitly supplied binary.
+
+    Generated snapshots are source evidence, not proof of a native driver.
+    This export-only entrypoint is never run by offline host tests.
+
+    """
+    manifest, required, plans = _export_inputs(binary)
+    DIRECTORY.mkdir(parents=True, exist_ok=True)
+    hashes = _write_snapshots(plans, manifest, required)
+    _write_manifest(hashes)
+    load_reference.cache_clear()
+
+
+def _write_manifest(hashes: dict[str, str]) -> None:
+    """Record checksums only after every selected snapshot is written."""
     index = {
         "file": "manifest.json",
         "project": "SimpleATH",
@@ -585,24 +912,36 @@ def export_references(binary):
         "schemaVersion": 1,
         "files": hashes,
     }
-    (DIRECTORY / "manifest.json").write_text(json.dumps(index, indent=2) + "\n")
-    load_reference.cache_clear()
+    _ = (DIRECTORY / "manifest.json").write_text(
+        json.dumps(index, indent=2) + "\n"
+    )
 
 
-def main():
+class _Arguments(argparse.Namespace):
+    """Typed CLI arguments for snapshot export/verification."""
+
+    action: str = VERIFY_ACTION
+    binary: Path = (
+        ROOT
+        / "build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH"
+    )
+
+
+def main() -> None:
+    """Run an explicitly requested offline export or verify saved records."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("export", "verify"))
-    parser.add_argument(
+    _ = parser.add_argument("action", choices=(EXPORT_ACTION, VERIFY_ACTION))
+    _ = parser.add_argument(
         "--binary",
         type=Path,
         default=ROOT
         / "build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(namespace=_Arguments())
     if args.action == "export":
         export_references(args.binary)
     for name in SYSTEMS:
-        load_reference(DIRECTORY / (name + ".json"))
+        _ = load_reference(DIRECTORY / (name + ".json"))
     print("Native ABI references verified: " + ", ".join(SYSTEMS))
 
 

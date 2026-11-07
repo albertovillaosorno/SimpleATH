@@ -17,6 +17,9 @@ import subprocess
 from bootstrap import ROOT
 from bootstrap import validate_payloads
 from embed_macho_parser import parse
+from embed_payload_codec import align
+from embed_payload_codec import checksum
+from embed_payload_codec import payload_delta
 from macho import Image
 from native_payload import SkywalkPlan
 from native_payload import emit_system_profiles
@@ -40,48 +43,6 @@ ALIASES = {
 
 def header(name):
     return f"//\n//  {name}\n//  SimpleATH\n//\n//  Created by laobamac on 2026/11/1.\n//  Copyright © 2026 laobamac. All rights reserved.\n//\n"
-
-
-def align(value, alignment=4096):
-    return (value + alignment - 1) & -alignment
-
-
-def checksum(data):
-    value = 14695981039346656037
-    for byte in data:
-        value = ((value ^ byte) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
-    return value
-
-
-def payload_delta(base, target):
-    if not target or len(target) > len(base):
-        raise ValueError(
-            "Payload delta requires a base at least as large as its target"
-        )
-    ranges = []
-    for offset, (before, after) in enumerate(zip(base, target)):
-        if before == after:
-            continue
-        if ranges and offset - ranges[-1][1] <= 8:
-            ranges[-1][1] = offset + 1
-        else:
-            ranges.append([offset, offset + 1])
-    encoded = b"".join(
-        struct.pack("<II", start, end - start) + target[start:end]
-        for start, end in ranges
-    )
-    restored = bytearray(base[: len(target)])
-    position = 0
-    while position < len(encoded):
-        offset, length = struct.unpack_from("<II", encoded, position)
-        position += 8
-        restored[offset : offset + length] = encoded[
-            position : position + length
-        ]
-        position += length
-    if restored != target:
-        raise ValueError("Payload delta does not reconstruct the target")
-    return encoded, len(ranges)
 
 
 def route_prefixes(image, label):
