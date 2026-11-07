@@ -14,6 +14,7 @@ import bisect
 import hashlib
 import os
 from pathlib import Path
+from itertools import pairwise
 import re
 import shutil
 import stat
@@ -32,6 +33,70 @@ else:
 
 
 MAX_MACHO_BYTES = 2 * 1024 * 1024 * 1024
+MAX_FAT_ARCHITECTURES = 256
+FAT32_MAGIC = b"\xca\xfe\xba\xbe"
+FAT64_MAGIC = b"\xca\xfe\xba\xbf"
+X86_64_CPU = 0x1000007
+
+
+def _select_x86_64_slice(data: bytes) -> bytes:
+    """Select a unique bounded x86_64 fat slice, preserving thin images.
+
+    Returns:
+        The bounded thin x86_64 slice, or the unchanged standalone input.
+
+    Raises:
+        ValueError: A malformed or ambiguous fat architecture table.
+
+    """
+    if data[:4] not in {FAT32_MAGIC, FAT64_MAGIC}:
+        return data
+    if len(data) < 8:
+        message = "Truncated Mach-O fat header"
+        raise ValueError(message)
+    wide = data[:4] == FAT64_MAGIC
+    count = unpack_integers(data, ">I", 4)[0]
+    entry_size = 32 if wide else 20
+    if (
+        not 0 < count <= MAX_FAT_ARCHITECTURES
+        or count > (len(data) - 8) // entry_size
+    ):
+        message = "Truncated or excessive Mach-O fat architecture table"
+        raise ValueError(message)
+    table_end = 8 + count * entry_size
+    ranges: list[tuple[int, int]] = []
+    selected: tuple[int, int] | None = None
+    for index in range(count):
+        entry = 8 + index * entry_size
+        cpu = unpack_integers(data, ">I", entry)[0]
+        offset, size = unpack_integers(
+            data, ">QQ" if wide else ">II", entry + 8
+        )
+        alignment = unpack_integers(data, ">I", entry + (24 if wide else 16))[0]
+        if (
+            not size
+            or offset < table_end
+            or size > len(data) - offset
+            or alignment >= 63
+            or offset % (1 << alignment)
+        ):
+            message = "Invalid Mach-O fat slice bounds or alignment"
+            raise ValueError(message)
+        ranges.append((offset, offset + size))
+        if cpu == X86_64_CPU:
+            if selected is not None:
+                message = "Ambiguous x86_64 Mach-O fat slices"
+                raise ValueError(message)
+            selected = (offset, size)
+    ranges.sort()
+    if any(left[1] > right[0] for left, right in pairwise(ranges)):
+        message = "Overlapping Mach-O fat slices"
+        raise ValueError(message)
+    if selected is None:
+        message = "No x86_64 slice"
+        raise ValueError(message)
+    offset, size = selected
+    return data[offset : offset + size]
 
 
 def read_macho_source(path: Path) -> bytes:
@@ -78,31 +143,7 @@ class Image:
         self.data: bytes = read_macho_source(self.path)
         # Hash the original bounded stream before selecting an x86_64 fat slice.
         self.source_sha256: str = hashlib.sha256(self.data).hexdigest()
-        if self.data[:4] in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
-            if len(self.data) < 8:
-                raise ValueError("Truncated Mach-O fat header")
-            wide = self.data[3] == 0xBF
-            count = unpack_integers(self.data, ">I", 4)[0]
-            entry_size = 32 if wide else 20
-            if count > (len(self.data) - 8) // entry_size:
-                raise ValueError("Truncated Mach-O fat architecture table")
-            for index in range(count):
-                entry = 8 + index * entry_size
-                cpu = unpack_integers(self.data, ">I", entry)[0]
-                if cpu == 0x1000007:
-                    offset, size = unpack_integers(
-                        self.data, ">QQ" if wide else ">II", entry + 8
-                    )
-                    if (
-                        not size
-                        or offset > len(self.data)
-                        or size > len(self.data) - offset
-                    ):
-                        raise ValueError("Invalid Mach-O fat slice bounds")
-                    self.data = self.data[offset : offset + size]
-                    break
-            else:
-                raise ValueError("No x86_64 slice")
+        self.data = _select_x86_64_slice(self.data)
         if len(self.data) < 32 or self.data[:4] != b"\xcf\xfa\xed\xfe":
             raise ValueError("Expected complete little-endian Mach-O 64 header")
         command_count, command_bytes = unpack_integers(self.data, "<II", 16)
@@ -153,22 +194,37 @@ class Image:
                         integer(section_fields[4]),
                     ))
             elif command == 2:
+                if symtab is not None:
+                    message = "Duplicate Mach-O symbol table command"
+                    raise ValueError(message)
                 if size < 24:
                     raise ValueError("Truncated Mach-O symbol table command")
                 symtab = unpack_integers(self.data, "<IIII", position + 8)
             elif command == 0xB:
+                if dysymtab is not None:
+                    message = "Duplicate Mach-O dynamic symbol table command"
+                    raise ValueError(message)
                 if size < 80:
                     raise ValueError("Truncated Mach-O dynamic symbol table")
                 dysymtab = unpack_integers(self.data, "<18I", position + 8)
             elif command in (0x22, 0x80000022):
+                if dyld is not None:
+                    message = "Duplicate Mach-O dyld metadata command"
+                    raise ValueError(message)
                 if size < 48:
                     raise ValueError("Truncated Mach-O dyld metadata")
                 dyld = unpack_integers(self.data, "<10I", position + 8)
             elif command == 0x1B:
+                if self.uuid is not None:
+                    message = "Duplicate Mach-O UUID command"
+                    raise ValueError(message)
                 if size < 24:
                     raise ValueError("Truncated Mach-O UUID")
                 self.uuid = self.data[position + 8 : position + 24].hex()
             position += size
+        if position != 32 + command_bytes:
+            message = "Mach-O command bytes/count disagree"
+            raise ValueError(message)
         names: list[str] = []
         if symtab:
             offset, count, strings, strings_size = symtab
@@ -221,11 +277,13 @@ class Image:
                         if kind not in (6, 7, 8):
                             continue
                         stride = stride if kind == 8 else 8
+                        if (
+                            stride == 0
+                            or length // stride > dysymtab[13] - first
+                        ):
+                            message = "Mach-O indirect symbol index or stride exceeds table"
+                            raise ValueError(message)
                         for item in range(length // stride):
-                            if first + item >= dysymtab[13]:
-                                raise ValueError(
-                                    "Mach-O indirect symbol index exceeds table"
-                                )
                             symbol = unpack_integers(
                                 self.data, "<I", indirect + 4 * (first + item)
                             )[0]

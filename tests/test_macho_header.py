@@ -80,6 +80,81 @@ def _uuid_command() -> bytes:
     return struct.pack("<II", UUID_COMMAND, 24) + UUID_BYTES
 
 
+def _fat32(
+    *,
+    second_cpu: int = 0x100000C,
+    first_offset: int = 48,
+    second_offset: int = 80,
+    second_alignment: int = 2,
+) -> bytes:
+    """Construct a two-architecture fat container for integrity tests.
+
+    Returns:
+        Two synthetic nonexecuting 64-bit headers in a FAT32 table.
+
+    """
+    thin = _thin()
+    first = struct.pack(">IIIII", FAT_CPU, 3, first_offset, len(thin), 2)
+    second = struct.pack(
+        ">IIIII", second_cpu, 3, second_offset, len(thin), second_alignment
+    )
+    return (
+        b"\xca\xfe\xba\xbe" + struct.pack(">I", 2) + first + second + thin * 2
+    )
+
+
+def _bad_indirect_stubs() -> bytes:
+    """Make a well-bounded symbol-stub section with a zero stub stride.
+
+    Returns:
+        Mach-O metadata that must be refused before dividing by the stride.
+
+    """
+    header_size = 32
+    segment_size = 152
+    dynamic_size = 80
+    indirect_offset = header_size + segment_size + dynamic_size
+    segment = struct.pack(
+        "<II16sQQQQiiII",
+        SEGMENT_COMMAND,
+        segment_size,
+        b"__TEXT",
+        0x1000,
+        8,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+    )
+    section = struct.pack(
+        "<16s16sQQIIIIIIII",
+        b"__stubs",
+        b"__TEXT",
+        0x1000,
+        8,
+        0,
+        0,
+        0,
+        0,
+        8,
+        0,
+        0,
+        0,
+    )
+    dynamic = struct.pack(
+        "<II18I",
+        0xB,
+        dynamic_size,
+        *([0] * 12),
+        indirect_offset,
+        1,
+        *([0] * 4),
+    )
+    return _thin((segment + section, dynamic), b"\0" * 4)
+
+
 def _symbol_image() -> bytes:
     """Construct one bound symbol table and NUL-terminated name.
 
@@ -238,6 +313,44 @@ def _disassembly_change_rejected(image: Image) -> bool:
     except ValueError as error:
         return SOURCE_CHANGED in str(error)
     return False
+
+
+class MachoFatAndStubSafety(TestCase):
+    """Reject malformed fat selection and dynamic stub metadata."""
+
+    @staticmethod
+    def test_fat_architectures_are_unique_disjoint_and_aligned() -> None:
+        """Reject ambiguity, overlap and offsets into the fat index table."""
+        assert _parse(_fat32()).data == _thin()
+        malformed = (
+            (_fat32(second_cpu=FAT_CPU), "Ambiguous x86_64"),
+            (_fat32(second_offset=64), "Overlapping Mach-O"),
+            (_fat32(second_offset=81), "alignment"),
+            (_fat32(first_offset=44), "fat slice bounds"),
+            (_fat32(first_offset=0), "fat slice bounds"),
+        )
+        for data, reason in malformed:
+            assert _rejects(data, reason), reason
+
+    @staticmethod
+    def test_load_commands_reject_duplicates_and_unparsed_tail() -> None:
+        """Never use conflicting metadata or unaccounted command bytes."""
+        uuid = _uuid_command()
+        assert _rejects(_thin((uuid, uuid)), "Duplicate Mach-O UUID")
+        symbol = struct.pack("<IIIIII", SYMTAB_COMMAND, 24, 0, 0, 0, 0)
+        assert _rejects(
+            _thin((symbol, symbol)), "Duplicate Mach-O symbol table"
+        )
+        invalid_count = bytearray(_thin((uuid,)))
+        struct.pack_into("<I", invalid_count, 16, 0)
+        assert _rejects(bytes(invalid_count), "command bytes/count disagree")
+
+    @staticmethod
+    def test_stub_section_requires_nonzero_stride() -> None:
+        """Reject zero-sized stubs before dividing by the stride."""
+        assert _rejects(
+            _bad_indirect_stubs(), "indirect symbol index or stride"
+        )
 
 
 class MachoSnapshotHashSafety(TestCase):
