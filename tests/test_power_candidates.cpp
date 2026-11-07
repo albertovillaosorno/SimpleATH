@@ -112,5 +112,57 @@ int main()
         output.controlMhz || output.cck[0] || output.ht20Present ||
         output.conductedCeilingHalfDbm)
         return 11;
+
+    // Pinned ath9k AR9300 dictionaries carry trailing zero in some 2 GHz
+    // CTL edge rows (and 0xff in others). Both are *padding*, not new
+    // coverage; construct a synthetic board with explicit, in-range edges.
+    image.restored = true;
+    image.appliedBlocks = 1;
+    image.bytes[0] = 2;
+    image.bytes[2] = 0x02;
+    image.bytes[3] = 0x11;
+    image.bytes[4] = 0x22;
+    image.bytes[5] = 0x33;
+    image.bytes[6] = 0x44;
+    image.bytes[7] = 0x55;
+    image.bytes[32] = 0x11;
+    image.bytes[33] = 0x22; // 2 GHz, with HT target lookup disabled.
+    image.bytes[195] = image.bytes[197] = 112;
+    image.bytes[196] = image.bytes[198] = 137;
+    image.bytes[199] = 162;
+    for (size_t i = 206; i < 226; ++i)
+        image.bytes[i] = 24;
+    image.bytes[310] = 0xe1; // CCK CTL.
+    image.bytes[311] = 0xe2; // OFDM CTL.
+    for (size_t row = 0; row < 2; ++row)
+    {
+        image.bytes[322 + row * 4] = 112;
+        image.bytes[323 + row * 4] = 137;
+        image.bytes[324 + row * 4] = 162;
+        image.bytes[325 + row * 4] = row ? 0xff : 0;
+        for (size_t edge = 0; edge < 4; ++edge)
+            image.bytes[370 + row * 4 + edge] = 26;
+    }
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::Ok ||
+        output.controlMhz != 2412 || output.cck[0] != 24 ||
+        output.ofdm[0] != 24 || output.ht20Present || output.ht40Present ||
+        output.conductedCeilingHalfDbm != 30)
+        return 12;
+
+    // Zero cannot be an interior bin followed by later live edges; a row
+    // with only padding cannot grant CTL coverage at any frequency.
+    image.bytes[323] = 0;
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidCtlEdges ||
+        output.controlMhz || output.cck[0])
+        return 13;
+    image.bytes[322] = 0;
+    image.bytes[324] = 0;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::MissingCtlCoverage ||
+        output.controlMhz || output.cck[0])
+        return 14;
     return 0;
 }

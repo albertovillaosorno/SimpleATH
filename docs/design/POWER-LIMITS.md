@@ -32,7 +32,12 @@ edge-power/flag bytes per row at 370. Specific groups use the first matching
 mode/index as upstream; explicit group 0xe0 takes the minimum across matching
 modes. Exact edge hits use its lower six power bits. Interior frequencies use
 the preceding edge only when its in-band flags are nonzero. Missing groups,
-coverage, empty rows and non-monotonic edges return errors.
+coverage, empty rows and non-monotonic edges return errors. Pinned
+ath9k AR9300 2 GHz dictionaries also contain trailing zero-filled CTL bins,
+although upstream's generic unused-bin sentinel is 0xff. This stricter source
+parser treats either 0x00 or 0xff as **trailing padding only**: a later
+nonempty edge is malformed, and neither terminator supplies channel coverage.
+Synthetic tests check valid mixed padding and reject interior/empty edges.
 
 There are two deliberate fail-closed departures from upstream's permissive
 fallbacks: uncovered CTL frequencies do not acquire MAX_RATE_POWER, and a

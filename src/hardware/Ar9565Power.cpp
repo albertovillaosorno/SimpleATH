@@ -122,7 +122,11 @@ namespace simpleath
             bool ended = false;
             for (size_t i = 0; i < 4; ++i)
             {
-                if (bins[i] == 0xff)
+                // Pinned ath9k AR9300 dictionaries contain both 0x00 and
+                // 0xff trailing 2G CTL padding. Zero maps to 2300 MHz, not
+                // a usable 2.4 GHz edge: treat it as a terminator only and
+                // never allow a later nonempty edge to resume coverage.
+                if (bins[i] == 0 || bins[i] == 0xff)
                 {
                     ended = true;
                     continue;
