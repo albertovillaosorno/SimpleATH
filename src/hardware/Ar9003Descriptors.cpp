@@ -58,6 +58,42 @@ namespace simpleath
             return static_cast<uint16_t>(folded & 0xffffu);
         }
 
+        bool validTxPointerDescriptor(const TxDescriptor &descriptor)
+        {
+            const uint32_t info = descriptor.word[kTxInfoIndex];
+            if ((info & 0xffff0000u) != kVendor ||
+                (info & kTxDescriptorBits) != kTxDescriptorBits ||
+                (info & 0x3000u) != 0 ||
+                (info & 0xffu) != kTxDescriptorDwords ||
+                ((info >> 8u) & 0x0fu) > kValidQueueMax ||
+                (descriptor.word[kLinkIndex] & 3u) != 0)
+                return false;
+
+            // The pointer codec only emits contiguous, nonempty segments.
+            // A matching checksum is not evidence that a caller-constructed
+            // descriptor contains even one mapped payload segment.
+            bool foundSegment = false;
+            bool foundGap = false;
+            for (size_t index = 0; index < 4; ++index)
+            {
+                const uint32_t address = descriptor.word[2 + index * 2];
+                const uint32_t encoded = descriptor.word[3 + index * 2];
+                if (address == 0 && encoded == 0)
+                {
+                    foundGap = true;
+                    continue;
+                }
+                const uint32_t length = encoded >> 16u;
+                if (foundGap || address == 0 || length == 0 ||
+                    length > kBufferLengthMask || encoded != (length << 16u) ||
+                    length - 1u > 0xffffffffu - address)
+                    return false;
+                foundSegment = true;
+            }
+            return foundSegment && (descriptor.word[kChecksumIndex] &
+                                    0xffffu) == txPointerChecksum(descriptor);
+        }
+
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out)
         {
@@ -104,16 +140,10 @@ namespace simpleath
             if (nextDescriptorBusAddress != 0 &&
                 (nextDescriptorBusAddress & 3u) != 0)
                 return DescriptorError::InvalidLink;
-            // A link update must not launder an uninitialized, stale or
-            // checksum-corrupt descriptor into something apparently valid.
-            // Pointer checksums exclude the rate/power control fields.
-            const uint32_t info = descriptor.word[kTxInfoIndex];
-            if ((info & 0xffff0000u) != kVendor ||
-                (info & kTxDescriptorBits) != kTxDescriptorBits ||
-                (info & 0xffu) != kTxDescriptorDwords ||
-                ((info >> 8u) & 0x0fu) > kValidQueueMax ||
-                (descriptor.word[kChecksumIndex] & 0xffffu) !=
-                    txPointerChecksum(descriptor))
+            // A link update must not launder a forged empty/partial pointer
+            // block merely because its checksum was recalculated. Rate and
+            // power fields are excluded from the pointer checksum.
+            if (!validTxPointerDescriptor(descriptor))
                 return DescriptorError::InvalidDescriptor;
             // Link updates do not require rewriting rate/power control words.
             descriptor.word[kLinkIndex] = nextDescriptorBusAddress;

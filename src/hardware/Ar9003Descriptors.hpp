@@ -96,8 +96,11 @@ namespace simpleath
         // device.
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out);
-        // Checks the existing TX identity, length, queue and pointer checksum
-        // before touching the link. A corrupt descriptor stays unchanged.
+        // Validate the canonical pointer fields independently of their
+        // checksum. Does not prove IOMMU mapping, DMA ownership or TX safety.
+        bool validTxPointerDescriptor(const TxDescriptor &descriptor);
+        // Checks the full pointer block, queue and checksum before touching
+        // the link. A corrupt descriptor stays unchanged.
         DescriptorError setNextTxDescriptor(TxDescriptor &descriptor,
                                             uint32_t nextDescriptorBusAddress);
         uint16_t txPointerChecksum(const TxDescriptor &descriptor);

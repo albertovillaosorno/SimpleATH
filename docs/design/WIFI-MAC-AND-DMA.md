@@ -31,6 +31,10 @@ for the **next separately authorized build**.
 - **TX descriptors are not connected to a working radio.** Pointer checksums
   and most non-aggregated rate/retry/power/CCMP control fields are staged, but
   rate selection and power limits still depend on verified board/OS policy.
+  Pointer relinking and TX control encoding revalidate the canonical block:
+  at least one contiguous nonzero segment, 12-bit lengths, no 4-GiB crossing,
+  zero unused slots, aligned link, supported queue and pointer checksum.
+  A forged all-zero payload with a recomputed checksum is not valid input.
   No safe bus mastering, EDMA ring programming, interrupt completion, active
   RF calibration or 802.11 traffic pipeline exists. The descriptors must not
   be submitted to the physical device.

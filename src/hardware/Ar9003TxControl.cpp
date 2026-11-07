@@ -31,8 +31,6 @@ namespace simpleath
         {
 
             constexpr uint32_t kInfoVendor = 0x168c0000u;
-            constexpr uint32_t kAr9565ControlLength = 0x18u;
-            constexpr uint32_t kInfoDescriptorBits = 0xc000u;
             constexpr uint8_t kMaximumQcu = 9u;
 
             bool packetTypeValid(TxPacketType type)
@@ -48,15 +46,9 @@ namespace simpleath
                                         const TxSafetyPolicy &policy,
                                         TxDescriptor &descriptor)
         {
-            // The vendor/descriptor kind must have been written by the pointer
-            // codec.
-            const uint32_t info = descriptor.word[0];
-            if ((info & 0xffff0000u) != kInfoVendor ||
-                (info & kInfoDescriptorBits) != kInfoDescriptorBits ||
-                (info & 0xffu) != kAr9565ControlLength ||
-                ((info >> 8u) & 0x0fu) > kMaximumQcu ||
-                (descriptor.word[10] & 0xffffu) !=
-                    txPointerChecksum(descriptor))
+            // A vendor tag and valid checksum alone do not prove that any
+            // bounded payload pointer was prepared by the pointer codec.
+            if (!validTxPointerDescriptor(descriptor))
                 return TxControlError::UninitializedPointerDescriptor;
             if (request.onAirFrameLength == 0 ||
                 request.onAirFrameLength > 0x0fffu)
