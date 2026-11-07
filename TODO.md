@@ -20,7 +20,44 @@ perform the real hardware testing and send results in this chat.
 
 Each index entry has a TODO title, one summary and one typed-record link.
 
+## Criterion for leaving only the final TODO
+
+**Full theoretical functionality is the exit criterion: 100% of the required
+AR9565 kext behavior must be implemented and integrated.** Completion means
+the source is expected to perform the entire supported workflow correctly,
+with no known missing implementation. Formatting, research notes and a
+successful passive match cannot establish that milestone.
+
+All required AR9565/QCA9565 PCI 168c:0036 source must be implemented,
+connected to the native Tahoe interface, included in the Xcode target and
+reviewed on main. No known source-resolvable blocker, unimplemented required
+callback, passive-only replacement or fabricated readiness flag may remain.
+Each completed record must cite its implementation commits and concrete
+static evidence; lint alone is insufficient. All validator findings must
+be resolved without hiding files, weakening rules or calling skipped checks
+successful. Record which checks actually ran.
+
+At that point the owner must be able to request compilation of the exact
+reviewed commit in GitHub Actions using ONE expressly authorized `build-v*`
+tag. Do not create a tag, dispatch CI, compile locally, install or experiment
+without the corresponding explicit authorization. No exact tag is authorized
+by this roadmap. Source readiness must not depend on a prior build or test.
+
+The required outcome is 100% functional native Wi-Fi for this target, followed
+by the requested Bluetooth/coexistence and AirDrop acceptance. Source-only
+completion is an engineering readiness claim, not proof or a guarantee that
+the first build or hardware run will succeed. Unknown hardware conditions
+and separate Bluetooth/Continuity support must remain honestly documented.
+
 ## P0 — Source-only
+
+### TODO - Resolve validator findings and review interrupted Python edits
+
+Finish the pending lint/type corrections, review the interrupted edits under
+tools/, preserve every script's behavior and obtain a fresh full validator
+report with no unresolved findings. No builds or test suites are authorized.
+
+[docs/todo/open/governance/validator-findings.mdc](docs/todo/open/governance/validator-findings.mdc)
 
 ### TODO - Tahoe ABI
 
@@ -120,11 +157,30 @@ diagnostics.
 
 [docs/todo/open/governance/source-hardening.mdc](docs/todo/open/governance/source-hardening.mdc)
 
+### TODO - Complete the AR9565 Linux ledger and retire local references
+
+Finish the required AR9565 scopes, assess every ledger entry for this target,
+remove local-tree tool dependencies, then delete only the repository's local
+linux/ reference tree. Existing THIRD_PARTY_NOTICES.md and inline source
+notices are sufficient; do not add an archive or provenance infrastructure.
+Unrelated Linux features and chipsets require a justified out-of-scope record,
+not an unnecessary port. The deletion conditions are not satisfied today.
+
+[docs/todo/open/governance/linux-reference-retirement.mdc](docs/todo/open/governance/linux-reference-retirement.mdc)
+
 ## Indefinite theoretical hardening
 
 After P0–P4 source completion, continue research and source hardening
 without deadline, physical checks or owner diagnostic requests.
 This hold ends ONLY by an explicit owner decision.
+
+When the acceptance TODO below is the sole open item and the owner gives no
+new instruction, keep researching with web search and reviewing the entire
+driver indefinitely. Find and repair concrete panic, bounds, lifetime,
+locking, interrupt, DMA, power, cryptographic and regulatory defects. Compare
+versioned source/documentation and record evidence, maintain the AR9565
+ledger, and reopen source tasks when newly required work is found. Never
+substitute formatting churn or unsupported safety claims for implementation.
 
 ## P5 — FINAL TODO: owner-controlled physical testing
 
@@ -133,5 +189,8 @@ This hold ends ONLY by an explicit owner decision.
 The owner starts separately authorized Dell experiments only after all
 theoretical tasks and the indefinite hold, then shares diagnostics here for
 agent-guided bug fixes until the requested result is reached.
+This task NEVER closes unless the owner explicitly asks to close it, even
+after successful experiments. Without that request it remains open while
+the standing theoretical-hardening instruction continues.
 
 [docs/todo/open/owner/owner-controlled-device-acceptance.mdc](docs/todo/open/owner/owner-controlled-device-acceptance.mdc)

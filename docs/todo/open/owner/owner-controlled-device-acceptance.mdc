@@ -7,6 +7,8 @@ lane: owner
 phase: owner-authorized-hardware
 hardware_required: true
 hold: indefinite-until-explicit-owner-decision
+closure: explicit-owner-request-required
+build_route: github-actions-single-explicitly-authorized-build-v-tag
 dependencies:
   - "exact-tahoe-abi"
   - "eeprom-otp"
@@ -18,6 +20,8 @@ dependencies:
   - "native-tahoe-airport"
   - "full-wifi-pipeline"
   - "source-hardening"
+  - "validator-findings"
+  - "linux-reference-retirement"
 ---
 
 # TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
@@ -28,16 +32,47 @@ Only AFTER every P0-P4 record is source-complete and the indefinite hardening
 hold is expressly ended by the owner, begin the real Dell diagnostic/repair
 loop in this ChatGPT conversation.
 
+When this is the ONLY open TODO, the exact main commit must have complete,
+integrated AR9565 source and no known source-resolvable blockers. The owner
+can then request its first compilation through ONE specifically authorized
+GitHub `build-v*` tag. No tag, build or experiment is authorized by reaching
+this state. Local builds and alternate CI triggers are not permitted.
+
+The acceptance objective is fully functional native Wi-Fi on the specified
+Dell/Tahoe target, plus the requested Bluetooth/coexistence and AirDrop
+behavior. Treat 100% functionality as the required outcome, never as an
+unobserved result or a promise that static review proves first-run success.
+
 ## Acceptance
 
 - [ ] Owner explicitly ends the hold and separately authorizes each build,
       install and hardware experiment.
+- [ ] Compile only the reviewed commit via the single explicitly approved
+      GitHub build tag; record the artifact hash and actual build diagnostics.
+- [ ] Observe OpenCore injection without unresolved imports/relocations,
+      Tahoe boot and physical 168c:0036 identity with supported true SREV.
 - [ ] Owner tests native Wi-Fi, WPA2/CCMP encrypted IP, recovery, sleep and RF safety.
+- [ ] Observe 2.4 GHz scanning, actual WPA2 association, DHCP/DNS/TCP traffic,
+      reconnect after sleep, legal transmit-power constraints and no kernel
+      panic during the owner-authorized runs; record limits and failures.
 - [ ] Identify and verify Bluetooth hardware and coexistence separately.
 - [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible Apple devices.
 - [ ] Owner posts actual results here; agents coordinate code fixes in their chat
       and commit directly to main, iterating only with new owner permission.
 - [ ] Record real logs/results and remaining limits, never equating theory with success.
+- [ ] Owner explicitly requests closing THIS TODO. Neither successful checks
+      nor permission to compile, install or test authorizes closure.
+
+## Standing instruction while open
+
+This record MUST NOT be closed, moved to completed or removed from TODO.md
+without the owner's explicit request to close it. If it is the only open
+record and no new owner instruction arrives, continue theoretical hardening
+of the entire driver indefinitely using web research, upstream comparisons
+and static reasoning. Repair evidence-backed panic, lifetime, concurrency,
+DMA, power, security and regulatory defects; maintain provenance and reopen
+source records when required work is found. Do not request early device
+tests or infer authorization from elapsed time or source completeness.
 
 ## Evidence
 

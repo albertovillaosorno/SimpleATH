@@ -29,6 +29,21 @@ documented APIs and public source. **No physical PCI reads.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Implement the controller that retains/opens the actual PCI provider,
+      verifies physical 168c:0036 without a 0030 spoof, and supplies genuine
+      serialized D0/ownership epochs; wire it into start/stop and power events.
+- [ ] Map the provider's assigned BAR with checked bounds, ordered LE MMIO
+      and device posted-write completion. Use command-width-safe writes;
+      never size a live BAR or invent a mapping/ownership success.
+- [ ] Implement sleep, provider termination, partial-start failure and resume:
+      revoke callbacks before unmapping/closing, track command rollback and
+      refuse access after owner/power loss. State which context may block.
+- [ ] Connect read-only inspection and active register capabilities to their
+      real callers while preserving TX/DMA/interrupt safety gates. A backend
+      contract or permanently disabled source branch is not this integration.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

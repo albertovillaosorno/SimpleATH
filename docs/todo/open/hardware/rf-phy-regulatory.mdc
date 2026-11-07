@@ -30,6 +30,23 @@ live signal or transmission tests.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Execute revision-aware wake/reset, PLL/synthesizer and ordered PHY/RF
+      initialization through the actual PCI owner, with required delays,
+      bounded waits, error propagation and recovery state invalidation.
+- [ ] Preserve HT20/HT40, every required RX/TX gain choice and the AR9565 1.1
+      radio postamble. Apply actual board calibration, antenna/diversity,
+      RF-kill and Bluetooth-coexistence programming, not recipe flags alone.
+- [ ] Implement channel changes, ANI/noise handling and required calibration
+      scheduling, including suspend/resume reinitialization and RF-kill races.
+- [ ] Intersect board limits with a legitimate runtime country/channel policy;
+      implement CTL/target interpolation, antenna/EIRP constraints and actual
+      calibrated per-rate TPC/register/descriptor conversion, including HT40
+      and channel-14 restrictions. Candidate numbers alone cannot enable TX.
+- [ ] Enforce the common TX gate before management, data and automatic MAC
+      responses: valid calibration, permitted channel/power and RF-kill state.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

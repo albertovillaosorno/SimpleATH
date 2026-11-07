@@ -30,6 +30,22 @@ transfer required.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Allocate/map actual descriptor, status-ring and packet buffers through
+      the provider's IOMMU/DMA contracts. Bound alignment, lengths, 32-bit
+      device addresses and segment coverage; specify coherency/directions.
+- [ ] Program RX/TX queues and doorbells, decode real completions and deliver
+      actual received buffers. Metadata-only reservations are incomplete.
+- [ ] Implement interrupt source/work-loop setup, masking/acknowledgement,
+      deferred work and teardown, with no blocking hard-interrupt operation.
+- [ ] Define publish/retire ownership, barriers and nonreused generations for
+      every ring/buffer. Handle stale completions, overflow/underrun, queue
+      pressure and reset without double free, reuse or unbounded waits.
+- [ ] Quiesce producers/interrupts/device DMA before releasing mappings on
+      failure, stop and sleep. Quarantine uncertain ownership; implement the
+      real cleanup/recovery path and fresh resume generations.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

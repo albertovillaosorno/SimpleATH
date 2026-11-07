@@ -1,0 +1,88 @@
+---
+schema: simpleath.todo.v1
+id: validator-findings
+status: open
+priority: P4
+lane: A10
+phase: source-only
+hardware_required: false
+dependencies: []
+scope:
+  - "tools/"
+  - "src/"
+  - "tools/validate.py"
+---
+
+# TODO - Resolve validator findings and review interrupted Python edits
+
+## Objective
+
+Resolve the existing root-configured formatting, lint and type findings
+without changing script behavior, hiding sources or weakening rules. Keep
+tools/validate.py a lightweight orchestrator for already installed tools.
+Do not execute the build, publishing or runtime-check scripts being linted.
+
+## Observed handoff, 2026-11-06
+
+The initial full `python3 -B tools/validate.py --no-cache` run inspected
+91 files and executed 135 checks: 132 failures, 3 passes, no skipped checks.
+This is a historical baseline, NOT the result for the current working tree.
+Clang-Tidy was not requested; no compilation database was generated.
+Separate initial static reports found 4,217 Ruff diagnostics and 3,039
+BasedPyright errors in 22 Python files, with overlapping/cascading findings.
+
+Native formatting was corrected in commit 507f28d. A subsequent installed
+Clang Format dry-run inspected 71 native source files without findings.
+This source-format result is not C++ compilation or driver validation.
+
+Three helper agents began Python corrections and were interrupted at the
+owner's request. Their modifications remain UNCOMMITTED and UNFINISHED in
+the shared working tree; do not treat them as accepted or merge them blindly.
+They performed formatting/safe fixes and began typing/refactoring:
+
+- ABI tools: macho.py, kernel_collection.py, profiles.py, native_abi.py,
+  native_references.py, system_profiles.py, inspect_platform_abi.py; a new
+  untracked tools/abi_types.py was started for typed data/import-cycle work.
+- Build helpers: build.py, native_payload.py, embed.py, publish.py,
+  bootstrap.py, bootstrap_sdk.py. The helper reported clean per-file Ruff
+  and BasedPyright for the two bootstrap files; independently review that
+  limited claim before accepting the edits.
+- Check/generation helpers: validate.py, verify.py, verify_native.py,
+  check.py, audit_codecs.py, collect.py, collect_platform_abi.py,
+  generate_ar9300_templates.py, generate_ar9565_ini.py.
+
+All names above are under tools/. The agents are stopped; no automated
+continuation is promised. Review current diffs and new files first because
+other authorized agents may continue editing. Temporary initial reports
+were /tmp/simpleath-validate-current.log, /tmp/simpleath-ruff-findings.json
+and /tmp/simpleath-pyright-findings.json; they may disappear. The shared
+.cache/validate/report.json is overwritten by later runs, including partial
+file runs, so inspect its scope before citing it as a repository result.
+
+## Acceptance
+
+- [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
+      bounded parsing, import cycles and unintended changes. Complete or
+      replace incomplete refactors; preserve concurrent legitimate work.
+- [ ] Resolve actual Ruff/BasedPyright findings in every included source,
+      preserving public CLI behavior and existing build-safety boundaries.
+      A narrowly scoped lint exception for a necessary reviewed operation
+      must explain that operation; no blanket noqa, ignored file, disabled
+      type check, Any/cast shortcut or weakened root configuration.
+- [ ] Keep the validator small, static and standard-library based; no new
+      framework, installs, downloads, tests, compiler invocation or database
+      generation. Optional Clang-Tidy needs an existing compilation database.
+- [ ] Finish formatting/type work before claiming a source task is clean.
+      Missing tools or skipped requested checks are limitations, not passes.
+- [ ] Commit reviewed changes in focused main commits, then obtain a fresh
+      full tools/validate.py --no-cache report without concurrent source
+      mutation. Record the exact scope, tools, counts and commit; no stale
+      per-file cache/report may stand in for the full result.
+- [ ] Update this record with actual results and remove its TODO index entry
+      only after the findings above are resolved. Never infer functional
+      Wi-Fi, ABI correctness or panic freedom from green lint.
+
+## Evidence
+
+Keep evidence in this existing record and the validator's existing report.
+No additional validation service or archival infrastructure is requested.

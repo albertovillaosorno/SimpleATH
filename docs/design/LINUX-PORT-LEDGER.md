@@ -1,9 +1,11 @@
 # Linux reference ledger
 
-The owner requested a JSONL ledger instead of deleting used Linux files.
+The owner requested a JSONL ledger to track the Linux source migration.
 `linux-port-ledger.jsonl` inventories the files under `linux/` and records
 source provenance separately from implementation progress. Preserve the
-reference tree, file-specific licenses and copyright notices.
+reference tree until the AR9565 retirement TODO is complete. The owner's
+later instruction requests deletion after that source milestone; existing
+inline notices and THIRD_PARTY_NOTICES.md suffice without extra archives.
 
 The initial snapshot contains 419 local reference files: 16 have documented
 partial implementation scopes and 403 have no recorded implementation
@@ -21,9 +23,10 @@ new source version explicitly and reassess its implementation scopes.
 
 `usage` is `recorded` or `not_recorded`. The latter means that this ledger
 has no evidence of use; it does not assert that nobody has read the file.
-`implementation` is `not_assessed`, `reference_only`, `partial`, or
-`complete_for_required_scope`. Never infer completion from a filename,
-an include, a successful build, boot, or the presence of generated data.
+`implementation` is `not_assessed`, `reference_only`, `partial`,
+`complete_for_required_scope`, or `not_required_for_target`. Never infer
+completion from a filename, an include, a successful build, boot, or the
+presence of generated data.
 
 `scopes` describes actual algorithms, constants or data carried over.
 `destinations` identifies their source-code evidence. `remaining` lists
@@ -33,6 +36,12 @@ subsystems need not be reproduced. Initial generated-table records
 claim selected data extraction only. They do not claim radio bring-up.
 `baseline_commit` identifies the committed source inspected for that
 record; future updates may reference their implementation commit instead.
+
+Retirement also requires an `applicability` decision: `required`,
+`supporting`, or `out_of_scope`, with a `rationale` tied to this target.
+Absence of these fields means unassessed. `not_required_for_target` needs
+an explicit explanation; it is not an implementation-completion claim.
+Do not port unrelated Linux subsystems just to exhaust the inventory.
 
 `license.spdx_expression` records an SPDX line when present, without
 relicensing the source. A missing expression does not imply permission.
@@ -49,4 +58,6 @@ additional WAL, database or orchestration tool is introduced.
 
 All implementation states describe source evidence only. They authorize
 no build, test suite, installation, transmission or hardware experiment.
-No Linux source is deleted automatically, even after a scope is complete.
+Delete the local Linux tree only after all conditions in the dedicated
+`linux-reference-retirement` TODO hold. Keep this existing ledger and source
+notices; no additional archive, mirror or preservation tooling is required.

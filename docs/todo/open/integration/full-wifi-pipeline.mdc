@@ -35,6 +35,24 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Trace actual startup from SimpleATH::start through retained PCI/D0,
+      supported SREV, validated board data, calibrated radio, mapped queues,
+      interrupts, MAC/security and published native AirPort interface.
+- [ ] Trace actual 2.4 GHz scan, WPA2 connect, outgoing OS packet, protected
+      device TX, RX/decryption and incoming OS packet through implemented
+      call sites. State the owner, queue, lifetime and error path at each step.
+- [ ] Include every required implementation unit and dependency in the Xcode
+      target. Normal supported paths must reach real implementations rather
+      than NotImplemented returns, empty callbacks or unconditional #if 0.
+- [ ] Review partial-start failure and every stop/reset/sleep/provider-loss
+      ordering; demonstrate in source how stale work is rejected and DMA/key/
+      packet resources retire safely. Trace reconnect after a fresh resume.
+- [ ] Document remaining uncertainty with evidence. Required functionality
+      cannot be declared complete by inserting a boolean readiness assertion
+      or an always-rejecting safety gate; implement the supported normal path.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

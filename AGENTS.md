@@ -28,6 +28,18 @@ The hold has no expiry or target date. The owner alone decides when
 to end it and begin the FINAL TODO. Theoretical completion can be
 declared without hardware, but it is NOT proof of working networking.
 
+When only the final acceptance TODO remains, the committed AR9565 source
+must be complete and integrated for all required paths, with no known
+source-resolvable blocker, placeholder, permanently disabled substitute,
+or invented readiness state. The owner must be able to request the first
+GitHub compilation of that exact commit through ONE explicitly authorized
+`build-v*` tag. This readiness criterion is not permission to create the
+tag or run a build. Local builds and other CI triggers are not substitutes.
+The required outcome is fully functional native Wi-Fi for PCI 168c:0036;
+neither source review nor lint can promise 100% runtime success before
+the owner-controlled experiment. Document unresolved platform assumptions
+honestly rather than marking an unavailable native interface complete.
+
 Only the final TODO permits experimental hardware activity after fresh,
 explicit owner authorization. The owner will physically test the
 Dell and share diagnostics in THIS ChatGPT conversation. Agents use
@@ -44,6 +56,9 @@ be guaranteed from AR9565 source analysis alone.
 - Use the existing AGENT COORDINATION CHAT to claim files, discuss
   interfaces and sequence work. Only one writer at a time per shared
   file; never overwrite another agent's uncommitted changes.
+- No agent owns a file or work area exclusively. Coordinate overlapping
+  edits temporarily and preserve concurrent work; the lanes below are
+  responsibilities, not separate repositories or ownership boundaries.
 - Before modifying or committing, inspect git status and recent
   history. Commit only your own files, in small source-focused units.
   Push normally to origin/main. Never force-push or rewrite history.
@@ -80,9 +95,15 @@ SHA-256, the scope implemented, destination files, evidence and remaining
 source work. Reading a file is not implementing it; a partial port is not
 whole-file completion. An unrecorded use is unknown, not proof of non-use.
 
-**Keep the Linux references. Do not delete a file merely because it has
-been read, used, or partially/fully ported.** The owner chose a JSONL ledger
-instead of deletion to preserve valuable implementation and license context.
+**Keep the Linux references until the dedicated Linux-reference retirement
+TODO is complete.** The owner's later instruction authorizes deleting the
+local `linux/` tree only AFTER the required AR9565 scopes are implemented
+and integrated, every ledger entry is assessed for that target, and no
+retained tool requires the local tree. Use the existing inline notices and
+THIRD_PARTY_NOTICES.md; do not add archival bundles or provenance machinery.
+Do not port unrelated chipsets or delete references merely
+because they have been read or partially ported. Follow the retirement
+record's conditions; they are not met by the present partial ledger.
 Preserve each file's license and Qualcomm/Atheros copyrights. Append full
 replacement records for status updates; the last record for a source path
 is current. Commit the ledger with the related source change. No separate
@@ -110,11 +131,18 @@ machine-readable findings for coordinating agents. Use --no-cache
 when imported dependencies change. Never build, link, run tests,
 fetch/install tools or create compilation databases.
 
-TODO.md is an index of 11 canonical typed records in docs/todo/open/.
+TODO.md indexes the canonical typed records in docs/todo/open/.
 Each P0-P4 record is source-only, with acceptance and evidence separated
 from the final owner-controlled P5 physical task. Accepted records move
 to docs/todo/completed/ and disappear from the root TODO index.
-No agent may mark P5 complete based solely on source analysis.
+P5 MUST remain open unless the owner explicitly requests its closure.
+Build, installation or test authorization is not a closure request.
+
+The validator-findings record hands off the interrupted Python edits. Those
+working-tree edits are unfinished; review them before committing and cite a
+fresh full validation report rather than a partial-file result. The owner
+has stopped the helper agents invoked for that work. This instruction does
+not restart or authorize new helper agents.
 
 ## Completion reporting
 
@@ -127,3 +155,12 @@ kernel logs, MACs, throughput or a claim of 100% tested Wi-Fi.
 
 **No agent may begin the final experiment or ask the owner to start it.
 The owner alone ends the indefinite theoretical-hardening hold.**
+
+When only P5 remains and no new owner instruction arrives, continue
+whole-source static hardening and web research indefinitely: compare
+versioned upstream code and documentation; find and repair concrete panic,
+memory, concurrency, DMA, power, security and regulatory defects. Record
+evidence and useful source commits, not cosmetic churn or invented bugs.
+Reopen an appropriate source TODO if new required work is discovered.
+Keep the AR9565 ledger current through reference retirement. This standing
+instruction never authorizes builds, tests, tags, RF activity or P5 closure.

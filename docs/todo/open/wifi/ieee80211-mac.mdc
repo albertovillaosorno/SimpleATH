@@ -30,6 +30,21 @@ actual Wi-Fi scan or screenshot required.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Connect received beacons/probe responses to bounded BSS snapshots,
+      country-aware channel dwell, scan completion and native scan results.
+      Active probe TX obeys the same calibration/regulatory gate as data TX.
+- [ ] Implement BSS selection, authentication, association, RSN/rate/HT
+      negotiation, required management responses and bounded state timers.
+      Transition only on relevant validated frames/completions.
+- [ ] Implement negotiated rates, aggregation/reordering and data framing,
+      including malformed lengths, fragments, address/QoS interpretation,
+      duplicate handling and queue-pressure limits at the real RX/TX boundary.
+- [ ] Wire link loss, deauthentication, disconnect, reconnect and sleep/wake
+      to key/queue invalidation and native status. Keep stale BSS/association
+      events from changing a new connection generation.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

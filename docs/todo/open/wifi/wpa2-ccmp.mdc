@@ -30,6 +30,23 @@ suites or claim crypto certification**.
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Complete PMK/PTK derivation, nonce generation, EAPOL MIC/replay checks,
+      the four-way handshake, AES unwrap and GTK rekey with explicit bounds,
+      state transitions, timeouts and key erasure on every failure path.
+- [ ] Implement actual CCMP protection/deprotection or verified hardware
+      offload, keycache programming/removal and TX/RX packet-number lifetime.
+      Handle retransmissions, replay, group traffic and connection epochs.
+- [ ] Wire cryptographic callbacks to real implementations and packet/key
+      consumers. A codec, callback declaration or handshake state enum alone
+      does not implement encrypted packet delivery.
+- [ ] Keep the controlled data port closed until the accepted handshake and
+      keys are installed. Preserve EAPOL access required by authentication;
+      disconnect/reset/sleep cannot retain stale usable keys or reuse a PN.
+- [ ] Record static algorithm/specification comparisons and reviewed boundary
+      cases without executing prohibited test suites or claiming certification.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

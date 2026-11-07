@@ -29,6 +29,20 @@ fail-closed behavior. **No live logs needed.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Pin Intel Darwin 25 / Tahoe 26.7.2 build 25G332 evidence and distinguish
+      full symbol tables, actual exports and kernel/KPI eligibility.
+- [ ] Specify every imported PCI/DMA/native-Wi-Fi method's signature,
+      superclass layout, required virtual slots and object/buffer lifetime.
+      Symbol-name presence alone does not establish a callable ABI.
+- [ ] Compare the intended SDK declarations with the exact KDK evidence;
+      document each discrepancy and its implemented resolution. Keep a
+      required native path open if its ABI remains unknown/unimplementable.
+- [ ] Identify all proposed target imports/dependencies in source and the
+      Xcode target. Resolve source-known unsupported imports; actual binary
+      relocation inspection belongs to the separately authorized build.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

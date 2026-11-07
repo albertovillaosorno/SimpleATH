@@ -36,6 +36,22 @@ then coordinate real-bug fixes in their own chat and commit them
 directly to main. This owner-led loop repeats until the outcome
 is satisfactory.
 
+When only the final acceptance TODO remains, all required AR9565 source
+must be complete, integrated on main and reviewed, with no known source
+blocker or passive-only substitute. The owner can then request the first
+GitHub compilation of that exact commit through one expressly authorized
+`build-v*` tag. Reaching this milestone never authorizes a build by itself.
+The objective is fully functional Wi-Fi; source review cannot guarantee
+first-run success. The final TODO stays open until the owner explicitly
+asks to close it, including after otherwise successful experiments.
+
+Without a new owner instruction, agents continue whole-source theoretical
+hardening and web research indefinitely, repairing concrete defects and
+reopening source TODOs when needed. Complete the AR9565 Linux ledger and
+the dedicated reference-retirement TODO before removing the local linux/
+tree. Existing inline notices and THIRD_PARTY_NOTICES.md are sufficient;
+no additional reference archive or preservation infrastructure is required.
+
 Source-level completeness is not empirical proof. Unknown hardware
 values, regulatory conditions and private macOS ABI differences
 must be recorded and handled safely rather than guessed or

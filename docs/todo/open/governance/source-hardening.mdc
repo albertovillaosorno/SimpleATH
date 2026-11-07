@@ -7,6 +7,7 @@ lane: A10
 phase: source-only
 hardware_required: false
 dependencies:
+  - "validator-findings"
   - "exact-tahoe-abi"
   - "native-pci"
   - "eeprom-otp"
@@ -40,6 +41,21 @@ diagnostics.
 - [ ] Ground decisions in public code, published standards and SDK/KDK references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Required source deliverables
+
+- [ ] Resolve the validator-findings TODO and review the complete integrated
+      source for overflow/bounds, packet parsing, key erasure, lock ordering,
+      interrupt races, DMA lifetime, power loss, rollback and regulatory gates.
+- [ ] Compare required algorithms/contracts with versioned online sources and
+      documentation; record concrete defects, fixes and commit references in
+      the existing records. No new tooling/provenance framework is required.
+- [ ] Reconcile README/AGENTS/TODO/ledger with actual source integration and
+      import evidence. Preserve Linux/SimpleBCM notices; no renamed-driver
+      identity or fabricated success claim may substitute for AR9565 support.
+- [ ] Close only when source work is complete and no known source-resolvable
+      blocker remains. Afterwards, continue theoretical/web hardening under
+      the indefinite hold; reopen source records for newly discovered work.
 
 ## Evidence
 

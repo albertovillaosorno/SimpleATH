@@ -1,0 +1,66 @@
+---
+schema: simpleath.todo.v1
+id: linux-reference-retirement
+status: open
+priority: P4
+lane: A10
+phase: source-only
+hardware_required: false
+dependencies:
+  - "full-wifi-pipeline"
+  - "source-hardening"
+scope:
+  - "linux-port-ledger.jsonl"
+  - "docs/design/LINUX-PORT-LEDGER.md"
+  - "linux/"
+  - "tools/generate_ar9565_ini.py"
+  - "tools/generate_ar9300_templates.py"
+---
+
+# TODO - Complete the AR9565 Linux ledger and retire local references
+
+## Objective
+
+Complete source migration for AR9565/QCA9565 PCI 168c:0036 revisions 1.0,
+1.0.1 and 1.1, assess every local reference against that target, then delete
+only the repository's local Linux reference tree. The owner explicitly
+requested this eventual deletion; the current partial ledger does not meet
+its preconditions. This is not permission to delete other source trees,
+backups, EFI contents, SDK/KDK evidence or system files.
+
+## Acceptance
+
+- [ ] Every current ledger path/hash is assessed as required, supporting,
+      or out of scope for AR9565, with an evidence-backed rationale.
+- [ ] Every required/supporting implementation scope is complete and
+      integrated in committed source; record commits, destinations and
+      static review. No applicable entry remains unknown or partially ported.
+- [ ] Unrelated chipsets, Linux-only glue and unnecessary subsystems are
+      explicitly marked not required for this target; do not port them just
+      to make the inventory appear complete. Preserve any relevant protocol
+      or regulatory knowledge from shared Linux sources.
+- [ ] Keep existing inline source notices and THIRD_PARTY_NOTICES.md.
+      No additional archive, reproducibility package, source mirror or
+      provenance infrastructure is required.
+- [ ] Preserve HT20/HT40 variants, RX/TX gain choices, EEPROM dictionaries,
+      board/regulatory semantics and the AR9565 1.1 radio postamble.
+- [ ] Retained generation/inspection tools no longer require a local linux/
+      tree. Retain the completed source data without requiring new builds,
+      test suites or hardware experiments.
+- [ ] Review the actual directory and ledger immediately before deletion:
+      no unexpected/new reference, hash mismatch or unrecorded local change
+      may be discarded. A path alias or symlink must not redirect deletion.
+- [ ] Once all conditions above hold, delete only this repository's local
+      linux/ tree and record the retirement commit. Keep the JSONL ledger;
+      do not create a second manifest or reference archive.
+- [ ] Update AGENTS/README/TODO to describe retired references accurately;
+      no compilation or hardware proof is required to complete this task.
+
+## Evidence
+
+- Initial inventory: 419 local files, with only 16 partial implementation
+  records at creation. This task is OPEN and deletion is not ready.
+- Record target applicability and implementation commits in the existing
+  ledger. No extra preservation deliverable is required.
+- Preserve Linux and SimpleBCM attribution in THIRD_PARTY_NOTICES.md without
+  expanding that file into an inventory of unrelated projects.

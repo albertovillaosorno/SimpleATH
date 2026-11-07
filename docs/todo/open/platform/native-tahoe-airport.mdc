@@ -32,6 +32,21 @@ prerequisite.**
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Implement the exact-Tahoe native service/controller/interface classes,
+      required virtuals and lifecycle, with evidence-backed ABI declarations.
+      Integrate scan/connect/disconnect/status requests and asynchronous events.
+- [ ] Supply real packet input/output, queue pressure, link/association and
+      key/control paths with defined OS packet ownership and completion rules.
+      Register the native service in the actual target/startup path.
+- [ ] Implement interface stop, provider loss and sleep/resume without stale
+      callbacks, queues or published connection state. Document selectors and
+      layouts concretely; unresolved required ABI work keeps this TODO open.
+- [ ] Account for the requested AirDrop path: identify required native Wi-Fi/
+      AWDL/Continuity capabilities and their source integration or exact known
+      platform limitations. Do not assume Ethernet delivery provides them.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

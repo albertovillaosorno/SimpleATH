@@ -29,6 +29,20 @@ the user's actual EEPROM to finish the source task**.
 - [ ] Record unresolved assumptions and fail-closed behavior.
 - [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
 
+## Required source deliverables
+
+- [ ] Connect bounded EEPROM and OTP acquisition, source/origin discovery,
+      byte ordering and reconstruction to the native owner for all three
+      AR9565 revisions. Preserve timeout/protection/absence error distinctions.
+- [ ] Reconstruct the full board image with verified lengths/checksums and
+      exact dictionaries. Reject malformed/unknown layouts and invalid MACs;
+      never replace missing board data with a template or spoofed MAC.
+- [ ] Interpret calibration piers, antenna/diversity, gain indexes, board
+      flags, RF-kill, regulatory and power fields consumed by RF/PHY source.
+      A raw summary or readable control register does not validate NVM data.
+- [ ] Define immutable board-data lifetime, failure erasure and reset/resume
+      invalidation; connect consumers to validated board state in code.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
