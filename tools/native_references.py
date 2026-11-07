@@ -25,6 +25,7 @@ import json
 import os
 from pathlib import Path
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Export-only nm with a fixed argv and no shell.
+import sys
 from typing import Protocol
 from typing import TypeIs
 from typing import TypedDict
@@ -54,6 +55,11 @@ TEXT_SECTION = "__text"
 EXPORT_ACTION = "export"
 VERIFY_ACTION = "verify"
 NM_PROGRAM = "nm"
+DEFAULT_BINARY = (
+    ROOT
+    / "build/DerivedData/Build/Products/Release"
+    / "SimpleATH.kext/Contents/MacOS/SimpleATH"
+)
 PAIR_FIELDS = 2
 VTABLE_FIELDS = 3
 
@@ -921,10 +927,7 @@ class _Arguments(argparse.Namespace):
     """Typed CLI arguments for snapshot export/verification."""
 
     action: str = VERIFY_ACTION
-    binary: Path = (
-        ROOT
-        / "build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH"
-    )
+    binary: Path = DEFAULT_BINARY
 
 
 def main() -> None:
@@ -934,15 +937,16 @@ def main() -> None:
     _ = parser.add_argument(
         "--binary",
         type=Path,
-        default=ROOT
-        / "build/DerivedData/Build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH",
+        default=DEFAULT_BINARY,
     )
     args = parser.parse_args(namespace=_Arguments())
-    if args.action == "export":
+    if args.action == EXPORT_ACTION:
         export_references(args.binary)
     for name in SYSTEMS:
         _ = load_reference(DIRECTORY / (name + ".json"))
-    print("Native ABI references verified: " + ", ".join(SYSTEMS))
+    _ = sys.stdout.write(
+        "Native ABI references verified: " + ", ".join(SYSTEMS) + "\n"
+    )
 
 
 if __name__ == "__main__":
