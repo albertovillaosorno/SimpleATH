@@ -85,7 +85,7 @@ class SourceFingerprintTests(TestCase):
 
     @staticmethod
     def test_missing_root_file_and_symlink_fail_closed() -> None:
-        """Prevent a missing source or linked external file from being hidden."""
+        """Reject missing source paths and linked external files."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             _fixture(root)
