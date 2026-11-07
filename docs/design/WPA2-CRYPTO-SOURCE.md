@@ -1,11 +1,13 @@
 # WPA2-PSK cryptographic source — limited portable host validation
 
 **Status (2026-11-07): source and isolated host test only.** The
-`tests/test_wpa2_public_alias.cpp` fixture compiles portable
-`Wpa2Primitives.cpp` and `Frames.cpp` with host Clang, verifies the RFC3394
-AES-128 unwrap 128-bit known-answer vector, checks a corrupted integrity
-value does not publish plaintext, and exercises output/key/identity alias
-rejection. It is neither a complete cryptographic or timing audit nor a
+`tests/test_wpa2_public_alias.cpp` compiles portable `Wpa2Primitives.cpp`
+and `Frames.cpp` with host Clang. The offline fixture checks the published
+WPA2 passphrase/SSID PBKDF2 PMK vector, synthetic PTK and EAPOL MIC reference
+outputs independently calculated using Python's `hmac`/`hashlib`, and the
+RFC3394 AES-128 unwrap 128-bit known-answer vector. It also checks rejection
+of altered ciphertext without publishing plaintext and key/identity/output
+alias guards. This is neither a complete cryptographic or timing audit nor a
 Tahoe kext build. No kernel Wi-Fi, DMA or Dell hardware was exercised.
 
 Do not use the new code as a verified cryptographic provider. Do not
@@ -47,10 +49,13 @@ elimination from registers, duplicate OS buffers or compiler temporaries.
 ## Known-answer vectors and validation scope
 
 The current project instructions authorize isolated host tests through
-`python3 -B tools/validate.py --tests`, not kext builds or device activity.
-Of the following vectors, only the RFC3394 AES unwrap vector was executed by
-our portable host fixture (and passed) in this continuation. The others
-remain proposals; one unwrap vector cannot establish a secure WPA2 stack.
+`python3 -B tools/validate.py`, not kext builds or device activity.
+The portable host fixture executes the PMK and RFC3394 vectors, plus a
+synthetic PRF-384 PTK reference constructed from that PMK, sorted MAC/nonces
+and the standard label/counter, and an independently calculated
+HMAC-SHA1-128 EAPOL MIC (with the MIC field cleared). These passed on the
+host only; the remaining vectors and full WPA2 protocol checks are proposals.
+This limited coverage cannot establish a secure WPA2 stack.
 
 - WPA2 passphrase password, SSID IEEE -> PMK:
   f42c6fc52df0ebef9ebb4b90b38a5f902e83fe1b135a70e23aed762e9710a12e
@@ -61,8 +66,8 @@ remain proposals; one unwrap vector cannot establish a secure WPA2 stack.
   key 000102030405060708090a0b0c0d0e0f,
   cipher 69c4e0d86a7b0430d8cdb78070b4c55a,
   plaintext 00112233445566778899aabbccddeeff.
-- SHA-1/HMAC-SHA1 official vectors; IEEE 802.11 PTK and EAPOL
-  M1/M2/M3/M4 known-good captures with synthetic passwords.
+- SHA-1/HMAC-SHA1 official vectors; complete IEEE 802.11 PTK and EAPOL
+  M1/M2/M3/M4 known-good message captures with synthetic passwords.
 - Malformed lengths, overlap, nonces, replay, invalid MIC, AES integrity,
   missing entropy and partially installed keycache: all must fail closed.
 

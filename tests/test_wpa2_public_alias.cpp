@@ -105,6 +105,68 @@ namespace
                    0;
     }
 
+    bool derivePublishedPmkVector()
+    {
+        // IEEE 802.11 WPA2-PSK known answer: password / IEEE, 4096 rounds.
+        const uint8_t password[] {'p', 'a', 's', 's', 'w', 'o', 'r', 'd'};
+        const uint8_t ssid[] {'I', 'E', 'E', 'E'};
+        const uint8_t expected[32] {
+            0xf4, 0x2c, 0x6f, 0xc5, 0x2d, 0xf0, 0xeb, 0xef, 0x9e, 0xbb, 0x4b,
+            0x90, 0xb3, 0x8a, 0x5f, 0x90, 0x2e, 0x83, 0xfe, 0x1b, 0x13, 0x5a,
+            0x70, 0xe2, 0x3a, 0xed, 0x76, 0x2e, 0x97, 0x10, 0xa1, 0x2e};
+        uint8_t pmk[32] {};
+        return derivePmk(password, sizeof(password), ssid, sizeof(ssid), pmk) ==
+                   Error::Ok &&
+               std::memcmp(pmk, expected, sizeof(expected)) == 0;
+    }
+
+    bool deriveReferencePtkVector()
+    {
+        // Python stdlib HMAC-SHA1 reference, independent of this C++ PRF:
+        // HMAC(PMK, "Pairwise key expansion" || NUL || sorted IDs || counter).
+        const uint8_t pmk[32] {0xf4, 0x2c, 0x6f, 0xc5, 0x2d, 0xf0, 0xeb, 0xef,
+                               0x9e, 0xbb, 0x4b, 0x90, 0xb3, 0x8a, 0x5f, 0x90,
+                               0x2e, 0x83, 0xfe, 0x1b, 0x13, 0x5a, 0x70, 0xe2,
+                               0x3a, 0xed, 0x76, 0x2e, 0x97, 0x10, 0xa1, 0x2e};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t aNonce[32] {};
+        uint8_t sNonce[32] {};
+        for (size_t i = 0; i < sizeof(aNonce); ++i)
+        {
+            aNonce[i] = static_cast<uint8_t>(i);
+            sNonce[i] = static_cast<uint8_t>(i + sizeof(aNonce));
+        }
+        const uint8_t expected[48] {
+            0x54, 0xbf, 0xa1, 0x6e, 0xde, 0x33, 0x9e, 0x9b, 0xd5, 0x55,
+            0x88, 0x3e, 0x57, 0xbd, 0x53, 0x93, 0x59, 0x18, 0xbd, 0xa2,
+            0x3d, 0x31, 0x69, 0x3c, 0x38, 0x44, 0xf9, 0xb9, 0x2e, 0xf7,
+            0x40, 0xc5, 0xc9, 0x98, 0x9f, 0x97, 0x53, 0x32, 0xcc, 0xa1,
+            0x4d, 0x0f, 0xd7, 0xa8, 0xf6, 0xf4, 0x44, 0x8a};
+        uint8_t ptk[48] {};
+        return derivePtk(pmk, ap, station, aNonce, sNonce, ptk) == Error::Ok &&
+               std::memcmp(ptk, expected, sizeof(expected)) == 0;
+    }
+
+    bool calculateReferenceMicVector()
+    {
+        // Independent Python HMAC-SHA1-128 over a synthetic 99-byte EAPOL
+        // key frame with the 16-octet MIC field zeroed (octets 81..96).
+        const uint8_t kck[16] {0x54, 0xbf, 0xa1, 0x6e, 0xde, 0x33, 0x9e, 0x9b,
+                               0xd5, 0x55, 0x88, 0x3e, 0x57, 0xbd, 0x53, 0x93};
+        const uint8_t expected[16] {0x43, 0x1e, 0xc9, 0xa1, 0x7e, 0x26,
+                                    0x17, 0xe4, 0xa0, 0x76, 0x8f, 0xa0,
+                                    0x43, 0xcb, 0xb9, 0x39};
+        uint8_t eapol[99] {};
+        for (size_t i = 0; i < sizeof(eapol); ++i)
+            eapol[i] = static_cast<uint8_t>(i);
+        for (size_t i = 81; i < 97; ++i)
+            eapol[i] = 0;
+        uint8_t mic[16] {};
+        return calculateMic(kck, eapol, sizeof(eapol), mic) == Error::Ok &&
+               std::memcmp(mic, expected, sizeof(expected)) == 0;
+    }
+
     bool unwrapPublicRfc3394Vector()
     {
         // RFC 3394 section 4.1: 128-bit KEK, 128-bit key data.
@@ -152,5 +214,11 @@ int main()
         return 3;
     if (!unwrapPublicRfc3394Vector())
         return 4;
+    if (!derivePublishedPmkVector())
+        return 5;
+    if (!deriveReferencePtkVector())
+        return 6;
+    if (!calculateReferenceMicVector())
+        return 7;
     return 0;
 }

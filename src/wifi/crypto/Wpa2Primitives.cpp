@@ -3,8 +3,8 @@
 // PRF-384, AES-128 inverse cipher and RFC3394 key unwrap algorithms.
 //
 // Specifications: FIPS 180-4, RFC 2104, RFC 2898, IEEE 802.11-2020
-// Annex J, FIPS 197 and RFC 3394. This code is uncompiled and unverified.
-// Do not enable it in a shipping kext without known-answer tests and review.
+// Annex J, FIPS 197 and RFC 3394. Only synthetic host-vector tests have
+// exercised this source; no Tahoe kext build or security audit is authorized.
 #include "Wpa2Primitives.hpp"
 #include "AesTables.hpp"
 
