@@ -32,7 +32,7 @@ from native_references import reference_paths
 CONFIGURATIONS = ('Debug', 'Release')
 
 
-def package_name(configuration, channel='rel', sha=None):
+def package_name(configuration: str, channel='rel', sha: str | None = None) -> str:
     if configuration not in CONFIGURATIONS or channel not in ('pre', 'rel'):
         raise ValueError('Invalid package variant')
     name = f'SimpleATH-v{VERSION}-{configuration.upper()}'
