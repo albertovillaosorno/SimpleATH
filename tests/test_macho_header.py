@@ -346,6 +346,20 @@ class MachoFatAndStubSafety(TestCase):
         assert _rejects(bytes(invalid_count), "command bytes/count disagree")
 
     @staticmethod
+    def test_completed_leb_values_stay_within_signed_and_unsigned_64_bits() -> (
+        None
+    ):
+        """Reject 70-bit values even when the final byte ends the stream."""
+        assert Image.leb(b"\xff" * 9 + b"\x01", 0) == ((1 << 64) - 1, 10)
+        assert Image.leb(b"\x80" * 9 + b"\x7f", 0, signed=True) == (
+            -(1 << 63),
+            10,
+        )
+        for payload in (b"\x80" * 9 + b"\x02", b"\xff" * 9 + b"\x02"):
+            assert _leb_rejected(payload)
+            assert _leb_rejected(payload, signed=True)
+
+    @staticmethod
     def test_stub_section_requires_nonzero_stride() -> None:
         """Reject zero-sized stubs before dividing by the stride."""
         assert _rejects(
@@ -440,7 +454,7 @@ def _unsafe_input_rejected(path: Path) -> bool:
     return False
 
 
-def _leb_rejected(data: bytes) -> bool:
+def _leb_rejected(data: bytes, *, signed: bool = False) -> bool:
     """Check a malformed signed/unsigned LEB128 stream.
 
     Returns:
@@ -448,7 +462,7 @@ def _leb_rejected(data: bytes) -> bool:
 
     """
     try:
-        _ = Image.leb(data, 0)
+        _ = Image.leb(data, 0, signed=signed)
     except ValueError:
         return True
     return False

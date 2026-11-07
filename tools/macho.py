@@ -575,9 +575,32 @@ class Image:
             value |= (byte & 127) << shift
             shift += 7
             if not byte & 128:
-                if signed and byte & 64:
-                    value -= 1 << shift
-                return value, position
+                return Image._checked_leb_value(
+                    value, shift, signed=signed
+                ), position
+
+    @staticmethod
+    def _checked_leb_value(value: int, shift: int, *, signed: bool) -> int:
+        """Reject a terminal LEB integer exceeding the 64-bit word width.
+
+        Returns:
+            Signed or unsigned 64-bit decoded integer.
+
+        Raises:
+            ValueError: Signed/unsigned value cannot fit in 64 bits.
+
+        """
+        if signed and value & (1 << (shift - 1)):
+            value -= 1 << shift
+        valid = (
+            (-(1 << 63) <= value < (1 << 63))
+            if signed
+            else (0 <= value < (1 << 64))
+        )
+        if not valid:
+            message = "Mach-O LEB128 value exceeds 64-bit limits"
+            raise ValueError(message)
+        return value
 
     def parse_binds(self, data: bytes) -> None:
         """Decode bounded symbol bindings from the selected Mach-O image."""
