@@ -41,6 +41,47 @@ ALIASES = {
 }
 
 
+MAX_EMBED_RELOCATIONS = 1_000_000
+RELOCATION_RECORD_BYTES = 8
+
+
+def checked_relocation_entries(
+    data: bytes, offset: int, count: int, symbol_count: int
+) -> list[tuple[int, int]]:
+    """Check an entire Mach-O relocation span before consuming entries.
+
+    Returns:
+        The validated signed relocation addresses and encoded bit fields.
+
+    Raises:
+        ValueError: A span, index or external symbol is outside its bounds.
+
+    """
+    if (
+        offset < 0
+        or count < 0
+        or symbol_count < 0
+        or count > MAX_EMBED_RELOCATIONS
+        or offset > len(data)
+        or count > (len(data) - offset) // RELOCATION_RECORD_BYTES
+    ):
+        message = "Mach-O relocation table exceeds checked source bounds"
+        raise ValueError(message)
+    rows: list[tuple[int, int]] = []
+    for index in range(count):
+        address, bits = struct.unpack_from(
+            "<iI", data, offset + index * RELOCATION_RECORD_BYTES
+        )
+        if address < 0:
+            message = "Negative Mach-O relocation address"
+            raise ValueError(message)
+        if bits & (1 << 27) and bits & 0xFFFFFF >= symbol_count:
+            message = "Mach-O relocation symbol index is out of range"
+            raise ValueError(message)
+        rows.append((address, bits))
+    return rows
+
+
 def header(name):
     return f"//\n//  {name}\n//  SimpleATH\n//\n//  Created by laobamac on 2026/11/1.\n//  Copyright © 2026 laobamac. All rights reserved.\n//\n"
 
@@ -134,10 +175,9 @@ def generate():
             "<18I", next(data for cmd, data in commands if cmd == 11), 8
         )
         references = {}
-        for n in range(fields[15]):
-            offset, bits = struct.unpack_from(
-                "<iI", image.data, fields[14] + n * 8
-            )
+        for offset, bits in checked_relocation_entries(
+            image.data, fields[14], fields[15], len(symbols)
+        ):
             if bits >> 28 == 0:
                 references[offset] = symbols[bits & 0xFFFFFF]
         boundaries = sorted(set(image.symbols.values()))
@@ -246,10 +286,9 @@ def generate():
         ds = next(data for cmd, data in commands if cmd == 11)
         dsfields = struct.unpack_from("<18I", ds, 8)
         for external, field in [(True, 14), (False, 16)]:
-            for n in range(dsfields[field + 1]):
-                address, bits = struct.unpack_from(
-                    "<iI", image.data, dsfields[field] + n * 8
-                )
+            for address, bits in checked_relocation_entries(
+                image.data, dsfields[field], dsfields[field + 1], len(symbols)
+            ):
                 kind, width, pcrel, ext = (
                     bits >> 28,
                     1 << ((bits >> 25) & 3),
