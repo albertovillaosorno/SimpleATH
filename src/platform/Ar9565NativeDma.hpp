@@ -111,7 +111,8 @@ namespace simpleath
             NativeDmaResult synchronizeForDeviceClient();
             // Valid only after a real completed RX transfer has been retired
             // under the gate. Caller bounds length to the actual verified RX
-            // status, not capacity.
+            // status, not capacity. After validated arguments, errors zero
+            // the output so incomplete frames cannot escape to the caller.
             NativeDmaResult readClient(uint32_t offset, void *bytes,
                                        uint32_t length);
             // Mark ownership BEFORE programming a queue. Failure/uncertain

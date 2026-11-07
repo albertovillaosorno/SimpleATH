@@ -219,6 +219,9 @@ namespace simpleath
             return NativeDmaResult::WrongState;
         if (!bytes || !validRange(offset, length))
             return NativeDmaResult::InvalidArgument;
+        // A failed synchronize or short read must never leave an earlier RX
+        // packet (or a partial new packet) in the caller's output buffer.
+        bzero(bytes, length);
         if (!cpuSynchronized_)
         {
             lastKernelError_ = command_->synchronize(kIODirectionIn);
@@ -226,9 +229,12 @@ namespace simpleath
                 return NativeDmaResult::SynchronizationFailed;
             cpuSynchronized_ = true;
         }
-        return buffer_->readBytes(offset, bytes, length) == length
-                   ? NativeDmaResult::Ok
-                   : NativeDmaResult::CopyFailed;
+        if (buffer_->readBytes(offset, bytes, length) != length)
+        {
+            bzero(bytes, length);
+            return NativeDmaResult::CopyFailed;
+        }
+        return NativeDmaResult::Ok;
     }
 
     NativeDmaResult
