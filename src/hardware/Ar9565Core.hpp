@@ -165,8 +165,10 @@ namespace simpleath
     // Type-2 SREV word decoder for the AR9565. No live hardware access.
     Result decodeRevision(uint32_t raw, Silicon &out);
     bool isSupportedPci(uint16_t vendor, uint16_t device);
+    // Out is cleared if the channel number is invalid; no regulatory approval.
     Result mapChannel(uint8_t ieeeChannel, Channel &out);
     bool validatePermanentMac(const uint8_t mac[6]);
+    // Out is cleared on failure when nonnull, including null source words.
     Result decodeEepromMac(const uint16_t words[3], uint8_t out[6]);
     InitPlan planForRevision(Revision revision);
 

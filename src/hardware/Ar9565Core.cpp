@@ -62,6 +62,9 @@ namespace simpleath
 
     Result mapChannel(uint8_t number, Channel &out)
     {
+        // Do not leave the caller's previous authorized-looking channel on an
+        // invalid request. This static mapping never grants radio permission.
+        out = {};
         if (number == 0 || number > 14)
             return Result::InvalidChannel;
         Channel result {};
@@ -91,8 +94,16 @@ namespace simpleath
 
     Result decodeEepromMac(const uint16_t words[3], uint8_t out[6])
     {
-        if (!words || !out)
+        if (!out)
             return Result::InvalidMacAddress;
+        // Build the candidate before modifying out, so source words may
+        // overlap the output on success. On failure, clear stale identity.
+        if (!words)
+        {
+            for (size_t index = 0; index < 6; ++index)
+                out[index] = 0;
+            return Result::InvalidMacAddress;
+        }
         uint8_t candidate[6] {};
         for (size_t index = 0; index < 3; ++index)
         {
@@ -101,7 +112,11 @@ namespace simpleath
                 static_cast<uint8_t>(words[index] & 0xffu);
         }
         if (!validatePermanentMac(candidate))
+        {
+            for (size_t index = 0; index < 6; ++index)
+                out[index] = 0;
             return Result::InvalidMacAddress;
+        }
         for (size_t index = 0; index < 6; ++index)
             out[index] = candidate[index];
         return Result::Ok;
