@@ -32,7 +32,11 @@ ROOT = next(
     p for p in Path(__file__).resolve().parents if (p / ".git").exists()
 )
 CACHE_VERSION = "simpleath.validate.v2"
+COMPLETION_FILE = ".cache/validate/last-run.json"
+COMPLETION_SCHEMA = "simpleath.validate.completed.v1"
 CLANG_TIDY_TOOL = "clang-tidy"
+PYRIGHT_TOOL = "basedpyright"
+REPOSITORY_SCOPE = "repository"
 VERSION_WORD = "version"
 MISSING_TIDY_COMMAND = "No matching compile command in compile_commands.json"
 NATIVE = frozenset({
@@ -436,13 +440,20 @@ def tool_version(executable: str, root: Path) -> str:
     )
 
 
-def _dependencies(root: Path) -> bytes:
+def _dependencies(root: Path, tool: str) -> bytes:
+    """Digest only files a language-level analyzer could consume.
+
+    Returns:
+        A stable digest including relevant dependency paths and bytes.
+
+    """
+    suffixes = {".py", ".pyi"} if tool == PYRIGHT_TOOL else NATIVE
     digest = hashlib.sha256()
     files = sorted(
         p
         for d in ("src", "tools", "tests")
         for p in (root / d).rglob("*")
-        if p.is_file() and p.suffix in SUPPORTED
+        if p.is_file() and p.suffix.lower() in suffixes
     )
     for path in files:
         digest.update(str(path.relative_to(root)).encode())
@@ -465,9 +476,10 @@ def _signature(
     for config in CONFIGS[tool]:
         digest.update((root / config).read_bytes())
     if tool in {"basedpyright", "clang-tidy"}:
-        digest.update(
-            _dependencies(root) if dependencies is None else dependencies
-        )
+        if dependencies is None:
+            message = f"Missing {tool} source dependency fingerprint"
+            raise ValueError(message)
+        digest.update(dependencies)
     return digest.hexdigest()
 
 
@@ -482,7 +494,14 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
         root / config for names in CONFIGS.values() for config in names
     }
     manifests = set((root / "tests").rglob("*.sources"))
-    inputs = sorted(set(sources) | configurations | manifests)
+    # Python stubs participate in type checking without being lint targets.
+    stubs = {
+        p
+        for directory in ("src", "tools", "tests")
+        for p in (root / directory).rglob("*.pyi")
+        if p.is_file()
+    }
+    inputs = sorted(set(sources) | configurations | manifests | stubs)
     digest = hashlib.sha256()
     for path in inputs:
         digest.update(path.relative_to(root).as_posix().encode())
@@ -548,7 +567,7 @@ class LintRun:
     options: Options
     entries: dict[str, CacheEntry]
     versions: dict[str, str] = field(default_factory=dict)
-    dependency_digest: bytes | None = None
+    dependency_digests: dict[str, bytes] = field(default_factory=dict)
 
     def check(self, file: Path, tool: str) -> Finding:
         """Run or reuse one lint check.
@@ -582,16 +601,15 @@ class LintRun:
         self, file: Path, tool: str, command: list[str]
     ) -> Finding:
         relative = file.relative_to(self.root).as_posix()
-        if (
-            tool in {"basedpyright", "clang-tidy"}
-            and self.dependency_digest is None
+        if tool in {"basedpyright", "clang-tidy"} and (
+            tool not in self.dependency_digests
         ):
-            self.dependency_digest = _dependencies(self.root)
+            self.dependency_digests[tool] = _dependencies(self.root, tool)
         fingerprint = _signature(
             command,
             file,
             self.root,
-            context=(tool, self.dependency_digest),
+            context=(tool, self.dependency_digests.get(tool)),
         )
         key = relative + "::" + tool
         old = self.entries.get(key)
@@ -777,7 +795,7 @@ def build_report(
     }
     return {
         "schema": CACHE_VERSION,
-        "scope": "repository",
+        "scope": REPOSITORY_SCOPE,
         # Offline host tests do not turn a source-only scan into hardware QA.
         "source_only": True,
         "tests_requested": tests,
@@ -842,6 +860,243 @@ def parse_options() -> Options:
     )
 
 
+@dataclass(frozen=True)
+class RunInputs:
+    """Stable inventory, content fingerprint and tool versions for one run."""
+
+    sources: list[Path]
+    snapshot: bytes
+    versions: dict[str, str]
+
+
+def _completion_token(root: Path) -> str | None:
+    """Read the last finished generation marker without trusting its type.
+
+    Returns:
+        The previous run token, if a well-formed marker exists.
+
+    """
+    try:
+        value = _decode((root / COMPLETION_FILE).read_text(encoding="utf-8"))
+    except OSError, ValueError, RecursionError:
+        return None
+    if not _mapping(value) or value.get("schema") != COMPLETION_SCHEMA:
+        return None
+    token = value.get("token")
+    return token if isinstance(token, str) else None
+
+
+def _run_identity(
+    root: Path,
+    options: Options,
+    inputs: RunInputs,
+) -> str:
+    """Bind a complete result to its source, tool and host environment.
+
+    Returns:
+        SHA-256 identity for a precise full-repository validation request.
+
+    """
+    executables = {
+        tool: shutil.which(name) for tool, name in EXECUTABLE.items()
+    }
+    executables["native-test"] = shutil.which("clang++")
+    environment_names = (
+        "PATH",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "CPATH",
+        "CPLUS_INCLUDE_PATH",
+        "C_INCLUDE_PATH",
+        "SDKROOT",
+        "DEVELOPER_DIR",
+        "CC",
+        "CXX",
+        "LD_LIBRARY_PATH",
+        "DYLD_LIBRARY_PATH",
+    )
+    environment = {name: os.environ.get(name) for name in environment_names}
+    request: dict[str, object] = {
+        "schema": CACHE_VERSION,
+        "sourceFiles": [p.relative_to(root).as_posix() for p in inputs.sources],
+        "snapshot": inputs.snapshot.hex(),
+        "script": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "python": (sys.executable, sys.version),
+        "options": (
+            options.tidy,
+            options.tests,
+            options.json_output,
+            options.no_cache,
+        ),
+        "executables": executables,
+        "versions": inputs.versions,
+        "environment": environment,
+    }
+    return hashlib.sha256(
+        json.dumps(request, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _tool_versions(root: Path) -> dict[str, str]:
+    """Resolve all mandatory tool versions without silently dropping tools.
+
+    Returns:
+        Version strings or unavailable markers for every source tool.
+
+    """
+    versions: dict[str, str] = {}
+    for tool, name in EXECUTABLE.items():
+        executable = shutil.which(name)
+        versions[tool] = (
+            tool_version(executable, root)
+            if executable is not None
+            else "unavailable"
+        )
+    return versions
+
+
+def _completed_pair(
+    root: Path, previous: str | None
+) -> tuple[dict[str, object], str] | None:
+    """Read a newly finished generation and match its report checksum.
+
+    Returns:
+        The validated completion marker and exact report text, if present.
+
+    """
+    try:
+        record = _decode((root / COMPLETION_FILE).read_text(encoding="utf-8"))
+        report = (root / ".cache/validate/report.json").read_text(
+            encoding="utf-8"
+        )
+    except OSError, ValueError, RecursionError:
+        return None
+    if not _mapping(record):
+        return None
+    token = record.get("token")
+    digest = hashlib.sha256(report.encode("utf-8")).hexdigest()
+    valid = (
+        record.get("schema") == COMPLETION_SCHEMA
+        and isinstance(token, str)
+        and token != previous
+        and record.get("reportSHA256") == digest
+    )
+    return (record, report) if valid else None
+
+
+def _report_counts(
+    value: object, files: int
+) -> tuple[int, int, int, int] | None:
+    """Validate summary cardinality and disallow boolean impostor counts.
+
+    Returns:
+        Ordered pass/fail/skipped/check totals, or no trustworthy counts.
+
+    """
+    if not _mapping(value) or value.get("files") != files:
+        return None
+    values = [value.get(key) for key in ("pass", "fail", "skipped", "checks")]
+    if not all(
+        isinstance(number, int) and not isinstance(number, bool) and number >= 0
+        for number in values
+    ):
+        return None
+    passed, failed, skipped, checks = (
+        int(number) for number in values if isinstance(number, int)
+    )
+    return (passed, failed, skipped, checks)
+
+
+def _report_summary_code(value: object, source_count: int) -> int | None:
+    if not _mapping(value):
+        return None
+    header = (
+        value.get("schema"),
+        value.get("scope"),
+        value.get("source_only"),
+        value.get("tests_requested"),
+    )
+    expected = (CACHE_VERSION, REPOSITORY_SCOPE, True, True)
+    counts = _report_counts(value.get("summary"), source_count)
+    if header != expected or counts is None:
+        return None
+    passed, failed, skipped, checks = counts
+    return (
+        (EXIT_FAILURE if failed or skipped else 0)
+        if passed + failed + skipped == checks
+        else None
+    )
+
+
+def _report_code(report_text: str, source_count: int) -> int | None:
+    """Reject incomplete reports while preserving a real failing status.
+
+    Returns:
+        The report's real exit status or None for malformed information.
+
+    """
+    try:
+        report = _decode(report_text)
+    except ValueError, RecursionError:
+        return None
+    return _report_summary_code(report, source_count)
+
+
+def _current_inputs(root: Path) -> RunInputs:
+    sources = source_files(root, ())
+    return RunInputs(
+        sources, input_snapshot(root, sources), _tool_versions(root)
+    )
+
+
+def _completed_report(
+    root: Path, options: Options, previous: str | None
+) -> tuple[int, str] | None:
+    """Reuse only a different completed generation with identical inputs.
+
+    Returns:
+        The earlier exit code and exact JSON report, or no reusable result.
+
+    """
+    candidate = _completed_pair(root, previous)
+    if candidate is None:
+        return None
+    record, report_text = candidate
+    try:
+        inputs = _current_inputs(root)
+        identity = _run_identity(root, options, inputs)
+        code = _report_code(report_text, len(inputs.sources))
+        # Recheck after reading every source; mixed versions cannot share.
+        unchanged = inputs == _current_inputs(root)
+    except OSError, ValueError, RecursionError:
+        return None
+    usable = (
+        record.get("identity") == identity and code is not None and unchanged
+    )
+    return (code, report_text) if usable and code is not None else None
+
+
+def _locked_run(options: Options) -> int:
+    """Deduplicate identical overlapping requests after the full run lock.
+
+    Returns:
+        The real previous status for a shared run or a newly executed status.
+
+    """
+    with (ROOT / ".cache/validate/run.lock").open("a+b") as lock:
+        previous = _completion_token(ROOT)
+        try:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            reused = _completed_report(ROOT, options, previous)
+            if reused is not None:
+                code, report_text = reused
+                _ = sys.stdout.write(report_text)
+                return code
+        return _validate(options)
+
+
 def main() -> int:
     """Run selected lint checks and default-on offline host tests.
 
@@ -856,9 +1111,7 @@ def main() -> int:
         # entries by reading and saving the same cache independently.
         lock_path = ROOT / ".cache/validate/run.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+b") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            return _validate(options)
+        return _locked_run(options)
     except (OSError, ValueError) as error:
         _ = sys.stderr.write(f"Validation error: {error}\n")
         return EXIT_FAILURE
@@ -874,14 +1127,7 @@ def _validate(options: Options) -> int:
     initial_snapshot = input_snapshot(ROOT, sources)
     # Include the requested tools even if a missing prerequisite prevents a
     # tool from executing. An omitted clang-tidy key must never imply success.
-    versions: dict[str, str] = {}
-    for tool, name in EXECUTABLE.items():
-        executable = shutil.which(name)
-        versions[tool] = (
-            tool_version(executable, ROOT)
-            if executable is not None
-            else "unavailable"
-        )
+    versions = _tool_versions(ROOT)
     lint = LintRun(ROOT, options, read_cache(ROOT), versions=versions)
     results = [
         lint.check(file, tool)
@@ -892,9 +1138,10 @@ def _validate(options: Options) -> int:
     # The run lock serializes validators, not other agents' source writes.
     # A changed source, rule, test manifest or inventory makes a mixed-revision
     # report unsafe even when every individual check happened to pass.
-    if sources != source_files(ROOT, ()) or initial_snapshot != input_snapshot(
-        ROOT, sources
-    ):
+    stable = sources == source_files(
+        ROOT, ()
+    ) and initial_snapshot == input_snapshot(ROOT, sources)
+    if not stable:
         results.append(
             _finding(
                 "src/ tools/ tests/",
@@ -910,8 +1157,25 @@ def _validate(options: Options) -> int:
         ROOT / ".cache/validate/cache.json",
         {"schema": CACHE_VERSION, "entries": lint.entries},
     )
+    report_text = json.dumps(report, indent=2) + "\n"
     _save(ROOT / ".cache/validate/report.json", report)
-    _ = sys.stdout.write(json.dumps(report, indent=2) + "\n")
+    if stable:
+        _save(
+            ROOT / COMPLETION_FILE,
+            {
+                "schema": COMPLETION_SCHEMA,
+                "token": os.urandom(16).hex(),
+                "identity": _run_identity(
+                    ROOT,
+                    options,
+                    RunInputs(sources, initial_snapshot, versions),
+                ),
+                "reportSHA256": hashlib.sha256(
+                    report_text.encode()
+                ).hexdigest(),
+            },
+        )
+    _ = sys.stdout.write(report_text)
     return EXIT_FAILURE if any(r["status"] != STATUS_OK for r in results) else 0
 
 

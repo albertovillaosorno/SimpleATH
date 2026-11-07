@@ -11,7 +11,9 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import threading
 from typing import TYPE_CHECKING
+from typing import final
 import unittest
 from unittest import mock
 
@@ -34,6 +36,10 @@ FORBIDDEN_CHECK_OPTIONS = ("--no-tidy", "--no-tests", "--no-json")
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
+THREAD_TIMEOUT = 8.0
+CONCURRENT_AGENTS = 5
+WAITING_AGENTS = CONCURRENT_AGENTS - 1
+SEQUENTIAL_HOST_CALLS = 2
 ARGPARSE_FAILURE = 2
 PYTHON_FAILURE = """\
 import unittest
@@ -65,6 +71,150 @@ def _cache(root: Path, entry: object) -> None:
     path.parent.mkdir(parents=True)
     payload = {"schema": validator.CACHE_VERSION, "entries": {"item": entry}}
     _ = path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _lint_fingerprint(root: Path, file: Path, tool: str) -> str:
+    """Get a real per-file cache key with synthetic offline tool success.
+
+    Returns:
+        Content-addressed cache key for the selected source/linter pair.
+
+    """
+    for config in validator.CONFIGS[tool]:
+        _ = (root / config).write_text("fixture", encoding="utf-8")
+    cache_key = file.relative_to(root).as_posix() + "::" + tool
+    with (
+        mock.patch.object(validator, "_command", return_value=[sys.executable]),
+        mock.patch.object(validator, "_version", return_value="fixture"),
+        mock.patch.object(validator, "tidy_command_exists", return_value=True),
+        mock.patch.object(
+            validator, "run_process", return_value=validator.Process(0, "", "")
+        ),
+    ):
+        lint = validator.LintRun(root, validator.Options(), {})
+        finding = lint.check(file, tool)
+        assert finding["status"] == validator.STATUS_OK
+        return lint.entries[cache_key]["fingerprint"]
+
+
+@final
+class _FiveAgentFixture:
+    """Synthetic locked full-repo validation with five overlapping callers."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.source = root / "src/driver.py"
+        _ = self.source.write_text("source", encoding="utf-8")
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.blocked = threading.Condition()
+        self.waiting: list[int] = []
+        self.calls: list[int] = []
+        self.results: list[int] = []
+        self.output = io.StringIO()
+        self.real_flock = fcntl.flock
+
+    def host_tests(self, _: Path) -> list[validator.Finding]:
+        """Block the leader until every other caller hits the lock.
+
+        Returns:
+            Synthetic successful host test results.
+
+        Raises:
+            TimeoutError: All test callers did not reach the shared lock.
+
+        """
+        self.calls.append(1)
+        self.started.set()
+        if not self.release.wait(THREAD_TIMEOUT):
+            message = "Timed out waiting for the synthetic concurrent callers"
+            raise TimeoutError(message)
+        return [_sample_finding("tests/test_fake.py", "python-test", "pass")]
+
+    def observe_lock(self, fd: int, operation: int) -> None:
+        """Detect each concurrent nonblocking lock miss without sleeping.
+
+        Raises:
+            BlockingIOError: Another validator currently holds the lock.
+
+        """
+        try:
+            self.real_flock(fd, operation)
+        except BlockingIOError:
+            with self.blocked:
+                self.waiting.append(1)
+                self.blocked.notify_all()
+            raise
+
+    def invoke(self) -> None:
+        """Record each real validator exit code from a separate thread."""
+        self.results.append(validator.main())
+
+    def _launch(self, *, change_source: bool) -> None:
+        leader = threading.Thread(target=self.invoke)
+        followers = [
+            threading.Thread(target=self.invoke) for _ in range(WAITING_AGENTS)
+        ]
+        try:
+            leader.start()
+            assert self.started.wait(THREAD_TIMEOUT)
+            for follower in followers:
+                follower.start()
+            with self.blocked:
+                assert self.blocked.wait_for(
+                    lambda: len(self.waiting) == WAITING_AGENTS,
+                    THREAD_TIMEOUT,
+                )
+                if change_source:
+                    _ = self.source.write_text(
+                        "edited in flight", encoding="utf-8"
+                    )
+        finally:
+            self.release.set()
+            leader.join(THREAD_TIMEOUT)
+            for follower in followers:
+                follower.join(THREAD_TIMEOUT)
+        assert not leader.is_alive()
+        assert all(not follower.is_alive() for follower in followers)
+
+    def run(self, *, change_source: bool = False) -> None:
+        """Verify run sharing, or rejection of changed in-flight sources."""
+        with (
+            mock.patch.object(validator, "ROOT", self.root),
+            mock.patch.object(
+                validator, "source_files", return_value=[self.source]
+            ),
+            mock.patch.object(
+                validator.LintRun,
+                "check",
+                return_value=_sample_finding("src/driver.py", "ruff", "pass"),
+            ),
+            mock.patch.object(
+                validator, "run_tests", side_effect=self.host_tests
+            ),
+            mock.patch.object(
+                validator, "_tool_versions", return_value={"ruff": "fixture"}
+            ),
+            mock.patch.object(fcntl, "flock", side_effect=self.observe_lock),
+            mock.patch.object(sys, "argv", ["validate.py"]),
+            redirect_stdout(self.output),
+        ):
+            self._launch(change_source=change_source)
+            report = (self.root / ".cache/validate/report.json").read_text()
+            if change_source:
+                # The first, mixed-snapshot report fails, then four waiting
+                # callers share a new clean scan of the edited source.
+                assert len(self.calls) == SEQUENTIAL_HOST_CALLS
+                assert sorted(self.results) == [0] * WAITING_AGENTS + [1]
+                assert SNAPSHOT_FAILURE_FRAGMENT in self.output.getvalue()
+            else:
+                assert len(self.calls) == 1
+                assert self.results == [0] * CONCURRENT_AGENTS
+                assert self.output.getvalue() == report * CONCURRENT_AGENTS
+            # Later sequential requests must execute their own host tests.
+            assert validator.main() == 0
+            expected = SEQUENTIAL_HOST_CALLS + int(change_source)
+            assert len(self.calls) == expected
 
 
 class CacheValidation(unittest.TestCase):
@@ -99,12 +249,63 @@ class CacheValidation(unittest.TestCase):
                 for source in files:
                     result = lint.check(source, "basedpyright")
                     assert result["status"] == validator.STATUS_OK
-            dependencies.assert_called_once_with(root)
+            dependencies.assert_called_once_with(root, "basedpyright")
             assert signature.call_count == len(files)
             assert all(
                 call.kwargs["context"] == ("basedpyright", SHARED_DIGEST)
                 for call in signature.call_args_list
             )
+
+    @staticmethod
+    def test_language_dependencies_do_not_invalidate_other_linters() -> None:
+        """Python/stubs leave C++ signatures intact; headers still count."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            sources = {
+                "python": root / "src/module.py",
+                "stub": root / "src/module.pyi",
+                "cpp": root / "src/radio.cpp",
+                "header": root / "src/radio.hpp",
+            }
+            for source in sources.values():
+                _ = source.write_text("first", encoding="utf-8")
+            native_before = _lint_fingerprint(
+                root, sources["cpp"], "clang-tidy"
+            )
+            python_before = _lint_fingerprint(
+                root, sources["python"], "basedpyright"
+            )
+            for name in ("python", "stub"):
+                _ = sources[name].write_text("changed", encoding="utf-8")
+                assert (
+                    _lint_fingerprint(root, sources["cpp"], "clang-tidy")
+                    == native_before
+                )
+            python_now = _lint_fingerprint(
+                root, sources["python"], "basedpyright"
+            )
+            assert python_before != python_now
+            _ = sources["header"].write_text("changed", encoding="utf-8")
+            assert (
+                _lint_fingerprint(root, sources["cpp"], "clang-tidy")
+                != native_before
+            )
+            assert (
+                _lint_fingerprint(root, sources["python"], "basedpyright")
+                == python_now
+            )
+
+    @staticmethod
+    def test_python_stub_changes_complete_source_snapshot() -> None:
+        """A type stub is an input even if it is not a separate lint target."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/module.py"
+            stub = root / "src/module.pyi"
+            _ = source.write_text("original", encoding="utf-8")
+            before = validator.input_snapshot(root, [source])
+            _ = stub.write_text("def foo() -> int: ...", encoding="utf-8")
+            assert before != validator.input_snapshot(root, [source])
 
     @staticmethod
     def test_unhashable_status_is_rejected() -> None:
@@ -558,6 +759,21 @@ class FullRepositoryRun(unittest.TestCase):
             report = (root / ".cache/validate/report.json").read_text()
             assert ONE_FAILURE_FRAGMENT in report
             assert SNAPSHOT_FAILURE_FRAGMENT in report
+
+    @staticmethod
+    def test_source_change_while_five_agents_wait_prevents_stale_reuse() -> (
+        None
+    ):
+        """A changed in-flight source requires a second complete host scan."""
+        with tempfile.TemporaryDirectory() as directory:
+            _FiveAgentFixture(_root(directory)).run(change_source=True)
+
+    @staticmethod
+    def test_five_simultaneous_callers_share_one_complete_scan() -> None:
+        """Concurrent callers share a report; sequential callers rerun tests."""
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = _FiveAgentFixture(_root(directory))
+            fixture.run()
 
     @staticmethod
     def test_multiline_tidy_version_is_not_the_llvm_heading() -> None:
