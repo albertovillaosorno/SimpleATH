@@ -165,7 +165,7 @@ namespace simpleath
         return plan;
     }
 
-    Device::Device() : status_ {}, bus_ {}
+    Device::Device() : status_ {}, bus_ {}, busEpoch_(0)
     {
         status_.stage = Stage::Detached;
         status_.lastResult = Result::Ok;
@@ -232,9 +232,15 @@ namespace simpleath
         {
             return fail(Result::WrongState);
         }
+        const uint64_t ownerEpoch = busEpoch_;
 
         uint32_t srev = 0;
         Result result = readRegister(kRevisionRegister, srev);
+        // A callback can revoke the MMIO owner before returning. Never
+        // publish its sample or write diagnostics into a replacement owner,
+        // even when a detach/reattach cycle restores the same bus pointers.
+        if (busEpoch_ != ownerEpoch)
+            return Result::WrongState;
         if (result != Result::Ok)
         {
             return fail(result);
@@ -251,6 +257,8 @@ namespace simpleath
 
         uint32_t rtc = 0;
         result = readRegister(kRtcStatusRegister, rtc);
+        if (busEpoch_ != ownerEpoch)
+            return Result::WrongState;
         if (result != Result::Ok)
         {
             return fail(result);
@@ -263,6 +271,8 @@ namespace simpleath
 
         uint32_t eeprom = 0;
         result = readRegister(kEepromStatusRegister, eeprom);
+        if (busEpoch_ != ownerEpoch)
+            return Result::WrongState;
         if (result != Result::Ok)
         {
             return fail(result);
@@ -287,6 +297,9 @@ namespace simpleath
 
     void Device::detach()
     {
+        // Epoch changes before callbacks and status are revoked, so a read
+        // already in progress cannot resurrect an old inspection afterwards.
+        ++busEpoch_;
         status_ = {};
         bus_ = {};
         status_.stage = Stage::Detached;

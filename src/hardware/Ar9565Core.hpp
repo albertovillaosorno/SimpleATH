@@ -217,6 +217,9 @@ namespace simpleath
             Result readRegister(uint32_t offset, uint32_t &value);
             Status status_;
             RegisterBus bus_;
+            // Detach invalidates even a callback that reattaches an identical
+            // function/context before an outstanding read returns.
+            uint64_t busEpoch_;
     };
 
 } // namespace simpleath

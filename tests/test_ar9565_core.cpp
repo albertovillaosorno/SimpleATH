@@ -3,6 +3,96 @@
 // Offline regression of real identity/invalid-output code; no PCI access.
 #include "hardware/Ar9565Core.hpp"
 
+namespace
+{
+    using namespace simpleath;
+
+    struct RevokingRead
+    {
+            Device *owner;
+            RegisterBus bus;
+            uint32_t revokeAt;
+            unsigned reads;
+            bool revoke;
+            bool reattach;
+            bool reattached;
+    };
+
+    bool syntheticRead32(void *opaque, uint32_t offset, uint32_t *value)
+    {
+        auto &context = *static_cast<RevokingRead *>(opaque);
+        ++context.reads;
+        if (context.revoke && offset == context.revokeAt)
+        {
+            context.revoke = false;
+            // Model a native owner losing its mapping synchronously during
+            // an MMIO callback. The callback may also reattach the SAME
+            // function/context to a fresh owner generation before returning.
+            context.owner->detach();
+            if (context.reattach)
+                context.reattached =
+                    context.owner->matchPci(kPciVendor, kPciDevice, 0, 0) ==
+                        Result::Ok &&
+                    context.owner->attachReadOnlyBus(context.bus) == Result::Ok;
+        }
+        if (offset == kRevisionRegister)
+            *value = (static_cast<uint32_t>(kMacFamily) << 12u) | 0xffu;
+        else if (offset == kRtcStatusRegister)
+            *value = kRtcOn;
+        else if (offset == kEepromStatusRegister)
+            *value = 0;
+        else
+            return false;
+        return true;
+    }
+
+    bool rejectReentrantBusRevocation()
+    {
+        const uint32_t stages[] {kRevisionRegister, kRtcStatusRegister,
+                                 kEepromStatusRegister};
+        for (uint32_t revokedAt : stages)
+        {
+            Device device;
+            RevokingRead context {};
+            context.owner = &device;
+            context.bus = {&context, syntheticRead32, nullptr, 0x7048};
+            context.revokeAt = revokedAt;
+            context.revoke = true;
+            if (device.matchPci(kPciVendor, kPciDevice, 0, 0) != Result::Ok ||
+                device.attachReadOnlyBus(context.bus) != Result::Ok ||
+                device.inspect() != Result::WrongState ||
+                device.status().stage != Stage::Detached ||
+                device.status().silicon.rawSrev != 0 ||
+                device.status().eepromAccessible ||
+                context.reads != (revokedAt == kRevisionRegister    ? 1u
+                                  : revokedAt == kRtcStatusRegister ? 2u
+                                                                    : 3u))
+                return false;
+
+            // Even if a callback detach/reattach cycle restores the identical
+            // bus pointers, a stale outer inspection must not publish success
+            // or a failure into the replacement owner's state.
+            context.revoke = true;
+            context.reattach = true;
+            context.reattached = false;
+            if (device.matchPci(kPciVendor, kPciDevice, 0, 0) != Result::Ok ||
+                device.attachReadOnlyBus(context.bus) != Result::Ok ||
+                device.inspect() != Result::WrongState || !context.reattached ||
+                device.status().stage != Stage::RegisterTransportReady ||
+                device.status().lastResult != Result::Ok ||
+                device.status().silicon.rawSrev != 0 ||
+                device.status().eepromAccessible)
+                return false;
+            // The new attachment should remain usable on a fresh inspection.
+            if (device.inspect() != Result::Ok ||
+                device.status().stage != Stage::AwaitingResetAndCalibration ||
+                !device.status().eepromAccessible)
+                return false;
+        }
+        return true;
+    }
+} // namespace
+
 int main()
 {
     using namespace simpleath;
@@ -42,5 +132,7 @@ int main()
     for (uint8_t octet : mac)
         if (octet)
             return 9;
+    if (!rejectReentrantBusRevocation())
+        return 10;
     return 0;
 }
