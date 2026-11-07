@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING
 import uuid
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+    from collections.abc import Iterator
     from typing import BinaryIO
 
 if __package__:
@@ -537,11 +539,11 @@ class Mach:
         return (a, self.read(a, e - a))
 
 
-def sky(ver):
+def sky(ver: str) -> Mach | ReferenceImage:
     return Mach(reference_paths()[ver], "com.apple.iokit.IOSkywalkFamily")
 
 
-def dem(names):
+def dem(names: Iterable[str]) -> list[str]:
     s = list(names)
     return subprocess.check_output(
         ["c++filt"], input="\n".join(s) + "\n", text=True
@@ -582,7 +584,7 @@ def disassembler():
     return library, context
 
 
-def insns(data, addr):
+def insns(data: bytes, addr: int) -> Iterator[tuple[int, int, str, bytes]]:
     library, context = disassembler()
     buf = ctypes.create_string_buffer(data)
     o = 0
@@ -629,14 +631,14 @@ LEGACY_CLASSES = (
 )
 
 
-def vtable_name(cls):
+def vtable_name(cls: str) -> str:
     return "__ZTV" + str(len(cls)) + cls
 
 
-METHOD_KEYS = {}
+METHOD_KEYS: dict[str, str] = {}
 
 
-def prime_method_keys(names):
+def prime_method_keys(names: Iterable[str]) -> None:
     names = sorted(set(names) - METHOD_KEYS.keys())
     if not names:
         return
@@ -646,7 +648,7 @@ def prime_method_keys(names):
         METHOD_KEYS[name] = "destructor" + destructor[1] if destructor else key
 
 
-def method_key(name):
+def method_key(name: str) -> str:
     if name not in METHOD_KEYS:
         prime_method_keys([name])
     return METHOD_KEYS[name]
@@ -679,7 +681,11 @@ def _vtable_addresses(start: int, end: int) -> range:
     return range(start + VTABLE_HEADER_BYTES, end, VTABLE_SLOT_BYTES)
 
 
-def table(image, cls, kernel=None):
+def table(
+    image: Mach | ReferenceImage,
+    cls: str,
+    kernel: Mach | ReferenceImage | None = None,
+) -> list[str]:
     if isinstance(image, ReferenceImage):
         return list(image.tables[cls])
     sym = image.names[vtable_name(cls)]
@@ -905,7 +911,7 @@ class NativeModel:
             image.close()
 
 
-def class_size(image, cls):
+def class_size(image: Mach | ReferenceImage, cls: str) -> int:
     name = "__ZN" + str(len(cls)) + cls + "9MetaClassC2Ev"
     address, data = image.funcbytes(name)
     sizes = [
