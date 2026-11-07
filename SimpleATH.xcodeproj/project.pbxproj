@@ -245,7 +245,7 @@
 			baseConfigurationReference = 000000000000000000000079 /* Config/Kernel.xcconfig */;
 			buildSettings = {
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MODULE_NAME = cn.laobamac.SimpleATH;
+				MODULE_NAME = dev.alberto.SimpleATH;
 			};
 			name = Debug;
 		};
@@ -254,7 +254,7 @@
 			baseConfigurationReference = 000000000000000000000079 /* Config/Kernel.xcconfig */;
 			buildSettings = {
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MODULE_NAME = cn.laobamac.SimpleATH;
+				MODULE_NAME = dev.alberto.SimpleATH;
 			};
 			name = Release;
 		};

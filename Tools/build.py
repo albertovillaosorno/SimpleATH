@@ -366,7 +366,7 @@ def verify(configuration, references):
     assert Image(symbols).uuid == image.uuid
     info = plistlib.loads((product / 'Contents/Info.plist').read_bytes())
     assert info['CFBundleVersion'] == VERSION
-    assert info['CFBundleIdentifier'] == 'cn.laobamac.SimpleATH'
+    assert info['CFBundleIdentifier'] == 'dev.alberto.SimpleATH'
     assert not any('Lilu' in n for n in info['OSBundleLibraries'])
     undefined = set(subprocess.check_output(['nm', '-u', '-j', str(binary)], text=True).splitlines())
     assert not any('Lilu' in n or n in ['_lilu', '_lilu_os_log'] for n in undefined)

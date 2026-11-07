@@ -316,7 +316,7 @@ def generate():
         named = sorted((n, image.symbols[n]) for n in wanted)
         symbol_table = emit_table('Symbol', f'symbols{index}', (f'{{{json.dumps(n)}, {v}}}' for n, v in named))
         route_table = emit_table('RoutePrefix', f'routes{index}', (f'{{{a}, {n}}}' for a, n in routes or [(0, 0)]))
-        info['OSBundleLibraries']['cn.laobamac.SimpleATH'] = VERSION
+        info['OSBundleLibraries']['dev.alberto.SimpleATH'] = VERSION
         info['OSBundleRequired'] = 'Root'
         if label == 'Legacy':
             info['IOKitPersonalities'] = {}
