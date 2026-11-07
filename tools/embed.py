@@ -16,6 +16,10 @@ import re
 import shutil
 import struct
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv for pinned offline disassembly.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 from bootstrap import ROOT
 from bootstrap import validate_payloads
@@ -46,9 +50,18 @@ ALIASES = {
 
 
 MAX_EMBED_RELOCATIONS = 1_000_000
+MAX_EXPANDED_PAYLOAD_BYTES = 256 * 1024 * 1024
 RELOCATION_RECORD_BYTES = 8
 DYSYMTAB_COMMAND = 0xB
 DYSYMTAB_COMMAND_BYTES = 80
+ABSOLUTE_RELOCATION_KIND = 0
+BRANCH_RELOCATION_KIND = 2
+RELOCATION_QWORD_BYTES = 8
+RELOCATION_DWORD_BYTES = 4
+VALID_RELOCATION_SHAPES = {
+    (ABSOLUTE_RELOCATION_KIND, RELOCATION_QWORD_BYTES, 0),
+    (BRANCH_RELOCATION_KIND, RELOCATION_DWORD_BYTES, 1),
+}
 ROUTE_MIN_BYTES = 14
 ROUTE_MAX_BYTES = 32
 ROUTE_RELATIVE_ADDRESS = "%rip"
@@ -95,6 +108,31 @@ def checked_relocation_entries(
     return rows
 
 
+def checked_relocation_width(bits: int, *, external: bool) -> int:
+    """Decode a complete relocatable x86_64 payload record.
+
+    Returns:
+        The supported relocation width in bytes.
+
+    Raises:
+        ValueError: External-table ownership or relocation kind is unsafe.
+
+    """
+    kind = bits >> 28
+    width = 1 << ((bits >> 25) & 3)
+    pcrel = (bits >> 24) & 1
+    stored_external = bool((bits >> 27) & 1)
+    if stored_external != external or (kind, width, pcrel) not in (
+        VALID_RELOCATION_SHAPES
+    ):
+        message = "Unsupported Mach-O relocation encoding or ownership"
+        raise ValueError(message)
+    if not external and kind != ABSOLUTE_RELOCATION_KIND:
+        message = "Local Mach-O relocation cannot branch to an external symbol"
+        raise ValueError(message)
+    return width
+
+
 def checked_dysymtab_fields(commands: list[LoadCommand]) -> tuple[int, ...]:
     """Require exactly one complete dynamic symbol table command.
 
@@ -114,6 +152,66 @@ def checked_dysymtab_fields(commands: list[LoadCommand]) -> tuple[int, ...]:
         message = "Malformed Mach-O dynamic symbol table header"
         raise ValueError(message)
     return struct.unpack_from("<18I", tables[0], 8)
+
+
+def checked_payload_size(
+    data: bytes, segments: list[tuple[str, int, int, int, int]]
+) -> int:
+    """Bound the virtual memory image and every source segment before copy.
+
+    Returns:
+        The aligned allocation size, with all source bytes accounted for.
+
+    Raises:
+        ValueError: Missing, overlapping, truncated or oversized segments.
+
+    """
+    if not segments:
+        message = "Mach-O payload has no segments"
+        raise ValueError(message)
+    mapped: list[tuple[int, int]] = []
+    for _, address, virtual_size, fileoff, filesize in segments:
+        if (
+            min(address, virtual_size, fileoff, filesize) < 0
+            or filesize > virtual_size
+            or fileoff > len(data)
+            or filesize > len(data) - fileoff
+        ):
+            message = "Mach-O payload segment exceeds source bounds"
+            raise ValueError(message)
+        if address + virtual_size > MAX_EXPANDED_PAYLOAD_BYTES:
+            message = "Mach-O payload image exceeds checked virtual limit"
+            raise ValueError(message)
+        if virtual_size:
+            mapped.append((address, address + virtual_size))
+    if not mapped:
+        message = "Mach-O payload has no mapped virtual bytes"
+        raise ValueError(message)
+    mapped.sort()
+    for earlier, following in zip(mapped, mapped[1:], strict=False):
+        if earlier[1] > following[0]:
+            message = "Mach-O payload segments overlap in virtual memory"
+            raise ValueError(message)
+    return align(max((end for _, end in mapped), default=0))
+
+
+def remap_file_offset(
+    offset: int, segments: list[tuple[str, int, int, int, int]]
+) -> int:
+    """Map a source file offset into its already parsed segment address.
+
+    Returns:
+        The address of the source byte in a mapped segment.
+
+    Raises:
+        RuntimeError: No mapped source segment contains the file offset.
+
+    """
+    for _, address, _, start, size in segments:
+        if start <= offset < start + size:
+            return address + offset - start
+    message = f"Unmapped file offset {offset:#x}"
+    raise RuntimeError(message)
 
 
 def header(name: str) -> str:
@@ -217,7 +315,13 @@ def route_prefixes(image: Image, label: str) -> list[tuple[int, int]]:
     return result
 
 
-def generate():
+def generate() -> None:
+    """Generate checked offline source metadata for pinned legacy payloads.
+
+    Raises:
+        ValueError: Pinned inputs disagree or have unsafe metadata.
+
+    """
     require_assertions_active()
     validate_payloads()
     plans = [SkywalkPlan(system) for system in SYSTEMS]
@@ -323,11 +427,11 @@ def generate():
         "namespace ath {",
     ]
     assembly = [header("Payloads.S"), ".section __TEXT,__const", ".p2align 3"]
-    descriptors = []
-    expanded_images = []
-    tables = {}
+    descriptors: list[str] = []
+    expanded_images: list[bytes] = []
+    tables: dict[tuple[str, tuple[str, ...]], str] = {}
 
-    def emit_table(kind, name, rows):
+    def emit_table(kind: str, name: str, rows: Iterable[str]) -> str:
         rows = tuple(rows)
         key = (kind, rows)
         if key not in tables:
@@ -361,8 +465,8 @@ def generate():
         "airPortPayloadIndex",
     ):
         del manifest["nativeAdapter"][field]
-    library_versions = {}
-    library_ids = set()
+    library_versions: dict[str, set[str]] = {}
+    library_ids: set[str] = set()
     for index, (label, image, (commands, symbols)) in enumerate(
         zip(LABELS, images, parsed, strict=True)
     ):
@@ -375,25 +479,17 @@ def generate():
         for library, version in info["OSBundleLibraries"].items():
             library_versions.setdefault(library, set()).add(version)
         branches = 0
-        relocations = []
+        relocations: list[tuple[int, int, int, int, int]] = []
         dsfields = dynamic_fields[index]
         for external, field in [(True, 14), (False, 16)]:
             for address, bits in checked_relocation_entries(
                 image.data, dsfields[field], dsfields[field + 1], len(symbols)
             ):
-                kind, width, pcrel, ext = (
-                    bits >> 28,
-                    1 << ((bits >> 25) & 3),
-                    (bits >> 24) & 1,
-                    (bits >> 27) & 1,
-                )
-                assert address >= 0
-                assert bool(ext) == external
-                assert (kind, width, pcrel) in [(0, 8, 0), (2, 4, 1)]
+                width = checked_relocation_width(bits, external=external)
                 addend = struct.unpack(
                     "<q" if width == 8 else "<i", image.read(address, width)
                 )[0]
-                if ext:
+                if external:
                     name, stype, _, _, value = symbols[bits & 0xFFFFFF]
                     if stype & 0xE == 0xE:
                         provider, target = logical_index, value
@@ -427,7 +523,6 @@ def generate():
                         else:
                             provider, target = 255, native_index[name]
                 else:
-                    assert kind == 0
                     assert 0 < (bits & 0xFFFFFF) <= len(image.sections)
                     provider, target, addend = logical_index, addend, 0
                 assert provider in (254, 255) or 0 <= target < max(
@@ -436,21 +531,15 @@ def generate():
                 relocations.append((address, target, addend, provider, width))
                 branches += width == 4
 
-        def remap(offset):
-            for _, address, _, start, size in image.segments:
-                if start <= offset < start + size:
-                    return address + offset - start
-            raise RuntimeError(f"Unmapped file offset {offset:#x}")
-
-        size = align(max(a + n for _, a, n, _, _ in image.segments))
+        size = checked_payload_size(image.data, image.segments)
         stub_size = align(branches * 16 + 4096)
         expanded = bytearray(size)
         for _, address, _, fileoff, length in image.segments:
             expanded[address : address + length] = image.data[
                 fileoff : fileoff + length
             ]
-        symbol_values = []
-        new_commands = []
+        symbol_values: list[int] = []
+        new_commands: list[bytes | bytearray] = []
         for cmd, data in commands:
             if cmd in (0x1D, 0x1E, 0x2B):
                 continue
@@ -463,13 +552,22 @@ def generate():
                     off, _, _, nrel = struct.unpack_from("<4I", data, pos + 48)
                     assert nrel == 0
                     if off:
-                        struct.pack_into("<I", data, pos + 48, remap(off))
+                        struct.pack_into(
+                            "<I",
+                            data,
+                            pos + 48,
+                            remap_file_offset(off, image.segments),
+                        )
             elif cmd == 2:
                 off, _, strings, _ = struct.unpack_from("<4I", data, 8)
-                struct.pack_into("<I", data, 8, remap(off))
-                struct.pack_into("<I", data, 16, remap(strings))
+                struct.pack_into(
+                    "<I", data, 8, remap_file_offset(off, image.segments)
+                )
+                struct.pack_into(
+                    "<I", data, 16, remap_file_offset(strings, image.segments)
+                )
                 symbol_values = [
-                    remap(off + i * 16) + 8
+                    remap_file_offset(off + i * 16, image.segments) + 8
                     for i, (_, kind, _, _, _) in enumerate(symbols)
                     if not kind & 0xE0 and kind & 0xE == 0xE
                 ]
@@ -477,7 +575,9 @@ def generate():
                 fields = list(struct.unpack_from("<18I", data, 8))
                 for pos in [6, 8, 10, 12]:
                     if fields[pos + 1]:
-                        fields[pos] = remap(fields[pos])
+                        fields[pos] = remap_file_offset(
+                            fields[pos], image.segments
+                        )
                 fields[14:] = [0, 0, 0, 0]
                 struct.pack_into("<18I", data, 8, *fields)
             new_commands.append(data)
