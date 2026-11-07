@@ -443,7 +443,14 @@ def _dependencies(root: Path) -> bytes:
     return digest.digest()
 
 
-def _signature(command: list[str], file: Path, root: Path, *, tool: str) -> str:
+def _signature(
+    command: list[str],
+    file: Path,
+    root: Path,
+    *,
+    context: tuple[str, bytes | None],
+) -> str:
+    tool, dependencies = context
     digest = hashlib.sha256(file.read_bytes())
     digest.update(Path(__file__).read_bytes())
     digest.update(json.dumps(command).encode())
@@ -451,7 +458,9 @@ def _signature(command: list[str], file: Path, root: Path, *, tool: str) -> str:
     for config in CONFIGS[tool]:
         digest.update((root / config).read_bytes())
     if tool in {"basedpyright", "clang-tidy"}:
-        digest.update(_dependencies(root))
+        digest.update(
+            _dependencies(root) if dependencies is None else dependencies
+        )
     return digest.hexdigest()
 
 
@@ -508,6 +517,7 @@ class LintRun:
     options: Options
     entries: dict[str, CacheEntry]
     versions: dict[str, str] = field(default_factory=dict)
+    dependency_digest: bytes | None = None
 
     def check(self, file: Path, tool: str) -> Finding:
         """Run or reuse one lint check.
@@ -541,7 +551,17 @@ class LintRun:
         self, file: Path, tool: str, command: list[str]
     ) -> Finding:
         relative = file.relative_to(self.root).as_posix()
-        fingerprint = _signature(command, file, self.root, tool=tool)
+        if (
+            tool in {"basedpyright", "clang-tidy"}
+            and self.dependency_digest is None
+        ):
+            self.dependency_digest = _dependencies(self.root)
+        fingerprint = _signature(
+            command,
+            file,
+            self.root,
+            context=(tool, self.dependency_digest),
+        )
         key = relative + "::" + tool
         old = self.entries.get(key)
         if (

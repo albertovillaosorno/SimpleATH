@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 CHILD_FAILURE = 7
 EXPECTED_SKIP = "skipped"
 EXPECTED_FAIL = "fail"
+SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
@@ -62,6 +63,42 @@ def _cache(root: Path, entry: object) -> None:
 
 class CacheValidation(unittest.TestCase):
     """Reject malformed cache values while retaining actual failure results."""
+
+    @staticmethod
+    def test_repository_dependency_digest_is_shared_within_one_run() -> None:
+        """Avoid rehashing all sources for every source-level type check."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            files = (root / "src/first.py", root / "src/second.py")
+            for source in files:
+                _ = source.write_text("", encoding="utf-8")
+            lint = validator.LintRun(root, validator.Options(), {})
+            with (
+                mock.patch.object(
+                    validator, "_dependencies", return_value=SHARED_DIGEST
+                ) as dependencies,
+                mock.patch.object(
+                    validator, "_signature", return_value="sig"
+                ) as signature,
+                mock.patch.dict(validator.CONFIGS, {"basedpyright": ()}),
+                mock.patch.object(
+                    validator, "_command", return_value=[sys.executable]
+                ),
+                mock.patch.object(
+                    validator,
+                    "run_process",
+                    return_value=validator.Process(0, "", ""),
+                ),
+            ):
+                for source in files:
+                    result = lint.check(source, "basedpyright")
+                    assert result["status"] == validator.STATUS_OK
+            dependencies.assert_called_once_with(root)
+            assert signature.call_count == len(files)
+            assert all(
+                call.kwargs["context"] == ("basedpyright", SHARED_DIGEST)
+                for call in signature.call_args_list
+            )
 
     @staticmethod
     def test_unhashable_status_is_rejected() -> None:
