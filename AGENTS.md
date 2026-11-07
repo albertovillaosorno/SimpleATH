@@ -72,6 +72,22 @@ This division is a coordination aid only. Do not impose hexagonal
 ports/adapters or relocate files merely for a tooling convention.
 Respect ath9k licenses and the origin of third-party materials.
 
+## Linux reference and implementation ledger
+
+Maintain `linux-port-ledger.jsonl` when consulting or porting a file under
+`linux/`. Follow `docs/design/LINUX-PORT-LEDGER.md`: record the exact source
+SHA-256, the scope implemented, destination files, evidence and remaining
+source work. Reading a file is not implementing it; a partial port is not
+whole-file completion. An unrecorded use is unknown, not proof of non-use.
+
+**Keep the Linux references. Do not delete a file merely because it has
+been read, used, or partially/fully ported.** The owner chose a JSONL ledger
+instead of deletion to preserve valuable implementation and license context.
+Preserve each file's license and Qualcomm/Atheros copyrights. Append full
+replacement records for status updates; the last record for a source path
+is current. Commit the ledger with the related source change. No separate
+database, WAL service, framework, build or test runner is needed.
+
 ## Prohibitions and tooling
 
 New kext compilation, CI/build tags, test suites, actual PCI/RF
