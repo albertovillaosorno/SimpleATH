@@ -39,6 +39,10 @@ namespace simpleath
             Error result = validateMapping(mapping, required);
             if (result != Error::Ok)
                 return result;
+            // The first descriptor being aligned is not enough: each later
+            // descriptor must also begin on the requested bus/CPU boundary.
+            if (count > 1 && descriptorBytes % alignment != 0)
+                return Error::InvalidAlignment;
             if (mapping.direction != Direction::ToDevice ||
                 (mapping.deviceBusAddress & (alignment - 1u)) != 0 ||
                 (reinterpret_cast<uintptr_t>(mapping.cpuAddress) &
@@ -67,8 +71,10 @@ namespace simpleath
             return Error::Ok;
         }
 
-        Error TxRing::reserve(size_t &slot, uint32_t cookie)
+        Error TxRing::reserve(TxSlotToken &token, uint32_t cookie)
         {
+            // A failed reservation must not leave an earlier live token.
+            token = {};
             if (capacity_ == 0)
                 return Error::UninitializedRing;
             // Never wrap a token and accidentally match an old completion.
@@ -86,68 +92,70 @@ namespace simpleath
                 slots_[i].dmaMapped = false;
                 slots_[i].descriptorCompleted = false;
                 ++active_;
-                slot = i;
+                token = {i, cookie, slots_[i].generation};
                 return Error::Ok;
             }
             return Error::RingFull;
         }
 
-        Error TxRing::descriptorPrepared(size_t slot, bool dmaMapped,
-                                         bool complete)
+        Error TxRing::descriptorPrepared(const TxSlotToken &token,
+                                         bool dmaMapped, bool complete)
         {
-            if (slot >= capacity_)
+            if (token.index >= capacity_)
                 return Error::InvalidSlot;
-            if (slots_[slot].state != SlotState::Reserved)
+            if (!matches(token) ||
+                slots_[token.index].state != SlotState::Reserved)
                 return Error::UnexpectedState;
             if (!dmaMapped || !complete)
                 return Error::NotReadyToTransmit;
-            slots_[slot].dmaMapped = true;
-            slots_[slot].descriptorCompleted = true;
-            slots_[slot].state = SlotState::ReadyForHardware;
+            slots_[token.index].dmaMapped = true;
+            slots_[token.index].descriptorCompleted = true;
+            slots_[token.index].state = SlotState::ReadyForHardware;
             return Error::Ok;
         }
 
-        Error TxRing::handedToHardware(size_t slot, bool radioCalibrated,
+        Error TxRing::handedToHardware(const TxSlotToken &token,
+                                       bool radioCalibrated,
                                        bool channelAllowed, bool keysReady)
         {
-            if (slot >= capacity_)
+            if (token.index >= capacity_)
                 return Error::InvalidSlot;
-            if (slots_[slot].state != SlotState::ReadyForHardware)
+            if (!matches(token) ||
+                slots_[token.index].state != SlotState::ReadyForHardware)
                 return Error::UnexpectedState;
-            if (!slots_[slot].dmaMapped || !slots_[slot].descriptorCompleted ||
-                !radioCalibrated || !channelAllowed || !keysReady)
+            if (!slots_[token.index].dmaMapped ||
+                !slots_[token.index].descriptorCompleted || !radioCalibrated ||
+                !channelAllowed || !keysReady)
                 return Error::NotReadyToTransmit;
             // External PCI backend alone can execute a hardware doorbell.
-            slots_[slot].state = SlotState::OwnedByHardware;
+            slots_[token.index].state = SlotState::OwnedByHardware;
             return Error::Ok;
         }
 
-        Error TxRing::complete(size_t slot, uint32_t cookie,
-                               uint32_t generation)
+        Error TxRing::complete(const TxSlotToken &token)
         {
-            if (slot >= capacity_)
+            if (token.index >= capacity_)
                 return Error::InvalidSlot;
-            if (slots_[slot].state != SlotState::OwnedByHardware ||
-                slots_[slot].cookie != cookie ||
-                slots_[slot].generation != generation)
+            if (!matches(token) ||
+                slots_[token.index].state != SlotState::OwnedByHardware)
                 return Error::UnexpectedState;
-            slots_[slot].state = SlotState::Completed;
+            slots_[token.index].state = SlotState::Completed;
             return Error::Ok;
         }
 
-        Error TxRing::release(size_t slot)
+        Error TxRing::release(const TxSlotToken &token)
         {
-            if (slot >= capacity_)
+            if (token.index >= capacity_)
                 return Error::InvalidSlot;
-            if (slots_[slot].state != SlotState::Completed &&
-                slots_[slot].state != SlotState::Reserved &&
-                slots_[slot].state != SlotState::ReadyForHardware)
+            if (!matches(token) || active_ == 0 ||
+                (slots_[token.index].state != SlotState::Completed &&
+                 slots_[token.index].state != SlotState::Reserved &&
+                 slots_[token.index].state != SlotState::ReadyForHardware))
                 return Error::UnexpectedState;
-            slots_[slot] = {};
-            slots_[slot].generation = generation_;
-            slots_[slot].state = SlotState::Free;
-            if (active_)
-                --active_;
+            slots_[token.index] = {};
+            slots_[token.index].generation = generation_;
+            slots_[token.index].state = SlotState::Free;
+            --active_;
             return Error::Ok;
         }
 
@@ -161,6 +169,13 @@ namespace simpleath
             // reset/reinitialization.
             for (size_t i = 0; i < kMaximumSlots; ++i)
                 slots_[i] = {};
+        }
+
+        bool TxRing::matches(const TxSlotToken &token) const
+        {
+            return token.index < capacity_ && token.generation != 0 &&
+                   slots_[token.index].generation == token.generation &&
+                   slots_[token.index].cookie == token.cookie;
         }
 
         const RingSlot *TxRing::slot(size_t index) const

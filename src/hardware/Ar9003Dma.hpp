@@ -76,9 +76,17 @@ namespace simpleath
                 bool descriptorCompleted;
         };
 
+        struct TxSlotToken
+        {
+                size_t index;
+                uint32_t cookie;
+                uint32_t generation;
+        };
+
         // Pure metadata machine; does not publish descriptors, set DMA
         // pointers, enable interrupts or enable TX. An owner must serialize
-        // every method call.
+        // every method call. The token must follow the specific reservation
+        // through preparation, hardware handoff, completion and release.
         class TxRing
         {
             public:
@@ -89,17 +97,14 @@ namespace simpleath
 
                 TxRing();
                 Error initialize(size_t numberOfSlots);
-                Error reserve(size_t &slot, uint32_t cookie);
-                Error descriptorPrepared(size_t slot, bool dmaMapped,
-                                         bool complete);
-                Error handedToHardware(size_t slot, bool radioCalibrated,
+                Error reserve(TxSlotToken &token, uint32_t cookie);
+                Error descriptorPrepared(const TxSlotToken &token,
+                                         bool dmaMapped, bool complete);
+                Error handedToHardware(const TxSlotToken &token,
+                                       bool radioCalibrated,
                                        bool channelAllowed, bool keysReady);
-                // Capture slot(slotIndex)->generation at reservation time and
-                // carry it through completion handling. A reused cookie alone
-                // cannot identify DMA.
-                Error complete(size_t slot, uint32_t cookie,
-                               uint32_t generation);
-                Error release(size_t slot);
+                Error complete(const TxSlotToken &token);
+                Error release(const TxSlotToken &token);
                 void reset();
 
                 size_t active() const
@@ -115,6 +120,7 @@ namespace simpleath
                 const RingSlot *slot(size_t index) const;
 
             private:
+                bool matches(const TxSlotToken &token) const;
                 RingSlot slots_[kMaximumSlots];
                 size_t capacity_;
                 size_t active_;

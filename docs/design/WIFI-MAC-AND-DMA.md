@@ -34,10 +34,15 @@ for the **next separately authorized build**.
   No safe bus mastering, EDMA ring programming, interrupt completion, active
   RF calibration or 802.11 traffic pipeline exists. The descriptors must not
   be submitted to the physical device.
-- **DMA ring is metadata only.** There is no IODMACommand allocation,
-  IOMMU mapping, physical device access, interrupt acknowledgement or
-  hardware doorbell. The existing src/platform/Ar9565PciSession.* provides
-  a portable read-only inspection contract; its native platform adapter is
+- **DMA ring is metadata only.** Every staged TX slot transition now requires
+  its nonwrapping reservation token (index, cookie, generation), so a late
+  preparation, handoff or release cannot act on a recycled slot. This does
+  not prove that an actual DMA transfer completed or was quiesced. There is
+  no IODMACommand allocation, IOMMU mapping, physical device access,
+  interrupt acknowledgement or hardware doorbell. A multi-descriptor ring
+  also requires each descriptor stride to preserve the specified alignment.
+  The existing `src/platform/Ar9565PciSession.*` provides a portable read-only
+  inspection contract; its native platform adapter is
   still missing. All hardware access must use one verified PCI owner.
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
