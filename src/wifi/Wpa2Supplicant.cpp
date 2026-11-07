@@ -317,18 +317,26 @@ namespace simpleath
             // data.
             uint8_t signedEapol[kMaximumMessage3Bytes] {};
             copyBytes(signedEapol, parsed.eapolBytes, parsed.eapolLength);
-            for (size_t i = 0; i < 16; ++i)
+            // The received MIC and the signed bytes must come from the same
+            // bounded RX snapshot; never reread mutable caller/DMA memory
+            // after creating that snapshot.
+            uint8_t receivedMic[16] {};
+            copyBytes(receivedMic, signedEapol + kEapolHeaderBytes + 77u,
+                      sizeof(receivedMic));
+            for (size_t i = 0; i < sizeof(receivedMic); ++i)
                 signedEapol[kEapolHeaderBytes + 77u + i] = 0;
             uint8_t expectedMic[16] {};
             if (!crypto_.micSha1(crypto_.context, ptk_, signedEapol,
                                  parsed.eapolLength, expectedMic))
             {
                 secureClear(signedEapol, sizeof(signedEapol));
+                secureClear(receivedMic, sizeof(receivedMic));
                 secureClear(expectedMic, sizeof(expectedMic));
                 return fail(Wpa2Result::MicCalculationFailure);
             }
-            const bool micValid =
-                constantTimeEqual(parsed.mic, expectedMic, 16);
+            const bool micValid = constantTimeEqual(receivedMic, expectedMic,
+                                                    sizeof(receivedMic));
+            secureClear(receivedMic, sizeof(receivedMic));
             // Copy the group receive PN from the same immutable snapshot
             // whose MIC was just verified, not the original DMA-backed input.
             uint8_t authenticatedRsc[8] {};

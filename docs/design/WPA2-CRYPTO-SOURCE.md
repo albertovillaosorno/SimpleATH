@@ -169,3 +169,13 @@ References:
   signal strength within the same security class. Incompatible advertised
   WPA2 suites and PMF-required BSSes remain unsupported.
 - This is static selection policy, not a validated physical RF scan.
+
+## M3 MIC snapshot consistency (2026-11-06)
+
+- The received EAPOL M3 MIC is now copied from the same bounded private
+  EAPOL frame snapshot used for HMAC-SHA1 verification, before its MIC
+  field is zeroed for signing. A caller-owned/DMA-backed frame cannot
+  change the MIC bytes independently between snapshot and comparison.
+- The temporary received MIC is wiped on both success and provider
+  failure, alongside the expected MIC and signed-frame snapshot. This is
+  static dataflow hardening, not evidence of a safe native RX DMA owner.
