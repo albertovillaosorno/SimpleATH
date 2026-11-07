@@ -48,6 +48,11 @@ fail-closed behavior. **No live logs needed.**
 Use docs/design/TAHOE-25G332-KDK.md, the exact-build symbol report and
 TAHOE-25G332-KERNEL-DMA-TYPES.json under docs/evidence/. The latter covers
 kernel/IOKit types; it does not establish IO80211 object layouts or exports.
+TAHOE-25G332-PCI-DWARF-TYPES.json separately records PCI declarations and their
+packaged-export matches; do not conflate a DWARF method with an eligible import.
+The native-family and security-owner questions are detailed in
+docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md. Keep those concrete questions
+attached to this P0 task rather than leaving downstream agents to guess.
 Check actual PBXSourcesBuildPhase membership and conditional macros before
 attributing imports to the active kext. Navigator entries alone are not built.
 

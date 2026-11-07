@@ -12,6 +12,10 @@ scope:
   - "src/wifi/Frames.cpp"
   - "src/wifi/ScanCache.cpp"
   - "src/wifi/Station.cpp"
+  - "src/wifi/LinkMonitor.cpp"
+  - "src/wifi/DataFrames.cpp"
+  - "src/wifi/DataPath.cpp"
+  - "src/wifi/WifiEngine.cpp"
 ---
 
 # TODO - 802.11 MAC

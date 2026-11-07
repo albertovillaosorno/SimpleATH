@@ -11,6 +11,8 @@ dependencies:
 scope:
   - "src/hardware/Ar9003Dma.cpp"
   - "src/hardware/Ar9003Descriptors.cpp"
+  - "src/hardware/Ar9003TxControl.cpp"
+  - "src/platform/Ar9565NativeDma.cpp"
 ---
 
 # TODO - EDMA/interrupts
@@ -66,6 +68,21 @@ Primary references: [IODMACommand](https://github.com/apple-oss-distributions/xn
 and [TX queues/completion](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/xmit.c).
 Exact Tahoe API evidence remains required; Linux DMA addresses are not macOS
 IOMMU mappings.
+
+Choose interrupt type/index from the provider's actual capabilities; do not
+assume a shared-line filter, MSI or MSI-X. If a primary filter is used, restrict
+it to the minimal interrupt-safe source check/mask and deferred-work signal.
+No allocation, command-gate invocation, NVM/reset polling or generic IOKit
+callbacks belong there. Define acknowledgement/rearm ordering and a bounded
+deferred-work budget so a stuck interrupt cannot monopolize the work loop.
+Disable/unregister and synchronize pending delivery before releasing the
+filter's owner or MMIO storage; masking alone does not drain callbacks.
+
+Apple's [filter-interrupt contract](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h)
+describes primary-context restrictions; its
+[command-gate contract](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOCommandGate.h)
+forbids gate invocation from interrupt context. These public contracts guide
+the source design; exact 25G332 declarations/exports still need A1 evidence.
 
 Useful fake tests: checksum-valid malformed descriptors, wrong queue/generation,
 ring wrap/full pressure, incomplete completion, failed mapping/prepare/complete,

@@ -59,6 +59,14 @@ posted-write completion. Never expand the passive allowlist to trigger NVM or
 RF operations. Define the order with DMA/IRQ owners before enabling bus master.
 Use the verified A1 declarations/dependencies, not guessed virtual indexes.
 
+Do not hold the command gate while waiting for a worker that must reenter it.
+Slow NVM/reset sequences need one retained operation owner, exclusive register
+access, bounded cancellation and an outstanding-operation drain before BAR
+unmap/provider close. Dropping the gate alone does not preserve that lifetime.
+Specify how power-loss revocation reaches the worker without requiring a
+second hardware operation after D0 is lost. Short gated state changes and
+sleepable operations must have separate, explicit entry contracts.
+
 Primary references: [IOPCIDevice](https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp)
 and [IOService contract](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h).
 Useful host-fake regressions: failed command enable/readback, unrelated command

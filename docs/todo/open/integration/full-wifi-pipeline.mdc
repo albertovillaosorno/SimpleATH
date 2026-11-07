@@ -94,6 +94,27 @@ step; never let both independently run a handshake or program competing keys.
 Keep DHCP/DNS/TCP in the OS networking stack, reached through the real native
 packet interface. Do not implement another IP stack inside this kext.
 
+## Required execution-context map to implement
+
+| Entry/context | Permitted work and cancellation contract |
+| --- | --- |
+| Primary interrupt filter, if selected | Minimal interrupt-safe status/mask/defer operations; no blocking, allocation or command-gate entry. Mapping and callback owner stay retained through delivery drain |
+| Work-loop action / command-gated action | Serialize epochs, queue ownership and short state transitions. A command-gate action can run on the caller's thread under the work-loop gate; thread identity alone does not prove serialization |
+| Sleepable allocation/NVM/reset worker | Retain operation/provider resources, obey one register owner and a bounded cancellation/deadline contract; return under the gate to revalidate epoch before publishing output |
+| Native packet/control callback | Copy or retain inputs according to the verified OS contract; validate connection/scan generation and transfer ownership once. Never retain borrowed request or RX storage past its valid lifetime |
+| Stop / sleep / termination | Reject new work and revoke epochs, quiesce/isolate device access, cancel/drain outstanding operations and deferred callbacks, then release mappings/packets/provider. Never wait under a gate needed by the operation being drained |
+
+Bind these rules to actual functions and locks; the table alone is not an
+implementation. Account for command-gate reentrancy and every call into an OS
+client that could synchronously call back. Do not invoke external callbacks
+while holding a private lock unless the verified API explicitly requires it.
+Document lock order, sleep eligibility and power acknowledgements for the
+selected Tahoe family rather than inferring them from portable fake tests.
+
+Primary source: [IOCommandGate semantics](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOCommandGate.h),
+[interrupt-filter context](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h),
+and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h).
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

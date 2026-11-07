@@ -10,7 +10,10 @@ dependencies:
   - "eeprom-otp"
 scope:
   - "src/hardware/Ar9565Core.cpp"
+  - "src/hardware/Ar9565RtcPower.cpp"
+  - "src/hardware/Ar9565InitCatalog.cpp"
   - "src/hardware/Ar9565Power.cpp"
+  - "src/hardware/generated/Ar9565InitTables.hpp"
 ---
 
 # TODO - RF/PHY/regulatory

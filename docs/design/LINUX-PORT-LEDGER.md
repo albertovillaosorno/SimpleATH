@@ -57,7 +57,9 @@ provides the reviewed history; JSONL is already the append log, so no
 additional WAL, database or orchestration tool is introduced.
 
 All implementation states describe source evidence only. They authorize
-no build, test suite, installation, transmission or hardware experiment.
+no kext build, installation, transmission or hardware experiment. The owner's
+separate authorization permits necessary offline host tests under tests/
+through tools/validate.py --tests; a ledger status adds no further permission.
 Delete the local Linux tree only after all conditions in the dedicated
 `linux-reference-retirement` TODO hold. Keep this existing ledger and source
 notices; no additional archive, mirror or preservation tooling is required.

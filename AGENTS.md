@@ -76,6 +76,10 @@ unfinished work. If a prerequisite is unresolved, implement/research that
 prerequisite first; record the exact blocker and advance independent work
 without pretending the blocked task is complete. Parallel work may proceed
 on independent dependency-ready paths, with temporary file coordination.
+Dependencies gate integration/completion, not independent source work on an
+already agreed interface. For example, unresolved wireless ABI research must
+not prevent implementing PCI methods whose exact contract is established;
+that partial result still cannot close a task requiring the missing path.
 If the highest-priority path is already being implemented by a live peer,
 coordinate its interface and choose independent ready work; do not steal
 claims or wait idly for an entire task to finish.

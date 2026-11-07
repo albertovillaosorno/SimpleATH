@@ -45,14 +45,21 @@ the user's actual EEPROM to finish the source task**.
 
 ## Start here and next implementation step
 
-Use captureAr9565Nvm in Ar9565NvmReader.*, restoreEepromDump/applyEepromBlock
-in Ar9565Eeprom.*, and the five pinned reconstruction dictionaries. Acquisition
-and parsing exist separately; native active ownership and source/origin search
-are not connected. BoardDataSummary is not calibrated RF state.
+Use captureAr9565Nvm and discoverAr9565Nvm in Ar9565NvmReader.*,
+restoreEepromDump/applyEepromBlock in Ar9565Eeprom.*, and the five pinned
+reconstruction dictionaries. Commits 904b0e1 and 9cfc45b implement bounded
+EEPROM/OTP first-nonempty-header origin search, source provenance, image
+reconstruction, and a revocable owner-epoch NvmBoardLease; synthetic offline
+regressions cover error paths, stale epochs and invalidation. These are portable
+source components: no native PCI owner invokes them, no board calibration is
+validated for RF, and no live EEPROM has been read. BoardDataSummary is not
+calibrated RF state.
 
-Port the AR9565-applicable source/origin search from ar9300_eeprom_restore_internal
-in [ar9003_eeprom.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c),
-using the local pinned constants and bounded read protocol. Keep source kind,
+The source/origin algorithm is grounded in ar9300_eeprom_restore_internal in
+[ar9003_eeprom.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c).
+Next, connect the acquisition/lease to a verified exclusive native PCI owner
+and calibrated RF consumers, implement all required board-data interpretation,
+and revoke/drain outstanding work on power loss and teardown. Keep source kind,
 origin, byte order and accepted block provenance with the immutable image.
 The EEPROM/OTP search spans are bounds, not discovered physical capacities.
 Never synthesize usable board data from the default dictionary alone.

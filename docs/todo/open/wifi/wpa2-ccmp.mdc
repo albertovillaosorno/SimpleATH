@@ -19,8 +19,9 @@ scope:
 
 Complete theoretically reviewed PMK/PTK, EAPOL MIC and four-way handshake, AES
 unwrap, CCMP, keycache, group rekey and packet-number/replay control. Compare
-algorithms with published specifications and source vectors; **do not run test
-suites or claim crypto certification**.
+algorithms with published specifications and source vectors. Use necessary
+authorized offline host regressions without claiming crypto certification;
+device/RF tests and kext compilation remain unauthorized.
 
 ## Acceptance
 
@@ -67,6 +68,20 @@ OS or this source owns EAPOL, key derivation and controlled-port authorization.
 Route each key operation through one connection owner and generation; do not
 run two independent handshakes. Diagnostics must never log PMK/PTK/GTK or other
 secret key material.
+
+KeyHardware::secureRandom still needs an eligible Tahoe kernel CSPRNG and an
+explicit failure contract; timestamps, counters or synthetic test nonces are
+never production entropy. The current install callbacks are synchronous and
+receive borrowed key bytes. A future asynchronous installer must own an
+erasable copy with a connection token and report actual installation before
+opening the data port; retaining the callback's stack pointer is invalid.
+Resolve M4 submission/completion failure without leaving a falsely authorized
+connection or reinstalling the same key/PN on a duplicate M3.
+
+The required baseline is WPA2-PSK with CCMP on the supported 2.4 GHz station
+path. Explicitly reject unsupported AKM/cipher/PMF requirements and never
+advertise them as implemented. WPA3, enterprise authentication and unrelated
+legacy ciphers are not substitutes for completing this baseline.
 
 Use published IEEE 802.11/RSN behavior and the existing crypto design record.
 For hardware key layout consult ath9k [key.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/key.c)
