@@ -212,7 +212,25 @@ namespace simpleath
                     : capture.wait(kOtpStatus, 7, 4, 1000, value);
             if (result != NvmResult::Ok)
                 break;
-            if (source == NvmSource::Otp)
+            if (source == NvmSource::Eeprom)
+            {
+                // ath_pci_eeprom_read performs a SECOND status/data read
+                // after the ready wait. The wait-loop sample is not payload.
+                result = capture.read(kEepromData, value);
+                if (result != NvmResult::Ok)
+                    break;
+                if (value == 0xffffffffu)
+                    result = NvmResult::RegisterReadFailed;
+                else if ((value & kEepromAbsentAccess) != 0)
+                    result = NvmResult::StorageAbsent;
+                else if ((value & kEepromProtected) != 0)
+                    result = NvmResult::ProtectedAccess;
+                else if ((value & kEepromBusy) != 0)
+                    result = NvmResult::UnstableStatus;
+                if (result != NvmResult::Ok)
+                    break;
+            }
+            else
             {
                 result = capture.read(kOtpData, value);
                 if (result != NvmResult::Ok)

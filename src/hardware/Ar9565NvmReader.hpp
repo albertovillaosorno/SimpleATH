@@ -26,7 +26,8 @@ namespace simpleath
         ProtectedAccess,
         WordTimeout,
         CaptureTimeout,
-        InvalidClock
+        InvalidClock,
+        UnstableStatus
     };
 
     // This is an ACTIVE NVM transaction capability, not the passive inspection
