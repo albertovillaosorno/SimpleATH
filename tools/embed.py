@@ -28,6 +28,7 @@ from typing import TypedDict
 if TYPE_CHECKING:
     from collections.abc import Callable
     from collections.abc import Iterable
+    from pathlib import Path
 
     from embed_macho_parser import LoadCommand
     from embed_macho_parser import ParsedSymbol
@@ -1007,24 +1008,37 @@ def expanded_legacy_image(
     return expanded, _relocated_load_commands(layout, expanded)
 
 
-def generate() -> None:
-    """Generate checked offline source metadata for pinned legacy payloads."""
-    require_assertions_active()
-    validate_payloads()
-    plans = [SkywalkPlan(system) for system in SYSTEMS]
-    plan = plans[-1]
-    _require_shared_profiles(plans)
+@dataclass(slots=True)
+class _GenerationPlan:
+    """Preflighted native profiles and bounded Mach-O input metadata."""
+
+    profiles: list[SkywalkPlan]
+    images: list[Image]
+    parsed: list[tuple[list[LoadCommand], list[ParsedSymbol]]]
+    fields: list[tuple[int, ...]]
+    sizes: list[int]
+    exports: list[dict[str, int]]
+    native: list[str]
+    guards: set[tuple[str, int, str]]
+    native_index: dict[str, int]
+
+
+def _generation_plan() -> _GenerationPlan:
+    """Reject all source image metadata before creating output paths.
+
+    Returns:
+        Checked source images, native symbols and compatible system profiles.
+
+    """
+    profiles = [SkywalkPlan(system) for system in SYSTEMS]
+    _require_shared_profiles(profiles)
     images = [Image(IMAGES[label]) for label in LABELS]
     parsed = [parse(image) for image in images]
-    # Reject all image metadata before writing any output.
-    dynamic_fields = [
-        checked_dysymtab_fields(commands) for commands, _ in parsed
-    ]
-    payload_sizes = [
+    fields = [checked_dysymtab_fields(commands) for commands, _ in parsed]
+    sizes = [
         checked_payload_size(image.data, image.segments) for image in images
     ]
-    OUTPUT.mkdir(parents=True, exist_ok=True)
-    exports: list[dict[str, int]] = [
+    exports = [
         {
             name: value
             for name, kind, _, _, value in symbols
@@ -1032,42 +1046,69 @@ def generate() -> None:
         }
         for _, symbols in parsed
     ]
-    native, vtable_guards = _native_import_catalog(
-        plans, _NativeScan(images, parsed, dynamic_fields, exports)
+    native, guards = _native_import_catalog(
+        profiles, _NativeScan(images, parsed, fields, exports)
     )
-    native_index = {name: i for i, name in enumerate(native)}
-    cpp = [
-        header("Payloads.cpp"),
-        '#include "Payload.hpp"',
-        '#include "NativeProfile.hpp"',
-        "namespace ath {",
-    ]
-    assembly = [header("Payloads.S"), ".section __TEXT,__const", ".p2align 3"]
-    descriptors: list[str] = []
-    expanded_images: list[bytes] = []
-    tables: dict[tuple[str, tuple[str, ...]], str] = {}
+    return _GenerationPlan(
+        profiles,
+        images,
+        parsed,
+        fields,
+        sizes,
+        exports,
+        native,
+        guards,
+        {name: i for i, name in enumerate(native)},
+    )
 
-    def emit_table(kind: str, name: str, rows: Iterable[str]) -> str:
-        rows = tuple(rows)
-        key = (kind, rows)
-        if key not in tables:
-            cpp.append(f"static const {kind} {name}[] = {{")
-            cpp.extend(row + "," for row in rows)
-            cpp.append("};")
-            tables[key] = name
-        return tables[key]
 
-    payload_records: list[_PayloadRecord] = []
-    native_adapter = plan.manifest()
+@dataclass(slots=True)
+class _GeneratedOutput:
+    """Ordered source output and deduplicated C++ tables for one generation."""
+
+    cpp: list[str]
+    assembly: list[str]
+    descriptors: list[str]
+    expanded_images: list[bytes]
+    tables: dict[tuple[str, tuple[str, ...]], str]
+    records: list[_PayloadRecord]
+    manifest: dict[str, object]
+    library_versions: dict[str, set[str]]
+    library_ids: set[str]
+
+    def emit_table(self, kind: str, name: str, rows: Iterable[str]) -> str:
+        """Intern identical generated C++ tables without changing ordering.
+
+        Returns:
+            Existing or new table name for the same type and rows.
+
+        """
+        key = (kind, tuple(rows))
+        if key not in self.tables:
+            self.cpp.append(f"static const {kind} {name}[] = {{")
+            self.cpp.extend(row + "," for row in key[1])
+            self.cpp.append("};")
+            self.tables[key] = name
+        return self.tables[key]
+
+
+def _generated_output(plan: _GenerationPlan) -> _GeneratedOutput:
+    """Create a generation sink with the original manifest field ordering.
+
+    Returns:
+        Blank source buffers and the source-only manifest declaration.
+
+    """
+    native_adapter = plan.profiles[-1].manifest()
     manifest: dict[str, object] = {
         "version": VERSION,
-        "nativeImports": native,
-        "payloads": payload_records,
+        "nativeImports": plan.native,
+        "payloads": [],
         "driverLoading": "embedded",
         "hardwareValidation": "not-run-by-build",
         "skywalkBackend": "native",
         "nativeAdapter": native_adapter,
-        "systemProfiles": [candidate.manifest() for candidate in plans],
+        "systemProfiles": [candidate.manifest() for candidate in plan.profiles],
     }
     for field in (
         "system",
@@ -1083,198 +1124,409 @@ def generate() -> None:
         "airPortPayloadIndex",
     ):
         del native_adapter[field]
-    library_versions: dict[str, set[str]] = {}
-    library_ids: set[str] = set()
-    for index, (label, image, (commands, symbols)) in enumerate(
-        zip(LABELS, images, parsed, strict=True)
-    ):
-        image_plan = plans[0] if label == LABEL_AIRPORT_ORIGINAL else plan
-        info, identifier, libraries = checked_info_plist(
-            (image.path.parent.parent / "Info.plist").read_bytes()
-        )
-        library_ids.add(identifier)
-        for library, version in libraries.items():
-            library_versions.setdefault(library, set()).add(version)
-        reloc_context = RelocationContext(
+    records: list[_PayloadRecord] = []
+    manifest["payloads"] = records
+    return _GeneratedOutput(
+        [
+            header("Payloads.cpp"),
+            '#include "Payload.hpp"',
+            '#include "NativeProfile.hpp"',
+            "namespace ath {",
+        ],
+        [header("Payloads.S"), ".section __TEXT,__const", ".p2align 3"],
+        [],
+        [],
+        {},
+        records,
+        manifest,
+        {},
+        set(),
+    )
+
+
+@dataclass(slots=True)
+class _RelocatedPayload:
+    """Preflighted relocation records and mapped legacy image bytes."""
+
+    relocations: list[tuple[int, int, int, int, int]]
+    size: int
+    stub_size: int
+    expanded: bytearray
+    symbol_values: list[int]
+
+
+def _relocated_payload(plan: _GenerationPlan, index: int) -> _RelocatedPayload:
+    """Map a single validated source image with bounded relocations.
+
+    Returns:
+        Relocations, load-command symbol offsets and expanded source bytes.
+
+    """
+    commands, symbols = plan.parsed[index]
+    relocations, branches = image_relocations(
+        RelocationContext(
             index,
-            image,
+            plan.images[index],
             symbols,
-            dynamic_fields[index],
-            exports,
-            plan,
-            native_index,
+            plan.fields[index],
+            plan.exports,
+            plan.profiles[-1],
+            plan.native_index,
         )
-        relocations, branches = image_relocations(reloc_context)
-        size = payload_sizes[index]
-        stub_size = align(branches * 16 + 4096)
-        expanded, symbol_values = expanded_legacy_image(
-            CommandLayout(image, commands, symbols, size, stub_size)
+    )
+    size = plan.sizes[index]
+    stub_size = align(branches * 16 + 4096)
+    expanded, symbol_values = expanded_legacy_image(
+        CommandLayout(plan.images[index], commands, symbols, size, stub_size)
+    )
+    return _RelocatedPayload(
+        relocations, size, stub_size, expanded, symbol_values
+    )
+
+
+@dataclass(slots=True)
+class _PreparedPayload:
+    """One checked legacy image and its source bundle identity."""
+
+    index: int
+    label: str
+    image: Image
+    info: dict[str, object]
+    identifier: str
+    libraries: dict[str, str]
+    relocated: _RelocatedPayload
+    kmod: int
+    renamed: dict[str, list[int]]
+    routes: list[tuple[int, int]]
+    source_sha: str
+
+
+def _prepared_payload(plan: _GenerationPlan, index: int) -> _PreparedPayload:
+    """Prepare one native-namespaced image before encoding output.
+
+    Returns:
+        Source identity, mapped bytes, routes and checked kmod offset.
+
+    """
+    image = plan.images[index]
+    label = LABELS[index]
+    info, identifier, libraries = checked_info_plist(
+        (image.path.parent.parent / "Info.plist").read_bytes()
+    )
+    relocated = _relocated_payload(plan, index)
+    kmod = image.symbols["_kmod_info"]
+    require_embed(
+        condition=kmod + 196 <= relocated.size,
+        message="Embedded kmod structure exceeds mapped image size",
+    )
+    renamed = (
+        plan.profiles[0]
+        if label == LABEL_AIRPORT_ORIGINAL
+        else plan.profiles[-1]
+    ).namespace_payload(label, relocated.expanded)
+    routes = route_prefixes(image, label)
+    source_sha = hashlib.sha256(image.path.read_bytes()).hexdigest()
+    return _PreparedPayload(
+        index,
+        label,
+        image,
+        info,
+        identifier,
+        libraries,
+        relocated,
+        kmod,
+        renamed,
+        routes,
+        source_sha,
+    )
+
+
+@dataclass(slots=True)
+class _StoredPayload:
+    """Output storage metadata for a full or shared-base delta image."""
+
+    base_index: int
+    delta: bytes
+    delta_count: int
+    stored: bytes | bytearray
+    stored_blob: Path
+
+
+def _store_payload(
+    output: _GeneratedOutput, payload: _PreparedPayload
+) -> _StoredPayload:
+    """Store a mapped image and its delta, keeping original blob ordering.
+
+    Returns:
+        Source and stored blob metadata for the emitted descriptor.
+
+    """
+    blob = OUTPUT / (payload.label + ".bin")
+    _ = blob.write_bytes(payload.relocated.expanded)
+    output.expanded_images.append(bytes(payload.relocated.expanded))
+    base_index = 1 if payload.label == LABEL_AIRPORT else payload.index
+    delta, delta_count = (
+        payload_delta(
+            output.expanded_images[base_index], payload.relocated.expanded
         )
-        kmod = image.symbols["_kmod_info"]
-        require_embed(
-            condition=kmod + 196 <= size,
-            message="Embedded kmod structure exceeds mapped image size",
-        )
-        renamed = image_plan.namespace_payload(label, expanded)
-        routes = route_prefixes(image, label)
-        blob = OUTPUT / (label + ".bin")
-        _ = blob.write_bytes(expanded)
-        expanded_images.append(bytes(expanded))
-        base_index = 1 if label == LABEL_AIRPORT else index
-        delta, delta_count = (
-            payload_delta(expanded_images[base_index], expanded)
-            if label == LABEL_AIRPORT
-            else (b"", 0)
-        )
-        stored = delta if label == LABEL_AIRPORT else expanded
-        stored_blob = (
-            OUTPUT / (label + ".delta") if label == LABEL_AIRPORT else blob
-        )
-        if label == LABEL_AIRPORT:
-            _ = stored_blob.write_bytes(stored)
-        assembly += [
-            f".globl _athPayload{index}",
-            f"_athPayload{index}:",
-            f'.incbin "{stored_blob}"',
-            ".p2align 3",
-        ]
-        cpp.append(f'extern "C" const uint8_t athPayload{index}[];')
-        relocation_table = emit_table(
-            "Relocation",
-            f"relocs{index}",
-            (
-                f"{{{a}, {t}, {v}LL, {p}, {w}, {{}}}}"
-                for a, t, v, p, w in relocations
-            ),
-        )
-        value_table = emit_table(
-            "uint32_t", f"values{index}", map(str, symbol_values)
-        )
-        wanted = set(SYMBOLS[label]) | {"_kmod_info"}
-        if label != LABEL_LEGACY:
-            wanted.add(HARDWARE_VERSION_SYMBOL)
-        named = sorted((n, image.symbols[n]) for n in wanted)
-        symbol_table = emit_table(
-            "Symbol",
-            f"symbols{index}",
-            (f"{{{json.dumps(n)}, {v}}}" for n, v in named),
-        )
-        route_table = emit_table(
-            "RoutePrefix",
-            f"routes{index}",
-            (f"{{{a}, {n}}}" for a, n in routes or [(0, 0)]),
-        )
-        libraries["dev.alberto.SimpleATH"] = VERSION
-        info["OSBundleLibraries"] = libraries
-        info["OSBundleRequired"] = "Root"
-        if label == LABEL_LEGACY:
-            info["IOKitPersonalities"] = {}
-        plist = plistlib.dumps(info, sort_keys=False).decode()
-        literal = json.dumps(plist).replace("?", "\\?")
-        cpp.append(f"static const char plist{index}[] = {literal};")
-        sha = hashlib.sha256(image.path.read_bytes()).hexdigest()
-        delta_pointer = f"athPayload{index}" if delta else "nullptr"
-        descriptors.append(
-            "".join([
-                f'{{{json.dumps(identifier)}, "{sha}", ',
-                f"athPayload{base_index}, ",
-                f"{len(expanded_images[base_index])}, ",
-                f"{delta_pointer}, {len(delta)}, {size}, ",
-                f"{size + stub_size}, {size}, {stub_size}, ",
-                f"{kmod}, plist{index}, ",
-                f"{relocation_table}, {len(relocations)}, ",
-                f"{value_table}, {len(symbol_values)}, ",
-                f"{symbol_table}, {len(named)}, ",
-                f"{route_table}, {len(routes)}, {checksum(expanded)}ULL}}",
-            ])
-        )
-        payload_records.append({
-            "label": label,
-            "identifier": identifier,
-            "sourceSHA256": sha,
-            "expandedSHA256": hashlib.sha256(expanded).hexdigest(),
-            "size": size,
-            "mappedSize": size + stub_size,
-            "relocations": len(relocations),
-            "routes": routes,
-            "kmodOffset": kmod,
-            "namespacedClassStrings": renamed,
-            "powerDomainPatches": [],
-            "storage": {
-                "kind": "delta" if label == LABEL_AIRPORT else "full",
-                "base": LABELS[base_index],
-                "file": stored_blob.name,
-                "storedSize": len(stored),
-                "deltaRecords": delta_count,
-                "storedSHA256": hashlib.sha256(stored).hexdigest(),
-                "tables": [
-                    relocation_table,
-                    value_table,
-                    symbol_table,
-                    route_table,
-                ],
-            },
-        })
-    expanded_size = sum(len(data) for data in expanded_images)
-    stored_size = sum(p["storage"]["storedSize"] for p in payload_records)
-    manifest["payloadStorage"] = {
-        "format": "shared-base-delta-v1",
-        "expandedBytes": expanded_size,
-        "storedBytes": stored_size,
-        "savedBytes": expanded_size - stored_size,
+        if payload.label == LABEL_AIRPORT
+        else (b"", 0)
+    )
+    stored = (
+        delta if payload.label == LABEL_AIRPORT else payload.relocated.expanded
+    )
+    stored_blob = (
+        OUTPUT / (payload.label + ".delta")
+        if payload.label == LABEL_AIRPORT
+        else blob
+    )
+    if payload.label == LABEL_AIRPORT:
+        _ = stored_blob.write_bytes(stored)
+    output.assembly += [
+        f".globl _athPayload{payload.index}",
+        f"_athPayload{payload.index}:",
+        f'.incbin "{stored_blob}"',
+        ".p2align 3",
+    ]
+    output.cpp.append(f'extern "C" const uint8_t athPayload{payload.index}[];')
+    return _StoredPayload(base_index, delta, delta_count, stored, stored_blob)
+
+
+@dataclass(slots=True)
+class _PayloadTables:
+    """Names and recorded lengths of C++ lookup tables for a payload."""
+
+    relocations: str
+    values: str
+    symbols: str
+    routes: str
+    symbol_count: int
+
+
+def _emit_payload_tables(
+    output: _GeneratedOutput, payload: _PreparedPayload
+) -> _PayloadTables:
+    """Intern relocations, mapped symbol slots and source route tables.
+
+    Returns:
+        Table identifiers and symbol count used by the C++ payload record.
+
+    """
+    index = payload.index
+    relocated = payload.relocated
+    relocation_table = output.emit_table(
+        "Relocation",
+        f"relocs{index}",
+        (
+            f"{{{a}, {t}, {v}LL, {p}, {w}, {{}}}}"
+            for a, t, v, p, w in relocated.relocations
+        ),
+    )
+    value_table = output.emit_table(
+        "uint32_t", f"values{index}", map(str, relocated.symbol_values)
+    )
+    wanted = set(SYMBOLS[payload.label]) | {"_kmod_info"}
+    if payload.label != LABEL_LEGACY:
+        wanted.add(HARDWARE_VERSION_SYMBOL)
+    named = sorted((n, payload.image.symbols[n]) for n in wanted)
+    symbol_table = output.emit_table(
+        "Symbol",
+        f"symbols{index}",
+        (f"{{{json.dumps(n)}, {v}}}" for n, v in named),
+    )
+    route_table = output.emit_table(
+        "RoutePrefix",
+        f"routes{index}",
+        (f"{{{a}, {n}}}" for a, n in payload.routes or [(0, 0)]),
+    )
+    return _PayloadTables(
+        relocation_table, value_table, symbol_table, route_table, len(named)
+    )
+
+
+def _payload_plist(output: _GeneratedOutput, payload: _PreparedPayload) -> None:
+    """Embed a copied source plist with the original native bundle flags."""
+    payload.libraries["dev.alberto.SimpleATH"] = VERSION
+    payload.info["OSBundleLibraries"] = payload.libraries
+    payload.info["OSBundleRequired"] = "Root"
+    if payload.label == LABEL_LEGACY:
+        payload.info["IOKitPersonalities"] = {}
+    plist = plistlib.dumps(payload.info, sort_keys=False).decode()
+    literal = json.dumps(plist).replace("?", "\\?")
+    output.cpp.append(f"static const char plist{payload.index}[] = {literal};")
+
+
+def _payload_descriptor(
+    output: _GeneratedOutput,
+    payload: _PreparedPayload,
+    stored: _StoredPayload,
+    *,
+    tables: _PayloadTables,
+) -> str:
+    """Emit the original ordered C++ descriptor declaration.
+
+    Returns:
+        Complete descriptor text without a trailing separator.
+
+    """
+    index = payload.index
+    size = payload.relocated.size
+    return "".join([
+        f'{{{json.dumps(payload.identifier)}, "{payload.source_sha}", ',
+        f"athPayload{stored.base_index}, ",
+        f"{len(output.expanded_images[stored.base_index])}, ",
+        f"{"athPayload" + str(index) if stored.delta else "nullptr"}, ",
+        f"{len(stored.delta)}, {size}, ",
+        f"{size + payload.relocated.stub_size}, {size}, ",
+        f"{payload.relocated.stub_size}, {payload.kmod}, plist{index}, ",
+        f"{tables.relocations}, {len(payload.relocated.relocations)}, ",
+        f"{tables.values}, {len(payload.relocated.symbol_values)}, ",
+        f"{tables.symbols}, {tables.symbol_count}, ",
+        f"{tables.routes}, {len(payload.routes)}, ",
+        f"{checksum(payload.relocated.expanded)}ULL}}",
+    ])
+
+
+def _payload_record(
+    payload: _PreparedPayload,
+    stored: _StoredPayload,
+    tables: _PayloadTables,
+) -> _PayloadRecord:
+    """Describe expanded and delta bytes without asserting hardware readiness.
+
+    Returns:
+        Exact manifest record for this payload.
+
+    """
+    return {
+        "label": payload.label,
+        "identifier": payload.identifier,
+        "sourceSHA256": payload.source_sha,
+        "expandedSHA256": hashlib.sha256(
+            payload.relocated.expanded
+        ).hexdigest(),
+        "size": payload.relocated.size,
+        "mappedSize": payload.relocated.size + payload.relocated.stub_size,
+        "relocations": len(payload.relocated.relocations),
+        "routes": payload.routes,
+        "kmodOffset": payload.kmod,
+        "namespacedClassStrings": payload.renamed,
+        "powerDomainPatches": [],
+        "storage": {
+            "kind": "delta" if payload.label == LABEL_AIRPORT else "full",
+            "base": LABELS[stored.base_index],
+            "file": stored.stored_blob.name,
+            "storedSize": len(stored.stored),
+            "deltaRecords": stored.delta_count,
+            "storedSHA256": hashlib.sha256(stored.stored).hexdigest(),
+            "tables": [
+                tables.relocations,
+                tables.values,
+                tables.symbols,
+                tables.routes,
+            ],
+        },
     }
-    cpp += [
+
+
+def _emit_payload(
+    plan: _GenerationPlan, output: _GeneratedOutput, index: int
+) -> None:
+    """Produce one source-checked embedded image and its metadata."""
+    payload = _prepared_payload(plan, index)
+    output.library_ids.add(payload.identifier)
+    for library, version in payload.libraries.items():
+        output.library_versions.setdefault(library, set()).add(version)
+    stored = _store_payload(output, payload)
+    tables = _emit_payload_tables(output, payload)
+    _payload_plist(output, payload)
+    output.descriptors.append(
+        _payload_descriptor(output, payload, stored, tables=tables)
+    )
+    output.records.append(_payload_record(payload, stored, tables))
+
+
+def _finalize_source(plan: _GenerationPlan, output: _GeneratedOutput) -> None:
+    """Write C++ and assembly payload tables in original link order."""
+    output.cpp += [
         "const Payload payloads[3] = {",
-        ",\n".join(descriptors),
+        ",\n".join(output.descriptors),
         "};",
-        f"const uint32_t nativeImportCount = {len(native)};",
+        f"const uint32_t nativeImportCount = {len(plan.native)};",
         "const char *const nativeImportNames[] = {",
-        ",\n".join(json.dumps(n) for n in native),
+        ",\n".join(json.dumps(n) for n in plan.native),
         "};",
         "const NativeVtableGuard nativeVtableGuards[] = {",
         ",\n".join(
-            f"{{{native_index[p]}, {o}, {native_index[m]}}}"
-            for p, o, m in sorted(vtable_guards)
+            f"{{{plan.native_index[p]}, {o}, {plan.native_index[m]}}}"
+            for p, o, m in sorted(plan.guards)
         ),
         "};",
-        f"const uint32_t nativeVtableGuardCount = {len(vtable_guards)};",
+        f"const uint32_t nativeVtableGuardCount = {len(plan.guards)};",
     ]
-    sky_cpp, sky_assembly = plan.emit(native_index)
-    cpp += sky_cpp + emit_system_profiles(plans, native_index) + ["}"]
-    assembly += [
+    sky_cpp, sky_assembly = plan.profiles[-1].emit(plan.native_index)
+    output.cpp += (
+        sky_cpp + emit_system_profiles(plan.profiles, plan.native_index) + ["}"]
+    )
+    output.assembly += [
         ".section __DATA_CONST,__const",
         ".p2align 3",
         ".globl _athNativeImports",
         "_athNativeImports:",
     ]
-    assembly.extend(".quad " + name for name in native)
-    assembly += sky_assembly
-    _ = (OUTPUT / "Payloads.cpp").write_text("\n".join(cpp) + "\n")
-    _ = (OUTPUT / "Payloads.S").write_text("\n".join(assembly) + "\n")
-    manifest["nativeLibraries"] = {
-        name: sorted(versions)
-        for name, versions in library_versions.items()
-        if name not in library_ids
+    output.assembly.extend(".quad " + name for name in plan.native)
+    output.assembly += sky_assembly
+    _ = (OUTPUT / "Payloads.cpp").write_text("\n".join(output.cpp) + "\n")
+    _ = (OUTPUT / "Payloads.S").write_text("\n".join(output.assembly) + "\n")
+
+
+def _finalize_manifest(plan: _GenerationPlan, output: _GeneratedOutput) -> None:
+    """Write source-only import and runtime guard evidence as JSON."""
+    expanded_size = sum(len(data) for data in output.expanded_images)
+    stored_size = sum(p["storage"]["storedSize"] for p in output.records)
+    output.manifest["payloadStorage"] = {
+        "format": "shared-base-delta-v1",
+        "expandedBytes": expanded_size,
+        "storedBytes": stored_size,
+        "savedBytes": expanded_size - stored_size,
     }
-    manifest["nativeVtableGuards"] = sorted(vtable_guards)
-    manifest["nativeRuntimeGuards"] = {
-        p.system: {
-            "vtables": p.vtable_guards,
-            "classes": p.class_guards,
-            "nativeOverrides": p.unchecked_overrides,
-            "linkBytes": p.link_bytes.hex(),
-            "linkMask": p.link_mask.hex(),
-            "linkReferences": p.link_references,
+    output.manifest["nativeLibraries"] = {
+        name: sorted(versions)
+        for name, versions in output.library_versions.items()
+        if name not in output.library_ids
+    }
+    output.manifest["nativeVtableGuards"] = sorted(plan.guards)
+    output.manifest["nativeRuntimeGuards"] = {
+        profile.system: {
+            "vtables": profile.vtable_guards,
+            "classes": profile.class_guards,
+            "nativeOverrides": profile.unchecked_overrides,
+            "linkBytes": profile.link_bytes.hex(),
+            "linkMask": profile.link_mask.hex(),
+            "linkReferences": profile.link_references,
         }
-        for p in plans
+        for profile in plan.profiles
     }
     _ = (OUTPUT / "manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n"
+        json.dumps(output.manifest, indent=2) + "\n"
     )
+
+
+def generate() -> None:
+    """Generate checked offline source metadata for pinned legacy payloads."""
+    require_assertions_active()
+    validate_payloads()
+    plan = _generation_plan()
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    output = _generated_output(plan)
+    for index in range(len(plan.images)):
+        _emit_payload(plan, output, index)
+    _finalize_source(plan, output)
+    _finalize_manifest(plan, output)
     _ = sys.stdout.write(
         "".join((
-            f"Embedded {len(images)} payloads, {len(native)} native imports; ",
-            f"output: {OUTPUT}\n",
+            f"Embedded {len(plan.images)} payloads, ",
+            f"{len(plan.native)} native imports; output: {OUTPUT}\n",
         ))
     )
 
