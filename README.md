@@ -46,6 +46,12 @@ do not exist yet. New modules are staged in the Xcode target, but no new
 binary has been built or deployed.
 
 See [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md).
+The [macOS integration record](docs/design/MACOS-INTEGRATION.md) distinguishes
+the PCI ownership contract from a verified native adapter. The
+[EEPROM port](docs/design/EEPROM-PORT.md) reconstructs blocks and interprets
+board fields without asserting calibration or regulatory validity.
+See [status, blockers and recovery](docs/design/STATUS-AND-RECOVERY.md) for
+source commit evidence and the separate build/install/device authorizations.
 The user must explicitly authorize the next CI build and boot test.
 
 ## Local macOS build
