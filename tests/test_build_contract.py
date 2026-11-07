@@ -12,6 +12,7 @@ from unittest import TestCase
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from build import PROJECT
 from build import copy_package_sources
+from build import fragment
 from build import native_addresses
 from build import require_invariant
 from build import vtable_rows
@@ -56,6 +57,22 @@ class BuildSourceLayoutTests(TestCase):
             "_public": 0x1000,
             "_wifi": 0x3000,
         }
+
+    @staticmethod
+    def test_fragments_preserve_required_and_optional_load_order() -> None:
+        """Keep the original OpenCore load order for each packaging mode."""
+        assert [row["BundlePath"] for row in fragment()["Kernel"]["Add"]] == [
+            "SimpleATH.kext"
+        ]
+        assert [
+            row["BundlePath"]
+            for row in fragment(optional=True)["Kernel"]["Add"]
+        ] == [
+            "Lilu.kext",
+            "AirportBrcmFixup.kext",
+            "SimpleATH.kext",
+            "AirportBrcmFixup.kext/Contents/PlugIns/AirPortBrcmNIC_Injector.kext",
+        ]
 
     @staticmethod
     def test_runtime_invariant_preserves_failure_only_diagnostics() -> None:

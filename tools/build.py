@@ -7,6 +7,8 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+"""Source-only native verification, deterministic build and package helpers."""
+
 from __future__ import annotations
 
 import argparse
@@ -55,6 +57,25 @@ if TYPE_CHECKING:
 
 type PackageFragment = dict[str, dict[str, list[dict[str, str | bool]]]]
 
+RELEASE_CHANNEL = "rel"
+ANALYZE_ACTION = "analyze"
+PACKAGE_ACTION = "package"
+KEXT_EXECUTABLE = "SimpleATH"
+BUNDLE_IDENTIFIER = "dev.alberto.SimpleATH"
+SKYWALK_IDENTIFIER = "com.apple.iokit.IOSkywalkFamily"
+LILU_IDENTIFIER = "Lilu"
+NATIVE_BACKEND = "native"
+JSON_SUFFIX = ".json"
+TEXT_SECTION = "__text"
+TAHOE_KERNEL_MAJOR = 25
+MACH_KEXT_FILE_TYPE = 11
+MACH_DYSYMTAB_COMMAND = 11
+MACH_ABSOLUTE_SYMBOL_MASK = 14
+MACH_EXTERNAL_DEFINED_SYMBOL = 15
+MACH_POINTER_SIZE = 8
+MACH_BRANCH_STUB = b"\xff\x25\0\0\0\0"
+BUILD_WARNING_PREFIX = "warning:"
+COPY_UUID_SYMBOL = "__ZN6OSKext8copyUUIDEv"
 VTABLE_GUARD_FIELDS = 3
 
 CONFIGURATIONS = ("Debug", "Release")
@@ -62,12 +83,25 @@ PROJECT = ROOT / "src/platform/SimpleATH.xcodeproj"
 
 
 def package_name(
-    configuration: str, channel: str = "rel", sha: str | None = None
+    configuration: str, channel: str = RELEASE_CHANNEL, sha: str | None = None
 ) -> str:
-    if configuration not in CONFIGURATIONS or channel not in ("pre", "rel"):
-        raise ValueError("Invalid package variant")
+    """Generate a release or commit-pinned package name.
+
+    Returns:
+        A stable versioned package identifier.
+
+    Raises:
+        ValueError: The variant or commit hash is invalid.
+
+    """
+    if configuration not in CONFIGURATIONS or channel not in {
+        "pre",
+        RELEASE_CHANNEL,
+    }:
+        message = "Invalid package variant"
+        raise ValueError(message)
     name = f"SimpleATH-v{VERSION}-{configuration.upper()}"
-    if channel == "rel":
+    if channel == RELEASE_CHANNEL:
         return name
     sha = (
         sha
@@ -77,7 +111,8 @@ def package_name(
         ).strip()
     )
     if not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
-        raise ValueError("Invalid commit SHA")
+        message = "Invalid commit SHA"
+        raise ValueError(message)
     return f"{name}-alpha-{sha[:7].lower()}"
 
 
@@ -341,32 +376,27 @@ def fragment(optional: bool = False) -> PackageFragment:
     """
     entries: list[tuple[str, str]] = [("SimpleATH.kext", "SimpleATH")]
     if optional:
-        entries = (
-            [
-                ("Lilu.kext", "Lilu"),
-                ("AirportBrcmFixup.kext", "AirportBrcmFixup"),
-            ]
-            + entries
-            + [
-                (
-                    "AirportBrcmFixup.kext/Contents/PlugIns/AirPortBrcmNIC_Injector.kext",
-                    "",
-                )
-            ]
-        )
+        entries[:0] = [
+            ("Lilu.kext", "Lilu"),
+            ("AirportBrcmFixup.kext", "AirportBrcmFixup"),
+        ]
+        entries.append((
+            "AirportBrcmFixup.kext/Contents/PlugIns/AirPortBrcmNIC_Injector.kext",
+            "",
+        ))
     add = [
-        dict(
-            Arch="x86_64",
-            BundlePath=path,
-            Comment="SimpleATH embedded stack"
-            if exe == "SimpleATH"
+        {
+            "Arch": "x86_64",
+            "BundlePath": path,
+            "Comment": "SimpleATH embedded stack"
+            if exe == KEXT_EXECUTABLE
             else "User-supplied optional dependency",
-            Enabled=True,
-            ExecutablePath="Contents/MacOS/" + exe if exe else "",
-            PlistPath="Contents/Info.plist",
-            MinKernel="23.0.0",
-            MaxKernel="25.99.99",
-        )
+            "Enabled": True,
+            "ExecutablePath": "Contents/MacOS/" + exe if exe else "",
+            "PlistPath": "Contents/Info.plist",
+            "MinKernel": "23.0.0",
+            "MaxKernel": "25.99.99",
+        }
         for path, exe in entries
     ]
     return {"Kernel": {"Add": add, "Block": []}}
@@ -379,7 +409,9 @@ def save_plist(path: Path, value: PackageFragment) -> None:
         f"<!--\n  {path.name}\n  SimpleATH\n\n  Created by laobamac on 2026/11/1.\n"
         "  Copyright © 2026 laobamac. All rights reserved.\n-->\n"
     )
-    _ = path.write_text(data.replace("<!DOCTYPE", header + "<!DOCTYPE", 1))
+    _ = path.write_text(
+        data.replace("<!DOCTYPE", header + "<!DOCTYPE", 1), encoding="utf-8"
+    )
 
 
 def native_addresses(
@@ -417,7 +449,11 @@ def check_reference(
     images = [Image(IMAGES[name]) for name in labels]
     for image in images:
         _, symbols = parse(image)
-        exports.append({n: v for n, t, _, _, v in symbols if t & 15 == 15})
+        exports.append({
+            n: v
+            for n, t, _, _, v in symbols
+            if t & MACH_EXTERNAL_DEFINED_SYMBOL == MACH_EXTERNAL_DEFINED_SYMBOL
+        })
     bases = [
         (0xFFFFFF9000000000 if far else 0xFFFFFF8010000000) + i * 0x2000000
         for i in range(len(labels))
@@ -430,7 +466,9 @@ def check_reference(
         )
         actual = (folder / f"{i}.bin").read_bytes()
         commands, symbols = parse(image)
-        ds = next(data for cmd, data in commands if cmd == 11)
+        ds = next(
+            data for cmd, data in commands if cmd == MACH_DYSYMTAB_COMMAND
+        )
         fields = struct.unpack_from("<18I", ds, 8)
         for external, field in [(True, 14), (False, 16)]:
             for n in range(fields[field + 1]):
@@ -443,7 +481,10 @@ def check_reference(
                 )
                 if external:
                     name, kind, _, _, value = symbols[bits & 0xFFFFFF]
-                    if kind & 14 == 14:
+                    if (
+                        kind & MACH_ABSOLUTE_SYMBOL_MASK
+                        == MACH_ABSOLUTE_SYMBOL_MASK
+                    ):
                         target = bases[i] + value
                     else:
                         name = ALIASES.get(name, name)
@@ -464,7 +505,7 @@ def check_reference(
                     expected = (target + addend) & 0xFFFFFFFFFFFFFFFF
                 else:
                     expected = (bases[i] + addend) & 0xFFFFFFFFFFFFFFFF
-                if width == 8:
+                if width == MACH_POINTER_SIZE:
                     observed = struct.unpack_from("<Q", actual, offset)[0]
                 else:
                     displacement = struct.unpack_from("<i", actual, offset)[0]
@@ -475,7 +516,8 @@ def check_reference(
                         stub = observed - bases[i]
                         require_invariant(0 <= stub <= len(actual) - 14)
                         require_invariant(
-                            actual[stub : stub + 6] == b"\xff\x25\0\0\0\0"
+                            actual[stub : stub + len(MACH_BRANCH_STUB)]
+                            == MACH_BRANCH_STUB
                         )
                         observed = struct.unpack_from("<Q", actual, stub + 6)[0]
                 require_invariant(
@@ -491,7 +533,11 @@ def check_reference(
         linked = Image(folder / f"{i}.bin")
         _, linked_symbols = parse(linked)
         for n, (name, kind, _, _, value) in enumerate(symbols):
-            if not kind & 0xE0 and kind & 14 == 14:
+            if (
+                not kind & 0xE0
+                and kind & MACH_ABSOLUTE_SYMBOL_MASK
+                == MACH_ABSOLUTE_SYMBOL_MASK
+            ):
                 require_invariant(
                     linked_symbols[n][4] == value + bases[i],
                     lambda n=n, name=name: (n, name),
@@ -559,7 +605,9 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
         evidence["payloadManifestSHA256"] == digest(OUTPUT / "manifest.json")
     )
     image = Image(binary)
-    require_invariant(struct.unpack_from("<I", image.data, 12)[0] == 11)
+    require_invariant(
+        struct.unpack_from("<I", image.data, 12)[0] == MACH_KEXT_FILE_TYPE
+    )
     symbols = (
         product.parent
         / "SimpleATH.kext.dSYM/Contents/Resources/DWARF/SimpleATH"
@@ -568,8 +616,8 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     info = plist_object((product / "Contents/Info.plist").read_bytes())
     libraries = mapping(info["OSBundleLibraries"])
     require_invariant(info["CFBundleVersion"] == VERSION)
-    require_invariant(info["CFBundleIdentifier"] == "dev.alberto.SimpleATH")
-    require_invariant(not any("Lilu" in n for n in libraries))
+    require_invariant(info["CFBundleIdentifier"] == BUNDLE_IDENTIFIER)
+    require_invariant(not any(LILU_IDENTIFIER in n for n in libraries))
     undefined = set(
         subprocess.check_output(
             ["nm", "-u", "-j", str(binary)], text=True
@@ -577,10 +625,11 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     )
     require_invariant(
         not any(
-            "Lilu" in n or n in ["_lilu", "_lilu_os_log"] for n in undefined
+            LILU_IDENTIFIER in n or n in ["_lilu", "_lilu_os_log"]
+            for n in undefined
         )
     )
-    require_invariant("__ZN6OSKext8copyUUIDEv" not in undefined)
+    require_invariant(COPY_UUID_SYMBOL not in undefined)
     for payload in payloads:
         storage = mapping(payload["storage"])
         stored = (OUTPUT / string(storage["file"])).read_bytes()
@@ -652,7 +701,7 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
             "build": profile["build"],
             "reference": str(reference),
             "referenceKind": "snapshot"
-            if reference.suffix == ".json"
+            if reference.suffix == JSON_SUFFIX
             else "kernel-collection",
             "kernel": c.version(),
             "uuid": c.root.uuid,
@@ -669,14 +718,11 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     adapter = mapping(manifest["nativeAdapter"])
     compatibility_imports = _strings(adapter["compatibilityImports"])
     compatibility_targets = _strings(adapter["compatibilityTargets"])
-    require_invariant(manifest["skywalkBackend"] == "native")
+    require_invariant(manifest["skywalkBackend"] == NATIVE_BACKEND)
     require_invariant(LABELS == ["Legacy", "AirPortOriginal", "AirPort"])
-    require_invariant("com.apple.iokit.IOSkywalkFamily" in libraries)
+    require_invariant(SKYWALK_IDENTIFIER in libraries)
     require_invariant(
-        not any(
-            p["identifier"] == "com.apple.iokit.IOSkywalkFamily"
-            for p in payloads
-        )
+        not any(p["identifier"] == SKYWALK_IDENTIFIER for p in payloads)
     )
     with tempfile.TemporaryDirectory(prefix="simpleath-verify-") as temporary:
         temp = Path(temporary)
@@ -730,7 +776,9 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
             if isinstance(reference, ReferenceImage):
                 start, code = reference.funcbytes(symbol)
             else:
-                section = next(s for s in reference.sects if s[0] == "__text")
+                section = next(
+                    s for s in reference.sects if s[0] == TEXT_SECTION
+                )
                 start, length = section[2:4]
                 code = reference.read(start, length)
             length = len(code)
@@ -762,7 +810,9 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
             )
             labels = [
                 "Legacy",
-                "AirPort" if profile["kernel"] == 25 else "AirPortOriginal",
+                "AirPort"
+                if profile["kernel"] == TAHOE_KERNEL_MAJOR
+                else "AirPortOriginal",
             ]
             for far in [False, True]:
                 output = subprocess.check_output(
@@ -850,7 +900,9 @@ def build(configuration: str, analyze: bool = False) -> None:
         )
     ]
     print("\n".join(diagnostics))
-    if result.returncode or any("warning:" in line for line in diagnostics):
+    if result.returncode or any(
+        BUILD_WARNING_PREFIX in line for line in diagnostics
+    ):
         raise RuntimeError(f"Build diagnostics require attention: {log}")
     require_invariant(
         source_fingerprint == fingerprint(),
@@ -956,7 +1008,8 @@ def package(configuration: str, channel: str = "rel") -> None:
         )
         save_plist(stage / "config.fragment.plist", fragment())
         save_plist(
-            extra / "config.AirportBrcmFixup.fragment.plist", fragment(True)
+            extra / "config.AirportBrcmFixup.fragment.plist",
+            fragment(optional=True),
         )
         files = {
             str(p.relative_to(stage)): digest(p)
@@ -1051,7 +1104,7 @@ def main() -> None:
     if action in {"build", "verify", "analyze"}:
         _ = validate_reference_systems()
     if action in {"build", "analyze"}:
-        build(configuration, analyze=action == "analyze")
+        build(configuration, analyze=action == ANALYZE_ACTION)
     if action in {"verify", "build"}:
         references = (
             _collection_paths(volumes)
@@ -1059,7 +1112,7 @@ def main() -> None:
             else list(reference_paths().values())
         )
         _ = verify(configuration, references)
-    if action == "package":
+    if action == PACKAGE_ACTION:
         package(configuration, channel)
 
 
