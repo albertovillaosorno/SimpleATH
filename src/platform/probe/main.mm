@@ -6,12 +6,12 @@
 //  Copyright © 2026 laobamac. All rights reserved.
 //
 
-#import <Foundation/Foundation.h>
 #import <CoreWLAN/CoreWLAN.h>
+#import <Foundation/Foundation.h>
 #import <IOKit/IOKitLib.h>
 #import <SystemConfiguration/SystemConfiguration.h>
-#include <sys/sysctl.h>
 #include <dispatch/dispatch.h>
+#include <sys/sysctl.h>
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {

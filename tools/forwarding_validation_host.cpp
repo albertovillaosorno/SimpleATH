@@ -5,10 +5,9 @@
 //  Created by laobamac on 2026/11/1.
 //  Copyright © 2026 laobamac. All rights reserved.
 //
-#include <assert.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
 
 struct ForwardTarget
 {
