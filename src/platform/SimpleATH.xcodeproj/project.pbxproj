@@ -155,7 +155,7 @@
 			);
 			mainGroup = 00000000000000000000008E;
 			productRefGroup = 00000000000000000000008D /* Products */;
-			projectDirPath = "../../..";
+			projectDirPath = "../..";
 			projectRoot = "";
 			targets = (
 				0000000000000000000000D2 /* SimpleATH */,
