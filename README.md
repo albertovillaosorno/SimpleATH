@@ -48,7 +48,8 @@ binary has been built or deployed.
 See [AR9565 bring-up design](docs/design/AR9565-BRINGUP.md).
 Portable 802.11 management/data/EAPOL parsing, AR9003 TX/RX descriptor
 and rate/power/CCMP control codecs, and DMA-validation modules are also
-staged in the Xcode target. They are
+staged in the Xcode target. A guarded Ethernet-II/802.11 ToDS payload
+serializer and access-point RX filter are also staged. They are
 **not active** on the PCI card and do not provide WPA2 or a network device;
 see [Wi-Fi MAC and DMA source status](docs/design/WIFI-MAC-AND-DMA.md). WPA2 handshake sources also
 coordinate key derivation, MIC verification and installation via a required

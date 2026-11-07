@@ -17,8 +17,9 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | EAPOL-Key parsing | src/wifi/Eapol.* | EAPOL version/length/RSN descriptor and key-info validation, message 1-4 and group 1-2 classification, replay guard requiring confirmed MIC before advancing |
 | WPA2-PSK handshake | src/wifi/Wpa2Supplicant.* | EAPOL messages 2/4, MIC verification, GTK unwrap and pairwise/group key installation through mandatory reviewed crypto callbacks; no active hardware backend |
 | Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
+| Infrastructure data path | src/wifi/DataPath.* | Builds ToDS frames from Ethernet-II/LLC-SNAP, gates outgoing EAPOL versus WPA2 CCMP data, filters received AP-to-station frames by BSSID and decryption integrity; no physical TX/RX or network interface |
 
-All nine C++ translation units were added to the existing Xcode target
+All ten C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
 
 ## Critical restrictions
