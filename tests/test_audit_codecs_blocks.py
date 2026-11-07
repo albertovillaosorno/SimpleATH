@@ -185,6 +185,42 @@ class CodecScalarAndCopyGuards(TestCase):
         )
 
 
+class CodecScalarAliasLivenessChecks(TestCase):
+    """Reject stale pointers even when an earlier alias looked correct."""
+
+    @staticmethod
+    def test_alias_clobber_before_store_is_rejected() -> None:
+        """An overwritten saved request register is not verified evidence."""
+        for changed in (
+            "movq %r8, %rbx\nmovq %rax, %rbx",
+            "movq %r8, %rbx\nmovl %eax, %ebx",
+            "movq %r8, %rbx\nincq %rbx",
+            "movq %r8, %rbx\nxchgq %rax, %rbx",
+        ):
+            assert _rejects_scalar(changed + "\nmovl %eax, 0x14(%rbx)")
+
+    @staticmethod
+    def test_alias_from_clobbered_request_register_is_rejected() -> None:
+        """Do not propagate an already lost original request pointer."""
+        assembly = "movq %rax, %r8\nmovq %r8, %rbx\nmovl %eax, 0x14(%rbx)"
+        assert _rejects_scalar(assembly)
+
+    @staticmethod
+    def test_register_alias_may_be_reestablished_before_store() -> None:
+        """An alias copy after a clobber can restore the target pointer."""
+        assembly = (
+            "movq %r8, %rbx\nmovq %rax, %rbx\n"
+            "movq %r8, %rbx\nmovl %eax, 0x14(%rbx)"
+        )
+        assert not _rejects_scalar(assembly)
+
+    @staticmethod
+    def test_direct_request_register_must_not_be_clobbered() -> None:
+        """Reject stores through r8 after a known write or call clobber."""
+        assert _rejects_scalar("movq %rax, %r8\nmovl %eax, 0x14(%r8)")
+        assert _rejects_scalar("callq _unknown\nmovl %eax, 0x14(%r8)")
+
+
 class PinnedCodecSnapshotHash(TestCase):
     """Keep codec evidence tied to already inspected bounded source bytes."""
 

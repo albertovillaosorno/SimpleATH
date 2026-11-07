@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
 COPY_OUTPUT_MARKER = "copyOut"
 SCALAR_REGISTER = "r8"
+SAVED_POINTER_REGISTER = "rbx"
 COPY_RELOCATION_KIND = 2
 EXPECTED_COPY_SITES = 18
 EXPECTED_BACKEND_SITES = 16
@@ -147,13 +148,52 @@ def _verify_scalar_destination(prior_lines: list[str], store: str) -> None:
     if register_match is None:
         _reject("Scalar output target register not found")
     register = register_match[1]
-    if register != SCALAR_REGISTER and not any(
-        re.search(r"movq\s+%r8, %" + register + r"\b", prior)
-        for prior in prior_lines
-    ):
+    if not _verified_request_register(prior_lines, register):
         _reject(
             "The scalar output target was not confirmed to be apple80211req"
         )
+
+
+def _verified_request_register(prior_lines: list[str], register: str) -> bool:
+    """Track a request pointer through known register writes and saved copies.
+
+    Returns:
+        Whether the register still holds the original request pointer.
+
+    """
+    request_valid = True
+    alias_valid = register == SCALAR_REGISTER
+    for line in prior_lines:
+        if _overwrites_register(line, SCALAR_REGISTER):
+            request_valid = False
+        if register == SCALAR_REGISTER or re.search(
+            r"movq\s+%r8, %" + register + r"\b", line
+        ):
+            alias_valid = request_valid
+        elif _overwrites_register(line, register):
+            alias_valid = False
+    return alias_valid
+
+
+def _overwrites_register(line: str, register: str) -> bool:
+    """Conservatively detect register writes after a verified request alias.
+
+    Returns:
+        True for a direct destination, unary mutation or xchg of the alias.
+
+    """
+    variants = (
+        (SAVED_POINTER_REGISTER, "ebx", "bx", "bl", "bh")
+        if register == SAVED_POINTER_REGISTER
+        else (register, register + "d", register + "w", register + "b")
+    )
+    target = r"%(?:" + "|".join(variants) + r")\b"
+    return bool(
+        re.search(r",\s*" + target, line)
+        or re.search(r"\b(?:pop|inc|dec|neg|not|bswap)\w*\s+" + target, line)
+        or re.search(r"\bxchg\w*\s+.*" + target, line)
+        or (register == SCALAR_REGISTER and re.search(r"\bcall\w*\b", line))
+    )
 
 
 def _scalar_gets(
