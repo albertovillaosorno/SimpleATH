@@ -14,6 +14,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00000000000000000000D4B0 /* Ar9565NativePci.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4B1 /* Ar9565NativePci.cpp */; };
 		00000000000000000000D4A0 /* Ar9565NativeDma.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4A1 /* Ar9565NativeDma.cpp */; };
 		000000000000000000000830 /* Ar9565Power.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000831 /* Ar9565Power.cpp */; };
 		000000000000000000000820 /* Ar9565NvmReader.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000821 /* Ar9565NvmReader.cpp */; };
@@ -50,6 +51,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		00000000000000000000D4B1 /* Ar9565NativePci.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/Ar9565NativePci.cpp; sourceTree = "<group>"; };
+		00000000000000000000D4B2 /* Ar9565NativePci.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/Ar9565NativePci.hpp; sourceTree = "<group>"; };
 		00000000000000000000D4A1 /* Ar9565NativeDma.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/Ar9565NativeDma.cpp; sourceTree = "<group>"; };
 		00000000000000000000D4A2 /* Ar9565NativeDma.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/Ar9565NativeDma.hpp; sourceTree = "<group>"; };
 		000000000000000000000831 /* Ar9565Power.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Power.cpp; sourceTree = "<group>"; };
@@ -129,6 +132,8 @@
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
 				00000000000000000000D4A1 /* Ar9565NativeDma.cpp */,
+				00000000000000000000D4B1 /* Ar9565NativePci.cpp */,
+				00000000000000000000D4B2 /* Ar9565NativePci.hpp */,
 				00000000000000000000D4A2 /* Ar9565NativeDma.hpp */,
 				000000000000000000000831 /* Ar9565Power.cpp */,
 				000000000000000000000832 /* Ar9565Power.hpp */,
@@ -283,6 +288,7 @@
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				00000000000000000000D4A0 /* Ar9565NativeDma.cpp in Sources */,
+				00000000000000000000D4B0 /* Ar9565NativePci.cpp in Sources */,
 				000000000000000000000830 /* Ar9565Power.cpp in Sources */,
 				000000000000000000000820 /* Ar9565NvmReader.cpp in Sources */,
 				000000000000000000000790 /* Ar9003Descriptors.cpp in Sources */,
