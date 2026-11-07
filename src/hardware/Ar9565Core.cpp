@@ -34,6 +34,7 @@ bool isSupportedPci(uint16_t vendor, uint16_t device) {
 }
 
 Result decodeRevision(uint32_t raw, Silicon &out) {
+    out = {};
     // ath9k type-2 SREV is used by the AR9003 generation. The lower byte
     // is 0xff, and the version is encoded in bits 18..31, shifted by 12.
     if (raw == 0xffffffffu || (raw & 0xffu) != 0xffu)
@@ -142,7 +143,9 @@ Result Device::attachReadOnlyBus(const RegisterBus &bus) {
         return fail(Result::WrongState);
     if (!bus.read32 || !bus.context || bus.barLengthBytes < kMinimumMappedBar)
         return fail(Result::BusNotReady);
-    bus_ = bus;
+    // This core must never acquire a write capability through an otherwise
+    // read-only attachment, even if a caller supplied one.
+    bus_ = {bus.context, bus.read32, nullptr, bus.barLengthBytes};
     status_.stage = Stage::RegisterTransportReady;
     return fail(Result::Ok);
 }
@@ -152,7 +155,7 @@ Result Device::readRegister(uint32_t offset, uint32_t &value) {
         offset > bus_.barLengthBytes ||
         bus_.barLengthBytes - offset < sizeof(uint32_t))
         return Result::InvalidRegister;
-    if (!bus_.read32(bus_.context, offset, &value))
+    if (!bus_.read32(bus_.context, offset, &value) || value == 0xffffffffu)
         return Result::RegisterReadFailed;
     return Result::Ok;
 }

@@ -158,7 +158,8 @@ class Device {
 public:
     Device();
 
-    // No hardware accesses; matches only the true AR9565 PCI identity.
+    // No hardware accesses. Caller must supply physical configuration-space
+    // values under a PCI ownership/power contract, not registry properties.
     Result matchPci(uint16_t vendor, uint16_t device,
                     uint16_t subsystemVendor, uint16_t subsystemDevice);
 
@@ -169,7 +170,8 @@ public:
     // This does not mean the radio is operational or the device is ready.
     Result inspect();
 
-    // Reset to the detached state after a failed probe/unload.
+    // Revoke callbacks BEFORE their mapping/provider/context is released.
+    // Caller serializes all operations; Device itself is not thread-safe.
     void detach();
 
     const Status &status() const { return status_; }

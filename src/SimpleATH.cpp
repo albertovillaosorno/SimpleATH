@@ -6,6 +6,7 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
 #include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSData.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
 #include "hardware/Ar9565Core.hpp"
@@ -14,6 +15,23 @@ namespace {
 constexpr UInt16 kAtherosVendor = 0x168c;
 constexpr UInt16 kAr9565Device = 0x0036;
 bool gSimpleATHEnabled = true;
+
+// These values describe the matched registry node only. OpenCore can replace
+// them. They are never passed to Device::matchPci or used to authorize MMIO.
+void publishRegistryId(IOService *service, IOService *provider,
+                       const char *key, const char *diagnosticKey) {
+    OSObject *property = provider->copyProperty(key);
+    auto data = OSDynamicCast(OSData, property);
+    if (data && data->getLength() == sizeof(uint32_t)) {
+        const auto bytes = static_cast<const uint8_t *>(data->getBytesNoCopy());
+        const uint32_t value = static_cast<uint32_t>(bytes[0]) |
+            (static_cast<uint32_t>(bytes[1]) << 8) |
+            (static_cast<uint32_t>(bytes[2]) << 16) |
+            (static_cast<uint32_t>(bytes[3]) << 24);
+        service->setProperty(diagnosticKey, value, 32);
+    }
+    if (property) property->release();
+}
 }
 
 // An IOResources service proves that this kernel extension started without
@@ -40,8 +58,9 @@ public:
 OSDefineMetaClassAndStructors(SimpleATH, IOService)
 
 // IOKit matches this service to the AR9565 using IOPCIPrimaryMatch in
-// Info.plist. No direct calls to IOPCIDevice: its class metaclass and
-// extendedConfigRead16 symbol were unresolved in Tahoe's boot cache.
+// Info.plist. No direct calls to IOPCIDevice: the old artifact failed to
+// resolve its metaclass/extendedConfigRead16. Exact Tahoe PCI exports remain
+// unverified; that error does not establish that the APIs are unavailable.
 // All hardware remains untouched. The service is a diagnostic marker only.
 class SimpleATHPciProbe final : public IOService {
     OSDeclareDefaultStructors(SimpleATHPciProbe)
@@ -65,9 +84,32 @@ public:
         setProperty("SimpleATHEepromValidated", false);
         setProperty("SimpleATHRegulatoryReady", false);
         setProperty("SimpleATHNetworkInterfaceReady", false);
+        setProperty("SimpleATHIdentitySource", "IORegistryPropertiesMayBeSpoofed");
+        setProperty("SimpleATHPhysicalIdentityVerified", false);
+        setProperty("SimpleATHPciExclusiveOwner", false);
+        setProperty("SimpleATHSrevState", "NotRead");
+        setProperty("SimpleATHEepromState", "NotRead");
+        setProperty("SimpleATHRegulatoryState", "TransmitProhibited");
+        setProperty("SimpleATHAssociationState", "NotImplemented");
+        setProperty("SimpleATHTrafficState", "NotImplemented");
+        setProperty("SimpleATHNativeWirelessAbiState", "Unverified");
+        publishRegistryId(this, provider, "vendor-id", "SimpleATHRegistryVendorID");
+        publishRegistryId(this, provider, "device-id", "SimpleATHRegistryDeviceID");
+        publishRegistryId(this, provider, "subsystem-vendor-id",
+                          "SimpleATHRegistrySubsystemVendorID");
+        publishRegistryId(this, provider, "subsystem-id",
+                          "SimpleATHRegistrySubsystemDeviceID");
         registerService();
         IOLog("SimpleATH: IOKit matched the Atheros PCI device; radio inactive\n");
         return true;
+    }
+
+    void stop(IOService *provider) override {
+        // This passive service owns no PCI mapping, DMA or interrupt source.
+        // A future controlling backend must quiesce those before super::stop.
+        setProperty("SimpleATHMode", "PassivePCIStopped");
+        setProperty("SimpleATHDriverReady", false);
+        IOService::stop(provider);
     }
 };
 OSDefineMetaClassAndStructors(SimpleATHPciProbe, IOService)
