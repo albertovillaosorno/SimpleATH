@@ -94,10 +94,12 @@ namespace simpleath
             if (slot == kCapacity)
                 return Result::InvalidFrame;
 
-            // Retain a previously visible probe-response name only if a
-            // subsequent hidden beacon still advertises the same channel and
-            // security contract. A recycled BSSID cannot inherit an old SSID.
+            // Retain a previously visible probe-response name only when the
+            // exact same BSSID advertises a hidden SSID with unchanged channel
+            // and security. A full-cache eviction may reuse an occupied slot
+            // for a different BSSID, which must never inherit the old SSID.
             if (entries_[slot].occupied && beacon.hiddenSsid &&
+                sameMac(entries_[slot].beacon.bssid, beacon.bssid) &&
                 !entries_[slot].beacon.hiddenSsid &&
                 sameSecurityAdvertisement(beacon, entries_[slot].beacon))
             {

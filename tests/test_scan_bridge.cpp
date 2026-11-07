@@ -250,5 +250,66 @@ int main()
         bridge.next(ticket, entry) != ScanBridgeResult::NoResult ||
         entry.ssidLength)
         return 15;
+
+    // A full cache may evict a different BSSID whose channel and RSN match.
+    // The newcomer's hidden beacon must never inherit that older BSSID's SSID.
+    static ScanCache recycledCache;
+    uint8_t visible[kBeaconBytes] {};
+    for (size_t i = 0; i < ScanCache::kCapacity; ++i)
+    {
+        makeBeacon(visible, 6);
+        visible[15] = visible[21] = static_cast<uint8_t>(i + 1);
+        if (recycledCache.observe(visible, sizeof(visible), -40, i + 10) !=
+            Result::Ok)
+            return 20;
+    }
+    makeBeacon(visible, 6);
+    visible[15] = visible[21] = 0xfe;
+    uint8_t hidden[45] {};
+    for (size_t i = 0; i < 38; ++i)
+        hidden[i] = visible[i];
+    hidden[37] = 0; // Zero-length hidden SSID element.
+    for (size_t i = 0; i < 7; ++i)
+        hidden[38 + i] = visible[42 + i];
+    if (recycledCache.observe(hidden, sizeof(hidden), -35, 1000) !=
+            Result::Ok ||
+        recycledCache.size() != ScanCache::kCapacity)
+        return 21;
+    bool foundNewBssid = false;
+    Bss recycled {};
+    for (size_t i = 0; i < ScanCache::kCapacity; ++i)
+    {
+        if (!recycledCache.snapshot(i, recycled))
+            return 22;
+        if (recycled.beacon.bssid.bytes[5] == 0xfe)
+        {
+            foundNewBssid = true;
+            if (!recycled.beacon.hiddenSsid || recycled.beacon.ssidLength)
+                return 23;
+        }
+    }
+    if (!foundNewBssid)
+        return 24;
+
+    // An actual visible SSID from the *same* BSSID may still be retained
+    // when its subsequent advertisement hides the name.
+    if (recycledCache.observe(visible, sizeof(visible), -35, 1001) !=
+            Result::Ok ||
+        recycledCache.observe(hidden, sizeof(hidden), -35, 1002) != Result::Ok)
+        return 25;
+    bool preservedSameBssid = false;
+    for (size_t i = 0; i < ScanCache::kCapacity; ++i)
+    {
+        if (!recycledCache.snapshot(i, recycled))
+            return 26;
+        if (recycled.beacon.bssid.bytes[5] == 0xfe)
+        {
+            preservedSameBssid = !recycled.beacon.hiddenSsid &&
+                                 recycled.beacon.ssidLength == 4 &&
+                                 recycled.beacon.ssid[0] == 'T';
+        }
+    }
+    if (!preservedSameBssid)
+        return 27;
     return 0;
 }
