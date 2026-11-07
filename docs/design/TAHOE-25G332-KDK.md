@@ -100,3 +100,83 @@ relocations remain outstanding. Use the separate manual copy-only collector
 in [ABI evidence acquisition](ABI-EVIDENCE-ACQUISITION.md) if the owner chooses
 to provide the production files. Both native verification flags remain false;
 there is still no operating Wi-Fi interface or physical networking result.
+
+## Current kext target versus proposed ABI imports (source reconciliation)
+
+Reviewed the checked-in Xcode target and Info.plist as source on
+2026-11-07 UTC; did not build, link, run a validator test suite or inspect
+an actual produced kext. **PBXFileReference and PBXBuildFile declarations do
+not establish compilation**: only membership in the target's active
+PBXSourcesBuildPhase does. This distinction matters when auditing presumed
+Tahoe dependencies and a prior unresolved-import artifact.
+
+| Source boundary | Checked-in target state | ABI implication |
+| --- | --- | --- |
+| `src/SimpleATH.cpp` | In the `SimpleATH` kext Sources phase; two passive `IOService` classes | No direct `IOPCIDevice`, native IO80211 or Skywalk controller call; exposes no usable Wi-Fi interface |
+| `src/platform/Ar9565NativePci.cpp` | In kext Sources, but `SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND` defaults to `0` in its header | Active PCI/IOPCIDevice code is preprocessor-disabled unless explicitly enabled; cannot be counted as a verified import or tested owner |
+| `src/platform/Ar9565NativeDma.cpp` | In kext Sources, but `SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND` defaults to `0` | IODMACommand, IOMapper and memory-descriptor use is disabled, not available to the passive probe |
+| `src/platform/Ar9565PciSession.cpp` and portable hardware/Wi-Fi sources | In kext Sources | Callback-driven models are not an `IOPCIFamily` or native wireless service implementation |
+| `src/Bridge.cpp`, `src/Loader.cpp`, `src/NativeSkywalk.cpp`, `src/NativeUserClient.cpp` and legacy patch helpers | Have project file/build-file records, but are **not** in the active `SimpleATH` Sources phase | Their private symbols, embedded-payload assumptions and handcrafted Skywalk classes cannot be treated as imports of the current target or as a valid Tahoe wireless implementation |
+| `src/platform/probe/main.mm` | In the separate `athprobe` tool Sources phase | A userspace inspection utility, not a kernel Wi-Fi controller or proof that its probed symbols are callable from the kext |
+
+The checked-in `src/Info.plist` declares `com.apple.kpi.iokit`,
+`com.apple.kpi.libkern`, `com.apple.kpi.mach` and
+`com.apple.kpi.private`, but not `com.apple.iokit.IOPCIFamily`,
+`com.apple.iokit.IO80211Family`, `IO80211FamilyLegacy` or
+`IOSkywalkFamily`. Its passive PCI personality matches registry IDs
+`168c:0036` **and** legacy `168c:0030`; `SimpleATH.cpp` explicitly marks
+physical identity, MMIO, radio and native Wi-Fi readiness unverified or
+false. Registry matching, especially a possibly OpenCore-spoofed ID, is
+not a substitute for the future physical-identity/PCI ownership check.
+
+`src/platform/Kernel.xcconfig` points to a separate research
+MacKernelSDK header path (`.research/MacKernelSDK/Headers`), which is not
+bundled in this working tree and is not automatically the 25G332 KDK.
+Neither Xcode project membership nor symbol-name presence can settle the
+actual compiler-selected header layout, virtual-method contracts, KPI
+eligibility or relocations. There is **no target-native IO80211 controller or
+interface subclass** wired into this Sources phase. Conversely, no active
+legacy payload/NativeSkywalk import can be inferred merely because its source
+file remains in the project navigator.
+
+To close the P0 ABI dependency, separately determine the intended enabled
+native PCI/DMA and wireless source set, derive its required C++ method and
+virtual ABI from exact-target eligible headers/types, add the correct
+family dependencies when those real imports are introduced, then inspect
+every actual compiled undefined import and relocation **after** separate build
+authorization. Reconcile the result with KDK export lists and the target's
+loaded images. The current static evidence cannot approve enabling either
+experimental backend or claiming native wireless readiness.
+
+## Exact-build kernel DWARF type observations (not an ABI approval)
+
+A matching x86_64 KDK kernel and kernel dSYM were loaded as **static files**
+into LLDB with initialization and symbol-file scripts disabled, without a
+process launch or attach. The selected output has been reduced to class sizes,
+field offsets and method names/types in
+`docs/evidence/TAHOE-25G332-KERNEL-DMA-TYPES.json`, with both source SHA-256
+hashes; no Apple binary, executable address or implementation was retained.
+This supplements, and does not replace, the separate PCI-family dSYM sizes
+already reported above.
+
+| Kernel type (static DWARF) | Size (bytes) | Selected native method evidence |
+| --- | ---: | --- |
+| `IOService` | 136 | `open(IOService*, IOOptionBits, void*)`, `close`, `isOpen`, `isInactive` |
+| `IOMapper` | 208 | `copyMapperForDevice(IOService*)` reports `OSPtr<IOMapper>` return (canonical `IOMapper*`) |
+| `IOBufferMemoryDescriptor` | 232 | `inTaskWithOptions(task_t, IOOptionBits, vm_size_t, vm_offset_t)` reports `OSPtr<IOBufferMemoryDescriptor>` (canonical pointer); `getBytesNoCopy()` returns `void*` |
+| `IODMACommand` | 120 | `withSpecification(...)` reports `OSPtr<IODMACommand>` (canonical pointer); `prepare(UInt64, UInt64, bool, bool)`, `complete(bool, bool)` and `synchronize(IOOptionBits)` appear in the type record |
+| `IOMemoryDescriptor` | 96 | `prepare(IODirection)`, `complete(IODirection)`, 64-bit byte-count `readBytes`/`writeBytes` |
+| `IOMemoryMap` | 88 | `getVirtualAddress()` and `getLength()` use 64-bit result types |
+| `IOWorkLoop` | 72 | `inGate()` and `onThread()` are reported as boolean methods |
+
+In particular, the **nominal** `OSPtr<T>` result types for three factories
+must not be silently treated as proof that a pinned research SDK declaration
+using raw `T*` has the same calling convention, retained-object ownership,
+destructor requirements or required link symbol. The extracted **canonical**
+type is a pointer, but this alone does not settle C++ ABI lowering. The
+compile-disabled native PCI/DMA adapters may use these factories only after
+exact header/calling-convention and object-lifetime review, effective export
+eligibility, dependency reconciliation and authorized compiled-relocation
+inspection. The recorded field offsets are debugger descriptions, not a
+license to dereference private fields or assert the target Dell's runtime
+layout. All ABI verification flags remain false.
