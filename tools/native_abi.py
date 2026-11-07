@@ -7,6 +7,8 @@
 #  Copyright © 2026 laobamac. All rights reserved.
 #
 
+from __future__ import annotations
+
 import collections
 import ctypes
 import functools
@@ -250,13 +252,47 @@ def _fat_x86_64_range(data: mmap.mmap) -> tuple[int, int] | None:
 
 
 class Mach:
+    """Own a bounded offline Mach-O image and its typed metadata indices."""
+
+    path: str
+    f: BinaryIO
+    b: mmap.mmap
+    base: int
+    slice_end: int
+    h: int
+    typ: int
+    fixup_base: int
+    segs: list[tuple[str, int, int, int, int]]
+    sects: list[
+        tuple[str, str, int, int, int, int, int, int, int, int, int, int]
+    ]
+    entries: dict[str, tuple[int, int]]
+    syms: list[tuple[str, int, int, int, int]]
+    symtab: tuple[int, int, int, int] | None
+    dysym: tuple[int, ...] | None
+    uuid: str | None
+    names: dict[str, tuple[str, int, int, int, int]]
+    byaddr: collections.defaultdict[int, list[str]]
+
     def __new__(cls, path, entry=None):
         if Path(path).suffix == ".json":
             return ReferenceImage(path, entry)
         return super().__new__(cls)
 
-    def __init__(self, path, entry=None):
+    def __init__(self, path: str | Path, entry: str | None = None) -> None:
         self.path = str(path)
+        # Initialize the complete instance contract before the first parse;
+        # a fileset subimage can subsequently replace all parsed catalogs.
+        self.typ = 0
+        self.segs = []
+        self.sects = []
+        self.entries = {}
+        self.syms = []
+        self.symtab = None
+        self.dysym = None
+        self.uuid = None
+        self.names = {}
+        self.byaddr = collections.defaultdict(list)
         self.f = _open_mach_source(Path(path))
         try:
             self.b = mmap.mmap(self.f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -285,19 +321,19 @@ class Mach:
             self.close()
             raise
 
-    def _select_header(self):
+    def _select_header(self) -> None:
         selected = _fat_x86_64_range(self.b)
         if selected is not None:
             offset, size = selected
             self.base = offset
             self.slice_end = offset + size
 
-    def parse(self):
+    def parse(self) -> None:
         b = self.b
         h = self.h
         _require_span(h, 32, self.slice_end)
         magic, cpu, _subtype, typ, count, command_bytes, _flags, _reserved = (
-            struct.unpack_from("<8I", b, h)
+            unpack_integers(b, "<8I", h)
         )
         if magic != 4277009103 or cpu != 16777223:
             message = "Expected an x86_64 Mach-O image"
@@ -318,7 +354,7 @@ class Mach:
         command_end = cursor + command_bytes
         for _ in range(count):
             _require_span(cursor, 8, command_end)
-            command, length = struct.unpack_from("<II", b, cursor)
+            command, length = unpack_integers(b, "<II", cursor)
             if length < 8:
                 message = "Invalid Mach-O load command size"
                 raise ValueError(message)
@@ -348,8 +384,8 @@ class Mach:
                     message = "Duplicate Mach-O symbol table command"
                     raise ValueError(message)
                 _require_span(cursor, 24, cursor + length)
-                symboloff, symbols, stringoff, strings = struct.unpack_from(
-                    "<IIII", b, cursor + 8
+                symboloff, symbols, stringoff, strings = unpack_integers(
+                    b, "<IIII", cursor + 8
                 )
                 _require_span(
                     self.base + symboloff, symbols * 16, self.slice_end
@@ -361,7 +397,7 @@ class Mach:
                     message = "Duplicate Mach-O dynamic symbol table command"
                     raise ValueError(message)
                 _require_span(cursor, 80, cursor + length)
-                self.dysym = struct.unpack_from("<18I", b, cursor + 8)
+                self.dysym = unpack_integers(b, "<18I", cursor + 8)
             elif command == 27:
                 if self.uuid is not None:
                     message = "Duplicate Mach-O UUID command"
@@ -422,7 +458,7 @@ class Mach:
                 self.byaddr[symbol[4]].append(symbol[0])
 
     def off(self, va: int) -> int:
-        for n, v, s, o, fs in self.segs:
+        for _, v, _, o, fs in self.segs:
             if v <= va < v + fs:
                 offset = self.base + o + va - v
                 _require_span(offset, 1, self.slice_end)
@@ -430,7 +466,7 @@ class Mach:
         raise ValueError(hex(va))
 
     def read(self, va: int, n: int) -> bytes:
-        for name, v, s, o, fs in self.segs:
+        for _, v, _, o, fs in self.segs:
             if n >= 0 and v <= va and (va + n <= v + fs):
                 offset = self.base + o + va - v
                 _require_span(offset, n, self.slice_end)
@@ -444,13 +480,13 @@ class Mach:
     def defined(self) -> set[str]:
         return {
             n
-            for n, t, se, d, v in self.syms
+            for n, t, _, _, _ in self.syms
             if t & 1 and t & 14 in [2, 14] and (not t & 224)
         }
 
-    def undef(self):
+    def undef(self) -> set[str]:
         return {
-            n for n, t, se, d, v in self.syms if t & 14 == 0 and (not t & 224)
+            n for n, t, _, _, _ in self.syms if t & 14 == 0 and (not t & 224)
         }
 
     def relocs(self) -> dict[int, tuple[str, int, int, int]]:
@@ -465,8 +501,8 @@ class Mach:
         for offset, count, start in relocation_tables:
             _require_span(offset, count * 8, self.slice_end)
             for index in range(count):
-                relative, word = struct.unpack_from(
-                    "<iI", self.b, offset + 8 * index
+                relative, word = unpack_integers(
+                    self.b, "<iI", offset + 8 * index
                 )
                 symbol_index = word & 0xFFFFFF
                 external = bool(word >> 27 & 1)
@@ -484,7 +520,7 @@ class Mach:
                 )
         return result
 
-    def funcs(self):
+    def funcs(self) -> list[tuple[int, str]]:
         return sorted(
             (s[4], s[0])
             for s in self.syms
@@ -494,9 +530,9 @@ class Mach:
             and (not s[1] & 224)
         )
 
-    def funcbytes(self, name):
+    def funcbytes(self, name: str) -> tuple[int, bytes]:
         a = self.names[name][4]
-        ends = [x for x, n in self.funcs() if x > a]
+        ends = [x for x, _ in self.funcs() if x > a]
         e = min(ends) if ends else a + 512
         return (a, self.read(a, e - a))
 
