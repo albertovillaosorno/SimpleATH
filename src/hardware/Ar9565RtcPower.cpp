@@ -355,6 +355,11 @@ namespace simpleath
         if (!context.bootstrapCompleted &&
             operation != RtcOperation::BootstrapPowerOn)
             return status.result = RtcResult::BootstrapRequired;
+        // RtcRun samples the first timestamp in its constructor. The clock
+        // may share the PCI owner's memory, so check the live epoch BEFORE
+        // invoking it rather than relying only on RtcRun::check() later.
+        if (!backend.canReset(backend.context, backend.ownerEpoch))
+            return status.result = RtcResult::AccessRevoked;
         RtcRun run(backend, context, status);
         uint32_t srev = 0;
         RtcResult result = run.read(kRevisionRegister, srev);

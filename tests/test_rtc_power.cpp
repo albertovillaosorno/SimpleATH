@@ -26,6 +26,7 @@ namespace
             unsigned reads = 0;
             unsigned writes = 0;
             unsigned delays = 0;
+            unsigned clocks = 0;
 
             static FakeRtc &get(void *context)
             {
@@ -103,7 +104,9 @@ namespace
 
             static uint64_t nowMicros(void *context)
             {
-                return get(context).time;
+                auto &self = get(context);
+                ++self.clocks;
+                return self.time;
             }
 
             static void delayMicros(void *context, uint32_t micros)
@@ -308,6 +311,32 @@ int main()
                                 status) != RtcResult::Ok ||
             !context.bootstrapCompleted || !status.resetCompleted)
             return 19;
+    }
+    {
+        // The reset capability can be revoked before bootstrap begins. Its
+        // first clock sample may rely on the same live provider allocation;
+        // reject before reading that sample or touching BAR callbacks.
+        FakeRtc fake {};
+        fake.alive = false;
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        const auto backend = fake.backend();
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::AccessRevoked ||
+            fake.clocks || fake.reads || fake.writes ||
+            status.boardStateInvalidated || context.workaroundCaptured)
+            return 20;
+
+        // A stale/reset epoch is also not authorization to consult the clock.
+        fake.alive = true;
+        fake.epoch = 2;
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::AccessRevoked ||
+            fake.clocks || fake.reads || fake.writes ||
+            status.boardStateInvalidated || context.workaroundCaptured)
+            return 21;
     }
     return 0;
 }
