@@ -33,6 +33,10 @@ REQUIRE_FUNCTION = "require"
 RAW_READ_METHOD = "read_bytes"
 CHECKED_READ_FUNCTION = "read_native_artifact"
 RECONSTRUCT_FUNCTION = "reconstruct_payload_image"
+ZIP_FUNCTION = "zip"
+STRICT_ARGUMENT = "strict"
+NATIVE_USER_CLIENT_SOURCE = "src/NativeUserClient.cpp"
+STALE_USER_CLIENT_SOURCE = "SimpleATH/NativeUserClient.cpp"
 MIN_BOUNDED_READS = 5
 FAILURE_MARKER = "synthetic failed"
 GOOD_OUTPUT = (
@@ -220,6 +224,40 @@ class NativeAbiInvariantTests(TestCase):
         assert any(
             isinstance(callee, ast.Name) and callee.id == RECONSTRUCT_FUNCTION
             for callee in calls
+        )
+
+    @staticmethod
+    def test_verifier_reads_current_source_and_checks_all_client_tables() -> (
+        None
+    ):
+        """Fail closed on truncated tables and avoid the obsolete path."""
+        root = Path(__file__).parent.parent
+        source = root / "tools/verify_native.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        literals = {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        assert NATIVE_USER_CLIENT_SOURCE in literals
+        assert STALE_USER_CLIENT_SOURCE not in literals
+        assert (root / NATIVE_USER_CLIENT_SOURCE).is_file()
+        zips = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == ZIP_FUNCTION
+        ]
+        assert zips
+        assert all(
+            any(
+                kw.arg == STRICT_ARGUMENT
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+                for kw in call.keywords
+            )
+            for call in zips
         )
 
     @staticmethod
