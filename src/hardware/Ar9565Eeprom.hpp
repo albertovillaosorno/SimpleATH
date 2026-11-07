@@ -8,6 +8,7 @@
 namespace simpleath {
 
 constexpr size_t kAr9300EepromImageBytes = 1088;
+constexpr size_t kAr9565EepromScratchBytes = 1029; // max payload 1023 + framing
 
 enum class EepromResult : uint8_t {
     Ok, InvalidArgument, EmptyHeader, TruncatedBlock, BadChecksum,
@@ -54,6 +55,25 @@ EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
 // No MMIO and no EEPROM defaults. Wipes bytes and validity before a new chain
 // and after an error. Caller must not put EepromImage on a small IRQ stack.
 void discardEepromImage(EepromImage &image);
+
+struct EepromRestoreStatus {
+    EepromResult result;
+    EepromBlockInfo lastBlock;
+    uint16_t origin;
+    uint16_t appliedBlocks;
+    uint16_t nextAddress;
+};
+
+// Restore an ALREADY ACQUIRED ascending-address byte dump. The caller must
+// establish its hardware source and word normalization. Explicit origin must
+// be 0x3ff, 0xfff or 0x1ff; no speculative fallback or default image is used.
+// Scratch is caller-owned (at least kAr9565EepromScratchBytes), and all buffers
+// and status must be disjoint. Malformed chains invalidate/wipe the image.
+// No hardware operations, storage acquisition or regulatory approval.
+EepromResult restoreEepromDump(const uint8_t *storage, size_t storageBytes,
+                               uint16_t origin, const EepromTemplates &templates,
+                               uint8_t *scratch, size_t scratchBytes,
+                               EepromImage &image, EepromRestoreStatus &status);
 
 // Diagnostic interpretation of a completely reconstructed little-endian
 // image. Includes raw regulatory/antenna/calibration fields for later policy

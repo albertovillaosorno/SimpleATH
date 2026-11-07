@@ -34,10 +34,15 @@ uint32_t le32(const uint8_t *p) {
 void copyBytes(uint8_t *destination, const uint8_t *source, size_t length) {
     for (size_t i = 0; i < length; ++i) destination[i] = source[i];
 }
-bool overlapsImage(const uint8_t *source, size_t length, const EepromImage &image) {
+bool overlaps(const void *source, size_t length, const void *destination,
+              size_t destinationLength) {
     const auto src = reinterpret_cast<uintptr_t>(source);
-    const auto dst = reinterpret_cast<uintptr_t>(&image);
-    return src >= dst ? src - dst < sizeof(image) : dst - src < length;
+    const auto dst = reinterpret_cast<uintptr_t>(destination);
+    return length && destinationLength &&
+        (src >= dst ? src - dst < destinationLength : dst - src < length);
+}
+bool overlapsImage(const uint8_t *source, size_t length, const EepromImage &image) {
+    return overlaps(source, length, &image, sizeof(image));
 }
 
 // Unlike upstream's permissive restoration, reject truncated records and
@@ -121,6 +126,63 @@ EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
     ++image.appliedBlocks;
     image.restored = true;
     return EepromResult::Ok;
+}
+
+EepromResult restoreEepromDump(const uint8_t *storage, size_t storageBytes,
+                               uint16_t origin, const EepromTemplates &templates,
+                               uint8_t *scratch, size_t scratchBytes,
+                               EepromImage &image, EepromRestoreStatus &status) {
+    // The API's disjoint-status contract allows initializing diagnostics before
+    // accessing input. No frame-sized allocation is made on the kernel stack.
+    status = {};
+    status.origin = origin;
+    status.nextAddress = origin;
+    if (!storage || !scratch || storageBytes > 16384 ||
+        origin >= storageBytes || scratchBytes < kAr9565EepromScratchBytes ||
+        (origin != 0x3ff && origin != 0xfff && origin != 0x1ff) ||
+        overlapsImage(storage, storageBytes, image) ||
+        overlapsImage(scratch, scratchBytes, image) ||
+        overlaps(storage, storageBytes, scratch, scratchBytes)) {
+        discardEepromImage(image);
+        return status.result = EepromResult::InvalidArgument;
+    }
+    discardEepromImage(image);
+    size_t remaining = static_cast<size_t>(origin) + 1;
+    while (remaining) {
+        status.nextAddress = static_cast<uint16_t>(remaining - 1);
+        if (remaining < 4) {
+            discardEepromImage(image);
+            return status.result = EepromResult::TruncatedBlock;
+        }
+        for (size_t i = 0; i < 4; ++i) scratch[i] = storage[remaining - 1 - i];
+        const uint32_t header = le32(scratch);
+        if (header == 0 || header == 0xffffffffu) {
+            // Erased padding terminates a chain only after a recovered block.
+            if (image.restored) return status.result = EepromResult::Ok;
+            return status.result = EepromResult::EmptyHeader;
+        }
+        const size_t payloadBytes =
+            ((static_cast<size_t>(scratch[1]) << 4) & 0x7f0u) | (scratch[2] >> 4);
+        const size_t frameBytes = payloadBytes + 6;
+        // ath9k's non-AR9485 (including AR9565) storage-chain limit is <1024.
+        // Do not resynchronize past corrupt headers into arbitrary NVM bytes.
+        if (payloadBytes >= 1024 || frameBytes > remaining) {
+            discardEepromImage(image);
+            return status.result = EepromResult::TruncatedBlock;
+        }
+        for (size_t i = 4; i < frameBytes; ++i)
+            scratch[i] = storage[remaining - 1 - i];
+        const EepromResult result = applyEepromBlock(scratch, frameBytes,
+            templates, image, status.lastBlock);
+        if (result != EepromResult::Ok) {
+            discardEepromImage(image);
+            return status.result = result;
+        }
+        status.appliedBlocks = image.appliedBlocks;
+        remaining -= frameBytes;
+    }
+    status.nextAddress = 0;
+    return status.result = EepromResult::Ok;
 }
 
 EepromResult summarizeBoardData(const EepromImage &image, BoardDataSummary &out) {
