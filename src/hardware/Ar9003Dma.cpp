@@ -1,53 +1,78 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9003Dma.hpp"
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
     namespace dma
     {
+        static constexpr uint64_t K_DEVICE_MAX_ADDRESS = 0xffffffffULL;
+        static constexpr uint32_t K_GENERATION_MAX = 0xffffffffU;
 
-        Error validateMapping(const Mapping &mapping, size_t requiredBytes)
+        Error validateMapping(const Mapping &mapping, size_t required_bytes)
         {
-            if (!mapping.cpuAddress || mapping.length == 0 ||
-                requiredBytes == 0)
+            if (mapping.cpuAddress == nullptr || mapping.length == 0 ||
+                required_bytes == 0)
+            {
                 return Error::MissingBuffer;
+            }
             if (!mapping.iommuMapped)
+            {
                 return Error::UnmappedBuffer;
+            }
             if (!mapping.synchronized)
+            {
                 return Error::NotSynchronized;
+            }
             if (mapping.deviceBusAddress == 0 ||
-                mapping.deviceBusAddress > 0xffffffffull)
+                mapping.deviceBusAddress > K_DEVICE_MAX_ADDRESS)
+            {
                 return Error::AddressTooHigh;
-            if (requiredBytes > mapping.length)
+            }
+            if (required_bytes > mapping.length)
+            {
                 return Error::InsufficientLength;
-            if (requiredBytes - 1u > 0xffffffffull - mapping.deviceBusAddress)
+            }
+            if (required_bytes - 1U >
+                K_DEVICE_MAX_ADDRESS - mapping.deviceBusAddress)
+            {
                 return Error::AddressOverflow;
+            }
             return Error::Ok;
         }
 
         Error validateDescriptorRing(const Mapping &mapping,
-                                     size_t descriptorBytes, size_t count,
+                                     size_t descriptor_bytes, size_t count,
                                      size_t alignment)
         {
-            if (descriptorBytes == 0 || count == 0 ||
+            if (descriptor_bytes == 0 || count == 0 ||
                 count > TxRing::kMaximumSlots || alignment == 0 ||
-                (alignment & (alignment - 1u)) != 0 ||
-                descriptorBytes > static_cast<size_t>(0xffffffffu) / count)
+                (alignment & (alignment - 1U)) != 0 ||
+                descriptor_bytes >
+                    static_cast<size_t>(K_DEVICE_MAX_ADDRESS) / count)
+            {
                 return Error::InvalidCount;
-            const size_t required = descriptorBytes * count;
-            Error result = validateMapping(mapping, required);
+            }
+            const size_t required = descriptor_bytes * count;
+            const Error result = validateMapping(mapping, required);
             if (result != Error::Ok)
+            {
                 return result;
+            }
             // The first descriptor being aligned is not enough: each later
             // descriptor must also begin on the requested bus/CPU boundary.
-            if (count > 1 && descriptorBytes % alignment != 0)
+            if (count > 1 && descriptor_bytes % alignment != 0)
+            {
                 return Error::InvalidAlignment;
+            }
             if (mapping.direction != Direction::ToDevice ||
-                (mapping.deviceBusAddress & (alignment - 1u)) != 0 ||
+                (mapping.deviceBusAddress & (alignment - 1U)) != 0 ||
                 (reinterpret_cast<uintptr_t>(mapping.cpuAddress) &
-                 (alignment - 1u)) != 0)
+                 (alignment - 1U)) != 0)
+            {
                 return Error::InvalidAlignment;
+            }
             return Error::Ok;
         }
 
@@ -55,18 +80,22 @@ namespace simpleath
         {
         }
 
-        Error TxRing::initialize(size_t numberOfSlots)
+        Error TxRing::initialize(size_t number_of_slots)
         {
-            if (numberOfSlots == 0 || numberOfSlots > kMaximumSlots)
-                return Error::InvalidCount;
-            if (capacity_ != 0)
-                return Error::UnexpectedState;
-            capacity_ = numberOfSlots;
-            for (size_t i = 0; i < kMaximumSlots; ++i)
+            if (number_of_slots == 0 || number_of_slots > kMaximumSlots)
             {
-                slots_[i] = {};
-                slots_[i].generation = generation_;
-                slots_[i].state = SlotState::Free;
+                return Error::InvalidCount;
+            }
+            if (capacity_ != 0)
+            {
+                return Error::UnexpectedState;
+            }
+            capacity_ = number_of_slots;
+            for (RingSlot &slot : slots_)
+            {
+                slot = {};
+                slot.generation = generation_;
+                slot.state = SlotState::Free;
             }
             return Error::Ok;
         }
@@ -76,85 +105,112 @@ namespace simpleath
             // A failed reservation must not leave an earlier live token.
             token = {};
             if (capacity_ == 0)
+            {
                 return Error::UninitializedRing;
+            }
             // Never wrap a token and accidentally match an old completion.
             // Recreate the ring owner after complete DMA/callback teardown if
             // exhausted.
-            if (generation_ == 0xffffffffu)
+            if (generation_ == K_GENERATION_MAX)
+            {
                 return Error::GenerationExhausted;
+            }
             for (size_t i = 0; i < capacity_; ++i)
             {
-                if (slots_[i].state != SlotState::Free)
+                RingSlot &slot = slots_[i];
+                if (slot.state != SlotState::Free)
+                {
                     continue;
-                slots_[i].state = SlotState::Reserved;
-                slots_[i].generation = ++generation_;
-                slots_[i].cookie = cookie;
-                slots_[i].dmaMapped = false;
-                slots_[i].descriptorCompleted = false;
+                }
+                slot.state = SlotState::Reserved;
+                slot.generation = ++generation_;
+                slot.cookie = cookie;
+                slot.dmaMapped = false;
+                slot.descriptorCompleted = false;
                 ++active_;
-                token = {i, cookie, slots_[i].generation};
+                token = {i, cookie, slot.generation};
                 return Error::Ok;
             }
             return Error::RingFull;
         }
 
         Error TxRing::descriptorPrepared(const TxSlotToken &token,
-                                         bool dmaMapped, bool complete)
+                                         bool dma_mapped, bool complete)
         {
             if (token.index >= capacity_)
+            {
                 return Error::InvalidSlot;
-            if (!matches(token) ||
-                slots_[token.index].state != SlotState::Reserved)
+            }
+            RingSlot &slot = slots_[token.index];
+            if (!matches(token) || slot.state != SlotState::Reserved)
+            {
                 return Error::UnexpectedState;
-            if (!dmaMapped || !complete)
+            }
+            if (!dma_mapped || !complete)
+            {
                 return Error::NotReadyToTransmit;
-            slots_[token.index].dmaMapped = true;
-            slots_[token.index].descriptorCompleted = true;
-            slots_[token.index].state = SlotState::ReadyForHardware;
+            }
+            slot.dmaMapped = true;
+            slot.descriptorCompleted = true;
+            slot.state = SlotState::ReadyForHardware;
             return Error::Ok;
         }
 
         Error TxRing::handedToHardware(const TxSlotToken &token,
-                                       bool radioCalibrated,
-                                       bool channelAllowed, bool keysReady)
+                                       bool radio_calibrated,
+                                       bool channel_allowed, bool keys_ready)
         {
             if (token.index >= capacity_)
+            {
                 return Error::InvalidSlot;
-            if (!matches(token) ||
-                slots_[token.index].state != SlotState::ReadyForHardware)
+            }
+            RingSlot &slot = slots_[token.index];
+            if (!matches(token) || slot.state != SlotState::ReadyForHardware)
+            {
                 return Error::UnexpectedState;
-            if (!slots_[token.index].dmaMapped ||
-                !slots_[token.index].descriptorCompleted || !radioCalibrated ||
-                !channelAllowed || !keysReady)
+            }
+            if (!slot.dmaMapped || !slot.descriptorCompleted ||
+                !radio_calibrated || !channel_allowed || !keys_ready)
+            {
                 return Error::NotReadyToTransmit;
+            }
             // External PCI backend alone can execute a hardware doorbell.
-            slots_[token.index].state = SlotState::OwnedByHardware;
+            slot.state = SlotState::OwnedByHardware;
             return Error::Ok;
         }
 
         Error TxRing::complete(const TxSlotToken &token)
         {
             if (token.index >= capacity_)
+            {
                 return Error::InvalidSlot;
-            if (!matches(token) ||
-                slots_[token.index].state != SlotState::OwnedByHardware)
+            }
+            RingSlot &slot = slots_[token.index];
+            if (!matches(token) || slot.state != SlotState::OwnedByHardware)
+            {
                 return Error::UnexpectedState;
-            slots_[token.index].state = SlotState::Completed;
+            }
+            slot.state = SlotState::Completed;
             return Error::Ok;
         }
 
         Error TxRing::release(const TxSlotToken &token)
         {
             if (token.index >= capacity_)
+            {
                 return Error::InvalidSlot;
+            }
+            RingSlot &slot = slots_[token.index];
             if (!matches(token) || active_ == 0 ||
-                (slots_[token.index].state != SlotState::Completed &&
-                 slots_[token.index].state != SlotState::Reserved &&
-                 slots_[token.index].state != SlotState::ReadyForHardware))
+                (slot.state != SlotState::Completed &&
+                 slot.state != SlotState::Reserved &&
+                 slot.state != SlotState::ReadyForHardware))
+            {
                 return Error::UnexpectedState;
-            slots_[token.index] = {};
-            slots_[token.index].generation = generation_;
-            slots_[token.index].state = SlotState::Free;
+            }
+            slot = {};
+            slot.generation = generation_;
+            slot.state = SlotState::Free;
             --active_;
             return Error::Ok;
         }
@@ -165,20 +221,28 @@ namespace simpleath
             // descriptor/mapping explicitly. Discarding live metadata here
             // would hide unfinished DMA ownership and stale buffer lifetime.
             if (active_ != 0)
+            {
                 return Error::UnexpectedState;
+            }
             capacity_ = 0;
             // Preserve the reservation-token sequence across
             // reset/reinitialization.
-            for (size_t i = 0; i < kMaximumSlots; ++i)
-                slots_[i] = {};
+            for (RingSlot &slot : slots_)
+            {
+                slot = {};
+            }
             return Error::Ok;
         }
 
         bool TxRing::matches(const TxSlotToken &token) const
         {
-            return token.index < capacity_ && token.generation != 0 &&
-                   slots_[token.index].generation == token.generation &&
-                   slots_[token.index].cookie == token.cookie;
+            if (token.index >= capacity_ || token.generation == 0)
+            {
+                return false;
+            }
+            const RingSlot &slot = slots_[token.index];
+            return slot.generation == token.generation &&
+                   slot.cookie == token.cookie;
         }
 
         const RingSlot *TxRing::slot(size_t index) const
