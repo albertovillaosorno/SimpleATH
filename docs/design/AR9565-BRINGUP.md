@@ -12,6 +12,8 @@ scopes and recovery procedure, see [status and recovery](STATUS-AND-RECOVERY.md)
 See [macOS integration](MACOS-INTEGRATION.md) for PCI ownership/DMA/power and
 the limits of the stored Tahoe ABI evidence, and [EEPROM port](EEPROM-PORT.md)
 for the bounded source parser and the board acquisition still required.
+See [RTC reset source](RTC-RESET-SOURCE.md) for the inactive reset sequence
+and its posted-write, timing and power preconditions.
 
 ## Source components and blocking dependencies
 
@@ -30,6 +32,10 @@ for the bounded source parser and the board acquisition still required.
 | Native packet-buffer mapping | `src/platform/Ar9565NativeDma.*` | Disabled IOBuffer/IOMapper/IODMACommand resource source, 32-bit segments, client/gate handoff and token-checked retirement | Uncompiled; controller worker/epoch ownership, ABI validation, coherent rings and real queues/interrupts remain missing |
 | 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
+
+The inactive `src/hardware/Ar9565RtcPower.*` candidate adds bounded RTC
+bootstrap, wake and MAC warm/cold reset logic. It still lacks an active
+MMIO writer, native D0/work-loop integration and confirmed MCI callbacks.
 
 The generated Linux-derived arrays retain the original Atheros/Qualcomm
 permissive copyright notice in the generated file. The new C++ control code

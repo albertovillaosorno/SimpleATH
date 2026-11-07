@@ -1,0 +1,389 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+/*
+ * Copyright (c) 2008-2011 Atheros Communications Inc.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+// Pinned Linux references (protocol/constants only; no Linux objects linked):
+// hw.c:  8d06b4a22733dedd2d2a46247128f254b9345efae659de14189a8c2c0fd4731f
+// hw.h:  95498a7e664cf66e99edcdfa9225a147ec4bb77b0458bfb726b5b0c26c1ebe85
+// reg.h: 629a6df177d63b2a99202ab97a3641c488b5f1ac738f6f15612c7b4ebacebade
+#include "Ar9565RtcPower.hpp"
+
+namespace simpleath
+{
+    namespace
+    {
+        constexpr uint32_t kHostReset = 0x4000, kHostInterface = 0x100;
+        constexpr uint32_t kSyncCause = 0x4028, kSyncEnable = 0x402c,
+                           kSyncTimeouts = 0x3000;
+        constexpr uint32_t kRtcControl = 0x7000, kRtcReset = 0x7040,
+                           kForceWake = 0x704c;
+        constexpr uint32_t kWorkaroundWake = (1u << 14) | (1u << 17);
+        constexpr uint32_t kAr9565Workaround = 1u << 22;
+        constexpr uint64_t kOperationMicros = 250000;
+
+        class RtcRun final
+        {
+            public:
+                RtcRun(const RtcPowerBackend &backend, RtcPowerContext &context,
+                       RtcPowerStatus &status)
+                    : b_(backend), c_(context), s_(status),
+                      started_(backend.nowMicros(backend.context)),
+                      previous_(started_)
+                {
+                }
+
+                RtcResult check()
+                {
+                    if (!b_.canReset(b_.context, b_.ownerEpoch))
+                        return RtcResult::AccessRevoked;
+                    const uint64_t now = b_.nowMicros(b_.context);
+                    if (now < previous_)
+                        return RtcResult::InvalidClock;
+                    previous_ = now;
+                    return now - started_ >= kOperationMicros
+                               ? RtcResult::OperationTimeout
+                               : RtcResult::Ok;
+                }
+
+                RtcResult read(uint32_t reg, uint32_t &value)
+                {
+                    RtcResult result = check();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    if (!inBar(reg) ||
+                        (reg != kRevisionRegister &&
+                         reg != kWorkaroundRegister &&
+                         reg != kRtcStatusRegister && reg != kForceWake &&
+                         reg != kRtcControl && reg != kSyncCause))
+                        return RtcResult::InvalidRegister;
+                    ++s_.reads;
+                    s_.lastRegister = reg;
+                    s_.lastValue = 0;
+                    if (!b_.read32(b_.context, reg, &value) ||
+                        value == 0xffffffffu)
+                        return RtcResult::ReadFailed;
+                    s_.lastValue = value;
+                    return check();
+                }
+
+                RtcResult write(uint32_t reg, uint32_t value)
+                {
+                    RtcResult result = check();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    if (!inBar(reg) ||
+                        (reg != kWorkaroundRegister && reg != kForceWake &&
+                         reg != kRtcReset && reg != kRtcControl &&
+                         reg != kSyncEnable && reg != kHostReset))
+                        return RtcResult::InvalidRegister;
+                    s_.boardStateInvalidated = true;
+                    s_.lastRegister = reg;
+                    s_.lastValue = value;
+                    ++s_.writes;
+                    if (!b_.write32(b_.context, reg, value))
+                        return RtcResult::WriteFailed;
+                    return check();
+                }
+
+                RtcResult delay(uint32_t micros)
+                {
+                    RtcResult result = check();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    const uint64_t before = previous_;
+                    b_.delayMicros(b_.context, micros);
+                    result = check();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    // A monotonic clock alone does not prove the reset pulse
+                    // was held long enough. The callback must not return early.
+                    return previous_ - before >= micros
+                               ? RtcResult::Ok
+                               : RtcResult::DelayTooShort;
+                }
+
+                RtcResult workaround()
+                {
+                    RtcResult result =
+                        write(kWorkaroundRegister, c_.workaroundValue);
+                    return result == RtcResult::Ok ? delay(10) : result;
+                }
+
+                RtcResult wait(uint32_t reg, uint32_t mask, uint32_t expected,
+                               uint32_t budget, uint32_t interval,
+                               RtcResult timeout)
+                {
+                    const RtcResult checked = check();
+                    if (checked != RtcResult::Ok)
+                        return checked;
+                    const uint64_t start = previous_;
+                    for (uint32_t attempt = 0; attempt <= budget / interval;
+                         ++attempt)
+                    {
+                        if (++s_.polls > 21000)
+                            return RtcResult::OperationTimeout;
+                        uint32_t value = 0;
+                        RtcResult result = read(reg, value);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        if (previous_ - start >= budget)
+                            return timeout;
+                        if ((value & mask) == expected)
+                            return RtcResult::Ok;
+                        if (attempt == budget / interval)
+                            break;
+                        result = delay(interval);
+                        if (result != RtcResult::Ok)
+                            return result;
+                    }
+                    return timeout;
+                }
+
+                RtcResult macReset(bool cold)
+                {
+                    RtcResult result = workaround();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kForceWake, 3);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    uint32_t cause = 0;
+                    result = read(kSyncCause, cause);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    if (cause & kSyncTimeouts)
+                    {
+                        result = write(kSyncEnable, 0);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        result = write(kHostReset, kHostInterface);
+                        if (result != RtcResult::Ok)
+                            return result;
+                    }
+                    if (b_.mciEnabled)
+                    {
+                        if (!b_.beforeMacReset(b_.context))
+                            return RtcResult::CoexistenceUnavailable;
+                        result = check();
+                        if (result != RtcResult::Ok)
+                            return result;
+                    }
+                    result = write(kRtcControl, cold ? 3 : 1);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = delay(50); // AR9565 is AR9003; exclude unrelated
+                                        // SoC/DMA-halt recipes.
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kRtcControl, 0);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = wait(kRtcControl, 3, 0, 100000, 10,
+                                  RtcResult::ResetTimeout);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kHostReset, 0);
+                    if (result == RtcResult::Ok)
+                        s_.resetCompleted = true;
+                    return result;
+                }
+
+                RtcResult powerOn()
+                {
+                    c_.bootstrapCompleted = false;
+                    c_.bootstrapEpoch = 0;
+                    RtcResult result = workaround();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kForceWake, 3);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kRtcReset, 0);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = delay(2);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = write(kRtcReset, 1);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = wait(kRtcStatusRegister, kRtcStatusMask, kRtcOn,
+                                  100000, 10, RtcResult::WakeTimeout);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    result = macReset(false);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    c_.workaroundValue |= kAr9565Workaround;
+                    return write(kWorkaroundRegister, c_.workaroundValue);
+                }
+
+                RtcResult awake()
+                {
+                    RtcResult result = workaround();
+                    if (result != RtcResult::Ok)
+                        return result;
+                    uint32_t rtc = 0;
+                    result = read(kRtcStatusRegister, rtc);
+                    if (result != RtcResult::Ok)
+                        return result;
+                    if ((rtc & kRtcStatusMask) == 1)
+                    {
+                        result = powerOn();
+                        if (result != RtcResult::Ok)
+                            return result;
+                    }
+                    // Reassert force wake every 50 us, as ath9k does, at most
+                    // 200 times.
+                    for (uint32_t attempt = 0; attempt < 200; ++attempt)
+                    {
+                        uint32_t force = 0;
+                        result = read(kForceWake, force);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        result = write(kForceWake, force | 1u);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        result = delay(50);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        ++s_.polls;
+                        result = read(kRtcStatusRegister, rtc);
+                        if (result != RtcResult::Ok)
+                            return result;
+                        if ((rtc & kRtcStatusMask) == kRtcOn)
+                            return RtcResult::Ok;
+                    }
+                    return RtcResult::WakeTimeout;
+                }
+
+            private:
+                bool inBar(uint32_t reg) const
+                {
+                    return !(reg & 3u) && reg <= b_.barLengthBytes &&
+                           b_.barLengthBytes - reg >= 4;
+                }
+
+                const RtcPowerBackend &b_;
+                RtcPowerContext &c_;
+                RtcPowerStatus &s_;
+                uint64_t started_, previous_;
+        };
+    } // namespace
+
+    RtcResult transitionAr9565Rtc(const RtcPowerBackend &backend,
+                                  const Identity &identity,
+                                  RtcOperation operation,
+                                  RtcPowerContext &context,
+                                  RtcPowerStatus &status)
+    {
+        status = {};
+        if (!backend.context || !backend.providerToken || !backend.ownerEpoch ||
+            !backend.canReset || !backend.read32 || !backend.write32 ||
+            !backend.nowMicros || !backend.delayMicros ||
+            backend.barLengthBytes < kForceWake + 4 ||
+            (operation != RtcOperation::BootstrapPowerOn &&
+             operation != RtcOperation::EnsureAwake &&
+             operation != RtcOperation::WarmReset &&
+             operation != RtcOperation::ColdReset))
+            return status.result = RtcResult::InvalidArgument;
+        if (backend.mciEnabled &&
+            (!backend.beforeMacReset || !backend.afterRtcAwake))
+            return status.result = RtcResult::CoexistenceUnavailable;
+        // A caller-supplied context must be either fresh or a coherent
+        // snapshot captured for a previous transition. Never honor a forged
+        // bootstrap flag or reuse an incomplete provider snapshot.
+        if ((!context.workaroundCaptured &&
+             (context.providerToken || context.srev ||
+              context.workaroundValue || context.bootstrapCompleted ||
+              context.bootstrapEpoch)) ||
+            (context.workaroundCaptured &&
+             (!context.providerToken || !context.srev ||
+              context.bootstrapCompleted != (context.bootstrapEpoch != 0))))
+            return status.result = RtcResult::InvalidArgument;
+        if (!isSupportedPci(identity.vendorId, identity.deviceId) ||
+            identity.spoofPossible)
+            return status.result = RtcResult::UnsupportedIdentity;
+        if (context.workaroundCaptured &&
+            context.providerToken != backend.providerToken)
+            return status.result = RtcResult::ProviderChanged;
+        // Retain the original WA capture for this provider, but never carry
+        // reset readiness across a different D0/ownership generation.
+        if (context.bootstrapCompleted &&
+            context.bootstrapEpoch != backend.ownerEpoch)
+        {
+            context.bootstrapCompleted = false;
+            context.bootstrapEpoch = 0;
+        }
+        if (!context.bootstrapCompleted &&
+            operation != RtcOperation::BootstrapPowerOn)
+            return status.result = RtcResult::BootstrapRequired;
+        RtcRun run(backend, context, status);
+        uint32_t srev = 0;
+        RtcResult result = run.read(kRevisionRegister, srev);
+        if (result != RtcResult::Ok)
+            return status.result = result;
+        if (decodeRevision(srev, status.silicon) != Result::Ok)
+            return status.result = RtcResult::UnsupportedSilicon;
+        if (context.workaroundCaptured && context.srev != srev)
+            return status.result = RtcResult::ProviderChanged;
+        if (!context.workaroundCaptured)
+        {
+            uint32_t workaround = 0;
+            result = run.read(kWorkaroundRegister, workaround);
+            if (result != RtcResult::Ok)
+                return status.result = result;
+            context.providerToken = backend.providerToken;
+            context.srev = srev;
+            context.workaroundValue = workaround | kWorkaroundWake;
+            context.workaroundCaptured = true;
+        }
+        if (operation == RtcOperation::BootstrapPowerOn)
+            result = run.powerOn();
+        else if (operation == RtcOperation::EnsureAwake)
+            result = run.awake();
+        else
+            result = run.macReset(operation == RtcOperation::ColdReset);
+        if (result == RtcResult::Ok && operation != RtcOperation::EnsureAwake)
+        {
+            uint32_t rtc = 0;
+            result = run.read(kRtcStatusRegister, rtc);
+            if (result == RtcResult::Ok && (rtc & kRtcStatusMask) != kRtcOn)
+                result = RtcResult::WakeTimeout;
+        }
+        if (result == RtcResult::Ok && backend.mciEnabled)
+        {
+            if (!backend.afterRtcAwake(backend.context))
+                result = RtcResult::CoexistenceUnavailable;
+            else
+                result = run.check();
+        }
+        if (result == RtcResult::Ok && !context.bootstrapCompleted)
+        {
+            // Commit readiness only after RTC status and MCI callbacks have
+            // succeeded. This also covers EnsureAwake after RTC shutdown.
+            context.bootstrapEpoch = backend.ownerEpoch;
+            context.bootstrapCompleted = true;
+        }
+        if (result != RtcResult::Ok && status.boardStateInvalidated)
+        {
+            context.bootstrapCompleted = false;
+            context.bootstrapEpoch = 0;
+        }
+        status.rtcAwake = result == RtcResult::Ok;
+        return status.result = result;
+    }
+
+} // namespace simpleath
