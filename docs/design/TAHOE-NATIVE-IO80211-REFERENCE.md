@@ -106,6 +106,43 @@ establish that the Realtek legacy family is present, link-eligible or loaded
 on stock 25G332. Native family choice and prerequisite availability must be
 resolved for the exact target, not inferred from a working patch-based sample.
 
+## Security, controlled port and AWDL ownership decision
+
+An AirPort native interface needs **one** authoritative association/key owner,
+not independent macOS and portable handshakes simultaneously. The proposed
+source integration boundary (still unverified for the exact native ABI) is:
+
+| Responsibility | Proposed exclusive owner and fail-closed handoff |
+| --- | --- |
+| UI scan, network choice and credentials | macOS AirPort control client requests scan/join; controller validates selectors, copies requests, and chooses one authorized channel/BSS. Portable `ScanCache` may supply verified results but must never invent radio dwell or SCAN_DONE |
+| 802.11 open authentication and association | Native controller serializes physical MAC TX/RX and calls `WifiEngine`/`Station` for frame parsing/production. OS `joinStarted`/`joinDone` are notifications **after** real state transitions, never a parallel second state machine |
+| WPA2-PSK PMK, PTK, GTK, replay and controlled port | Decide which side owns 4-way handshake **before** enabling adapter. With current source, `Wpa2Supplicant` owns derivation/EAPOL state, while a verified native key backend alone installs hardware keys and validates PN/MIC. If the selected Tahoe Apple80211 contract instead delegates PMK/PTK to the OS and delivers `CIPHER_KEY`, do **not** run the portable handshake in parallel; adapt to the OS-owned protocol and disable conflicting transitions. Neither arrangement has a verified native implementation today |
+| Network-ready and packet delivery | Open the controlled data port only after real association, authorized channel, pairwise/group key installation and replay protection. OS-owned packet buffers and network stack handle Ethernet-II payload delivery, DHCP, IPv4/IPv6, DNS and TCP; the kext does **not** build a parallel IP stack |
+| Disconnect, sleep, new join, teardown | Work-loop owner closes the controlled port first, revokes queues/user callbacks, quiesces DMA, erases keys/replay state, retires association/scan epochs and then notifies OS. Never publish connected state during recovery or after a stale callback |
+
+Exact-build KDK nlist candidates include
+`apple80211setASSOCIATE(IO80211SkywalkInterface*, apple80211_assoc_data*)`,
+`apple80211setCIPHER_KEY(IO80211SkywalkInterface*, apple80211_key*)`,
+`apple80211setKEY_RSC(IO80211SkywalkInterface*, apple80211_key*)`,
+`apple80211setRSN_IE(IO80211SkywalkInterface*, apple80211_rsn_ie_data*)`,
+and `apple80211setSTA_AUTHORIZE(IO80211SkywalkInterface*,
+apple80211_sta_authorize_data*)`. Their existence identifies required
+**investigation**, not selector direction, usable callback signatures, OS vs
+kext PMK ownership, export eligibility or permission to receive clear keys.
+The exact request layout, controlled-port behavior, replay-counter origin,
+key deletion semantics and `wifid`/controller ownership must be determined
+before choosing one of the two security handoffs. Until then never emit a
+successful WPA2 join or OS-ready state, and never install a key twice.
+
+The same KDK inventory contains many `apple80211...AWDL...` definition
+candidates, but a station-only AR9565 scan/association implementation does
+**not** provide AWDL peer discovery, action frames, off-channel scheduling,
+synchronized coexistence, multicast service discovery or Continuity support.
+The chosen OS native family and hardware adapter must jointly establish
+these contracts (and the required Bluetooth/Continuity prerequisites) before
+claiming AirDrop. Working DHCP/IP alone is insufficient; availability remains
+unverified even if ordinary station networking becomes functional.
+
 Before introducing any `IO80211Controller` subclass into the Xcode Sources
 phase, the P0 ABI task must supply exact-target method and virtual signatures,
 verified exports/KPI eligibility, object size and superclass constructor
