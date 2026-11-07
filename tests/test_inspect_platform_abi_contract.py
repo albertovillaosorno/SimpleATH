@@ -2,6 +2,7 @@
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic supplied-SystemVersion boundary tests for offline ABI inventory."""
 
+import argparse
 import hashlib
 import os
 from pathlib import Path
@@ -14,6 +15,7 @@ from tools import inspect_platform_abi as inspector
 
 PRODUCT_VERSION = "26.7.2"
 PRODUCT_BUILD = "25G332"
+CLI_FAILURE = 2
 
 
 def _rejects_version(path: Path, expected: type[OSError | ValueError]) -> bool:
@@ -105,3 +107,41 @@ class SuppliedSystemVersionTests(TestCase):
             with version.open("wb") as source:
                 _ = source.truncate(inspector.KDK_FILE_LIMIT + 1)
             assert _rejects_version(version, ValueError)
+
+
+def _rejects_bad_cli(parsed: argparse.Namespace) -> bool:
+    """Assert the public CLI refuses untyped options before inventory.
+
+    Returns:
+        True if the public CLI exits with an error and does not inspect data.
+
+    """
+    with (
+        mock.patch.object(
+            argparse.ArgumentParser, "parse_args", return_value=parsed
+        ),
+        mock.patch.object(inspector, "inventory") as inventory,
+        mock.patch.object(
+            argparse.ArgumentParser, "exit", side_effect=SystemExit(2)
+        ),
+    ):
+        try:
+            inspector.main()
+        except SystemExit as error:
+            return error.code == CLI_FAILURE and inventory.call_count == 0
+    return False
+
+
+class InspectorCliBoundaryTests(TestCase):
+    """Reject dynamically typed CLI values before reading OS ABI evidence."""
+
+    @staticmethod
+    def test_cli_rejects_invalid_namespace_types_without_inspection() -> None:
+        """Refuse unexpected path values without reading a native image."""
+        args = argparse.Namespace(
+            reference=123,
+            collection=None,
+            kdk_root=None,
+            system_version=None,
+        )
+        assert _rejects_bad_cli(args)
