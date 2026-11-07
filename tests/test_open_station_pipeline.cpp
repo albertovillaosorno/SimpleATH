@@ -82,11 +82,88 @@ namespace
         frame[32] = 0x82;
         frame[33] = 0x84;
     }
+
+    bool rejectStationManagementTxAlias()
+    {
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        Bss candidate {};
+        if (parseBeacon(advertisement, sizeof(advertisement),
+                        candidate.beacon) != Result::Ok)
+            return false;
+        candidate.occupied = true;
+        const Mac ownMac {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        Station owner;
+        if (owner.enterScanning(true, true) != StationResult::Ok ||
+            owner.select(ownMac, candidate) != StationResult::Ok)
+            return false;
+
+        struct TxBuffer
+        {
+                size_t written;
+                uint8_t storage[128];
+        } tx {};
+
+        tx.written = 123;
+        std::memset(tx.storage, 0xa5, sizeof(tx.storage));
+        uint8_t previousTx[sizeof(tx)] {};
+        std::memcpy(previousTx, &tx, sizeof(tx));
+        if (owner.authenticationRequest(1, reinterpret_cast<uint8_t *>(&tx),
+                                        sizeof(tx), tx.written) !=
+                Result::OverlappingBuffers ||
+            std::memcmp(&tx, previousTx, sizeof(tx)) != 0 ||
+            owner.state() != StationState::CandidateSelected)
+            return false;
+
+        // A byte pointer into owner storage must not overwrite association
+        // state even if the output-length reference is kept elsewhere.
+        uint8_t previousOwner[sizeof(owner)] {};
+        std::memcpy(previousOwner, &owner, sizeof(owner));
+        size_t written = 777;
+        if (owner.authenticationRequest(1, reinterpret_cast<uint8_t *>(&owner),
+                                        sizeof(owner), written) !=
+                Result::OverlappingBuffers ||
+            written != 777 ||
+            std::memcmp(&owner, previousOwner, sizeof(owner)) != 0)
+            return false;
+        uint8_t frame[128] {};
+        if (owner.authenticationRequest(1, frame, sizeof(frame), written) !=
+                Result::Ok ||
+            written != 30)
+            return false;
+        uint8_t response[30] {};
+        authenticationResponse(response);
+        if (owner.onAuthenticationResponse(response, sizeof(response)) !=
+            StationResult::Ok)
+            return false;
+        tx.written = 234;
+        std::memcpy(previousTx, &tx, sizeof(tx));
+        if (owner.associationRequest(2, reinterpret_cast<uint8_t *>(&tx),
+                                     sizeof(tx), tx.written) !=
+                Result::OverlappingBuffers ||
+            std::memcmp(&tx, previousTx, sizeof(tx)) != 0 ||
+            owner.state() != StationState::Authenticated)
+            return false;
+        std::memcpy(previousOwner, &owner, sizeof(owner));
+        written = 888;
+        if (owner.associationRequest(2, reinterpret_cast<uint8_t *>(&owner),
+                                     sizeof(owner),
+                                     written) != Result::OverlappingBuffers ||
+            written != 888 ||
+            std::memcmp(&owner, previousOwner, sizeof(owner)) != 0)
+            return false;
+        return owner.associationRequest(2, frame, sizeof(frame), written) ==
+                   Result::Ok &&
+               written > 30 &&
+               owner.state() == StationState::AssociationFramePrepared;
+    }
 } // namespace
 
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectStationManagementTxAlias())
+        return 19;
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;

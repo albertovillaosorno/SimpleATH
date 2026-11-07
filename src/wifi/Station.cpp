@@ -6,6 +6,19 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        namespace
+        {
+            bool overlapsStorage(const void *first, size_t firstBytes,
+                                 const void *second, size_t secondBytes)
+            {
+                if (!first || !second || !firstBytes || !secondBytes)
+                    return false;
+                const auto left = reinterpret_cast<uintptr_t>(first);
+                const auto right = reinterpret_cast<uintptr_t>(second);
+                return left <= right ? right - left < firstBytes
+                                     : left - right < secondBytes;
+            }
+        } // namespace
 
         Station::Station()
             : state_(StationState::Inactive), chosen_ {}, stationMac_ {},
@@ -92,6 +105,12 @@ namespace simpleath
         Result Station::authenticationRequest(uint16_t sequence, uint8_t *out,
                                               size_t capacity, size_t &written)
         {
+            // Reject aliases before zeroing written or serializing into the
+            // station's live association snapshot.
+            if (overlapsStorage(out, capacity, &written, sizeof(written)) ||
+                overlapsStorage(out, capacity, this, sizeof(*this)) ||
+                overlapsStorage(&written, sizeof(written), this, sizeof(*this)))
+                return Result::OverlappingBuffers;
             written = 0;
             if (state_ != StationState::CandidateSelected)
                 return Result::UnsupportedFrame;
@@ -125,6 +144,10 @@ namespace simpleath
         Result Station::associationRequest(uint16_t sequence, uint8_t *out,
                                            size_t capacity, size_t &written)
         {
+            if (overlapsStorage(out, capacity, &written, sizeof(written)) ||
+                overlapsStorage(out, capacity, this, sizeof(*this)) ||
+                overlapsStorage(&written, sizeof(written), this, sizeof(*this)))
+                return Result::OverlappingBuffers;
             written = 0;
             if (state_ != StationState::Authenticated)
                 return Result::UnsupportedFrame;
