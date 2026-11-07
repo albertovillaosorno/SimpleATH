@@ -36,12 +36,13 @@ namespace simpleath
                 size_t size() const;
                 // Returns a defensive copy of the Nth occupied BSS for native
                 // scan enumeration. Caller must serialize with
-                // observe()/expire()/clear().
+                // observe()/expire()/clear(). Failed lookups clear out.
                 bool snapshot(size_t ordinal, Bss &out) const;
 
                 // Only allows Open or WPA2/CCMP PSK, with a visible SSID
                 // and 2.4GHz channel. If both security types are permitted,
                 // prefer WPA2/CCMP PSK over Open before comparing signal.
+                // Invalid/unmeasured RSSI never beats a measured value.
                 // This does NOT check country-specific regulatory policy.
                 // A copy of the BSS is returned; no invalidatable pointers.
                 bool strongest(const uint8_t *ssid, size_t ssidLength,

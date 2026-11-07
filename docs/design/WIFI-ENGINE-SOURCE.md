@@ -3,7 +3,11 @@
 Status: uncompiled, unaudited and not hardware-connected (2026-11-06).
 
 The new WifiEngine interface wires together existing portable modules:
-- Bounded BSS cache, beacon and probe response parsing.
+- Bounded BSS cache, beacon and probe response parsing. Hidden SSIDs only
+  inherit a previously visible name for the same BSSID when channel and RSN
+  security advertisements still match. Selection prefers measured RSSI over
+  invalid/unmeasured values within the same security class; unsuccessful BSS
+  lookups clear the returned snapshot.
 - Explicit per-channel selection and station authentication/association.
 - WPA2 EAPOL M1 -> M2 and M3 -> M4 with the separately staged crypto
   adapter, requiring real CSPRNG and pairwise/group keycache callbacks.

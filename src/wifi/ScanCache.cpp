@@ -5,6 +5,28 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        namespace
+        {
+            bool sameSecurityAdvertisement(const Beacon &left,
+                                           const Beacon &right)
+            {
+                if (left.channel != right.channel ||
+                    left.rsn.security != right.rsn.security ||
+                    ((left.capabilities ^ right.capabilities) & 0x0010u) != 0 ||
+                    left.rsnIeLength != right.rsnIeLength ||
+                    left.rsnIeLength > sizeof(left.rsnIe))
+                    return false;
+                for (size_t i = 0; i < left.rsnIeLength; ++i)
+                    if (left.rsnIe[i] != right.rsnIe[i])
+                        return false;
+                return true;
+            }
+
+            bool measuredRssi(int8_t rssiDbm)
+            {
+                return rssiDbm < 0 && rssiDbm >= -127;
+            }
+        } // namespace
 
         ScanCache::ScanCache() : entries_ {}
         {
@@ -57,10 +79,12 @@ namespace simpleath
             if (slot == kCapacity)
                 return Result::InvalidFrame;
 
-            // Hidden beacon SSIDs must not erase a previously observed visible
-            // probe-response name for the same BSSID.
+            // Retain a previously visible probe-response name only if a
+            // subsequent hidden beacon still advertises the same channel and
+            // security contract. A recycled BSSID cannot inherit an old SSID.
             if (entries_[slot].occupied && beacon.hiddenSsid &&
-                !entries_[slot].beacon.hiddenSsid)
+                !entries_[slot].beacon.hiddenSsid &&
+                sameSecurityAdvertisement(beacon, entries_[slot].beacon))
             {
                 beacon.ssidLength = entries_[slot].beacon.ssidLength;
                 beacon.hiddenSsid = false;
@@ -97,6 +121,7 @@ namespace simpleath
 
         bool ScanCache::snapshot(size_t ordinal, Bss &out) const
         {
+            out = {};
             if (ordinal >= kCapacity)
                 return false;
             size_t occupied = 0;
@@ -119,7 +144,10 @@ namespace simpleath
                                   bool permitWpa2, Bss &out) const
         {
             if (ssidLength > 32 || (ssidLength != 0 && !ssid))
+            {
+                out = {};
                 return false;
+            }
             bool found = false;
             Bss best {};
             for (size_t i = 0; i < kCapacity; ++i)
@@ -154,9 +182,16 @@ namespace simpleath
                 const bool secureCandidate = security == Security::Wpa2Personal;
                 const bool secureBest =
                     found && best.beacon.rsn.security == Security::Wpa2Personal;
+                const bool candidateMeasured = measuredRssi(candidate.rssiDbm);
+                const bool bestMeasured = measuredRssi(best.rssiDbm);
+                // Unknown/invalid RSSI must not outrank an actual measured
+                // signal. Both unmeasured: retain deterministic first entry.
+                const bool betterSignal =
+                    (candidateMeasured && !bestMeasured) ||
+                    (candidateMeasured && bestMeasured &&
+                     candidate.rssiDbm > best.rssiDbm);
                 if (!found || (secureCandidate && !secureBest) ||
-                    (secureCandidate == secureBest &&
-                     candidate.rssiDbm > best.rssiDbm))
+                    (secureCandidate == secureBest && betterSignal))
                 {
                     found = true;
                     best = candidate;
@@ -164,6 +199,8 @@ namespace simpleath
             }
             if (found)
                 out = best;
+            else
+                out = {};
             return found;
         }
 
