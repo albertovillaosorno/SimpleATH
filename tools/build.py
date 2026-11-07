@@ -26,17 +26,18 @@ from embed import ALIASES
 from embed import LABELS
 from embed import OUTPUT
 from embed import VERSION
-from embed import parse
+from embed_macho_parser import parse
 from kernel_collection import KernelCollection
 from macho import Image
 from native_references import reference_paths
 from profiles import IMAGES
+from source_fingerprint import source_fingerprint
 from system_profiles import SYSTEMS
 from system_profiles import validate_reference_systems
-from source_fingerprint import source_fingerprint
 from verification_runtime import require_assertions_active
 
 CONFIGURATIONS = ("Debug", "Release")
+PROJECT = ROOT / "src/platform/SimpleATH.xcodeproj"
 
 
 def package_name(
@@ -553,8 +554,8 @@ def verify(configuration, references):
                 "-fsanitize=address,undefined",
                 "-fno-omit-frame-pointer",
                 "-I",
-                str(ROOT / "SimpleATH"),
-                str(ROOT / "SimpleATH/Relocate.cpp"),
+                str(ROOT / "src"),
+                str(ROOT / "src/Relocate.cpp"),
                 str(OUTPUT / "Payloads.cpp"),
                 str(temp / "Payloads.S"),
                 str(temp / "main.cpp"),
@@ -678,7 +679,7 @@ def build(configuration, analyze=False):
     command = [
         "xcodebuild",
         "-project",
-        str(ROOT / "SimpleATH.xcodeproj"),
+        str(PROJECT),
         "-scheme",
         "SimpleATH",
         "-configuration",
@@ -737,6 +738,30 @@ def build(configuration, analyze=False):
         )
 
 
+def copy_package_sources(root: Path, stage: Path) -> None:
+    """Copy only real current source documents into an offline package.
+
+    The original packaging helper referenced README.en.md, NOTICE.md,
+    Tools/ and Docs/, none of which exist in the migrated source tree.
+    Keeping these references would prevent an otherwise authorized build
+    from ever being packaged. No artifact is built by this helper.
+
+    """
+    extra = stage / "Extra"
+    for filename in ("README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"):
+        shutil.copy2(root / filename, stage / filename)
+    shutil.copy2(root / "tools/collect.py", extra / "collect.py")
+    docs = stage / "Docs"
+    docs.mkdir()
+    for document in sorted((root / "docs").glob("*.md")):
+        shutil.copy2(document, docs / document.name)
+    # A checked-out OCLP reference may carry additional licensing terms.
+    # Include its notice when present, never require a downloaded reference.
+    license_file = root / ".research/OpenCore-Legacy-Patcher/LICENSE.txt"
+    if license_file.is_file() and not license_file.is_symlink():
+        shutil.copy2(license_file, extra / "OCLP-LICENSE.txt")
+
+
 def package(configuration, channel="rel"):
     require_assertions_active()
     report = json.loads(
@@ -769,16 +794,7 @@ def package(configuration, channel="rel"):
         shutil.copytree(
             product / "SimpleATH.kext.dSYM", extra / "SimpleATH.kext.dSYM"
         )
-        for filename in ("README.md", "README.en.md", "NOTICE.md"):
-            shutil.copy2(ROOT / filename, stage / filename)
-        shutil.copy2(
-            ROOT / ".research/OpenCore-Legacy-Patcher/LICENSE.txt",
-            extra / "OCLP-LICENSE.txt",
-        )
-        shutil.copy2(ROOT / "Tools/collect.py", extra / "collect.py")
-        (stage / "Docs").mkdir()
-        for document in (ROOT / "Docs").glob("*.md"):
-            shutil.copy2(document, stage / "Docs" / document.name)
+        copy_package_sources(ROOT, stage)
         (extra / "Validation.json").write_text(
             json.dumps(report, indent=2) + "\n"
         )
