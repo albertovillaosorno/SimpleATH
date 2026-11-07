@@ -18,6 +18,7 @@ from embed import checked_payload_size
 from embed import checked_relocation_entries
 from embed import checked_relocation_width
 from embed import remap_file_offset
+from embed import require_embed
 from embed_payload_codec import align
 
 RELOC_BYTES = 8
@@ -41,7 +42,9 @@ def _bad(data: bytes, offset: int, count: int, *, symbol_count: int) -> str:
 
     """
     try:
-        _ = checked_relocation_entries(data, offset, count, symbol_count)
+        _ = checked_relocation_entries(
+            data, offset, count, symbol_count=symbol_count
+        )
     except ValueError as error:
         return str(error)
     return ""
@@ -56,14 +59,16 @@ class EmbedRelocationSafetyTests(TestCase):
         external = EXTERNAL_SYMBOL | SAMPLE_SYMBOL
         data = struct.pack("<iI", SAMPLE_ADDRESS, external)
         data += struct.pack("<iI", SAMPLE_ADDRESS + RELOC_BYTES, 1)
-        assert checked_relocation_entries(data, 0, 2, SAMPLE_SYMBOL_COUNT) == [
+        assert checked_relocation_entries(
+            data, 0, 2, symbol_count=SAMPLE_SYMBOL_COUNT
+        ) == [
             (SAMPLE_ADDRESS, external),
             (SAMPLE_ADDRESS + RELOC_BYTES, 1),
         ]
-        assert checked_relocation_entries(data, 0, 0, 0) == []
-        assert checked_relocation_entries(data, RELOC_BYTES, 1, 0) == [
-            (SAMPLE_ADDRESS + RELOC_BYTES, 1)
-        ]
+        assert checked_relocation_entries(data, 0, 0, symbol_count=0) == []
+        assert checked_relocation_entries(
+            data, RELOC_BYTES, 1, symbol_count=0
+        ) == [(SAMPLE_ADDRESS + RELOC_BYTES, 1)]
 
     @staticmethod
     def test_truncated_and_oversize_spans_rejected_first() -> None:
@@ -299,3 +304,24 @@ class PayloadVirtualImageSafetyTests(TestCase):
         assert BAD_SEGMENT_ZERO in _bad_payload(
             source, [("__TEXT", 0, 0, 0, 0)]
         )
+
+
+class EmbedAlwaysCheckedInvariantsTests(TestCase):
+    """Source artifact guards must not depend on Python assert statements."""
+
+    @staticmethod
+    def test_valid_condition_is_noop() -> None:
+        """Preserve successful input without changing the generated data."""
+        require_embed(condition=True, message="unused")
+
+    @staticmethod
+    def test_invalid_condition_preserves_diagnostic() -> None:
+        """Reject unsafe metadata with a stable, explicit ValueError."""
+        message = "Synthetic unsupported generator metadata"
+        try:
+            require_embed(condition=False, message=message)
+        except ValueError as error:
+            received = str(error)
+        else:
+            received = ""
+        assert received == message

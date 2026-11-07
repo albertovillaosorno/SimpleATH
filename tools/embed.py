@@ -9,21 +9,26 @@
 
 """Generate bounded offline legacy payload metadata for native verification."""
 
+from __future__ import annotations
+
 import hashlib
+from itertools import pairwise
 import json
 import plistlib
 import re
 import shutil
 import struct
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv for pinned offline disassembly.
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from embed_macho_parser import LoadCommand
+
 from bootstrap import ROOT
 from bootstrap import validate_payloads
-from embed_macho_parser import LoadCommand
 from embed_macho_parser import parse
 from embed_payload_codec import align
 from embed_payload_codec import checksum
@@ -40,12 +45,25 @@ from system_profiles import SYSTEMS
 from verification_runtime import require_assertions_active
 
 OUTPUT = ROOT / "build/Embedded"
-LABELS = ["Legacy", "AirPortOriginal", "AirPort"]
+LABEL_LEGACY = "Legacy"
+LABEL_AIRPORT_ORIGINAL = "AirPortOriginal"
+LABEL_AIRPORT = "AirPort"
+LABELS = [LABEL_LEGACY, LABEL_AIRPORT_ORIGINAL, LABEL_AIRPORT]
 VERSION = "1.2.0"
 ALIASES = {
-    "__ZN26IOSkywalkEthernetInterface18getHardwareAddressEP12ether_addr_t": "__ZN26IOSkywalkEthernetInterface18getHardwareAddressEP10ether_addr",
-    "__ZN26IOSkywalkEthernetInterface19setLinkLayerAddressEP12ether_addr_t": "__ZN26IOSkywalkEthernetInterface19setLinkLayerAddressEP10ether_addr",
-    "__ZN26IOSkywalkEthernetInterface21setMulticastAddressesEPK12ether_addr_tj": "__ZN26IOSkywalkEthernetInterface21setMulticastAddressesEPK10ether_addrj",
+    "__ZN26IOSkywalkEthernetInterface18getHardwareAddressEP12ether_addr_t": (
+        "__ZN26IOSkywalkEthernetInterface18getHardwareAddressEP10ether_addr"
+    ),
+    "__ZN26IOSkywalkEthernetInterface19setLinkLayerAddressEP12ether_addr_t": (
+        "__ZN26IOSkywalkEthernetInterface19setLinkLayerAddressEP10ether_addr"
+    ),
+    (
+        "__ZN26IOSkywalkEthernetInterface21setMulticastAddresses"
+        "EPK12ether_addr_tj"
+    ): (
+        "__ZN26IOSkywalkEthernetInterface21setMulticastAddresses"
+        "EPK10ether_addrj"
+    ),
 }
 
 
@@ -54,6 +72,12 @@ MAX_EXPANDED_PAYLOAD_BYTES = 256 * 1024 * 1024
 RELOCATION_RECORD_BYTES = 8
 DYSYMTAB_COMMAND = 0xB
 DYSYMTAB_COMMAND_BYTES = 80
+MACH_LC_SEGMENT_64 = 0x19
+MACH_LC_SYMTAB = 2
+SYMBOL_TYPE_MASK = 0xF
+SYMBOL_DEFINED_MASK = 0xE
+SYMBOL_UNDEFINED_TYPE = 1
+SKYWALK_NAME_MARKER = "IOSkywalk"
 ABSOLUTE_RELOCATION_KIND = 0
 BRANCH_RELOCATION_KIND = 2
 RELOCATION_QWORD_BYTES = 8
@@ -71,8 +95,19 @@ ROUTE_DISASSEMBLY_LINE = re.compile(
 ROUTE_CONTROL_TRANSFER = re.compile(r"(j\w*|call\w*|ret\w*|loop\w*)\b")
 
 
+def require_embed(*, condition: bool, message: str) -> None:
+    """Reject a violated generation invariant independently of -O mode.
+
+    Raises:
+        ValueError: Input cannot safely produce an embedded artifact.
+
+    """
+    if not condition:
+        raise ValueError(message)
+
+
 def checked_relocation_entries(
-    data: bytes, offset: int, count: int, symbol_count: int
+    data: bytes, offset: int, count: int, *, symbol_count: int
 ) -> list[tuple[int, int]]:
     """Check an entire Mach-O relocation span before consuming entries.
 
@@ -83,14 +118,14 @@ def checked_relocation_entries(
         ValueError: A span, index or external symbol is outside its bounds.
 
     """
-    if (
-        offset < 0
-        or count < 0
-        or symbol_count < 0
-        or count > MAX_EMBED_RELOCATIONS
-        or offset > len(data)
-        or count > (len(data) - offset) // RELOCATION_RECORD_BYTES
-    ):
+    invalid_counts = min(offset, count, symbol_count) < 0
+    oversized_count = count > MAX_EMBED_RELOCATIONS
+    span_exceeds_data = offset > len(data)
+    if not span_exceeds_data:
+        span_exceeds_data = (
+            count > (len(data) - offset) // RELOCATION_RECORD_BYTES
+        )
+    if invalid_counts or oversized_count or span_exceeds_data:
         message = "Mach-O relocation table exceeds checked source bounds"
         raise ValueError(message)
     rows: list[tuple[int, int]] = []
@@ -154,6 +189,35 @@ def checked_dysymtab_fields(commands: list[LoadCommand]) -> tuple[int, ...]:
     return struct.unpack_from("<18I", tables[0], 8)
 
 
+def checked_segment_span(
+    source_size: int, segment: tuple[str, int, int, int, int]
+) -> tuple[int, int] | None:
+    """Validate one source-backed Mach-O segment's file and VM extents.
+
+    Returns:
+        Nonempty virtual address range, or None for a zero-sized segment.
+
+    Raises:
+        ValueError: Segment metadata exceeds source or virtual image bounds.
+
+    """
+    _, address, virtual_size, fileoff, filesize = segment
+    if min(address, virtual_size, fileoff, filesize) < 0:
+        message = "Mach-O payload segment exceeds source bounds"
+        raise ValueError(message)
+    if filesize > virtual_size or fileoff > source_size:
+        message = "Mach-O payload segment exceeds source bounds"
+        raise ValueError(message)
+    if filesize > source_size - fileoff:
+        message = "Mach-O payload segment exceeds source bounds"
+        raise ValueError(message)
+    end = address + virtual_size
+    if end > MAX_EXPANDED_PAYLOAD_BYTES:
+        message = "Mach-O payload image exceeds checked virtual limit"
+        raise ValueError(message)
+    return (address, end) if virtual_size else None
+
+
 def checked_payload_size(
     data: bytes, segments: list[tuple[str, int, int, int, int]]
 ) -> int:
@@ -170,25 +234,15 @@ def checked_payload_size(
         message = "Mach-O payload has no segments"
         raise ValueError(message)
     mapped: list[tuple[int, int]] = []
-    for _, address, virtual_size, fileoff, filesize in segments:
-        if (
-            min(address, virtual_size, fileoff, filesize) < 0
-            or filesize > virtual_size
-            or fileoff > len(data)
-            or filesize > len(data) - fileoff
-        ):
-            message = "Mach-O payload segment exceeds source bounds"
-            raise ValueError(message)
-        if address + virtual_size > MAX_EXPANDED_PAYLOAD_BYTES:
-            message = "Mach-O payload image exceeds checked virtual limit"
-            raise ValueError(message)
-        if virtual_size:
-            mapped.append((address, address + virtual_size))
+    for segment in segments:
+        bounds = checked_segment_span(len(data), segment)
+        if bounds is not None:
+            mapped.append(bounds)
     if not mapped:
         message = "Mach-O payload has no mapped virtual bytes"
         raise ValueError(message)
     mapped.sort()
-    for earlier, following in zip(mapped, mapped[1:], strict=False):
+    for earlier, following in pairwise(mapped):
         if earlier[1] > following[0]:
             message = "Mach-O payload segments overlap in virtual memory"
             raise ValueError(message)
@@ -289,7 +343,7 @@ def route_prefixes(image: Image, label: str) -> list[tuple[int, int]]:
 
     Raises:
         FileNotFoundError: The Xcode command driver is unavailable.
-        RuntimeError: Any route prologue cannot be relocated safely.
+        Called prefix validation rejects unsafe disassembly text.
 
     """
     executable = shutil.which("xcrun")
@@ -342,9 +396,10 @@ def generate() -> None:
             "power_states",
         ):
             if getattr(candidate, field) != getattr(plan, field):
-                raise ValueError(
+                message = (
                     f"Profiles require distinct {field}: {candidate.system}"
                 )
+                raise ValueError(message)
         for cls in ("IOSkywalkNetworkPacket", "AirPort_Brcm43xxSkywalkPacket"):
             if candidate.model.tables[cls] != plan.model.tables[cls]:
                 raise ValueError(
@@ -356,24 +411,28 @@ def generate() -> None:
     dynamic_fields = [
         checked_dysymtab_fields(commands) for commands, _ in parsed
     ]
+    # Reject every unsafe virtual segment before creating any output files.
+    payload_sizes = [
+        checked_payload_size(image.data, image.segments) for image in images
+    ]
     OUTPUT.mkdir(parents=True, exist_ok=True)
     exports = [
         {
             name: value
             for name, kind, _, _, value in symbols
-            if kind & 0xF == 0xF
+            if kind & SYMBOL_TYPE_MASK == SYMBOL_TYPE_MASK
         }
         for _, symbols in parsed
     ]
     native = set(plan.native_names) | prepare_native_guards(plans)
     vtable_guards = set()
-    for index, (image, (commands, symbols)) in enumerate(
+    for index, (image, (_, symbols)) in enumerate(
         zip(images, parsed, strict=True)
     ):
         fields = dynamic_fields[index]
         references = {}
         for offset, bits in checked_relocation_entries(
-            image.data, fields[14], fields[15], len(symbols)
+            image.data, fields[14], fields[15], symbol_count=len(symbols)
         ):
             if bits >> 28 == 0:
                 references[offset] = symbols[bits & 0xFFFFFF]
@@ -397,7 +456,7 @@ def generate() -> None:
             if (
                 child_name not in image.symbols
                 or parent_name in internal
-                or "IOSkywalk" in parent_name
+                or SKYWALK_NAME_MARKER in parent_name
             ):
                 continue
             start = image.symbols[child_name]
@@ -406,18 +465,21 @@ def generate() -> None:
                 if slot not in references:
                     continue
                 method, kind, _, _, _ = references[slot]
-                if kind & 14 == 0 and method.startswith(("__ZN", "__ZNK")):
+                if kind & SYMBOL_DEFINED_MASK == 0 and method.startswith((
+                    "__ZN",
+                    "__ZNK",
+                )):
                     vtable_guards.add((parent_name, slot - start, method))
                     native.update((parent_name, method))
     for index, (_, symbols) in enumerate(parsed):
         for name, kind, _, _, _ in symbols:
-            if kind & 0xF != 1:
+            if kind & SYMBOL_TYPE_MASK != SYMBOL_UNDEFINED_TYPE:
                 continue
-            name = ALIASES.get(name, name)
-            if plan.resolve(name) is None and not (
-                index and name in exports[0]
+            resolved_name = ALIASES.get(name, name)
+            if plan.resolve(resolved_name) is None and not (
+                index and resolved_name in exports[0]
             ):
-                native.add(name)
+                native.add(resolved_name)
     native = sorted(native)
     native_index = {name: i for i, name in enumerate(native)}
     cpp = [
@@ -471,7 +533,7 @@ def generate() -> None:
         zip(LABELS, images, parsed, strict=True)
     ):
         logical_index = int(index != 0)
-        image_plan = plans[0] if label == "AirPortOriginal" else plan
+        image_plan = plans[0] if label == LABEL_AIRPORT_ORIGINAL else plan
         info = plistlib.loads(
             (image.path.parent.parent / "Info.plist").read_bytes()
         )
@@ -483,19 +545,28 @@ def generate() -> None:
         dsfields = dynamic_fields[index]
         for external, field in [(True, 14), (False, 16)]:
             for address, bits in checked_relocation_entries(
-                image.data, dsfields[field], dsfields[field + 1], len(symbols)
+                image.data,
+                dsfields[field],
+                dsfields[field + 1],
+                symbol_count=len(symbols),
             ):
                 width = checked_relocation_width(bits, external=external)
                 addend = struct.unpack(
-                    "<q" if width == 8 else "<i", image.read(address, width)
+                    "<q" if width == RELOCATION_QWORD_BYTES else "<i",
+                    image.read(address, width),
                 )[0]
                 if external:
                     name, stype, _, _, value = symbols[bits & 0xFFFFFF]
-                    if stype & 0xE == 0xE:
+                    if stype & SYMBOL_DEFINED_MASK == SYMBOL_DEFINED_MASK:
                         provider, target = logical_index, value
                     else:
-                        assert stype & 0xE == 0
-                        assert value == 0
+                        require_embed(
+                            condition=stype & SYMBOL_DEFINED_MASK == 0
+                            and value == 0,
+                            message=(
+                                "Undefined relocation symbol has invalid metadata"
+                            ),
+                        )
                         if name in ALIASES:
                             alias_index = list(ALIASES).index(name)
                             expected = (
@@ -506,9 +577,14 @@ def generate() -> None:
                                 + 0xA70
                                 + alias_index * 16
                             )
-                            assert address == expected
-                            assert width == 8
-                            assert addend == 0
+                            require_embed(
+                                condition=address == expected
+                                and width == RELOCATION_QWORD_BYTES
+                                and addend == 0,
+                                message=(
+                                    "Compatibility alias relocation is inconsistent"
+                                ),
+                            )
                             name = ALIASES[name]
                         candidates = (
                             [(0, exports[0][name])]
@@ -523,15 +599,24 @@ def generate() -> None:
                         else:
                             provider, target = 255, native_index[name]
                 else:
-                    assert 0 < (bits & 0xFFFFFF) <= len(image.sections)
+                    require_embed(
+                        condition=0 < (bits & 0xFFFFFF) <= len(image.sections),
+                        message="Local relocation section index is invalid",
+                    )
                     provider, target, addend = logical_index, addend, 0
-                assert provider in (254, 255) or 0 <= target < max(
-                    a + s for _, a, s, _, _ in image.segments
+                require_embed(
+                    condition=provider in {254, 255}
+                    or 0
+                    <= target
+                    < max(a + s for _, a, s, _, _ in image.segments),
+                    message=(
+                        "Relocation target is outside mapped provider bounds"
+                    ),
                 )
                 relocations.append((address, target, addend, provider, width))
-                branches += width == 4
+                branches += width == RELOCATION_DWORD_BYTES
 
-        size = checked_payload_size(image.data, image.segments)
+        size = payload_sizes[index]
         stub_size = align(branches * 16 + 4096)
         expanded = bytearray(size)
         for _, address, _, fileoff, length in image.segments:
@@ -541,16 +626,19 @@ def generate() -> None:
         symbol_values: list[int] = []
         new_commands: list[bytes | bytearray] = []
         for cmd, data in commands:
-            if cmd in (0x1D, 0x1E, 0x2B):
+            if cmd in {0x1D, 0x1E, 0x2B}:
                 continue
-            if cmd == 0x19:
+            if cmd == MACH_LC_SEGMENT_64:
                 address = struct.unpack_from("<Q", data, 24)[0]
                 struct.pack_into("<Q", data, 40, address)
                 count = struct.unpack_from("<I", data, 64)[0]
                 for n in range(count):
                     pos = 72 + n * 80
                     off, _, _, nrel = struct.unpack_from("<4I", data, pos + 48)
-                    assert nrel == 0
+                    require_embed(
+                        condition=nrel == 0,
+                        message="Unexpected section-local Mach-O relocations",
+                    )
                     if off:
                         struct.pack_into(
                             "<I",
@@ -558,7 +646,7 @@ def generate() -> None:
                             pos + 48,
                             remap_file_offset(off, image.segments),
                         )
-            elif cmd == 2:
+            elif cmd == MACH_LC_SYMTAB:
                 off, _, strings, _ = struct.unpack_from("<4I", data, 8)
                 struct.pack_into(
                     "<I", data, 8, remap_file_offset(off, image.segments)
@@ -569,9 +657,10 @@ def generate() -> None:
                 symbol_values = [
                     remap_file_offset(off + i * 16, image.segments) + 8
                     for i, (_, kind, _, _, _) in enumerate(symbols)
-                    if not kind & 0xE0 and kind & 0xE == 0xE
+                    if not kind & 0xE0
+                    and kind & SYMBOL_DEFINED_MASK == SYMBOL_DEFINED_MASK
                 ]
-            elif cmd == 11:
+            elif cmd == DYSYMTAB_COMMAND:
                 fields = list(struct.unpack_from("<18I", data, 8))
                 for pos in [6, 8, 10, 12]:
                     if fields[pos + 1]:
@@ -601,7 +690,10 @@ def generate() -> None:
         first_section = min(
             off for _, _, _, n, off in image.sections if n and off
         )
-        assert 32 + len(load_commands) <= first_section
+        require_embed(
+            condition=32 + len(load_commands) <= first_section,
+            message="Expanded load commands overlap the first section",
+        )
         expanded[32:first_section] = b"\0" * (first_section - 32)
         expanded[32 : 32 + len(load_commands)] = load_commands
         struct.pack_into(
@@ -614,23 +706,26 @@ def generate() -> None:
             struct.unpack_from("<I", expanded, 24)[0] & ~0x80000000,
         )
         kmod = image.symbols["_kmod_info"]
-        assert kmod + 196 <= size
+        require_embed(
+            condition=kmod + 196 <= size,
+            message="Embedded kmod structure exceeds mapped image size",
+        )
         renamed = image_plan.namespace_payload(label, expanded)
         routes = route_prefixes(image, label)
         blob = OUTPUT / (label + ".bin")
         blob.write_bytes(expanded)
         expanded_images.append(bytes(expanded))
-        base_index = 1 if label == "AirPort" else index
+        base_index = 1 if label == LABEL_AIRPORT else index
         delta, delta_count = (
             payload_delta(expanded_images[base_index], expanded)
-            if label == "AirPort"
+            if label == LABEL_AIRPORT
             else (b"", 0)
         )
-        stored = delta if label == "AirPort" else expanded
+        stored = delta if label == LABEL_AIRPORT else expanded
         stored_blob = (
-            OUTPUT / (label + ".delta") if label == "AirPort" else blob
+            OUTPUT / (label + ".delta") if label == LABEL_AIRPORT else blob
         )
-        if label == "AirPort":
+        if label == LABEL_AIRPORT:
             stored_blob.write_bytes(stored)
         assembly += [
             f".globl _athPayload{index}",
@@ -651,7 +746,7 @@ def generate() -> None:
             "uint32_t", f"values{index}", map(str, symbol_values)
         )
         wanted = set(SYMBOLS[label]) | {"_kmod_info"}
-        if label != "Legacy":
+        if label != LABEL_LEGACY:
             wanted.add(HARDWARE_VERSION_SYMBOL)
         named = sorted((n, image.symbols[n]) for n in wanted)
         symbol_table = emit_table(
@@ -666,7 +761,7 @@ def generate() -> None:
         )
         info["OSBundleLibraries"]["dev.alberto.SimpleATH"] = VERSION
         info["OSBundleRequired"] = "Root"
-        if label == "Legacy":
+        if label == LABEL_LEGACY:
             info["IOKitPersonalities"] = {}
         plist = plistlib.dumps(info, sort_keys=False).decode()
         literal = json.dumps(plist).replace("?", "\\?")
@@ -674,7 +769,13 @@ def generate() -> None:
         sha = hashlib.sha256(image.path.read_bytes()).hexdigest()
         delta_pointer = f"athPayload{index}" if delta else "nullptr"
         descriptors.append(
-            f'{{{json.dumps(info["CFBundleIdentifier"])}, "{sha}", athPayload{base_index}, {len(expanded_images[base_index])}, {delta_pointer}, {len(delta)}, {size}, {size + stub_size}, {size}, {stub_size}, {kmod}, plist{index}, {relocation_table}, {len(relocations)}, {value_table}, {len(symbol_values)}, {symbol_table}, {len(named)}, {route_table}, {len(routes)}, {checksum(expanded)}ULL}}'
+            f'{{{json.dumps(info["CFBundleIdentifier"])}, "{sha}", '
+            f"athPayload{base_index}, {len(expanded_images[base_index])}, "
+            f"{delta_pointer}, {len(delta)}, {size}, {size + stub_size}, "
+            f"{size}, {stub_size}, {kmod}, plist{index}, "
+            f"{relocation_table}, {len(relocations)}, {value_table}, "
+            f"{len(symbol_values)}, {symbol_table}, {len(named)}, "
+            f"{route_table}, {len(routes)}, {checksum(expanded)}ULL}}"
         )
         manifest["payloads"].append({
             "label": label,
@@ -689,7 +790,7 @@ def generate() -> None:
             "namespacedClassStrings": renamed,
             "powerDomainPatches": [],
             "storage": {
-                "kind": "delta" if label == "AirPort" else "full",
+                "kind": "delta" if label == LABEL_AIRPORT else "full",
                 "base": LABELS[base_index],
                 "file": stored_blob.name,
                 "storedSize": len(stored),
@@ -757,8 +858,9 @@ def generate() -> None:
         for p in plans
     }
     (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    print(
-        f"Embedded {len(images)} payloads, {len(native)} native imports; output: {OUTPUT}"
+    _ = sys.stdout.write(
+        f"Embedded {len(images)} payloads, {len(native)} native imports; "
+        f"output: {OUTPUT}\n"
     )
 
 
