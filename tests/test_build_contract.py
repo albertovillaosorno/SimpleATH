@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from build import PROJECT
 from build import copy_package_sources
 from build import native_addresses
+from build import require_invariant
 from build import vtable_rows
 
 LICENSE_TEXT = "LICENSE"
@@ -55,6 +56,26 @@ class BuildSourceLayoutTests(TestCase):
             "_public": 0x1000,
             "_wifi": 0x3000,
         }
+
+    @staticmethod
+    def test_runtime_invariant_preserves_failure_only_diagnostics() -> None:
+        """Evaluate diagnostic details only when an invariant fails."""
+        evaluated: list[str] = []
+        expected = "source invariant failed"
+
+        def evidence() -> str:
+            evaluated.append("failure")
+            return expected
+
+        require_invariant(len(evaluated) == 0, evidence)
+        assert not evaluated
+        failure_message = ""
+        try:
+            require_invariant(len(evaluated) > 0, evidence)
+        except AssertionError as error:
+            failure_message = str(error)
+        assert failure_message == expected
+        assert evaluated == ["failure"]
 
     @staticmethod
     def test_vtable_guards_refuse_malformed_manifest_rows() -> None:

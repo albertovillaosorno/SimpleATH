@@ -49,6 +49,7 @@ from system_profiles import validate_reference_systems
 from verification_runtime import require_assertions_active
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from collections.abc import Iterable
     from collections.abc import Mapping
 
@@ -296,6 +297,21 @@ int main(int argc, char **argv) {
 """
 
 
+def require_invariant(
+    condition: object, evidence: Callable[[], object] | None = None
+) -> None:
+    """Enforce a verifier invariant with failure-only diagnostic evaluation.
+
+    Raises:
+        AssertionError: The offline validation invariant did not hold.
+
+    """
+    if not condition:
+        if evidence is None:
+            raise AssertionError
+        raise AssertionError(evidence())
+
+
 def digest(path: Path | str) -> str:
     """Hash the contents of one source or verified artifact path.
 
@@ -408,9 +424,10 @@ def check_reference(
     ]
     checked = 0
     for i, image in enumerate(images):
-        assert (folder / f"{i}.restored.bin").read_bytes() == (
-            OUTPUT / (labels[i] + ".bin")
-        ).read_bytes()
+        require_invariant(
+            (folder / f"{i}.restored.bin").read_bytes()
+            == (OUTPUT / (labels[i] + ".bin")).read_bytes()
+        )
         actual = (folder / f"{i}.bin").read_bytes()
         commands, symbols = parse(image)
         ds = next(data for cmd, data in commands if cmd == 11)
@@ -456,21 +473,29 @@ def check_reference(
                     ) & 0xFFFFFFFFFFFFFFFF
                     if observed != expected:
                         stub = observed - bases[i]
-                        assert 0 <= stub <= len(actual) - 14
-                        assert actual[stub : stub + 6] == b"\xff\x25\0\0\0\0"
+                        require_invariant(0 <= stub <= len(actual) - 14)
+                        require_invariant(
+                            actual[stub : stub + 6] == b"\xff\x25\0\0\0\0"
+                        )
                         observed = struct.unpack_from("<Q", actual, stub + 6)[0]
-                assert observed == expected, (
-                    labels[i],
-                    hex(offset),
-                    hex(observed),
-                    hex(expected),
+                require_invariant(
+                    observed == expected,
+                    lambda i=i, offset=offset, observed=observed, expected=expected: (
+                        labels[i],
+                        hex(offset),
+                        hex(observed),
+                        hex(expected),
+                    ),
                 )
                 checked += 1
         linked = Image(folder / f"{i}.bin")
         _, linked_symbols = parse(linked)
         for n, (name, kind, _, _, value) in enumerate(symbols):
             if not kind & 0xE0 and kind & 14 == 14:
-                assert linked_symbols[n][4] == value + bases[i], (n, name)
+                require_invariant(
+                    linked_symbols[n][4] == value + bases[i],
+                    lambda n=n, name=name: (n, name),
+                )
     return checked
 
 
@@ -528,41 +553,47 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
     evidence = json_object(
         (ROOT / f"build/Build-{configuration}.json").read_text()
     )
-    assert evidence["sourceFingerprint"] == source_fingerprint
-    assert evidence["sha256"] == digest(binary)
-    assert evidence["payloadManifestSHA256"] == digest(OUTPUT / "manifest.json")
+    require_invariant(evidence["sourceFingerprint"] == source_fingerprint)
+    require_invariant(evidence["sha256"] == digest(binary))
+    require_invariant(
+        evidence["payloadManifestSHA256"] == digest(OUTPUT / "manifest.json")
+    )
     image = Image(binary)
-    assert struct.unpack_from("<I", image.data, 12)[0] == 11
+    require_invariant(struct.unpack_from("<I", image.data, 12)[0] == 11)
     symbols = (
         product.parent
         / "SimpleATH.kext.dSYM/Contents/Resources/DWARF/SimpleATH"
     )
-    assert Image(symbols).uuid == image.uuid
+    require_invariant(Image(symbols).uuid == image.uuid)
     info = plist_object((product / "Contents/Info.plist").read_bytes())
     libraries = mapping(info["OSBundleLibraries"])
-    assert info["CFBundleVersion"] == VERSION
-    assert info["CFBundleIdentifier"] == "dev.alberto.SimpleATH"
-    assert not any("Lilu" in n for n in libraries)
+    require_invariant(info["CFBundleVersion"] == VERSION)
+    require_invariant(info["CFBundleIdentifier"] == "dev.alberto.SimpleATH")
+    require_invariant(not any("Lilu" in n for n in libraries))
     undefined = set(
         subprocess.check_output(
             ["nm", "-u", "-j", str(binary)], text=True
         ).splitlines()
     )
-    assert not any(
-        "Lilu" in n or n in ["_lilu", "_lilu_os_log"] for n in undefined
+    require_invariant(
+        not any(
+            "Lilu" in n or n in ["_lilu", "_lilu_os_log"] for n in undefined
+        )
     )
-    assert "__ZN6OSKext8copyUUIDEv" not in undefined
+    require_invariant("__ZN6OSKext8copyUUIDEv" not in undefined)
     for payload in payloads:
         storage = mapping(payload["storage"])
         stored = (OUTPUT / string(storage["file"])).read_bytes()
-        assert len(stored) == integer(storage["storedSize"])
-        assert hashlib.sha256(stored).hexdigest() == string(
-            storage["storedSHA256"]
+        require_invariant(len(stored) == integer(storage["storedSize"]))
+        require_invariant(
+            hashlib.sha256(stored).hexdigest()
+            == string(storage["storedSHA256"])
         )
-        assert image.data.count(stored) == 1
-    assert (OUTPUT / "AirPort.bin").read_bytes() not in image.data
-    assert len(image.data) < 14 * 1024 * 1024, (
-        "Unexpected growth in the universal kext"
+        require_invariant(image.data.count(stored) == 1)
+    require_invariant((OUTPUT / "AirPort.bin").read_bytes() not in image.data)
+    require_invariant(
+        len(image.data) < 14 * 1024 * 1024,
+        lambda: "Unexpected growth in the universal kext",
     )
     targets: list[dict[str, object]] = []
     addresses: dict[str, dict[str, int]] = {}
@@ -576,31 +607,45 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
         profiles = [
             p for p in system_profiles if integer(p["kernel"]) == kernel
         ]
-        assert len(profiles) == 1, ("Unsupported reference kernel", c.version())
+        require_invariant(
+            len(profiles) == 1,
+            lambda c=c: ("Unsupported reference kernel", c.version()),
+        )
         profile = profiles[0]
-        assert (
+        require_invariant(
             c.images["com.apple.iokit.IOSkywalkFamily"].uuid
             == string(profile["nativeUUID"]).replace("-", "").lower()
         )
-        assert (
+        require_invariant(
             c.images["com.apple.iokit.IO80211Family"].uuid
             == string(profile["wirelessUUID"]).replace("-", "").lower()
         )
         available = native_addresses(c, libraries)
         missing = sorted(undefined - available.keys())
-        assert not missing, (str(reference), missing)
+        require_invariant(
+            not missing,
+            lambda reference=reference, missing=missing: (
+                str(reference),
+                missing,
+            ),
+        )
         profile_name = string(profile["system"])
         system_guard = mapping(runtime_guards[profile_name])
         runtime_vtables = vtable_rows(system_guard["vtables"])
         for parent, offset, method in runtime_vtables:
-            assert c.pointer(available[parent] + offset) == available[method]
+            require_invariant(
+                c.pointer(available[parent] + offset) == available[method]
+            )
         for parent, offset, method in native_vtables:
             observed = c.pointer(available[parent] + offset)
-            assert observed == available[method], (
-                str(reference),
-                parent,
-                offset,
-                method,
+            require_invariant(
+                observed == available[method],
+                lambda reference=reference, parent=parent, offset=offset, method=method: (
+                    str(reference),
+                    parent,
+                    offset,
+                    method,
+                ),
             )
         targets.append({
             "system": profile_name,
@@ -620,15 +665,18 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
         addresses[profile_name] = available
         verified_references[profile_name] = reference
         c.close()
-    assert addresses
+    require_invariant(addresses)
     adapter = mapping(manifest["nativeAdapter"])
     compatibility_imports = _strings(adapter["compatibilityImports"])
     compatibility_targets = _strings(adapter["compatibilityTargets"])
-    assert manifest["skywalkBackend"] == "native"
-    assert LABELS == ["Legacy", "AirPortOriginal", "AirPort"]
-    assert "com.apple.iokit.IOSkywalkFamily" in libraries
-    assert not any(
-        p["identifier"] == "com.apple.iokit.IOSkywalkFamily" for p in payloads
+    require_invariant(manifest["skywalkBackend"] == "native")
+    require_invariant(LABELS == ["Legacy", "AirPortOriginal", "AirPort"])
+    require_invariant("com.apple.iokit.IOSkywalkFamily" in libraries)
+    require_invariant(
+        not any(
+            p["identifier"] == "com.apple.iokit.IOSkywalkFamily"
+            for p in payloads
+        )
     )
     with tempfile.TemporaryDirectory(prefix="simpleath-verify-") as temporary:
         temp = Path(temporary)
@@ -738,7 +786,7 @@ def verify(configuration: str, references: Iterable[Path]) -> dict[str, object]:
         from verify import verify_abi
 
         abi = verify_abi(temp)
-    assert source_fingerprint == fingerprint()
+    require_invariant(source_fingerprint == fingerprint())
     result: dict[str, object] = {
         "version": VERSION,
         "configuration": configuration,
@@ -804,8 +852,9 @@ def build(configuration: str, analyze: bool = False) -> None:
     print("\n".join(diagnostics))
     if result.returncode or any("warning:" in line for line in diagnostics):
         raise RuntimeError(f"Build diagnostics require attention: {log}")
-    assert source_fingerprint == fingerprint(), (
-        "Source changed during the build"
+    require_invariant(
+        source_fingerprint == fingerprint(),
+        lambda: "Source changed during the build",
     )
     if analyze:
         _ = (ROOT / f"build/Analysis-{configuration}.json").write_text(
@@ -872,18 +921,21 @@ def package(configuration: str, channel: str = "rel") -> None:
         mapping(target) for target in sequence(report["nativeTargets"])
     ]
     product = ROOT / f"build/DerivedData/Build/Products/{configuration}"
-    assert report["sourceFingerprint"] == fingerprint()
-    assert {string(target["system"]) for target in native_targets} == set(
-        SYSTEMS
+    require_invariant(report["sourceFingerprint"] == fingerprint())
+    require_invariant(
+        {string(target["system"]) for target in native_targets} == set(SYSTEMS)
     )
-    assert report["sha256"] == digest(
-        product / "SimpleATH.kext/Contents/MacOS/SimpleATH"
+    require_invariant(
+        report["sha256"]
+        == digest(product / "SimpleATH.kext/Contents/MacOS/SimpleATH")
     )
-    assert report["probeSHA256"] == digest(product / "athprobe")
+    require_invariant(report["probeSHA256"] == digest(product / "athprobe"))
     analysis = json_object((ROOT / "build/Analysis-Release.json").read_text())
-    assert analysis["passed"]
-    assert analysis["sourceFingerprint"] == fingerprint()
-    assert analysis["logSHA256"] == digest(ROOT / "build/analyze-Release.log")
+    require_invariant(analysis["passed"])
+    require_invariant(analysis["sourceFingerprint"] == fingerprint())
+    require_invariant(
+        analysis["logSHA256"] == digest(ROOT / "build/analyze-Release.log")
+    )
     name = package_name(configuration, channel)
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
@@ -935,13 +987,13 @@ def package(configuration: str, channel: str = "rel") -> None:
                         path, str(Path(name) / path.relative_to(stage))
                     )
         with zipfile.ZipFile(archive) as output:
-            assert output.testzip() is None
-            assert (
-                plistlib.loads(output.read(name + "/config.fragment.plist"))
+            require_invariant(output.testzip() is None)
+            require_invariant(
+                plist_object(output.read(name + "/config.fragment.plist"))
                 == fragment()
             )
             for path, sha in files.items():
-                assert (
+                require_invariant(
                     hashlib.sha256(output.read(name + "/" + path)).hexdigest()
                     == sha
                 )
