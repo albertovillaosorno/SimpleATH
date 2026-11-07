@@ -413,16 +413,45 @@ int main()
         &fixture.fake, owner, read, now, delay, 0x16000};
     const simpleath::Identity guardedIdentity {
         simpleath::kPciVendor, simpleath::kPciDevice, 0, 0, false};
+    // Invalid discovery buffer contracts must also be rejected BEFORE the
+    // lease revokes its previous good board. The raw discovery preflight
+    // already checks these, but checking only inside discovery is too late.
+    fill(fixture.storage, sizeof(fixture.storage), 0xa5);
+    const uint32_t readsBeforeAlias = fixture.fake.readCount;
+    if (lease.acquire(guardedBackend, guardedIdentity, 16, fixture.storage,
+                      sizeof(fixture.storage), fixture.storage,
+                      sizeof(fixture.storage),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15) || fixture.storage[0] != 0xa5 ||
+        fixture.fake.readCount != readsBeforeAlias)
+        return 21;
+    if (lease.acquire(guardedBackend, guardedIdentity, 16, fixture.storage,
+                      sizeof(fixture.storage),
+                      reinterpret_cast<uint8_t *>(&fixture.status),
+                      sizeof(fixture.scratch),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15) || fixture.storage[0] != 0xa5 ||
+        fixture.fake.readCount != readsBeforeAlias)
+        return 22;
+    const simpleath::NvmReadBackend contextAlias {
+        fixture.storage, owner, read, now, delay, 0x16000};
+    if (lease.acquire(contextAlias, guardedIdentity, 16, fixture.storage,
+                      sizeof(fixture.storage), fixture.scratch,
+                      sizeof(fixture.scratch),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15) || fixture.storage[0] != 0xa5 ||
+        fixture.fake.readCount != readsBeforeAlias)
+        return 23;
     if (lease.acquire(guardedBackend, guardedIdentity, 16,
                       reinterpret_cast<uint8_t *>(&lease),
                       sizeof(fixture.storage), fixture.scratch,
                       sizeof(fixture.scratch),
                       fixture.status) != NvmDiscoveryResult::InvalidArgument ||
         !lease.view(15))
-        return 21;
+        return 24;
     lease.invalidate();
     if (lease.view(15))
-        return 22;
+        return 25;
 
     return 0;
 }

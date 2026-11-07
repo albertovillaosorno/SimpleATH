@@ -159,6 +159,44 @@ namespace simpleath
             for (size_t i = 0; i < length; ++i)
                 destination[i] = 0;
         }
+
+        // This preflight is shared by raw discovery and the epoch lease.
+        // Discovery must reject aliases before touching caller outputs; a
+        // lease must reject the same aliases before erasing a live board.
+        bool discoveryInputsDisjoint(
+            const NvmReadBackend &backend, const Identity &physicalIdentity,
+            const uint8_t *storage, size_t storageBytes, const uint8_t *scratch,
+            size_t scratchBytes, const NvmBoardSelection &board,
+            const NvmDiscoveryStatus &status)
+        {
+            struct Span
+            {
+                    const void *address;
+                    size_t bytes;
+            };
+
+            const Span spans[] = {
+                {storage, storageBytes},
+                {scratch, scratchBytes},
+                {&board, sizeof(board)},
+                {&status, sizeof(status)},
+                {&backend, sizeof(backend)},
+                {&physicalIdentity, sizeof(physicalIdentity)}};
+            for (size_t i = 0; i < 4; ++i)
+            {
+                if (overlaps(spans[i].address, spans[i].bytes, backend.context,
+                             1))
+                    return false;
+                for (size_t j = i + 1; j < sizeof(spans) / sizeof(spans[0]);
+                     ++j)
+                {
+                    if (overlaps(spans[i].address, spans[i].bytes,
+                                 spans[j].address, spans[j].bytes))
+                        return false;
+                }
+            }
+            return true;
+        }
     } // namespace
 
     // Internal byte-range capture is used for exact four-byte origin probes;
@@ -315,29 +353,10 @@ namespace simpleath
         // status/board: even error cleanup may corrupt an aliased callback or
         // the physical identity otherwise. Context allocation disjointness
         // beyond its pointer remains an explicit backend-owner contract.
-        struct Span
-        {
-                const void *address;
-                size_t bytes;
-        };
-
-        const Span spans[] = {{storage, storageBytes},
-                              {scratch, scratchBytes},
-                              {&board, sizeof(board)},
-                              {&status, sizeof(status)},
-                              {&backend, sizeof(backend)},
-                              {&physicalIdentity, sizeof(physicalIdentity)}};
-        for (size_t i = 0; i < 4; ++i)
-        {
-            if (overlaps(spans[i].address, spans[i].bytes, backend.context, 1))
-                return NvmDiscoveryResult::InvalidArgument;
-            for (size_t j = i + 1; j < sizeof(spans) / sizeof(spans[0]); ++j)
-            {
-                if (overlaps(spans[i].address, spans[i].bytes, spans[j].address,
-                             spans[j].bytes))
-                    return NvmDiscoveryResult::InvalidArgument;
-            }
-        }
+        if (!discoveryInputsDisjoint(backend, physicalIdentity, storage,
+                                     storageBytes, scratch, scratchBytes, board,
+                                     status))
+            return NvmDiscoveryResult::InvalidArgument;
         board = {};
         board.txGain = TxGainProfile::Unknown;
         board.rxGain = RxGainProfile::Unknown;
@@ -549,7 +568,11 @@ namespace simpleath
     {
         // A rejected alias must leave both the lease and aliased caller
         // memory untouched; otherwise erasure could corrupt callback state.
-        if (acquiring_ || overlaps(backend.context, 1, this, sizeof(*this)) ||
+        if (acquiring_ ||
+            !discoveryInputsDisjoint(backend, physicalIdentity, storage,
+                                     storageBytes, scratch, scratchBytes,
+                                     board_, status) ||
+            overlaps(backend.context, 1, this, sizeof(*this)) ||
             overlaps(storage, storageBytes, this, sizeof(*this)) ||
             overlaps(scratch, scratchBytes, this, sizeof(*this)) ||
             overlaps(&status, sizeof(status), this, sizeof(*this)) ||
