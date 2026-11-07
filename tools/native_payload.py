@@ -197,6 +197,20 @@ def normalized(name: str) -> str:
     return name.replace("12ether_addr_t", "10ether_addr")
 
 
+def native_client_symbols(cls: str) -> list[str]:
+    """Generate the exact native constructor/destructor/meta/vtable names.
+
+    Returns:
+        The five required mangled symbol names for one user-client class.
+
+    """
+    prefix = "__ZN" + str(len(cls)) + cls
+    return [
+        *(prefix + suffix for suffix in CLIENT_SUFFIXES),
+        "__ZTV" + str(len(cls)) + cls,
+    ]
+
+
 def checked_client_profile_rows(
     client_symbols: Sequence[Sequence[str]],
     client_tables: Sequence[Sequence[str]],
@@ -217,6 +231,15 @@ def checked_client_profile_rows(
     ):
         message = "Incomplete native user-client profile catalog"
         raise ValueError(message)
+    for cls, symbols, vtable in zip(
+        CLIENT_CLASSES, client_symbols, client_tables, strict=True
+    ):
+        if list(symbols) != native_client_symbols(cls) or not vtable:
+            message = "Malformed native user-client symbol or vtable catalog"
+            raise ValueError(message)
+        for name in symbols:
+            if name not in native_index:
+                raise KeyError(name)
     return [
         (*[native_index[name] for name in symbols], len(vtable))
         for symbols, vtable in zip(client_symbols, client_tables, strict=True)
@@ -284,11 +307,7 @@ class SkywalkPlan:
             if class_size(self.wireless, cls) != USER_CLIENT_LAYOUT_BYTES:
                 message = "Unsupported native user-client layout"
                 raise ValueError(message)
-            symbols = [
-                "__ZN" + str(len(cls)) + cls + suffix
-                for suffix in CLIENT_SUFFIXES
-            ]
-            symbols.append(vtable_name(cls))
+            symbols = native_client_symbols(cls)
             if not set(symbols) <= self.wireless.defined():
                 message = "Native user-client exports missing"
                 raise ValueError(message)
