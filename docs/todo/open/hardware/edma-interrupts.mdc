@@ -1,0 +1,36 @@
+---
+schema: simpleath.todo.v1
+id: edma-interrupts
+status: open
+priority: P1
+lane: A5
+phase: source-only
+hardware_required: false
+dependencies:
+  - "native-pci"
+scope:
+  - "src/hardware/Ar9003Dma.cpp"
+  - "src/hardware/Ar9003Descriptors.cpp"
+---
+
+# TODO - EDMA/interrupts
+
+## Objective
+
+Implement ring allocation, IOMMU/DMA contracts, RX/TX ownership, descriptors,
+completion, interrupt handling, memory safety, sleep and fault recovery in
+source. Consult public ath9k and IOKit documentation. **No physical packet
+transfer required.**
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Bound DMA ownership, interrupts, completion and power-off quiescence.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

@@ -1,0 +1,46 @@
+---
+schema: simpleath.todo.v1
+id: owner-controlled-device-acceptance
+status: open
+priority: P5
+lane: owner
+phase: owner-authorized-hardware
+hardware_required: true
+hold: indefinite-until-explicit-owner-decision
+dependencies:
+  - "exact-tahoe-abi"
+  - "eeprom-otp"
+  - "native-pci"
+  - "rf-phy-regulatory"
+  - "edma-interrupts"
+  - "ieee80211-mac"
+  - "wpa2-ccmp"
+  - "native-tahoe-airport"
+  - "full-wifi-pipeline"
+  - "source-hardening"
+---
+
+# TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
+
+## Objective
+
+Only AFTER every P0-P4 record is source-complete and the indefinite hardening
+hold is expressly ended by the owner, begin the real Dell diagnostic/repair
+loop in this ChatGPT conversation.
+
+## Acceptance
+
+- [ ] Owner explicitly ends the hold and separately authorizes each build,
+      install and hardware experiment.
+- [ ] Owner tests native Wi-Fi, WPA2/CCMP encrypted IP, recovery, sleep and RF safety.
+- [ ] Identify and verify Bluetooth hardware and coexistence separately.
+- [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible Apple devices.
+- [ ] Owner posts actual results here; agents coordinate code fixes in their chat
+      and commit directly to main, iterating only with new owner permission.
+- [ ] Record real logs/results and remaining limits, never equating theory with success.
+
+## Evidence
+
+- Currently unavailable by owner decision; do not request it early.
+- After authorization: owner-run device diagnostics and observed behavior.
+- AirDrop/Bluetooth depend on distinct hardware and Continuity compatibility.

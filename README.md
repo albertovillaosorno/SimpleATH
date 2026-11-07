@@ -78,21 +78,34 @@ Both remain goals of the owner-controlled final experimental cycle.
 Jig.** Existing .jig/ material is left as-is, inactive. There is
 no mandatory hexagonal architecture, Jig check, Jig hook or Jig CI gate.
 
-The only dedicated local source validator is a **lightweight,
-standard-library-only Python orchestrator** for already installed Clang
-tools. It operates on C, Objective-C and C++ sources, does not rewrite
-files, and never downloads tools, compiles a kext or runs test suites.
+The only dedicated local source validator is a **small Python
+standard-library orchestrator** that calls system-installed linters and
+uses the existing rules in the repository root:
+
+- C, Objective-C and C++: Clang Format using .clang-format.
+- C, Objective-C and C++ optionally: Clang-Tidy using .clang-tidy,
+  **only** with an existing compile_commands.json.
+- Python: Ruff lint + Ruff format using ruff.toml and BasedPyright
+  using pyrightconfig.json.
 
     python3 tools/validate.py
-    python3 tools/validate.py src/wifi/Frames.cpp
+    python3 tools/validate.py tools/validate.py
+    python3 tools/validate.py --json tools/validate.py
+    python3 tools/validate.py --no-cache src/wifi/Frames.cpp
     python3 tools/validate.py --tidy src/wifi/Frames.cpp
 
-The default invokes Clang Format in dry-run mode; the optional
-Clang-Tidy mode requires an **already existing** compile_commands.json.
-The script **does not create** a compilation database or pretend
-Clang-Tidy has run when the database is absent. Root Clang/EditorConfig
-rules remain authoritative. Linting is only static review, not runtime
-or security certification.
+**Incremental cache:** .cache/validate/cache.json holds separate results
+per file and linter. Unchanged files are not rechecked; changes to source,
+root rule files, or installed linter version invalidate the cache.
+Use --no-cache when changes to imported headers/modules may affect an
+unchanged file. The latest structured agent/CLI report is always written
+to .cache/validate/report.json; --json emits the same report on stdout.
+Pass/fail/cached/skipped counts and bounded diagnostics are explicit;
+a cached failure stays a failure.
+
+The script never formats files in place, builds a kext, generates a
+compilation database, installs software, runs test suites or touches
+hardware. Existing lint failures are reported rather than hidden.
 
 ## Builds, CI and hardware testing
 

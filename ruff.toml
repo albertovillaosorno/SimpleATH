@@ -1,6 +1,6 @@
-# Ruff policy for Jig Python surfaces.
-# Authority: local reference/ruff checkout, package version 0.16.9.
-required-version = "==0.16.9"
+# Ruff policy for SimpleATH Python source; Jig is inactive.
+# Authority: existing system Ruff 0.16.10; no package download.
+required-version = "==0.16.10"
 target-version = "py314"
 line-length = 80
 indent-width = 4
@@ -15,8 +15,6 @@ include = [
   "*.pyi",
   "*.pyw",
   "**/pyproject.toml",
-  "**/.jig/lang/python/ruff.toml",
-  "**/..jig/lang/python/ruff.toml",
 ]
 src = ["."]
 

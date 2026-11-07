@@ -1,143 +1,137 @@
-# SimpleATH — source-first roadmap and indefinite hardening
+# SimpleATH TODO
 
-**Target:** Qualcomm Atheros AR9565/QCA9565 (PCI 168c:0036),
-Dell Inspiron 5567, Intel macOS Tahoe.
-**Status:** experimental source and an earlier passive kext.
-Wi-Fi, Bluetooth and AirDrop are NOT verified working.
+Only unfinished tasks appear here. Typed records in docs/todo/open/
+contain identity, priority, dependencies, acceptance and evidence.
+Move source-completed records to docs/todo/completed/ and remove
+their index entries without deleting their recorded provenance.
 
-## Absolute sequence and authorization
+**All P0–P4 work is strictly theoretical/source-only.** No hardware
+verification, Dell logs, physical scan, compilation, or test suite may
+be required to finish a pre-final task. Research online code and
+documentation, document uncertainty, and make unknowns fail closed.
 
-**EVERY TODO EXCEPT THE LAST ONE IS STRICTLY THEORETICAL/SOURCE-ONLY.**
-**NOTHING BEFORE THE LAST TODO MAY DEPEND ON FORMAL OR INFORMAL
-VERIFICATION WITH PHYSICAL HARDWARE.** No Dell boots, kext injection,
-EEPROM dumps, physical diagnostics, Wi-Fi scans, RF measurements,
-network connectivity, owner-provided logs, or other hardware evidence
-may become a prerequisite of a pre-final checkbox.
+Ten agents coordinate in their existing chat, commit directly to main
+and do not open PRs. This repository does not use Jig. Use only the
+installed-tool validator tools/validate.py and its local .cache/ report.
 
-Research online code, published specifications, public KDK/SDK data,
-existing repository sources and technical documentation. Implement
-and harden code; reason about error handling and compatibility.
-Where hardware facts cannot be proven offline, document assumptions
-and add fail-closed behavior. Do not misrepresent theoretical
-completion as experimentally verified performance.
+**Order:** finish all P0–P4 tasks; then harden theoretically
+**indefinitely**; only the owner may activate P5. The owner will
+perform the real hardware testing and send results in this chat.
 
-**Mandatory order:**
-1. Complete ALL of the source-only TODOs below.
-2. Continue **theoretical hardening indefinitely**, using more
-   online code, documentation, static inspection and source repairs.
-   No expiration, automatic release, forced deadline or proactive
-   demand for hardware verification exists.
-3. **ONLY when the owner explicitly decides** the indefinite hold
-   is over, begin the FINAL TODO. The owner personally tests the
-   actual Dell and sends diagnostic results in THIS ChatGPT chat.
-   The agents coordinate in their existing agent chat, commit source
-   fixes directly to main, and respond to owner-guided test rounds
-   until the result is satisfactory.
+Each index entry has a TODO title, one summary and one typed-record link.
 
-**Permissions today:** research, source edits, static source review,
-a very small Clang-only validation helper and ordinary Git commits.
-**Still prohibited:** compiling/generating a kext, running test
-suites, CI/build tags, touching EFI/USB/OpenCore/SSD, live RF/PCI
-access and installing or testing drivers. Later stages require
-new, specific owner authorization.
+## P0 — Source-only
 
-**Git workflow:** AGENTS WORK DIRECTLY ON MAIN. PRs, feature
-branches and agent worktrees are forbidden. Their existing
-coordination chat handles shared-file ownership and sequencing.
-No force-push. See AGENTS.md.
+### TODO - Tahoe ABI
 
-**Jig exception:** This repo DOES NOT USE JIG, its required
-hexagonal layout, architecture rules or hooks. Leave existing
-.jig/ content unchanged and inactive. Use only tools/validate.py
-for extremely lightweight C/Objective-C/C++ Clang linting,
-with already installed tools; no downloads.
+Research public Tahoe KDK/SDK exports, IOPCIFamily, IO80211FamilyLegacy,
+IOSkywalkFamily and IONetworkingFamily. Document method/lifetime contracts and
+source-level compatibility, with explicit unverified assumptions and
+fail-closed behavior. **No live logs needed.**
 
-## All pre-final items: source-only, no hardware prerequisites
+[docs/todo/open/abi/exact-tahoe-abi.mdc](docs/todo/open/abi/exact-tahoe-abi.mdc)
 
-- [ ] **A1 — Tahoe ABI:** Research public Tahoe KDK/SDK exports,
-  IOPCIFamily, IO80211FamilyLegacy, IOSkywalkFamily and
-  IONetworkingFamily. Document method/lifetime contracts and
-  source-level compatibility, with explicit unverified
-  assumptions and fail-closed behavior. **No live logs needed.**
+### TODO - EEPROM/OTP
 
-- [ ] **A2 — Native PCI:** Complete source for exact-device
-  identification, PCI ownership and power D0, BAR/MMIO access,
-  concurrency, command rollback and safe teardown, based on
-  documented APIs and public source. **No physical PCI reads.**
+Complete bounded NVM read algorithms, dictionaries, revision matching,
+MAC/board checksums, antenna and calibration data interpretation, with safe
+rejection of unknown layouts. Use ath9k references; **never require a dump of
+the user's actual EEPROM to finish the source task**.
 
-- [ ] **A3 — EEPROM/OTP:** Complete bounded NVM read algorithms,
-  dictionaries, revision matching, MAC/board checksums, antenna
-  and calibration data interpretation, with safe rejection of
-  unknown layouts. Use ath9k references; **never require a dump
-  of the user's actual EEPROM to finish the source task**.
+[docs/todo/open/hardware/eeprom-otp.mdc](docs/todo/open/hardware/eeprom-otp.mdc)
 
-- [ ] **A4 — RF/PHY/regulatory:** Finish revision-aware radio
-  power/reset, PLL/synthesizer, gains, channel selection,
-  ANI/noise handling, RF-kill, calibration and legal per-channel
-  TX power constraints. Source must reject unknown board or
-  country states. **No live signal or transmission tests.**
+## P1 — Source-only
 
-- [ ] **A5 — EDMA/interrupts:** Implement ring allocation,
-  IOMMU/DMA contracts, RX/TX ownership, descriptors, completion,
-  interrupt handling, memory safety, sleep and fault recovery
-  in source. Consult public ath9k and IOKit documentation.
-  **No physical packet transfer required.**
+### TODO - Native PCI
 
-- [ ] **A6 — 802.11 MAC:** Complete scanning/channel-dwell
-  decisions, beacons, RSN, advertised rates, authentication,
-  association, BSS snapshots, timeouts and reconnection.
-  **No actual Wi-Fi scan or screenshot required.**
+Complete source for exact-device identification, PCI ownership and power D0,
+BAR/MMIO access, concurrency, command rollback and safe teardown, based on
+documented APIs and public source. **No physical PCI reads.**
 
-- [ ] **A7 — WPA2/CCMP:** Complete theoretically reviewed PMK/PTK,
-  EAPOL MIC and four-way handshake, AES unwrap, CCMP, keycache,
-  group rekey and packet-number/replay control. Compare
-  algorithms with published specifications and source vectors;
-  **do not run test suites or claim crypto certification**.
+[docs/todo/open/platform/native-pci.mdc](docs/todo/open/platform/native-pci.mdc)
 
-- [ ] **A8 — Tahoe AirPort:** Complete the proposed native
-  IO80211Controller/IO80211Interface integration, Wi-Fi UI
-  scan/connect/status requests, networking, power transitions
-  and packet contracts. Research public code and documentation
-  without copying incompatible proprietary or third-party ABI
-  code. **No live Wi-Fi UI acceptance prerequisite.**
+### TODO - RF/PHY/regulatory
 
-- [ ] **A9 — Integrate the entire theoretical source pipeline:**
-  PCI → PHY → DMA → 802.11 MAC → WPA2/CCMP → native AirPort.
-  Resolve state/locking ownership, data movement, failures,
-  cleanup, suspend/resume and reconnection in code. Remove
-  placeholders and invented readiness indicators.
-  **Source completeness only; not physical connectivity.**
+Finish revision-aware radio power/reset, PLL/synthesizer, gains, channel
+selection, ANI/noise handling, RF-kill, calibration and legal per-channel TX
+power constraints. Source must reject unknown board or country states. **No
+live signal or transmission tests.**
 
-- [ ] **A10 — Finish source-only hardening/documentation:**
-  Reason through bounds, overflow, lifetime, crypto erasure,
-  regulatory safety, deadlocks, interrupt races, rollback,
-  licensing and documentation. Keep README/AGENTS/TODO accurate.
-  Use only tools/validate.py for already available Clang checks;
-  no Jig, new tools, compilation, CI or hardware diagnostics.
+[docs/todo/open/hardware/rf-phy-regulatory.mdc](docs/todo/open/hardware/rf-phy-regulatory.mdc)
 
-## After pre-final completion: indefinite theoretical hardening
+### TODO - EDMA/interrupts
 
-**Mandatory waiting state; NOT authorization to test.** Continue
-researching and reviewing code, standards, safety and platform
-compatibility indefinitely. Repair newly found source-level defects
-on main. Do not impose an end date. Only the owner may announce
-that it is time for a first build and on-device experiment.
+Implement ring allocation, IOMMU/DMA contracts, RX/TX ownership, descriptors,
+completion, interrupt handling, memory safety, sleep and fault recovery in
+source. Consult public ath9k and IOKit documentation. **No physical packet
+transfer required.**
 
-## FINAL TODO — owner-controlled physical test and diagnostic loop
+[docs/todo/open/hardware/edma-interrupts.mdc](docs/todo/open/hardware/edma-interrupts.mdc)
 
-- [ ] **Only after all source-only TODOs are done AND the owner
-  voluntarily ends the indefinite hardening hold:** obtain
-  specific owner approval for each build, installation and
-  experiment. The owner tests the kext on the Dell, reports
-  actual diagnostics in THIS ChatGPT conversation, and
-  decides what to try next. Agents coordinate in their
-  existing chat and implement source fixes directly on main,
-  repeating owner-guided diagnostic cycles until native
-  Wi-Fi scan/association, WPA2 encrypted IP, network stability,
-  reconnect, sleep/wake, Bluetooth coexistence and real
-  bidirectional AirDrop work to the owner's satisfaction.
-  Identify the separate Bluetooth hardware and actual
-  macOS Continuity support. These features **cannot be
-  guaranteed by AR9565 source code alone**. This checkbox
-  must remain open until real owner-authorized validation
-  demonstrates the requested result.
+## P2 — Source-only
+
+### TODO - 802.11 MAC
+
+Complete scanning/channel-dwell decisions, beacons, RSN, advertised rates,
+authentication, association, BSS snapshots, timeouts and reconnection. **No
+actual Wi-Fi scan or screenshot required.**
+
+[docs/todo/open/wifi/ieee80211-mac.mdc](docs/todo/open/wifi/ieee80211-mac.mdc)
+
+### TODO - WPA2/CCMP
+
+Complete theoretically reviewed PMK/PTK, EAPOL MIC and four-way handshake, AES
+unwrap, CCMP, keycache, group rekey and packet-number/replay control. Compare
+algorithms with published specifications and source vectors; **do not run test
+suites or claim crypto certification**.
+
+[docs/todo/open/wifi/wpa2-ccmp.mdc](docs/todo/open/wifi/wpa2-ccmp.mdc)
+
+### TODO - Tahoe AirPort
+
+Complete the proposed native IO80211Controller/IO80211Interface integration,
+Wi-Fi UI scan/connect/status requests, networking, power transitions and packet
+contracts. Research public code and documentation without copying incompatible
+proprietary or third-party ABI code. **No live Wi-Fi UI acceptance
+prerequisite.**
+
+[docs/todo/open/platform/native-tahoe-airport.mdc](docs/todo/open/platform/native-tahoe-airport.mdc)
+
+## P3 — Source-only
+
+### TODO - Integrate the entire theoretical source pipeline
+
+PCI → PHY → DMA → 802.11 MAC → WPA2/CCMP → native AirPort. Resolve
+state/locking ownership, data movement, failures, cleanup, suspend/resume and
+reconnection in code. Remove placeholders and invented readiness indicators.
+**Source completeness only; not physical connectivity.**
+
+[docs/todo/open/integration/full-wifi-pipeline.mdc](docs/todo/open/integration/full-wifi-pipeline.mdc)
+
+## P4 — Source-only
+
+### TODO - Finish source-only hardening/documentation
+
+Reason through bounds, overflow, lifetime, crypto erasure, regulatory safety,
+deadlocks, interrupt races, rollback, licensing and documentation. Keep
+README/AGENTS/TODO accurate. Use tools/validate.py for installed Clang, Ruff
+and BasedPyright checks; no Jig, new tools, compilation, CI or hardware
+diagnostics.
+
+[docs/todo/open/governance/source-hardening.mdc](docs/todo/open/governance/source-hardening.mdc)
+
+## Indefinite theoretical hardening
+
+After P0–P4 source completion, continue research and source hardening
+without deadline, physical checks or owner diagnostic requests.
+This hold ends ONLY by an explicit owner decision.
+
+## P5 — FINAL TODO: owner-controlled physical testing
+
+### TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
+
+The owner starts separately authorized Dell experiments only after all
+theoretical tasks and the indefinite hold, then shares diagnostics here for
+agent-guided bug fixes until the requested result is reached.
+
+[docs/todo/open/owner/owner-controlled-device-acceptance.mdc](docs/todo/open/owner/owner-controlled-device-acceptance.mdc)

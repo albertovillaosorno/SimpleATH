@@ -101,12 +101,20 @@ make Jig a required status check, or change existing .jig/ materials.
 Leave .jig/ exactly as it is and inactive.
 
 **The only dedicated validation entrypoint is tools/validate.py**:
-an extremely lightweight, source-only runner for the existing Clang
-formatter and, when a compilation database is already available,
-Clang-Tidy on C/Objective-C/C++. It must never build, link, run
-tests, fetch tools or create compilation databases. Keep existing
-root .clang-format, .clang-tidy and .editorconfig rules. Do not
-download linter configurations or dependencies.
+a lightweight source-only runner for the system-installed Clang Format
+and optional Clang-Tidy (C/Objective-C/C++), Ruff and BasedPyright
+(Python). It reads only root .clang-format, .clang-tidy, ruff.toml,
+pyrightconfig.json and .editorconfig. Unchanged files reuse
+content-addressed results in .cache/validate/; report.json gives
+machine-readable findings for coordinating agents. Use --no-cache
+when imported dependencies change. Never build, link, run tests,
+fetch/install tools or create compilation databases.
+
+TODO.md is an index of 11 canonical typed records in docs/todo/open/.
+Each P0-P4 record is source-only, with acceptance and evidence separated
+from the final owner-controlled P5 physical task. Accepted records move
+to docs/todo/completed/ and disappear from the root TODO index.
+No agent may mark P5 complete based solely on source analysis.
 
 ## Completion reporting
 

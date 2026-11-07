@@ -1,0 +1,35 @@
+---
+schema: simpleath.todo.v1
+id: exact-tahoe-abi
+status: open
+priority: P0
+lane: A1
+phase: source-only
+hardware_required: false
+dependencies: []
+scope:
+  - "docs/evidence/"
+  - "docs/design/TAHOE-25G332-KDK.md"
+---
+
+# TODO - Tahoe ABI
+
+## Objective
+
+Research public Tahoe KDK/SDK exports, IOPCIFamily, IO80211FamilyLegacy,
+IOSkywalkFamily and IONetworkingFamily. Document method/lifetime contracts and
+source-level compatibility, with explicit unverified assumptions and
+fail-closed behavior. **No live logs needed.**
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Account for exported symbols, ABI uncertainty and fail-closed interfaces.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

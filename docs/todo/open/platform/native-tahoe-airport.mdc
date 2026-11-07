@@ -1,0 +1,38 @@
+---
+schema: simpleath.todo.v1
+id: native-tahoe-airport
+status: open
+priority: P2
+lane: A8
+phase: source-only
+hardware_required: false
+dependencies:
+  - "exact-tahoe-abi"
+  - "ieee80211-mac"
+scope:
+  - "src/platform/"
+  - "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md"
+---
+
+# TODO - Tahoe AirPort
+
+## Objective
+
+Complete the proposed native IO80211Controller/IO80211Interface integration,
+Wi-Fi UI scan/connect/status requests, networking, power transitions and packet
+contracts. Research public code and documentation without copying incompatible
+proprietary or third-party ABI code. **No live Wi-Fi UI acceptance
+prerequisite.**
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Implement a genuine native interface rather than an Ethernet impersonation.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

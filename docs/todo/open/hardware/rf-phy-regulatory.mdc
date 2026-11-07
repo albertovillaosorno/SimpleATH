@@ -1,0 +1,36 @@
+---
+schema: simpleath.todo.v1
+id: rf-phy-regulatory
+status: open
+priority: P1
+lane: A4
+phase: source-only
+hardware_required: false
+dependencies:
+  - "eeprom-otp"
+scope:
+  - "src/hardware/Ar9565Core.cpp"
+  - "src/hardware/Ar9565Power.cpp"
+---
+
+# TODO - RF/PHY/regulatory
+
+## Objective
+
+Finish revision-aware radio power/reset, PLL/synthesizer, gains, channel
+selection, ANI/noise handling, RF-kill, calibration and legal per-channel TX
+power constraints. Source must reject unknown board or country states. **No
+live signal or transmission tests.**
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Block radio TX without valid regulatory country and board power data.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

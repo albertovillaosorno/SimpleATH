@@ -1,0 +1,35 @@
+---
+schema: simpleath.todo.v1
+id: native-pci
+status: open
+priority: P1
+lane: A2
+phase: source-only
+hardware_required: false
+dependencies:
+  - "exact-tahoe-abi"
+scope:
+  - "src/platform/Ar9565NativePci.cpp"
+  - "src/platform/Ar9565PciSession.cpp"
+---
+
+# TODO - Native PCI
+
+## Objective
+
+Complete source for exact-device identification, PCI ownership and power D0,
+BAR/MMIO access, concurrency, command rollback and safe teardown, based on
+documented APIs and public source. **No physical PCI reads.**
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Define exclusive PCI ownership, D0, BAR/MMIO and rollback in source.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

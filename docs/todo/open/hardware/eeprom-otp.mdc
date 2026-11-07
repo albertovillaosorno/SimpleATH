@@ -1,0 +1,35 @@
+---
+schema: simpleath.todo.v1
+id: eeprom-otp
+status: open
+priority: P0
+lane: A3
+phase: source-only
+hardware_required: false
+dependencies: []
+scope:
+  - "src/hardware/Ar9565NvmReader.cpp"
+  - "src/hardware/Ar9565Eeprom.cpp"
+---
+
+# TODO - EEPROM/OTP
+
+## Objective
+
+Complete bounded NVM read algorithms, dictionaries, revision matching,
+MAC/board checksums, antenna and calibration data interpretation, with safe
+rejection of unknown layouts. Use ath9k references; **never require a dump of
+the user's actual EEPROM to finish the source task**.
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Validate NVM checksums, board identity and reject unknown layouts.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.

@@ -1,22 +1,21 @@
 {
   "include": [
-    "../../../src",
-    "../../../tests",
-    "../../../verifier"
+    "src",
+    "tools"
   ],
   "exclude": [
-    "../../../.cache",
-    "../../../.dependencies",
-    "../../../.git",
-    "../../../.temp",
-    "../../../.venv",
-    "../../../node_modules",
-    "../../../target",
-    "**/__pycache__",
-    "**/.temp"
+    ".cache",
+    ".dependencies",
+    ".git",
+    ".logs",
+    ".temp",
+    ".venv",
+    "linux",
+    "target",
+    "**/__pycache__"
   ],
   "pythonVersion": "3.14",
-  "pythonPlatform": "Windows",
+  "pythonPlatform": "Linux",
   "typeCheckingMode": "all",
   "failOnWarnings": true,
   "useLibraryCodeForTypes": false,
@@ -55,17 +54,8 @@
   "reportSelfClsDefault": "error",
   "reportMissingSuperCall": "error",
   "reportUninitializedInstanceVariable": "error",
-  "venvPath": "../../../.dependencies/python",
-  "venv": "3.14.7",
   "extraPaths": [
-    "../../../src/automation/repository/composition",
-    "../../../src/optimization/accelerator/adapter-outbound",
-    "../../../src/optimization/accelerator/application",
-    "../../../src/optimization/optimizer/application",
-    "../../../src/performance/benchmarking/composition",
-    "../../../src/research/algorithms/composition",
-    "../../../src/research/algorithms/domain",
-    "../../..",
-    "../../../verifier"
+    "src",
+    "tools"
   ]
 }

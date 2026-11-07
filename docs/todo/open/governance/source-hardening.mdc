@@ -1,0 +1,47 @@
+---
+schema: simpleath.todo.v1
+id: source-hardening
+status: open
+priority: P4
+lane: A10
+phase: source-only
+hardware_required: false
+dependencies:
+  - "exact-tahoe-abi"
+  - "native-pci"
+  - "eeprom-otp"
+  - "rf-phy-regulatory"
+  - "edma-interrupts"
+  - "ieee80211-mac"
+  - "wpa2-ccmp"
+  - "native-tahoe-airport"
+  - "full-wifi-pipeline"
+scope:
+  - "tools/validate.py"
+  - "AGENTS.md"
+  - "TODO.md"
+  - "README.md"
+---
+
+# TODO - Finish source-only hardening/documentation
+
+## Objective
+
+Reason through bounds, overflow, lifetime, crypto erasure, regulatory safety,
+deadlocks, interrupt races, rollback, licensing and documentation. Keep
+README/AGENTS/TODO accurate. Use tools/validate.py for installed Clang, Ruff
+and BasedPyright checks; no Jig, new tools, compilation, CI or hardware
+diagnostics.
+
+## Acceptance
+
+- [ ] Implement/review the stated source and integrate on main.
+- [ ] Record static lint evidence, source safety, provenance and remaining ABI assumptions.
+- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record unresolved assumptions and fail-closed behavior.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+
+## Evidence
+
+- Source commits, reference URLs/version/rights, static review and lint diagnostics.
+- Theoretical completeness only; no build, device scan, packet logs or hardware claims.
