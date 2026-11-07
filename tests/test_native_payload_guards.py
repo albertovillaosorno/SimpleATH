@@ -15,8 +15,10 @@ if TYPE_CHECKING:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from native_payload import CLIENT_CLASSES
+from native_payload import LinkGuardContext
 from native_payload import SkywalkPlan
 from native_payload import checked_client_profile_rows
+from native_payload import checked_link_instruction
 from native_payload import checked_system_profile_names
 from native_payload import emit_system_profiles
 from native_payload import native_client_symbols
@@ -27,6 +29,7 @@ MISSING_PROFILE = "Incomplete native user-client profile catalog"
 EMPTY_PROFILES = "Incomplete or reordered native system profile catalog"
 MISSING_GUARDS = "Native ABI guards were not prepared"
 MALFORMED_CATALOG = "Malformed native user-client symbol or vtable catalog"
+OUT_OF_BOUNDS_MESSAGE = "Out-of-bounds"
 
 
 def _valid_clients() -> tuple[list[list[str]], list[list[str]], dict[str, int]]:
@@ -171,3 +174,72 @@ class NativeProfileCatalogContracts(TestCase):
             error = _error(action)
             assert isinstance(error, ValueError)
             assert EMPTY_PROFILES in str(error)
+
+
+class NativeLogicalLinkInstructionContracts(TestCase):
+    """The source wrapper's disassembly must stay inside its byte buffer."""
+
+    @staticmethod
+    def _context() -> LinkGuardContext:
+        """Provide independent mutable state for each synthetic source check.
+
+        Returns:
+            A five-byte test wrapper and its isolated import mask.
+
+        """
+        return LinkGuardContext(
+            address=0x100,
+            data=b"\xe8\x00\x00\x00\x00",
+            common={"_nativeDeregister"},
+            imports=set(),
+            mask=bytearray(b"\xff" * 5),
+            references=[],
+            byaddr={0x105: ["_nativeDeregister"]},
+        )
+
+    @staticmethod
+    def test_valid_direct_call_masks_only_its_relative_displacement() -> None:
+        """Preserve the import name and relocation span from a real call."""
+        context = NativeLogicalLinkInstructionContracts._context()
+        checked_link_instruction(
+            context, (0x100, 5, "callq", b"\xe8\x00\x00\x00\x00")
+        )
+        assert context.mask == bytearray(b"\xff\x00\x00\x00\x00")
+        assert context.references == [(1, "_nativeDeregister")]
+        assert context.imports == {"_nativeDeregister"}
+
+    def test_truncated_and_out_of_range_instructions_rejected(self) -> None:
+        """Reject disassembler spans before they may mutate output buffers."""
+        instructions = (
+            (0x100, 0, "callq", b""),
+            (0x100, 5, "callq", b"\xe8"),
+            (0xFF, 5, "callq", b"\xe8\x00\x00\x00\x00"),
+            (0x101, 5, "callq", b"\xe8\x00\x00\x00\x00"),
+        )
+        for instruction in instructions:
+            with self.subTest(instruction=instruction):
+                context = self._context()
+                error = _error(
+                    partial(checked_link_instruction, context, instruction)
+                )
+                assert isinstance(error, ValueError)
+                assert OUT_OF_BOUNDS_MESSAGE in str(error)
+                assert context.mask == bytearray(b"\xff" * 5)
+                assert not context.imports
+                assert not context.references
+
+    def test_branch_and_rip_opcode_contracts_rejected(self) -> None:
+        """Reject displaced or unknown wrappers without adding imports."""
+        for instruction, message in (
+            ((0x100, 4, "callq", b"\xe8\x00\x00\x00"), "branch encoding"),
+            ((0x100, 5, "mov %rip", b"\x90\x00\x00\x00\x00"), "RIP-relative"),
+        ):
+            with self.subTest(instruction=instruction):
+                context = self._context()
+                error = _error(
+                    partial(checked_link_instruction, context, instruction)
+                )
+                assert isinstance(error, ValueError)
+                assert message in str(error)
+                assert not context.imports
+                assert not context.references
