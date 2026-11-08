@@ -47,5 +47,26 @@ int main()
     if (decodeLlcData(nullptr, 0, false, false, payload) != Result::NullBuffer ||
         payload.payload || payload.payloadLength)
         return 6;
+
+    // A single legacy Data MPDU cannot exceed 2346 bytes on air, including
+    // its four-byte FCS. Without an FCS in the borrowed buffer the limit is
+    // 2342. Oversized frames must never reach Ethernet payload delivery.
+    uint8_t oversized[2347] {};
+    for (size_t i = 0; i < sizeof(frame); ++i)
+        oversized[i] = frame[i];
+    if (decodeLlcData(oversized, 2342, false, false, payload) != Result::Ok ||
+        payload.payloadLength != 2310 || payload.payload != oversized + 32)
+        return 7;
+    if (decodeLlcData(oversized, 2346, true, false, payload) != Result::Ok ||
+        payload.payloadLength != 2310 || payload.payload != oversized + 32)
+        return 8;
+    if (decodeLlcData(oversized, 2343, false, false, payload) !=
+            Result::InvalidFrame ||
+        payload.payload || payload.payloadLength)
+        return 9;
+    if (decodeLlcData(oversized, sizeof(oversized), true, false, payload) !=
+            Result::InvalidFrame ||
+        payload.payload || payload.payloadLength)
+        return 10;
     return 0;
 }

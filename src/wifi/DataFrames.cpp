@@ -22,6 +22,7 @@ namespace simpleath
         static constexpr size_t K_FOURTH_ADDRESS_BYTES = 6;
         static constexpr size_t K_QOS_CONTROL_BYTES = 2;
         static constexpr size_t K_FCS_BYTES = 4;
+        static constexpr size_t K_MAX_MPDU_BYTES_INCLUDING_FCS = 2346;
         static constexpr size_t K_LLC_SNAP_BYTES = 8;
         static constexpr uint32_t K_BITS_PER_BYTE = 8;
 
@@ -62,6 +63,15 @@ namespace simpleath
             if (header.type != FrameType::Data)
             {
                 return Result::UnsupportedFrame;
+            }
+            // This non-aggregating data path shares the 2346-byte on-air
+            // MPDU ceiling used by station TX. A DMA buffer without its FCS
+            // may contain at most 2342 bytes. Reject oversized RX before
+            // borrowing a payload pointer for native Ethernet delivery.
+            if (frame_bytes > K_MAX_MPDU_BYTES_INCLUDING_FCS -
+                                  (contains_fcs ? 0U : K_FCS_BYTES))
+            {
+                return Result::InvalidFrame;
             }
             // Only ordinary and QoS Data MSDUs have a reviewed payload
             // contract. Null-data and contention-free poll/ACK variants are
