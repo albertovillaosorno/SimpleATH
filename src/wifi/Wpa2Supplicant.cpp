@@ -310,8 +310,10 @@ namespace simpleath
                 return Wpa2Result::InvalidArgument;
             if (state_ != Wpa2State::Inactive)
                 return Wpa2Result::InvalidState;
+            // A public supplicant must not authenticate a forged association
+            // whose local station and authenticator addresses are identical.
             if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
-                !nonzero(pmk, 32))
+                sameMac(station, ap) || !nonzero(pmk, 32))
                 return Wpa2Result::InvalidArgument;
             // This snapshot came from a validated Beacon/Probe Response.
             // A missing or unsupported RSNE cannot be treated as WPA2-PSK.

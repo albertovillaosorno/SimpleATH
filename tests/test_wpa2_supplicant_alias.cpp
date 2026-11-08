@@ -472,6 +472,12 @@ int main()
     uint8_t pmk[32] {};
     pmk[0] = 1;
     auto callbacks = fakeCallbacks(fake);
+    // Do not establish a PSK handshake with an AP identity equal to our
+    // station, even if both individual MACs are otherwise valid unicast.
+    if (supplicant.begin(fakeCallbacks(fake), kStation, kStation, pmk, kRsnIe,
+                         sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
+        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        return 38;
     callbacks.context = &supplicant;
     if (supplicant.begin(callbacks, kStation, kAp, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
