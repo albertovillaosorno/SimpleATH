@@ -95,7 +95,13 @@ namespace simpleath
 
         bool WifiEngine::configureKeys(const crypto::KeyHardware &hardware)
         {
-            if (keysConfigured_ || selected_)
+            // The adapter checks its own storage, but the provider's opaque
+            // writable context could point into this engine's station/link
+            // state instead. Reject the entire owner, not just the adapter,
+            // before retaining callbacks that may mutate that context.
+            if (overlaps(hardware.context, 1, this, sizeof(*this)) ||
+                overlaps(&hardware, sizeof(hardware), this, sizeof(*this)) ||
+                keysConfigured_ || selected_)
                 return false;
             keysConfigured_ = crypto_.configure(hardware);
             return keysConfigured_;

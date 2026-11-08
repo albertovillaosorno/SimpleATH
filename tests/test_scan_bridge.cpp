@@ -159,6 +159,30 @@ int main()
     // pass WifiEngine admission and produce an explicit cache-update action.
     // These booleans are test doubles; no real PCI/DMA/FCS authority exists.
     static WifiEngine engine;
+    // The crypto provider owns writable context memory. It must not be
+    // borrowed from any part of the engine, even outside Adapter itself:
+    // a future random/keycache callback could overwrite live link state.
+    crypto::KeyHardware borrowedHardware {};
+    borrowedHardware.context = &engine;
+    borrowedHardware.secureRandom = +[](void *, uint8_t *, size_t) -> bool
+    {
+        return true;
+    };
+    borrowedHardware.installPairwise =
+        +[](void *, const Mac &, const uint8_t *) -> bool
+    {
+        return true;
+    };
+    borrowedHardware.installGroup =
+        +[](void *, uint8_t, const uint8_t *, const uint8_t *) -> bool
+    {
+        return true;
+    };
+    borrowedHardware.removeKeys = +[](void *)
+    {
+    };
+    if (engine.configureKeys(borrowedHardware))
+        return 30;
     EngineAction action {};
     const InputTrust untrusted {true, true, false, false};
     const InputTrust syntheticVerifiedRx {true, true, true, false};
