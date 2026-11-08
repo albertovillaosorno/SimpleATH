@@ -193,8 +193,12 @@ namespace simpleath
                 {&status, sizeof(status)},
                 {&backend, sizeof(backend)},
                 {&physicalIdentity, sizeof(physicalIdentity)}};
-            for (size_t i = 0; i < 4; ++i)
+            for (size_t i = 0; i < sizeof(spans) / sizeof(spans[0]); ++i)
             {
+                // The provider may mutate its opaque context while polling.
+                // Neither the borrowed callback table nor the live PCI
+                // identity is safe callback-owned storage, even though those
+                // two inputs are not writable output buffers.
                 if (overlaps(spans[i].address, spans[i].bytes, backend.context,
                              1))
                     return false;
@@ -234,7 +238,12 @@ namespace simpleath
             overlaps(&status, sizeof(status), &backend, sizeof(backend)) ||
             overlaps(&status, sizeof(status), &physicalIdentity,
                      sizeof(physicalIdentity)) ||
-            overlaps(&status, sizeof(status), backend.context, 1))
+            overlaps(&status, sizeof(status), backend.context, 1) ||
+            // A callback owns mutable context but cannot borrow its own
+            // function table or the verified physical identity as that state.
+            overlaps(backend.context, 1, &backend, sizeof(backend)) ||
+            overlaps(backend.context, 1, &physicalIdentity,
+                     sizeof(physicalIdentity)))
             return NvmResult::InvalidArgument;
         status = {};
         status.source = source;

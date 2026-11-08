@@ -48,6 +48,11 @@ namespace
                (!fake.failOwnerAfter || fake.ownerChecks < fake.failOwnerAfter);
     }
 
+    bool neverOwned(void *)
+    {
+        return false;
+    }
+
     bool read(void *context, uint32_t offset, uint32_t *value)
     {
         auto &fake = *static_cast<Fake *>(context);
@@ -453,9 +458,54 @@ int main()
                       fixture.status) != NvmDiscoveryResult::InvalidArgument ||
         !lease.view(15))
         return 24;
+    // A callback context inside the input table or physical PCI identity
+    // must not revoke an already accepted board lease or touch scratch. A
+    // callback can mutate its context; this cannot be an input to selection.
+    simpleath::NvmReadBackend aliasedBackend {nullptr, neverOwned, read,
+                                              now,     delay,      0x16000};
+    aliasedBackend.context = &aliasedBackend;
+    if (lease.acquire(aliasedBackend, guardedIdentity, 16, fixture.storage,
+                      sizeof(fixture.storage), fixture.scratch,
+                      sizeof(fixture.scratch),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15) || fixture.storage[0] != 0xa5 ||
+        fixture.fake.readCount != readsBeforeAlias)
+        return 26;
+    simpleath::Identity mutableIdentity = guardedIdentity;
+    aliasedBackend.context = &mutableIdentity;
+    if (lease.acquire(aliasedBackend, mutableIdentity, 16, fixture.storage,
+                      sizeof(fixture.storage), fixture.scratch,
+                      sizeof(fixture.scratch),
+                      fixture.status) != NvmDiscoveryResult::InvalidArgument ||
+        !lease.view(15) || fixture.storage[0] != 0xa5 ||
+        fixture.fake.readCount != readsBeforeAlias)
+        return 27;
     lease.invalidate();
     if (lease.view(15))
         return 25;
 
+    // Raw discovery must reject the same malformed borrowed inputs before
+    // clearing a previous board or invoking a provider callback.
+    fixture.board.valid = true;
+    fixture.status.result = NvmDiscoveryResult::Ok;
+    if (simpleath::discoverAr9565Nvm(aliasedBackend, mutableIdentity,
+                                     fixture.storage, sizeof(fixture.storage),
+                                     fixture.scratch, sizeof(fixture.scratch),
+                                     fixture.board, fixture.status) !=
+            NvmDiscoveryResult::InvalidArgument ||
+        !fixture.board.valid ||
+        fixture.status.result != NvmDiscoveryResult::Ok ||
+        fixture.storage[0] != 0xa5)
+        return 28;
+    aliasedBackend.context = &aliasedBackend;
+    if (simpleath::discoverAr9565Nvm(aliasedBackend, mutableIdentity,
+                                     fixture.storage, sizeof(fixture.storage),
+                                     fixture.scratch, sizeof(fixture.scratch),
+                                     fixture.board, fixture.status) !=
+            NvmDiscoveryResult::InvalidArgument ||
+        !fixture.board.valid ||
+        fixture.status.result != NvmDiscoveryResult::Ok ||
+        fixture.storage[0] != 0xa5)
+        return 29;
     return 0;
 }

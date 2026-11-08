@@ -32,6 +32,14 @@ namespace
         return fake.d0;
     }
 
+    // Deliberately does not dereference the forged opaque context. A pointer
+    // into borrowed callback/identity storage must be rejected even when this
+    // provider would otherwise fail harmlessly.
+    bool neverOwned(void *)
+    {
+        return false;
+    }
+
     bool read(void *context, uint32_t offset, uint32_t *value)
     {
         auto &fake = *static_cast<FakeNvm *>(context);
@@ -201,5 +209,28 @@ int main()
         fake.readsAfterRevocation != 0 || status.captureComplete || bytes[0] ||
         bytes[1])
         return 8;
+    // Opaque callback state must not be borrowed from the callback table or
+    // from the physical PCI identity. An owner callback is allowed to mutate
+    // its context; invoking one with either borrowed input risks corrupting
+    // subsequent function calls or the identity being validated.
+    const simpleath::Identity identity {simpleath::kPciVendor,
+                                        simpleath::kPciDevice, 0, 0, false};
+    simpleath::NvmReadBackend aliasedBackend {nullptr, neverOwned, read,
+                                              clock,   delay,      0x16000};
+    aliasedBackend.context = &aliasedBackend;
+    bytes[0] = bytes[1] = 0xa5;
+    status.result = NvmResult::Ok;
+    if (simpleath::captureAr9565Nvm(
+            aliasedBackend, identity, simpleath::NvmSource::Eeprom, bytes,
+            sizeof(bytes), status) != NvmResult::InvalidArgument ||
+        status.result != NvmResult::Ok || bytes[0] != 0xa5 || bytes[1] != 0xa5)
+        return 9;
+    simpleath::Identity mutableIdentity = identity;
+    aliasedBackend.context = &mutableIdentity;
+    if (simpleath::captureAr9565Nvm(
+            aliasedBackend, mutableIdentity, simpleath::NvmSource::Eeprom,
+            bytes, sizeof(bytes), status) != NvmResult::InvalidArgument ||
+        status.result != NvmResult::Ok || bytes[0] != 0xa5 || bytes[1] != 0xa5)
+        return 10;
     return 0;
 }
