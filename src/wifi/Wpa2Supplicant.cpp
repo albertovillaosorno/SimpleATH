@@ -365,6 +365,11 @@ namespace simpleath
             KeyFrame preflight {};
             if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
                 return Wpa2Result::MalformedEapol;
+            // A valid parsed EAPOL prefix does not authenticate extra RX
+            // bytes. The direct public handshake API requires the exact
+            // declared packet, just like the station data-path admission.
+            if (preflight.eapolLength != length)
+                return Wpa2Result::MalformedEapol;
             if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
                 return Wpa2Result::WrongMessage;
             uint8_t receivedM1[kMaximumEapolHandshakeBytes] {};
@@ -486,6 +491,11 @@ namespace simpleath
             // different DMA image than the bytes authenticated by the MIC.
             KeyFrame preflight {};
             if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
+                return Wpa2Result::MalformedEapol;
+            // A valid parsed EAPOL prefix does not authenticate extra RX
+            // bytes. The direct public handshake API requires the exact
+            // declared packet, just like the station data-path admission.
+            if (preflight.eapolLength != length)
                 return Wpa2Result::MalformedEapol;
             if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
                 return Wpa2Result::WrongMessage;

@@ -299,6 +299,57 @@ namespace
                owner.state() == StationState::WaitingForWpa2Keys;
     }
 
+    // A standalone EAPOL-Key operation must consume exactly the declared
+    // packet. A permissive lower-level parser may identify a valid prefix,
+    // but neither the M1 replay state nor M3 keycache may accept a trailing,
+    // unauthenticated suffix supplied by a direct public caller.
+    bool rejectTrailingHandshakeBytes()
+    {
+        HandshakeCallbacks callbacks {};
+        Wpa2Supplicant supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+            return false;
+        uint8_t m1[100] {};
+        makeM1(m1);
+        m1[99] = 0xa5;
+        uint8_t m2[121] {};
+        std::memset(m2, 0xa5, sizeof(m2));
+        size_t written = 17;
+        if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
+                Wpa2Result::MalformedEapol ||
+            written != 0 || m2[0] != 0xa5 || callbacks.nonceCalls != 0 ||
+            supplicant.state() != Wpa2State::AwaitingMessage1)
+            return false;
+        if (supplicant.onMessage1(m1, sizeof(m1) - 1, m2, sizeof(m2),
+                                  written) != Wpa2Result::Ok ||
+            written != sizeof(m2) || callbacks.micCalls != 1)
+            return false;
+        uint8_t m3[155] {};
+        makeM3(m3);
+        uint8_t trailingM3[156] {};
+        std::memcpy(trailingM3, m3, sizeof(m3));
+        trailingM3[155] = 0x5a;
+        uint8_t m4[99] {};
+        std::memset(m4, 0xa5, sizeof(m4));
+        written = 17;
+        if (supplicant.onMessage3(trailingM3, sizeof(trailingM3), m4,
+                                  sizeof(m4),
+                                  written) != Wpa2Result::MalformedEapol ||
+            written != 0 || m4[0] != 0xa5 || callbacks.micCalls != 1 ||
+            callbacks.unwrapCalls != 0 || callbacks.pairwiseCalls != 0 ||
+            supplicant.state() != Wpa2State::AwaitingMessage3)
+            return false;
+        if (supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written) !=
+                Wpa2Result::Ok ||
+            written != sizeof(m4) || !supplicant.keysInstalled())
+            return false;
+        supplicant.reset();
+        return callbacks.rollbackCalls == 1;
+    }
+
     enum class HandshakeCase : uint8_t
     {
         Success,
@@ -761,6 +812,8 @@ namespace
 
 int main()
 {
+    if (!rejectTrailingHandshakeBytes())
+        return 46;
     if (!rejectMalformedMessage2())
         return 40;
     if (!rejectWrongPairwiseKeyLengths())
