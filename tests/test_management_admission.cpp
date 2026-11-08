@@ -116,6 +116,41 @@ namespace
                !header.moreFragments && header.fragment == 0;
     }
 
+    bool rejectHiddenAssociationName()
+    {
+        uint8_t frame[kBeaconBytes] {};
+        makeBeacon(frame);
+        // A hidden AP can advertise a fixed-length, entirely zero SSID.
+        // It must not be serialized into an association as a visible name.
+        std::memset(frame + 38, 0, 4);
+        Beacon hidden {};
+        if (parseBeacon(frame, sizeof(frame), hidden) != Result::Ok ||
+            !hidden.hiddenSsid || hidden.ssidLength != 4)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[96] {};
+        std::memset(output, 0xa5, sizeof(output));
+        size_t written = 77;
+        if (makeAssociationRequest(station, hidden, 1, output, sizeof(output),
+                                   written) != Result::InvalidSsid ||
+            written != 0 || output[0] != 0xa5)
+            return false;
+        // A forged Beacon may lie about its hidden flag. Only a genuinely
+        // nonzero visible name should be eligible for serialization.
+        hidden.hiddenSsid = false;
+        written = 77;
+        if (makeAssociationRequest(station, hidden, 2, output, sizeof(output),
+                                   written) != Result::InvalidSsid ||
+            written != 0 || output[0] != 0xa5)
+            return false;
+        makeBeacon(frame);
+        Beacon visible {};
+        return parseBeacon(frame, sizeof(frame), visible) == Result::Ok &&
+               makeAssociationRequest(station, visible, 3, output,
+                                      sizeof(output), written) == Result::Ok &&
+               written != 0 && output[0] == 0;
+    }
+
     bool rejectFragmentsAndForeignBssid()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -474,5 +509,7 @@ int main()
         return 9;
     if (!rejectStaleElementCursorViews())
         return 10;
+    if (!rejectHiddenAssociationName())
+        return 11;
     return 0;
 }

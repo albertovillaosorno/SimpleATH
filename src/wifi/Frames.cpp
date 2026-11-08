@@ -542,7 +542,15 @@ namespace simpleath
             if (!validStationMac(station) || !validStationMac(network.bssid))
                 return Result::InvalidAddress;
             if (network.ssidLength == 0 || network.ssidLength > 32 ||
-                !network.infrastructure)
+                !network.infrastructure || network.hiddenSsid)
+                return Result::InvalidSsid;
+            // An all-zero fixed-length SSID is also hidden. Even a forged
+            // Beacon with its hidden flag cleared must not cause a silent
+            // association request for an unknown network name.
+            bool hasVisibleByte = false;
+            for (size_t i = 0; i < network.ssidLength; ++i)
+                hasVisibleByte |= network.ssid[i] != 0;
+            if (!hasVisibleByte)
                 return Result::InvalidSsid;
 
             const bool secure = network.rsn.security == Security::Wpa2Personal;
