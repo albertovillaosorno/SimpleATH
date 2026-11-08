@@ -495,6 +495,43 @@ the saved JSON report. Unlike the first run, the second reused valid lint
 cache results while retaining the complete repository-wide scope.
 **P0 remains OPEN** until the Clang-Tidy failures are resolved.
 
+## Source-only RX, handshake and output-alias follow-up (2026-11-07)
+
+Four independent DCO fixes were pushed to `main` after the stable lock
+checkpoint, each with a synthetic failing regression before the change and a
+passing strict C++14 and C++17 AddressSanitizer/UndefinedBehaviorSanitizer
+host run afterward:
+
+- `d675ead`: `inspectStationRx` rejects broadcast, all-zero and other
+  multicast Ethernet source addresses in infrastructure FromDS frames (host
+  failure exit 20). An associated AP's valid BSSID is not sufficient to make
+  an invalid Ethernet source safe to forward.
+- `8b0c594`: WPA2-PSK EAPOL-Key traffic must use the selected associated
+  BSSID as its source; ordinary MIC/PN-validated bridged data still permits
+  other valid individual Ethernet sources (host failure exit 21).
+- `c077bf1`: management request serializers validate writable length aliases
+  against borrowed inputs even when the output packet pointer is null; the
+  no-output ordinary error still clears a nonaliased count (failure exit 7).
+- `c95d327`: WPA2 crypto callback outputs, including the unwrapped length,
+  cannot overwrite the known starting address of the opaque hardware provider
+  context. The owner must still guarantee disjointness of the context's full
+  unknown allocation (failure exit 22).
+
+Each source change was followed by a stable, default-on full
+`python3 -B tools/validate.py` run, including Clang-Tidy and offline host
+tests. **All four runs** recorded `scope=repository`, `source_only=true`,
+`tests_requested=true`, **162 files, 413 checks, 304 cached, 109 executed,
+361 passed, 52 failed, zero skipped**; every failing check was Clang-Tidy.
+No source-snapshot drift appeared, and captured stdout was byte-for-byte
+identical to `.cache/validate/report.json`. These runs were conducted on
+stable source content immediately before each source-only DCO commit, not
+misrepresented as four uncached scans or post-commit checks. The immediately
+preceding durable-lock run separately executed all 413 checks without cache.
+
+The outstanding **52 Clang-Tidy failures are unchanged and P0 remains OPEN**.
+These tests establish only portable host behavior; no native driver build,
+real RF/PCI/DMA execution, CI or hardware test was performed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
