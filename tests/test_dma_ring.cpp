@@ -16,6 +16,18 @@ int main()
         ring.slot(owned.index)->state != SlotState::Reserved)
         return 2;
 
+    // RingFull must not destroy the token that still owns a live slot.
+    // A caller can reuse the output storage for another attempted reserve;
+    // dropping that token would orphan an outstanding DMA descriptor.
+    TxSlotToken other {};
+    const TxSlotToken firstToken = owned;
+    if (ring.reserve(other, 8) != Error::Ok ||
+        ring.reserve(owned, 9) != Error::RingFull ||
+        owned.index != firstToken.index || owned.cookie != firstToken.cookie ||
+        owned.generation != firstToken.generation || ring.active() != 2 ||
+        ring.release(other) != Error::Ok)
+        return 14;
+
     // A reset while reserved must be rejected without erasing any token.
     if (ring.reset() != Error::UnexpectedState || ring.capacity() != 2 ||
         ring.active() != 1 ||

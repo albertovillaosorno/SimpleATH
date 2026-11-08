@@ -129,8 +129,9 @@ namespace simpleath
             // metadata when token is cleared or populated.
             if (overlaps_storage(&token, sizeof(token), this, sizeof(*this)))
                 return Error::UnexpectedState;
-            // A failed reservation must not leave an earlier live token.
-            token = {};
+            // A failed reservation must not destroy a previously minted
+            // active token when the caller reuses its output storage. New
+            // ownership is written only after a free slot is secured.
             if (capacity_ == 0)
             {
                 return Error::UninitializedRing;
