@@ -406,7 +406,20 @@ def _diagnostics(process: Process) -> list[str]:
     if _object_list(issues):
         return [_read_diagnostic(item) for item in issues[:DIAGNOSTIC_LIMIT]]
     text = process.stdout + "\n" + process.stderr
-    return text.strip().splitlines()[:DIAGNOSTIC_LIMIT]
+    lines = text.strip().splitlines()
+    # Native diagnostics include source excerpts and caret lines. Truncating
+    # raw lines can hide every independent issue after the first few. Retain
+    # distinct compiler headlines when there are multiple errors, without
+    # sacrificing context for a single error or ordinary process tracebacks.
+    headlines = [
+        line
+        for line in lines
+        if any(
+            marker in line
+            for marker in (": error:", ": fatal error:", ": warning:")
+        )
+    ]
+    return (headlines if len(headlines) > 1 else lines)[:DIAGNOSTIC_LIMIT]
 
 
 def _finding(

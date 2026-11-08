@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 CHILD_FAILURE = 7
 EXPECTED_SKIP = "skipped"
 EXPECTED_FAIL = "fail"
+COMPILER_ERROR_MARKER = ": error:"
 SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
 FULL_SCOPE_FRAGMENT = '"scope": "repository"'
@@ -97,6 +98,43 @@ def _lint_fingerprint(root: Path, file: Path, tool: str) -> str:
         finding = lint.check(file, tool)
         assert finding["status"] == validator.STATUS_OK
         return lint.entries[cache_key]["fingerprint"]
+
+
+def _lint_failure_diagnostics(text: str) -> list[str]:
+    """Exercise native diagnostics through the public lint-check boundary.
+
+    Returns:
+        Bounded details from a synthetic Clang-Tidy failure.
+
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = _root(directory)
+        source = root / "src/driver.cpp"
+        _ = source.write_text("int driver;", encoding="utf-8")
+        for config in validator.CONFIGS["clang-tidy"]:
+            _ = (root / config).write_text("fixture", encoding="utf-8")
+        with (
+            mock.patch.object(
+                validator, "_command", return_value=[sys.executable]
+            ),
+            mock.patch.object(validator, "_version", return_value="fixture"),
+            mock.patch.object(
+                validator, "tidy_command_exists", return_value=True
+            ),
+            mock.patch.object(
+                validator, "_dependencies", return_value=SHARED_DIGEST
+            ),
+            mock.patch.object(
+                validator,
+                "run_process",
+                return_value=validator.Process(1, text, ""),
+            ),
+        ):
+            finding = validator.LintRun(root, validator.Options(), {}).check(
+                source, "clang-tidy"
+            )
+        assert finding["status"] == EXPECTED_FAIL
+        return finding["diagnostics"]
 
 
 @final
@@ -424,6 +462,31 @@ class HostProcesses(unittest.TestCase):
         )
         assert result.code != 0
         assert EXPECTED_TIMEOUT in result.stderr
+
+    @staticmethod
+    def test_tidy_diagnostics_keep_distinct_errors_within_limit() -> None:
+        """Source snippets must not hide later independent Tidy findings."""
+        output = "\n".join(
+            "\n".join((
+                f"src/driver.cpp:{index}:4: error: issue {index}",
+                f"  {index} | broken syntax",
+                "    | ^",
+            ))
+            for index in range(1, validator.DIAGNOSTIC_LIMIT + 4)
+        )
+        messages = _lint_failure_diagnostics(output)
+        assert len(messages) == validator.DIAGNOSTIC_LIMIT
+        assert messages[-1].endswith(f"issue {validator.DIAGNOSTIC_LIMIT}")
+        assert all(COMPILER_ERROR_MARKER in message for message in messages)
+
+    @staticmethod
+    def test_non_compiler_errors_keep_traceback_context() -> None:
+        """Fallback diagnostics preserve ordinary failures and tracebacks."""
+        failure = "Traceback (most recent call last):\nValueError: example"
+        assert _lint_failure_diagnostics(failure) == [
+            "Traceback (most recent call last):",
+            "ValueError: example",
+        ]
 
     @staticmethod
     def test_output_is_bounded() -> None:
