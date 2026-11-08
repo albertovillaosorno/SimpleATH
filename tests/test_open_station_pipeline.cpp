@@ -117,6 +117,17 @@ namespace
             owner.associationRequest(2, tx, sizeof(tx), written) != Result::Ok)
             return false;
 
+        // One matching rate cannot mask a newly mandatory, unsupported AP
+        // basic rate. Retain the retryable association state for a rescan.
+        uint8_t newBasic[34] {};
+        associationResponse(newBasic);
+        newBasic[33] = 0xff; // Basic 63.5 Mbps; selected BSS had only 1/2.
+        if (owner.onAssociationResponse(newBasic, sizeof(newBasic)) !=
+                StationResult::FrameRejected ||
+            owner.state() != StationState::AssociationFramePrepared ||
+            owner.associationId() != 0)
+            return false;
+
         uint8_t response[36] {};
         associationResponse(response);
         response[31] = 1;    // One base Supported Rate.
@@ -129,9 +140,17 @@ namespace
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
             return false;
-        // Extended Supported Rates can supply the common rate. Ignore the
-        // basic-rate marker when comparing the same underlying PHY rate.
-        response[35] = 0x04; // 2 Mbps matches advertised basic 0x84.
+        // Extended Supported Rates also cannot add a new mandatory basic
+        // rate, even if base Supported Rates retains a matching rate.
+        response[32] = 0x82; // Matching 1 Mbps basic rate.
+        response[35] = 0xff; // Unsupported basic rate in extended IE.
+        if (owner.onAssociationResponse(response, sizeof(response)) !=
+                StationResult::FrameRejected ||
+            owner.state() != StationState::AssociationFramePrepared ||
+            owner.associationId() != 0)
+            return false;
+        // Nonbasic AP additions are allowed when a selected rate is shared.
+        response[35] = 0x7f; // Unrecognized, but not mandatory.
         return owner.onAssociationResponse(response, sizeof(response)) ==
                    StationResult::NetworkInterfaceNotImplemented &&
                owner.state() == StationState::AssociatedOpen &&

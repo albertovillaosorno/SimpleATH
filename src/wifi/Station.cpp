@@ -29,20 +29,33 @@ namespace simpleath
                     return false;
                 Elements cursor(frame + kRatesOffset, length - kRatesOffset);
                 Element element {};
+                bool sharedRate = false;
                 while (cursor.next(element) == CursorStatus::Element)
                 {
                     if (element.id != 1 && element.id != 50)
                         continue;
                     for (size_t i = 0; i < element.length; ++i)
+                    {
+                        bool supported = false;
                         for (size_t j = 0; j < selected.rateCount; ++j)
-                            // The basic-rate marker does not change the PHY
-                            // rate. At least one selected BSS rate must still
-                            // be advertised by the AP on association success.
+                        {
+                            // Basic markers do not change the PHY rate.
                             if ((element.data[i] & 0x7fu) ==
                                 (selected.rates[j] & 0x7fu))
-                                return true;
+                            {
+                                supported = true;
+                                break;
+                            }
+                        }
+                        // An AP must not silently add a new mandatory basic
+                        // rate after the selected BSS advertisement. Even
+                        // when another rate is shared, rescan before TX.
+                        if (!supported && (element.data[i] & 0x80u) != 0)
+                            return false;
+                        sharedRate |= supported;
+                    }
                 }
-                return false;
+                return sharedRate;
             }
         } // namespace
 
