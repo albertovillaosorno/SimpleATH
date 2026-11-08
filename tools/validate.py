@@ -1200,7 +1200,9 @@ def _report_actionable_counts_match(
     )
 
 
-def _report_summary_code(value: object, source_count: int) -> int | None:
+def _report_summary_code(
+    value: object, source_count: int, *, expected_checks: int | None = None
+) -> int | None:
     if not _mapping(value):
         return None
     header = (
@@ -1215,7 +1217,8 @@ def _report_summary_code(value: object, source_count: int) -> int | None:
         return None
     passed, failed, skipped, checks = counts
     consistent = (
-        passed + failed + skipped == checks
+        (expected_checks is None or checks == expected_checks)
+        and passed + failed + skipped == checks
         and _report_execution_counts_match(
             value.get("summary"), checks, skipped
         )
@@ -1226,7 +1229,9 @@ def _report_summary_code(value: object, source_count: int) -> int | None:
     return (EXIT_FAILURE if failed or skipped else 0) if consistent else None
 
 
-def report_exit_code(report_text: str, source_count: int) -> int | None:
+def report_exit_code(
+    report_text: str, source_count: int, *, expected_checks: int | None = None
+) -> int | None:
     """Reject incomplete completed reports while preserving real failures.
 
     Returns:
@@ -1237,7 +1242,9 @@ def report_exit_code(report_text: str, source_count: int) -> int | None:
         report = _decode(report_text)
     except ValueError, RecursionError:
         return None
-    return _report_summary_code(report, source_count)
+    return _report_summary_code(
+        report, source_count, expected_checks=expected_checks
+    )
 
 
 def _current_inputs(root: Path) -> RunInputs:
@@ -1263,7 +1270,12 @@ def _completed_report(
     try:
         inputs = _current_inputs(root)
         identity = _run_identity(root, options, inputs)
-        code = report_exit_code(report_text, len(inputs.sources))
+        expected_checks = sum(
+            len(_tools(file, options)) for file in inputs.sources
+        ) + max(1, len(_test_files(root)))
+        code = report_exit_code(
+            report_text, len(inputs.sources), expected_checks=expected_checks
+        )
         # Recheck after reading every source; mixed versions cannot share.
         unchanged = inputs == _current_inputs(root)
     except OSError, ValueError, RecursionError:

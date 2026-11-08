@@ -5,6 +5,7 @@
 from contextlib import redirect_stderr
 from contextlib import redirect_stdout
 import fcntl
+import hashlib
 import io
 import json
 import os
@@ -41,6 +42,8 @@ OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
 THREAD_TIMEOUT = 8.0
 CONCURRENT_AGENTS = 5
+PYTHON_SOURCE_AND_HOST_CHECKS = 4
+COMPLETED_HOST_SCANS = 2
 WAITING_AGENTS = CONCURRENT_AGENTS - 1
 SEQUENTIAL_HOST_CALLS = 2
 ARGPARSE_FAILURE = 2
@@ -1301,6 +1304,87 @@ class CompletedRunEnvironment(unittest.TestCase):
             ):
                 for name in ("TMPDIR", "TMP", "TEMP"):
                     _assert_host_temp_rechecks(name, root, tests)
+
+
+def _corrupt_completed_check_count(root: Path) -> None:
+    """Write an internally consistent partial report and matching marker."""
+    report_path = root / ".cache/validate/report.json"
+    report = cast("dict[str, object]", json.loads(report_path.read_text()))
+    summary = cast("dict[str, object]", report["summary"])
+    assert summary["checks"] == PYTHON_SOURCE_AND_HOST_CHECKS
+    summary.update({"checks": 1, "pass": 1, "cached": 0, "executed": 1})
+    damaged = json.dumps(report, indent=2) + "\n"
+    _ = report_path.write_text(damaged, encoding="utf-8")
+    marker_path = root / validator.COMPLETION_FILE
+    marker = cast("dict[str, object]", json.loads(marker_path.read_text()))
+    marker["reportSHA256"] = hashlib.sha256(damaged.encode()).hexdigest()
+    _ = marker_path.write_text(json.dumps(marker), encoding="utf-8")
+
+
+class CompletedRunCountIntegrity(unittest.TestCase):
+    """A shared full report must cover every required source and host check."""
+
+    @staticmethod
+    def test_waiter_rejects_checksum_matched_under_counted_report() -> None:
+        """A tampered completion cannot turn partial checks into full green."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/driver.py"
+            _ = source.write_text("source", encoding="utf-8")
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "src/driver.py", "ruff-check", "pass"
+                    ),
+                ),
+                mock.patch.object(
+                    validator,
+                    "run_tests",
+                    return_value=[
+                        _sample_finding(
+                            "tests/test_fake.py", "python-test", "pass"
+                        )
+                    ],
+                ) as tests,
+                mock.patch.object(
+                    validator,
+                    "_tool_versions",
+                    return_value={"ruff": "fixture"},
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 0
+                _corrupt_completed_check_count(root)
+                report_path = root / ".cache/validate/report.json"
+
+                def contended(_: int, operation: int) -> None:
+                    if operation & fcntl.LOCK_NB:
+                        raise BlockingIOError
+
+                with (
+                    mock.patch.object(
+                        validator, "_completion_token", return_value=None
+                    ),
+                    mock.patch.object(fcntl, "flock", side_effect=contended),
+                ):
+                    assert validator.main() == 0
+                assert tests.call_count == COMPLETED_HOST_SCANS
+                refreshed = cast(
+                    "dict[str, object]", json.loads(report_path.read_text())
+                )
+                refreshed_summary = cast(
+                    "dict[str, object]", refreshed["summary"]
+                )
+                assert (
+                    refreshed_summary["checks"] == PYTHON_SOURCE_AND_HOST_CHECKS
+                )
 
 
 class CompletedReportIntegrity(unittest.TestCase):
