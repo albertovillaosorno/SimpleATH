@@ -167,6 +167,9 @@ namespace simpleath
         // rates, or zero if the BSS requires a PHY rate this station lacks.
         // Does not itself authorize a link or validate its security policy.
         size_t associationRequestLength(const Beacon &network);
+        // A response rate is shared only if it was actually negotiable by
+        // this station, not merely present in the AP's original beacon.
+        bool associationRateSupported(const Beacon &network, uint8_t rateCode);
 
         // Only open and WPA2-PSK (CCMP group and pairwise) association
         // templates. No credentials or traffic keys are installed by this

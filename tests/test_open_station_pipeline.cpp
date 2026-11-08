@@ -100,6 +100,11 @@ namespace
         if (parseBeacon(advertisement, sizeof(advertisement),
                         candidate.beacon) != Result::Ok)
             return false;
+        // The AP may advertise an optional rate the station hardware lacks.
+        // Association TX correctly omits it, so an Association Response
+        // containing ONLY that rate cannot establish a common PHY rate.
+        candidate.beacon.rates[2] = 0x7f;
+        candidate.beacon.rateCount = 3;
         candidate.occupied = true;
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         Station owner;
@@ -123,6 +128,16 @@ namespace
         associationResponse(newBasic);
         newBasic[33] = 0xff; // Basic 63.5 Mbps; selected BSS had only 1/2.
         if (owner.onAssociationResponse(newBasic, sizeof(newBasic)) !=
+                StationResult::FrameRejected ||
+            owner.state() != StationState::AssociationFramePrepared ||
+            owner.associationId() != 0)
+            return false;
+
+        uint8_t unnegotiated[34] {};
+        associationResponse(unnegotiated);
+        unnegotiated[31] = 1;
+        unnegotiated[32] = 0x7f; // Advertised by AP but NOT by this station.
+        if (owner.onAssociationResponse(unnegotiated, sizeof(unnegotiated)) !=
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)

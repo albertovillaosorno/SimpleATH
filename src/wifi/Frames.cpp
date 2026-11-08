@@ -151,6 +151,19 @@ namespace simpleath
                    (network.rsn.security == Security::Wpa2Personal ? 22u : 0u);
         }
 
+        bool associationRateSupported(const Beacon &network, uint8_t rateCode)
+        {
+            uint8_t selected[12] {};
+            size_t selectedCount = 0;
+            if ((rateCode & 0x7fu) == 0 ||
+                !selectAssociationRates(network, selected, selectedCount))
+                return false;
+            for (size_t i = 0; i < selectedCount; ++i)
+                if ((selected[i] & 0x7fu) == (rateCode & 0x7fu))
+                    return true;
+            return false;
+        }
+
         bool sameMac(const Mac &left, const Mac &right)
         {
             uint8_t difference = 0;

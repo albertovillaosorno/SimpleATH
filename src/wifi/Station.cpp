@@ -36,17 +36,11 @@ namespace simpleath
                         continue;
                     for (size_t i = 0; i < element.length; ++i)
                     {
-                        bool supported = false;
-                        for (size_t j = 0; j < selected.rateCount; ++j)
-                        {
-                            // Basic markers do not change the PHY rate.
-                            if ((element.data[i] & 0x7fu) ==
-                                (selected.rates[j] & 0x7fu))
-                            {
-                                supported = true;
-                                break;
-                            }
-                        }
+                        // A raw BSS may contain optional PHY rates omitted
+                        // from our association request. Only negotiated
+                        // local/AP rates can make a response compatible.
+                        const bool supported =
+                            associationRateSupported(selected, element.data[i]);
                         // An AP must not silently add a new mandatory basic
                         // rate after the selected BSS advertisement. Even
                         // when another rate is shared, rescan before TX.
