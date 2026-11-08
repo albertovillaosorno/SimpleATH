@@ -143,5 +143,30 @@ int main()
         mapped[0] != 1 || mapped[7] != 8 || mapped[8] != 0 ||
         restoredImage.stubUsed != 0)
         return 32;
+
+    // A caller can invoke allocateStub independently of restorePayload.
+    // The reserved stub area must never overlap live executable image bytes.
+    uint8_t executableAndStubs[32] {};
+    uint8_t initialStubBytes[sizeof(executableAndStubs)] {};
+    ath::Payload stubPayload {};
+    stubPayload.size = 16;
+    stubPayload.mappedSize = sizeof(executableAndStubs);
+    stubPayload.stubOffset = 8; // Malformed: overlaps the executable prefix.
+    stubPayload.stubSize = 16;
+    ath::LinkedImage stubImage {
+        &stubPayload, executableAndStubs, 0x4000, 0, false, true};
+    if (ath::allocateStub(stubImage, 0x12345678) != 0 ||
+        stubImage.stubUsed != 0 ||
+        std::memcmp(initialStubBytes, executableAndStubs,
+                    sizeof(executableAndStubs)) != 0)
+        return 33;
+
+    // A valid, disjoint reservation still builds a full 16-byte jump stub.
+    stubPayload.stubOffset = 16;
+    if (ath::allocateStub(stubImage, 0x12345678) != 0x4010 ||
+        stubImage.stubUsed != 16 ||
+        std::memcmp(initialStubBytes, executableAndStubs, 16) != 0 ||
+        executableAndStubs[16] != 0xff || executableAndStubs[17] != 0x25)
+        return 34;
     return 0;
 }

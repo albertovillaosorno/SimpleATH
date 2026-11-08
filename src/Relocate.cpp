@@ -120,8 +120,10 @@ namespace ath
         if (!image.payload || !image.memory || !image.editable)
             return 0;
         const auto &p = *image.payload;
+        // allocateStub is also callable outside restore/relocate. A forged
+        // overlapping stub offset must never overwrite live executable bytes.
         if (image.stubUsed > p.stubSize || p.stubSize - image.stubUsed < 16 ||
-            p.stubOffset > p.mappedSize ||
+            p.stubOffset < p.size || p.stubOffset > p.mappedSize ||
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize)
             return 0;
