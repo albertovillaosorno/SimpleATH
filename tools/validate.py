@@ -259,6 +259,12 @@ def _checked_path(root: Path, name: str) -> Path:
     if not path.is_relative_to(root.resolve()):
         message = f"Outside repository: {name}"
         raise ValueError(message)
+    # Resolving an in-tree symlink before filtering by suffix can drop a
+    # source file from the full inventory (or silently deduplicate it).
+    # Never treat such a linked entry as a checked repository source.
+    if (root / name).is_symlink():
+        message = f"Linked repository input: {name}"
+        raise ValueError(message)
     if not path.is_file():
         message = f"Missing file: {name}"
         raise ValueError(message)
@@ -1113,25 +1119,55 @@ def _report_execution_counts_match(
     )
 
 
+def _valid_actionable_row(row: object) -> TypeIs[Finding]:
+    """Check a compact row's identity and mandatory diagnostic fields.
+
+    Returns:
+        Whether the row is a genuine failure or uncached skip record.
+
+    """
+    if not _mapping(row):
+        return False
+    file, tool, status = row.get("file"), row.get("tool"), row.get("status")
+    cached, diagnostics = row.get("cached"), row.get("diagnostics")
+    valid_file = isinstance(file, str) and bool(file)
+    valid_tool = isinstance(tool, str) and bool(tool)
+    valid_status = _status(status) and status != STATUS_OK
+    valid_cache = isinstance(cached, bool) and not (
+        cached and status == SKIPPED
+    )
+    return all((
+        valid_file,
+        valid_tool,
+        valid_status,
+        valid_cache,
+        _strings(diagnostics),
+    ))
+
+
 def _report_actionable_counts_match(
     rows: object, failed: int, skipped: int
 ) -> bool:
     """Compact reports may omit passes, never failures or skipped checks.
 
     Returns:
-        Whether every non-pass has a matching detailed result.
+        Whether every non-pass has a unique, complete detailed result.
 
     """
     if not isinstance(rows, list):
         return False
-    typed_rows = cast("list[object]", rows)
-    if len(typed_rows) != failed + skipped:
+    items = cast("list[object]", rows)
+    valid = [row for row in items if _valid_actionable_row(row)]
+    if len(valid) != len(items) or len(valid) != failed + skipped:
         return False
-    statuses = [
-        row.get("status") if _mapping(row) else None for row in typed_rows
-    ]
+    # A complete run checks each source/tool pair once. Repeating one row
+    # could hide another failure while preserving summary counts and SHA-256.
+    identities = {(row["file"], row["tool"]) for row in valid}
+    statuses = [row["status"] for row in valid]
     return (
-        statuses.count(FAILED) == failed and statuses.count(SKIPPED) == skipped
+        len(identities) == len(valid)
+        and statuses.count(FAILED) == failed
+        and statuses.count(SKIPPED) == skipped
     )
 
 

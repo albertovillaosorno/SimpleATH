@@ -429,6 +429,22 @@ class SourceDiscovery(unittest.TestCase):
             )
 
     @staticmethod
+    def test_internal_source_symlink_cannot_disappear_from_inventory() -> None:
+        """A linked source must not silently lose its original extension."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            target = root / "src/fixture.txt"
+            _ = target.write_text("fixture", encoding="utf-8")
+            (root / "src/driver.cpp").symlink_to(target)
+            with mock.patch.object(
+                validator, "_inventory", return_value=["src/driver.cpp"]
+            ):
+                assert _rejects(
+                    lambda: validator.source_files(root, ()),
+                    "Linked repository input",
+                )
+
+    @staticmethod
     def test_explicit_unknown_extension_is_rejected() -> None:
         """Avoid an apparently successful validation that checked no source."""
         with tempfile.TemporaryDirectory() as directory:
@@ -1200,6 +1216,28 @@ class CompletedReportIntegrity(unittest.TestCase):
         rows[0]["status"] = "pass"
         assert validator.report_exit_code(json.dumps(report), 2) is None
         rows[0]["status"] = "skipped"
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+
+    @staticmethod
+    def test_rejects_duplicate_or_malformed_failure_evidence() -> None:
+        """Two distinct failures cannot be replaced by the same result."""
+        first = _sample_finding("src/first.cpp", "clang-tidy", "fail")
+        second = _sample_finding("src/second.cpp", "clang-tidy", "fail")
+        report = validator.build_report(
+            [first, second], files=2, tests=True, tools={}
+        )
+        assert validator.report_exit_code(json.dumps(report), 2) == 1
+        report["results"] = [first, dict(first)]
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+        damaged: dict[str, object] = dict(second)
+        damaged["file"] = None
+        report["results"] = [first, damaged]
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+        damaged["file"] = second["file"]
+        damaged["cached"] = "yes"
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+        damaged["cached"] = False
+        damaged["diagnostics"] = None
         assert validator.report_exit_code(json.dumps(report), 2) is None
 
     @staticmethod
