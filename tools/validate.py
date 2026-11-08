@@ -33,6 +33,7 @@ ROOT = next(
 )
 CACHE_VERSION = "simpleath.validate.v2"
 COMPLETION_FILE = ".cache/validate/last-run.json"
+RUN_LOCK_FILE = ".git/simpleath-validate.lock"
 COMPLETION_SCHEMA = "simpleath.validate.completed.v1"
 CLANG_TIDY_TOOL = "clang-tidy"
 PYRIGHT_TOOL = "basedpyright"
@@ -938,14 +939,17 @@ def _run_identity(
 
 
 def _tool_versions(root: Path) -> dict[str, str]:
-    """Resolve all mandatory tool versions without silently dropping tools.
+    """Resolve every linter and host compiler version for run deduplication.
 
     Returns:
         Version strings or unavailable markers for every source tool.
 
     """
     versions: dict[str, str] = {}
-    for tool, name in EXECUTABLE.items():
+    # The offline native tests use clang++ too. A binary replacement at the
+    # same path must invalidate a concurrent completed-run identity, even when
+    # every source, test manifest, and linter version is unchanged.
+    for tool, name in {**EXECUTABLE, "native-test": "clang++"}.items():
         executable = shutil.which(name)
         versions[tool] = (
             tool_version(executable, root)
@@ -1083,7 +1087,10 @@ def _locked_run(options: Options) -> int:
         The real previous status for a shared run or a newly executed status.
 
     """
-    with (ROOT / ".cache/validate/run.lock").open("a+b") as lock:
+    # The cache may be removed by cleanup while a run is active. Keep the
+    # advisory lock under .git so replacement cache directories cannot create
+    # distinct lock inodes and allow simultaneous repository scans.
+    with (ROOT / RUN_LOCK_FILE).open("a+b") as lock:
         previous = _completion_token(ROOT)
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1109,8 +1116,6 @@ def main() -> int:
         # Serialize the entire read/validate/write operation. Otherwise
         # parallel agents can overwrite a newer full report or lose cache
         # entries by reading and saving the same cache independently.
-        lock_path = ROOT / ".cache/validate/run.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
         return _locked_run(options)
     except (OSError, ValueError) as error:
         _ = sys.stderr.write(f"Validation error: {error}\n")

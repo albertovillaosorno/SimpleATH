@@ -434,6 +434,42 @@ acceptance evidence and must be superseded by a stable whole-repository run
 after the WPA2 edit is committed. No linter rules, mandatory checks or
 cache invalidation behavior were weakened. **P0 remains OPEN**.
 
+## Host compiler deduplication checkpoint, 2026-11-07 18:43 CST
+
+An independently reproduced validator bug allowed a finished report to be
+reused for overlapping callers after the `clang++` native host-test compiler
+changed version at the same executable path. The completed-run identity
+tracked Clang-Format, Clang-Tidy, Ruff and BasedPyright versions, but for
+native host tests tracked the compiler's path **without its version**.
+
+`tools/validate.py` now includes the `native-test` compiler version in the
+report's tool inventory and the completed-run fingerprint, without adding a
+new check, changing lint rules, weakening cache invalidation or disabling
+host tests. The synthetic regression first failed on a missing `native-test`
+version, then passed after the fix. It verifies that replacing a compiler
+version at the same path changes the report's tool inventory and full-run
+identity. All 39 validator unit tests passed, and both changed Python files
+passed Ruff check, Ruff format and BasedPyright with zero findings. Native
+compiler execution remains limited to the existing authorized offline host
+tests; no kext or hardware build was performed.
+
+A second live concurrency defect was confirmed during this validation:
+external cache cleanup removed `.cache/validate/run.lock` while an active
+validator still held the deleted inode. Later callers opened a newly created
+lock file and began independent full scans, defeating flock serialization.
+The runner now uses `.git/simpleath-validate.lock` rather than a cache-local
+lock, so clearing `.cache/validate/` cannot redirect concurrent callers to
+another inode. A synthetic test deletes and recreates the cache directory
+while validation holds the Git-private lock and verifies a second caller
+cannot acquire it. The prior full scans were interrupted, then overlapped
+with incompatible lock inodes, so **none of their reports establishes clean
+acceptance**. The complete 39-test validator suite, strict Ruff check and
+format, and strict BasedPyright pass for the changed Python files. This
+change is source-only; no kext or hardware action was taken.
+
+This closes only the compiler-version identity and replaceable-lock defects,
+**not** the outstanding Clang-Tidy failures. **P0 remains OPEN**.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,

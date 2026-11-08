@@ -13,6 +13,7 @@ import sys
 import tempfile
 import threading
 from typing import TYPE_CHECKING
+from typing import cast
 from typing import final
 import unittest
 from unittest import mock
@@ -60,6 +61,7 @@ def _rejects(action: Callable[[], object], message: str) -> bool:
 def _root(directory: str) -> Path:
     root = Path(directory)
     root.mkdir(parents=True, exist_ok=True)
+    (root / ".git").mkdir()
     (root / "src").mkdir()
     (root / "tests").mkdir()
     _ = (root / "tests/__init__.py").write_text("", encoding="utf-8")
@@ -776,6 +778,65 @@ class FullRepositoryRun(unittest.TestCase):
             fixture.run()
 
     @staticmethod
+    def test_host_compiler_version_changes_completed_run_identity() -> None:
+        """Never reuse native test results from a replaced compiler binary."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "tests/test_native.cpp"
+            _ = source.write_text("int main() { return 0; }", encoding="utf-8")
+            host = _sample_finding(
+                "tests/test_native.cpp", "native-test", "pass"
+            )
+            first_version = "clang version 23.1.2"
+            second_version = "clang version 24.0.0"
+
+            def installed(executable: str) -> str | None:
+                host_compiler = "clang++"
+                return (
+                    "/opt/test/clang++" if executable == host_compiler else None
+                )
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "tests/test_native.cpp", "clang-format", "pass"
+                    ),
+                ),
+                mock.patch.object(validator, "run_tests", return_value=[host]),
+                mock.patch.object(shutil, "which", side_effect=installed),
+                mock.patch.object(
+                    validator,
+                    "_version",
+                    side_effect=[
+                        "clang version 23.1.2",
+                        "clang version 24.0.0",
+                    ],
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 0
+                marker = root / validator.COMPLETION_FILE
+                before = cast(
+                    "dict[str, object]", json.loads(marker.read_text())
+                )
+                report = (root / ".cache/validate/report.json").read_text()
+                assert f'"native-test": "{first_version}"' in report
+                assert validator.main() == 0
+                after = cast(
+                    "dict[str, object]", json.loads(marker.read_text())
+                )
+                report = (root / ".cache/validate/report.json").read_text()
+                assert f'"native-test": "{second_version}"' in report
+            assert before["identity"] != after["identity"]
+
+    @staticmethod
     def test_multiline_tidy_version_is_not_the_llvm_heading() -> None:
         """Report the actual Clang-Tidy version in the tools manifest."""
         llvm_output = "LLVM (http://llvm.org/):\n LLVM version 23.1.2\n0"
@@ -838,6 +899,42 @@ class FullRepositoryRun(unittest.TestCase):
             assert expected_results in report
 
     @staticmethod
+    def test_cache_purge_cannot_replace_active_validator_lock() -> None:
+        """Keep lock ownership when a cache directory is removed mid-scan."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            blocked = False
+
+            def purge_during_validation(_: validator.Options) -> int:
+                nonlocal blocked
+                cache = root / ".cache/validate"
+                cache.mkdir(parents=True, exist_ok=True)
+                shutil.rmtree(cache)
+                cache.mkdir()
+                # A different validator opening the current lock path must
+                # contend on the same inode even after the cache is purged.
+                with (root / validator.RUN_LOCK_FILE).open("a+b") as contender:
+                    try:
+                        fcntl.flock(
+                            contender.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB
+                        )
+                    except BlockingIOError:
+                        blocked = True
+                    else:
+                        fcntl.flock(contender.fileno(), fcntl.LOCK_UN)
+                return 0
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "_validate", side_effect=purge_during_validation
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+            ):
+                assert validator.main() == 0
+            assert blocked
+
+    @staticmethod
     def test_exclusive_lock_covers_shared_cache_write() -> None:
         """A second writer must not hold the validator lock concurrently."""
         with tempfile.TemporaryDirectory() as directory:
@@ -846,7 +943,7 @@ class FullRepositoryRun(unittest.TestCase):
 
             def inspected(_: validator.Options) -> int:
                 nonlocal locked
-                path = root / ".cache/validate/run.lock"
+                path = root / validator.RUN_LOCK_FILE
                 with path.open("a+b") as contender:
                     try:
                         fcntl.flock(
