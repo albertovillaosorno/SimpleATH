@@ -194,6 +194,30 @@ int main()
         !validTxPointerDescriptor(descriptor))
         return 27;
 
+    // Ordinary management Beacon/ProbeResponse frames are not CCMP
+    // encrypted. This limited encoder has no BIP/PMF robust-management
+    // protection path; a forged key-installed policy must not authorize it.
+    const TxDescriptor beforeProtectedManagement = descriptor;
+    request.crypto = TxCrypto::Ccmp;
+    request.keyCacheIndex = 3;
+    policy.hardwareKeyInstalled = true;
+    request.packetType = TxPacketType::Beacon;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedCipher ||
+        !same(descriptor, beforeProtectedManagement))
+        return 31;
+    request.packetType = TxPacketType::ProbeResponse;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedCipher ||
+        !same(descriptor, beforeProtectedManagement))
+        return 32;
+    // Valid CCMP data is still representable after independently verified
+    // hardware key installation and matching TX length/power policy.
+    request.packetType = TxPacketType::Normal;
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        !validTxPointerDescriptor(descriptor))
+        return 33;
+
     RxStatusWords rx {};
     rx.word[0] = 0x168c0000u;
     rx.word[1] = 0x0b000000u;

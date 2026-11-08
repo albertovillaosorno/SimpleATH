@@ -147,6 +147,15 @@ namespace simpleath
             {
                 return TxControlError::UnsupportedCipher;
             }
+            // Beacon and Probe Response are ordinary unprotected management
+            // frames. CCMP is for authorized data; PMF/BIP protection needs
+            // an independently implemented management-frame path, not the
+            // encrypted-data/keycache bit in this AR9565 TX descriptor.
+            if (request.packetType != TxPacketType::Normal &&
+                request.crypto != TxCrypto::Clear)
+            {
+                return TxControlError::UnsupportedCipher;
+            }
             if (request.crypto == TxCrypto::Clear &&
                 request.keyCacheIndex != 0xffU)
             {
