@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565NativePci.hpp"
-#if SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
+#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND) &&                      \
+    SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
 #if !defined(__x86_64__)
 #error The staged native PCI backend requires the reviewed Intel ABI
 #endif

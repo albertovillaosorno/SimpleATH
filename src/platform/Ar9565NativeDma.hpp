@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-#ifndef SIMPLEATH_NATIVE_DMA_HPP
-#define SIMPLEATH_NATIVE_DMA_HPP
+#ifndef SIMPLEATH_SRC_PLATFORM_AR9565NATIVEDMA_HPP
+#define SIMPLEATH_SRC_PLATFORM_AR9565NATIVEDMA_HPP
 
-#ifndef SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND
-#define SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND 0
-#endif
-#if SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND
+// An undefined feature flag is disabled;
+// -DSIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND=1 remains the only way to compile
+// this inactive native backend.
+#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND) &&                      \
+    SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND
 
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>

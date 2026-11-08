@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Compile-gated read-only IOPCIFamily backend; NEVER enabled in passive V1.
-#ifndef SIMPLEATH_NATIVE_PCI_HPP
-#define SIMPLEATH_NATIVE_PCI_HPP
-#ifndef SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
-#define SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND 0
-#endif
-#if SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
+#ifndef SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP
+#define SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP
+// An undefined feature flag is disabled;
+// -DSIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND=1 remains the only way to compile
+// this inactive native backend.
+#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND) &&                      \
+    SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
 
 #include "Ar9565PciSession.hpp"
 #include <IOKit/IOMemoryDescriptor.h>
