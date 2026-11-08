@@ -65,7 +65,7 @@ namespace simpleath
                 // Includes four radio-generated FCS bytes. Other packet
                 // types equal mapped DMA payload + 4; Beacon permits mapped
                 // payload rounded up by 0..3 initialized alignment bytes.
-                uint16_t onAirFrameLength; // 1..4095 hardware field.
+                uint16_t onAirFrameLength; // 1..2346 MPDU incl FCS (no A-MPDU).
                 TxPacketType packetType;
                 TxCrypto crypto;
                 uint8_t keyCacheIndex; // 0xff when no key.

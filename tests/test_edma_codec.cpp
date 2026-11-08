@@ -417,5 +417,47 @@ int main()
         completed.queue || completed.frameTransmitOk ||
         completed.sequenceNumber)
         return 18;
+
+    // A matching DMA pointer length does not make a 2347-byte standalone
+    // MPDU legal. Aggregation/fragmentation are not implemented by this TX
+    // codec; enforce the same 2346-byte on-air ceiling as the data encoder.
+    TxPointerBlock oversizedPointer {};
+    oversizedPointer.queue = 9;
+    oversizedPointer.segmentCount = 1;
+    oversizedPointer.segment[0] = {0x1000ull, 2343};
+    TxDescriptor oversizedDescriptor {};
+    if (encodeTxPointers(oversizedPointer, oversizedDescriptor) !=
+        DescriptorError::Ok)
+        return 54;
+    TxControlRequest oversizedRequest {};
+    oversizedRequest.onAirFrameLength = 2347;
+    oversizedRequest.packetType = TxPacketType::Normal;
+    oversizedRequest.crypto = TxCrypto::Clear;
+    oversizedRequest.keyCacheIndex = 0xff;
+    oversizedRequest.rate[0].attempts = 1;
+    oversizedRequest.rate[0].rateCode = 0x0b;
+    oversizedRequest.rate[0].antennaChainMask = 1;
+    oversizedRequest.rate[0].powerIndex = 1;
+    const TxDescriptor beforeOversizedTx = oversizedDescriptor;
+    if (encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(oversizedDescriptor, beforeOversizedTx))
+        return 55;
+    oversizedPointer.segment[0].length = 4091;
+    oversizedRequest.onAirFrameLength = 4095;
+    if (encodeTxPointers(oversizedPointer, oversizedDescriptor) !=
+            DescriptorError::Ok ||
+        encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
+            TxControlError::FrameLengthInvalid)
+        return 56;
+    // Exactly 2346 on-air octets with the matching 2342-byte DMA payload
+    // remain representable when all of the separate policy gates pass.
+    oversizedPointer.segment[0].length = 2342;
+    oversizedRequest.onAirFrameLength = 2346;
+    if (encodeTxPointers(oversizedPointer, oversizedDescriptor) !=
+            DescriptorError::Ok ||
+        encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
+            TxControlError::Ok)
+        return 57;
     return 0;
 }

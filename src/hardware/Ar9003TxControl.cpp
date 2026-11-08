@@ -101,8 +101,12 @@ namespace simpleath
             {
                 return TxControlError::UninitializedPointerDescriptor;
             }
+            // Only standalone, nonaggregated 802.11 MPDUs are represented by
+            // this codec. A 12-bit hardware length field is not permission to
+            // emit jumbo frames without a reviewed aggregation/fragment path.
+            constexpr uint16_t kMaximumMpduBytesIncludingFcs = 2346U;
             if (request.onAirFrameLength == 0 ||
-                request.onAirFrameLength > 0x0fffU)
+                request.onAirFrameLength > kMaximumMpduBytesIncludingFcs)
             {
                 return TxControlError::FrameLengthInvalid;
             }
