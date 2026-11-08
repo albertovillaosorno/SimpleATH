@@ -136,6 +136,21 @@ EXECUTABLE = {
     "basedpyright": "basedpyright",
 }
 
+# Only semantic search paths affect the corresponding per-file lint cache.
+# A Python import-path change must not re-run unrelated native checks, and
+# a Clang header-path change must not reuse an earlier native Tidy verdict.
+LINT_ENVIRONMENT = {
+    "clang-tidy": (
+        "CPATH",
+        "CPLUS_INCLUDE_PATH",
+        "C_INCLUDE_PATH",
+        "SDKROOT",
+        "DEVELOPER_DIR",
+        "MACOSX_DEPLOYMENT_TARGET",
+    ),
+    "basedpyright": ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"),
+}
+
 
 def _decode(text: str, decoder: Callable[[str], object] = json.loads) -> object:
     return decoder(text)
@@ -495,6 +510,12 @@ def _signature(
     digest.update(Path(__file__).read_bytes())
     digest.update(json.dumps(command).encode())
     digest.update(_version(command[0], root).encode())
+    if environment_names := LINT_ENVIRONMENT.get(tool):
+        digest.update(
+            json.dumps([
+                (name, os.environ.get(name)) for name in environment_names
+            ]).encode()
+        )
     for config in CONFIGS[tool]:
         digest.update((root / config).read_bytes())
     if tool in {"basedpyright", "clang-tidy"}:
@@ -992,6 +1013,8 @@ def _run_identity(
         "CXX",
         "LD_LIBRARY_PATH",
         "DYLD_LIBRARY_PATH",
+        "MACOSX_DEPLOYMENT_TARGET",
+        "VIRTUAL_ENV",
         # Native host compilation/execution and Python tests depend on the
         # selected scratch directory; a peer using a full or unavailable
         # temporary filesystem cannot safely share another peer's result.

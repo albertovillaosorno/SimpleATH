@@ -337,6 +337,42 @@ class CacheValidation(unittest.TestCase):
             )
 
     @staticmethod
+    def test_lint_cache_tracks_language_search_environments() -> None:
+        """Native include and Python import paths must invalidate own lint."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            native = root / "src/radio.cpp"
+            python = root / "src/analysis.py"
+            _ = native.write_text("int radio;", encoding="utf-8")
+            _ = python.write_text("radio = True", encoding="utf-8")
+            baseline = {"CPATH": "/fixture/a", "PYTHONPATH": "/fixture/a"}
+            with mock.patch.dict(os.environ, baseline):
+                native_before = _lint_fingerprint(root, native, "clang-tidy")
+                python_before = _lint_fingerprint(root, python, "basedpyright")
+            with mock.patch.dict(
+                os.environ, {**baseline, "CPATH": "/fixture/b"}
+            ):
+                assert (
+                    _lint_fingerprint(root, native, "clang-tidy")
+                    != native_before
+                )
+                assert (
+                    _lint_fingerprint(root, python, "basedpyright")
+                    == python_before
+                )
+            with mock.patch.dict(
+                os.environ, {**baseline, "PYTHONPATH": "/fixture/b"}
+            ):
+                assert (
+                    _lint_fingerprint(root, native, "clang-tidy")
+                    == native_before
+                )
+                assert (
+                    _lint_fingerprint(root, python, "basedpyright")
+                    != python_before
+                )
+
+    @staticmethod
     def test_python_stub_changes_complete_source_snapshot() -> None:
         """A type stub is an input even if it is not a separate lint target."""
         with tempfile.TemporaryDirectory() as directory:
