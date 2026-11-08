@@ -168,5 +168,55 @@ int main()
         std::memcmp(initialStubBytes, executableAndStubs, 16) != 0 ||
         executableAndStubs[16] != 0xff || executableAndStubs[17] != 0x25)
         return 34;
+
+    // Relocation metadata can itself live inside a caller-owned mapping.
+    // Treat it as immutable input: writing the first relocated pointer must
+    // never modify a still-live relocation record or return success.
+    ath::Relocation aliasedRelocations[2] {};
+    aliasedRelocations[0].offset = 0;
+    aliasedRelocations[0].width = 8;
+    aliasedRelocations[0].image = 255;
+    aliasedRelocations[0].target = 0;
+    auto *relocatedBytes = reinterpret_cast<uint8_t *>(aliasedRelocations);
+    ath::Payload aliasedPayload {};
+    aliasedPayload.size = sizeof(aliasedRelocations[0]);
+    aliasedPayload.mappedSize = sizeof(aliasedRelocations);
+    aliasedPayload.stubOffset = sizeof(aliasedRelocations[0]);
+    aliasedPayload.stubSize = sizeof(aliasedRelocations[0]);
+    aliasedPayload.relocations = aliasedRelocations;
+    aliasedPayload.relocationCount = 1;
+    aliasedPayload.checksum =
+        ath::payloadChecksum(relocatedBytes, aliasedPayload.size);
+    uint8_t oldRelocations[sizeof(aliasedRelocations)] {};
+    std::memcpy(oldRelocations, relocatedBytes, sizeof(oldRelocations));
+    ath::LinkedImage aliasImage {
+        &aliasedPayload, relocatedBytes, 0x5000, 0, false, true};
+    const uintptr_t aliasImports[] {0x5050};
+    if (ath::relocateImage(aliasImage, nullptr, 0, aliasImports, 1, nullptr,
+                           0) ||
+        std::memcmp(oldRelocations, relocatedBytes, sizeof(oldRelocations)) !=
+            0)
+        return 35;
+
+    // Symbol value offsets have the same alias problem: an offset table in
+    // the output mapping may be overwritten by its own relocation operation.
+    uint32_t aliasedOffsets[8] {};
+    auto *offsetBytes = reinterpret_cast<uint8_t *>(aliasedOffsets);
+    ath::Payload offsetPayload {};
+    offsetPayload.size = 16;
+    offsetPayload.mappedSize = sizeof(aliasedOffsets);
+    offsetPayload.stubOffset = 16;
+    offsetPayload.stubSize = 16;
+    offsetPayload.symbolValues = aliasedOffsets;
+    offsetPayload.symbolValueCount = 1;
+    offsetPayload.checksum =
+        ath::payloadChecksum(offsetBytes, offsetPayload.size);
+    uint8_t oldOffsets[sizeof(aliasedOffsets)] {};
+    std::memcpy(oldOffsets, offsetBytes, sizeof(oldOffsets));
+    ath::LinkedImage offsetImage {&offsetPayload, offsetBytes, 0x6000, 0,
+                                  false,          true};
+    if (ath::relocateImage(offsetImage, nullptr, 0, nullptr, 0, nullptr, 0) ||
+        std::memcmp(oldOffsets, offsetBytes, sizeof(oldOffsets)) != 0)
+        return 36;
     return 0;
 }

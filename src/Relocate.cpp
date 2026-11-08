@@ -153,6 +153,31 @@ namespace ath
             (p.symbolValueCount && !p.symbolValues) ||
             payloadChecksum(image.memory, p.size) != p.checksum)
             return false;
+        // Sources for every relocation pass must stay immutable while the
+        // target mapping is written. Otherwise a forged metadata table in the
+        // mapping can be rewritten after checksum validation, changing later
+        // offsets/targets or falsely reporting a successful relocation.
+        // Relocation and symbol counts are 32-bit on this 64-bit target;
+        // the caller-supplied size_t counts still need overflow bounds.
+        if (imageCount > SIZE_MAX / sizeof(LinkedImage) ||
+            importCount > SIZE_MAX / sizeof(uintptr_t) ||
+            compatibilityCount > SIZE_MAX / sizeof(uintptr_t) ||
+            overlapsStorage(image.memory, p.mappedSize, p.relocations,
+                            static_cast<size_t>(p.relocationCount) *
+                                sizeof(Relocation)) ||
+            overlapsStorage(image.memory, p.mappedSize, p.symbolValues,
+                            static_cast<size_t>(p.symbolValueCount) *
+                                sizeof(uint32_t)) ||
+            overlapsStorage(image.memory, p.mappedSize, images,
+                            imageCount * sizeof(LinkedImage)) ||
+            overlapsStorage(image.memory, p.mappedSize, imports,
+                            importCount * sizeof(uintptr_t)) ||
+            overlapsStorage(image.memory, p.mappedSize, compatibility,
+                            compatibilityCount * sizeof(uintptr_t)) ||
+            overlapsStorage(image.memory, p.mappedSize, image.payload,
+                            sizeof(*image.payload)) ||
+            overlapsStorage(image.memory, p.mappedSize, &image, sizeof(image)))
+            return false;
         for (uint32_t i = 0; i < p.relocationCount; ++i)
         {
             const auto &r = p.relocations[i];
