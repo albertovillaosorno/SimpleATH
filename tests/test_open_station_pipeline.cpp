@@ -916,11 +916,57 @@ namespace
                written > 30 &&
                owner.state() == StationState::AssociationFramePrepared;
     }
+
+    bool rejectAliasedLinkManagementRx()
+    {
+        // A callback may accidentally borrow a link monitor's live snapshot
+        // as RX storage. A valid deauth would otherwise overwrite its own
+        // borrowed source bytes when transitioning to reconnect-pending.
+        LinkMonitor monitor;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        if (monitor.started(station, ap, 100, 1000, false, false) !=
+            LinkMonitorResult::Ok)
+            return false;
+        constexpr size_t kDeauthBytes = 26;
+        const auto *const start =
+            reinterpret_cast<const uint8_t *>(&monitor.status());
+        const auto *const tail =
+            reinterpret_cast<const uint8_t *>(&monitor.status().lastBeaconMs);
+        if (sizeof(LinkSnapshot) - static_cast<size_t>(tail - start) <
+            kDeauthBytes)
+            return false;
+        auto *const borrowed = const_cast<uint8_t *>(tail);
+        std::memset(borrowed, 0, kDeauthBytes);
+        borrowed[0] = 0xc0; // Deauthentication management subtype.
+        addresses(borrowed, kStation);
+        borrowed[24] = 7; // Valid nonzero reason code.
+        uint8_t original[kDeauthBytes] {};
+        std::memcpy(original, borrowed, sizeof(original));
+        if (monitor.observeManagement(borrowed, kDeauthBytes, ~uint64_t(0),
+                                      true, false) !=
+                LinkMonitorResult::InvalidArgument ||
+            monitor.status().state != LinkState::Associated ||
+            std::memcmp(borrowed, original, sizeof(original)) != 0)
+            return false;
+        // Independent, FCS-verified AP deauth continues to revoke a link.
+        LinkMonitor independent;
+        if (independent.started(station, ap, 100, 1000, false, false) !=
+            LinkMonitorResult::Ok)
+            return false;
+        return independent.observeManagement(original, sizeof(original), 1500,
+                                             true,
+                                             false) == LinkMonitorResult::Ok &&
+               independent.status().state == LinkState::ReconnectPending &&
+               independent.status().reason == LinkLoss::Deauthentication;
+    }
 } // namespace
 
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectAliasedLinkManagementRx())
+        return 47;
     if (!associationUsesSelectedRates())
         return 44;
     if (!rejectDisjointAssociationRates())

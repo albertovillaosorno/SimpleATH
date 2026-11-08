@@ -120,6 +120,12 @@ namespace simpleath
         {
             if (status_.state != LinkState::Associated)
                 return LinkMonitorResult::NotAssociated;
+            // A management frame must not borrow this monitor's retained
+            // state. Link loss or beacon reception would otherwise overwrite
+            // that source storage while processing the same RX callback.
+            if (frame && frameLength &&
+                overlapsStorage(frame, frameLength, this, sizeof(*this)))
+                return LinkMonitorResult::InvalidArgument;
             if (!fcsVerified)
                 return LinkMonitorResult::UnverifiedFrame;
             if (nowMs < status_.lastBeaconMs)
