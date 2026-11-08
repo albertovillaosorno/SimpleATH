@@ -66,11 +66,17 @@ namespace ath
 
     uintptr_t findSymbol(const LinkedImage &image, const char *name)
     {
+        if (!image.payload || !name ||
+            (image.payload->symbolCount && !image.payload->symbols) ||
+            image.address > UINTPTR_MAX - image.payload->size)
+            return 0;
         size_t begin = 0, end = image.payload->symbolCount;
         while (begin < end)
         {
             auto middle = begin + (end - begin) / 2;
             auto &entry = image.payload->symbols[middle];
+            if (!entry.name)
+                return 0;
             int order = strcmp(name, entry.name);
             if (!order)
                 return entry.offset < image.payload->size
@@ -86,10 +92,13 @@ namespace ath
 
     uintptr_t allocateStub(LinkedImage &image, uintptr_t target)
     {
+        if (!image.payload || !image.memory || !image.editable)
+            return 0;
         const auto &p = *image.payload;
-        if (!image.editable || image.stubUsed > p.stubSize ||
-            p.stubSize - image.stubUsed < 16 || p.stubOffset > p.mappedSize ||
-            p.stubSize > p.mappedSize - p.stubOffset)
+        if (image.stubUsed > p.stubSize || p.stubSize - image.stubUsed < 16 ||
+            p.stubOffset > p.mappedSize ||
+            p.stubSize > p.mappedSize - p.stubOffset ||
+            image.address > UINTPTR_MAX - p.mappedSize)
             return 0;
         const auto offset = p.stubOffset + image.stubUsed;
         const uint8_t jump[] = {0xFF, 0x25, 0, 0, 0, 0};
@@ -113,6 +122,8 @@ namespace ath
             p.stubOffset > p.mappedSize ||
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize ||
+            (p.relocationCount && !p.relocations) ||
+            (p.symbolValueCount && !p.symbolValues) ||
             payloadChecksum(image.memory, p.size) != p.checksum)
             return false;
         for (uint32_t i = 0; i < p.relocationCount; ++i)
@@ -136,12 +147,30 @@ namespace ath
             }
             else
             {
-                if (r.image >= imageCount || !images[r.image].memory ||
-                    r.target >= images[r.image].payload->size)
+                if (r.image >= imageCount || !images[r.image].payload ||
+                    !images[r.image].memory ||
+                    r.target >= images[r.image].payload->size ||
+                    images[r.image].address > UINTPTR_MAX - r.target)
                     return false;
                 target = images[r.image].address + r.target;
             }
-            target += static_cast<uint64_t>(r.addend);
+            // A relocation addend is signed. Wraparound could otherwise
+            // manufacture a plausible but unrelated kernel pointer.
+            if (r.addend < 0)
+            {
+                const uint64_t magnitude =
+                    static_cast<uint64_t>(-(r.addend + 1)) + 1u;
+                if (target < magnitude)
+                    return false;
+                target -= magnitude;
+            }
+            else
+            {
+                const uint64_t magnitude = static_cast<uint64_t>(r.addend);
+                if (magnitude > UINTPTR_MAX || target > UINTPTR_MAX - magnitude)
+                    return false;
+                target += magnitude;
+            }
             if (r.width == 8)
             {
                 memcpy(image.memory + r.offset, &target, 8);
