@@ -200,7 +200,7 @@ namespace simpleath
         {
             if (state_ != StationState::WaitingForWpa2Keys)
                 return StationResult::InvalidState;
-            if (!supplicant.keysInstalled())
+            if (!supplicant.keysInstalledFor(stationMac_, chosen_.beacon.bssid))
                 return StationResult::Wpa2CryptoNotImplemented;
             // Real packet delivery and macOS 802.11 interface registration are
             // separate steps; do not report a usable network yet.

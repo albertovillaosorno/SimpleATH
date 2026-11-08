@@ -132,6 +132,15 @@ namespace simpleath
                     return state_ == Wpa2State::HardwareKeysInstalled;
                 }
 
+                // An installed keycache is bound to one station/AP identity.
+                // Public consumers must not treat another link's handshake as
+                // authorization for their own station data path.
+                bool keysInstalledFor(const Mac &station, const Mac &ap) const
+                {
+                    return keysInstalled() && sameMac(station, station_) &&
+                           sameMac(ap, ap_);
+                }
+
             private:
                 Wpa2Result fail(Wpa2Result error);
                 static void secureClear(uint8_t *ptr, size_t length);

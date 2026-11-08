@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Fake WPA2 callbacks and EAPOL bytes only: no radio, keycache or PCI I/O.
+#include "wifi/Station.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
 #include <cstring>
 
@@ -236,6 +237,68 @@ namespace
             frame[index] = static_cast<uint8_t>(index);
     }
 
+    bool waitingForKeys(Station &owner, const Mac &station, const Mac &ap)
+    {
+        // A caller-built but internally consistent WPA2 BSS can drive the
+        // portable station state machine without native radio or TX.
+        Bss candidate {};
+        candidate.occupied = true;
+        candidate.beacon.bssid = ap;
+        candidate.beacon.capabilities = 0x11; // ESS + privacy.
+        candidate.beacon.infrastructure = true;
+        candidate.beacon.intervalTu = 100;
+        candidate.beacon.channel = 6;
+        candidate.beacon.ssidLength = 4;
+        std::memcpy(candidate.beacon.ssid, "Test", 4);
+        candidate.beacon.rates[0] = 0x82;
+        candidate.beacon.rates[1] = 0x84;
+        candidate.beacon.rateCount = 2;
+        candidate.beacon.rsn.security = Security::Wpa2Personal;
+        candidate.beacon.rsn.present = true;
+        candidate.beacon.rsn.valid = true;
+        candidate.beacon.rsn.pairwiseCcmp = true;
+        candidate.beacon.rsn.groupCcmp = true;
+        candidate.beacon.rsn.akmPsk = true;
+        candidate.beacon.rsnIeLength = sizeof(kRsnIe);
+        std::memcpy(candidate.beacon.rsnIe, kRsnIe, sizeof(kRsnIe));
+        if (owner.enterScanning(true, true) != StationResult::Ok ||
+            owner.select(station, candidate) != StationResult::Ok)
+            return false;
+
+        uint8_t outgoing[128] {};
+        size_t written = 0;
+        if (owner.authenticationRequest(1, outgoing, sizeof(outgoing),
+                                        written) != Result::Ok)
+            return false;
+        uint8_t auth[30] {};
+        auth[0] = 0xb0; // Open authentication response.
+        std::memcpy(auth + 4, station.bytes, 6);
+        std::memcpy(auth + 10, ap.bytes, 6);
+        std::memcpy(auth + 16, ap.bytes, 6);
+        auth[26] = 2; // Transaction 2, status zero.
+        if (owner.onAuthenticationResponse(auth, sizeof(auth)) !=
+                StationResult::Ok ||
+            owner.associationRequest(2, outgoing, sizeof(outgoing), written) !=
+                Result::Ok)
+            return false;
+
+        uint8_t assoc[34] {};
+        assoc[0] = 0x10; // Association response.
+        std::memcpy(assoc + 4, station.bytes, 6);
+        std::memcpy(assoc + 10, ap.bytes, 6);
+        std::memcpy(assoc + 16, ap.bytes, 6);
+        assoc[24] = 1; // ESS.
+        assoc[28] = 1;
+        assoc[29] = 0xc0; // Valid AID 1.
+        assoc[30] = 1;    // Supported rates.
+        assoc[31] = 2;
+        assoc[32] = 0x82;
+        assoc[33] = 0x84;
+        return owner.onAssociationResponse(assoc, sizeof(assoc)) ==
+                   StationResult::Wpa2CryptoNotImplemented &&
+               owner.state() == StationState::WaitingForWpa2Keys;
+    }
+
     enum class HandshakeCase : uint8_t
     {
         Success,
@@ -295,6 +358,26 @@ namespace
                 if (state.installedTk[index] != index + 33 ||
                     state.installedGtk[index] != index + 0xa0)
                     return false;
+            // Keys installed for a different link must not authorize a
+            // public Station to enter HardwareKeysInstalled.
+            const Mac foreignStation {{0x02, 0x66, 0x77, 0x88, 0x99, 0xbb}};
+            const Mac foreignAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x66}};
+            Station wrongStation;
+            Station wrongAp;
+            Station correct;
+            if (!waitingForKeys(wrongStation, foreignStation, kAp) ||
+                !waitingForKeys(wrongAp, kStation, foreignAp) ||
+                !waitingForKeys(correct, kStation, kAp) ||
+                wrongStation.recordInstalledWpa2Keys(supplicant) !=
+                    StationResult::Wpa2CryptoNotImplemented ||
+                wrongStation.state() != StationState::WaitingForWpa2Keys ||
+                wrongAp.recordInstalledWpa2Keys(supplicant) !=
+                    StationResult::Wpa2CryptoNotImplemented ||
+                wrongAp.state() != StationState::WaitingForWpa2Keys ||
+                correct.recordInstalledWpa2Keys(supplicant) !=
+                    StationResult::NetworkInterfaceNotImplemented ||
+                correct.state() != StationState::HardwareKeysInstalled)
+                return false;
             supplicant.reset();
             return state.rollbackCalls == 1 &&
                    supplicant.state() == Wpa2State::Inactive;
