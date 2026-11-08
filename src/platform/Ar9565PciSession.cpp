@@ -210,20 +210,26 @@ namespace simpleath
                 // Refuse rollback on unexpected changes to PCI command.
                 // If failed enable never reached the device, decode is already
                 // off and no further configuration write is necessary.
-                if (readConfig(0x04, command) && !(command & kBusMaster) &&
+                // A successful config read can revoke D0 in its own
+                // callback. Neither the saved command nor a previous D0
+                // check authorizes a subsequent PCI command write.
+                if (readConfig(0x04, command) &&
+                    backend_.inD0(backend_.context) &&
+                    !(command & kBusMaster) &&
                     !commandBitsChanged(command, status_.originalCommand) &&
                     (!(command & kMemoryDecode) ||
                      (backend_.commandWrite16(
                           backend_.context,
                           static_cast<uint16_t>(command & ~kMemoryDecode)) &&
                       readConfig(0x04, command) &&
+                      backend_.inD0(backend_.context) &&
                       !(command & (kMemoryDecode | kBusMaster)) &&
                       !commandBitsChanged(command, status_.originalCommand))))
                 {
                     status_.memoryDecodeChanged = false;
                     status_.cleanupResult = PciSessionResult::Ok;
                 }
-                else
+                else if (backend_.inD0(backend_.context))
                 {
                     status_.cleanupResult =
                         PciSessionResult::DecodeRestoreFailed;

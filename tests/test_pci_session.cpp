@@ -22,6 +22,8 @@ namespace
             bool commandMutatedOnEnable = false;
             bool powerDropsOnReadback = false;
             bool powerDropsAfterReadback = false;
+            bool powerDropsDuringRollbackRead = false;
+            bool powerDropsDuringRollbackVerification = false;
             bool powerDropsDuringMap = false;
             bool registerReadFails = false;
             uint32_t revokeAfterBarOffset = 0;
@@ -90,7 +92,11 @@ namespace
                             return false;
                         }
                         *value = 0xa5a50000u | self.command; // Preserve status.
-                        if (self.powerDropsAfterReadback && (self.command & 2u))
+                        if (((self.powerDropsAfterReadback ||
+                              self.powerDropsDuringRollbackRead) &&
+                             (self.command & 2u)) ||
+                            (self.powerDropsDuringRollbackVerification &&
+                             !(self.command & 2u)))
                             self.powered = false;
                         return true;
                     case 0x10:
@@ -454,6 +460,46 @@ int main()
                 fake.barReads != (revokedAt == kRevisionRegister ? 1u : 3u))
                 return 31;
         }
+    }
+    {
+        // A successful PCI command read during rollback may itself revoke
+        // the provider's D0 authorization. No subsequent command write may
+        // use the stale readback, even to restore memory decode.
+        FakePci fake {};
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::Ok)
+            return 32;
+        const unsigned readsBeforeStop = fake.reads;
+        fake.powerDropsDuringRollbackRead = true;
+        session.stop(ProviderAccess::Available);
+        if (fake.powered || fake.command != 2 || fake.writes != 1 ||
+            fake.reads != readsBeforeStop + 1 || fake.releases != 1 ||
+            fake.unmaps != 1 || fake.claimed || fake.mapped ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 33;
+    }
+    {
+        // Revocation may also occur on the *verification* read after a
+        // successful memory-decode restore. Without rechecking D0, a stale
+        // readback could incorrectly certify rollback as complete.
+        FakePci fake {};
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::Ok)
+            return 34;
+        const unsigned readsBeforeStop = fake.reads;
+        fake.powerDropsDuringRollbackVerification = true;
+        session.stop(ProviderAccess::Available);
+        if (fake.powered || fake.command || fake.writes != 2 ||
+            fake.reads != readsBeforeStop + 2 || fake.releases != 1 ||
+            fake.unmaps != 1 || fake.claimed || fake.mapped ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 35;
     }
     return 0;
 }
