@@ -151,6 +151,41 @@ namespace
                written != 0 && output[0] == 0;
     }
 
+    bool rejectSelfBssidManagementTx()
+    {
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+            Result::Ok)
+            return false;
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[128] {};
+        std::memset(output, 0xa5, sizeof(output));
+        size_t written = 77;
+        // Public serializers can be called without Station::select.
+        // Refuse a self-AP identity before publishing any on-air bytes.
+        if (makeOpenAuthenticationRequest(ap, ap, 1, output, sizeof(output),
+                                          written) != Result::InvalidAddress ||
+            written != 0 || output[0] != 0xa5)
+            return false;
+        written = 77;
+        if (makeAssociationRequest(ap, network, 2, output, sizeof(output),
+                                   written) != Result::InvalidAddress ||
+            written != 0 || output[0] != 0xa5)
+            return false;
+        // Ordinary distinct station/AP addresses remain accepted.
+        if (makeOpenAuthenticationRequest(station, ap, 3, output,
+                                          sizeof(output),
+                                          written) != Result::Ok ||
+            written != 30)
+            return false;
+        return makeAssociationRequest(station, network, 4, output,
+                                      sizeof(output), written) == Result::Ok &&
+               written != 0;
+    }
+
     bool rejectFragmentsAndForeignBssid()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -511,5 +546,7 @@ int main()
         return 10;
     if (!rejectHiddenAssociationName())
         return 11;
+    if (!rejectSelfBssidManagementTx())
+        return 12;
     return 0;
 }

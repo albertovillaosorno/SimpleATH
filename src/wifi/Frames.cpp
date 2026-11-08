@@ -503,7 +503,10 @@ namespace simpleath
                 return Result::NullBuffer;
             }
             written = 0;
-            if (!validStationMac(station) || !validStationMac(bssid))
+            // These public serializers do not require Station::select.
+            // An infrastructure station cannot authenticate to itself.
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
                 return Result::InvalidAddress;
             constexpr size_t needed =
                 24 + 6; // Fixed auth algorithm/sequence/status.
@@ -539,7 +542,10 @@ namespace simpleath
                 return Result::NullBuffer;
             }
             written = 0;
-            if (!validStationMac(station) || !validStationMac(network.bssid))
+            // Reject a forged station identity matching the destination AP
+            // before creating a management frame on the caller's behalf.
+            if (!validStationMac(station) || !validStationMac(network.bssid) ||
+                sameMac(station, network.bssid))
                 return Result::InvalidAddress;
             if (network.ssidLength == 0 || network.ssidLength > 32 ||
                 !network.infrastructure || network.hiddenSsid)
