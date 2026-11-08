@@ -459,7 +459,7 @@ namespace
     bool rejectForgedReplayMetadata()
     {
         // ReplayGuard is a public boundary: a caller-built KeyFrame cannot
-        // bypass the parser's required nonzero ANonce or M3 MIC flags.
+        // bypass the parser's M1/M3 Key Information and CCMP constraints.
         uint8_t m1[99] {};
         makeM1(m1);
         KeyFrame first {};
@@ -474,23 +474,54 @@ namespace
             guard.phase() != HandshakePhase::Empty ||
             guard.lastReplayCounter() != 0)
             return false;
-        if (guard.acceptMessage1(first) != EapolResult::Ok)
+        forged = first;
+        forged.hasMic = true;
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
             return false;
         forged = first;
-        forged.message = KeyMessage::Pairwise3;
-        forged.replayCounter = first.replayCounter + 1u;
+        forged.keyInformation ^= 0x20u; // Unsupported legacy Key Index.
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
+            return false;
+        forged = first;
+        forged.keyLength = 0;
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
+            return false;
+        if (guard.acceptMessage1(first) != EapolResult::Ok)
+            return false;
+
+        uint8_t m3[155] {};
+        makeM3(m3);
+        KeyFrame third {};
+        if (parseEapolKey(m3, sizeof(m3), third) != EapolResult::Ok)
+            return false;
+        forged = third;
+        forged.hasMic = false;
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != first.replayCounter)
             return false;
-        forged.hasMic = true;
-        forged.secure = true;
-        forged.encryptedData = true;
-        forged.installationRequested = true;
-        return guard.acceptVerifiedMessage3(forged, true) == EapolResult::Ok &&
+        forged = third;
+        forged.keyInformation = first.keyInformation; // M1 mask, M3 flags.
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::AwaitingMessage3)
+            return false;
+        forged = third;
+        forged.keyLength = 0;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::AwaitingMessage3)
+            return false;
+        return guard.acceptVerifiedMessage3(third, true) == EapolResult::Ok &&
                guard.phase() == HandshakePhase::Message3MicVerified &&
-               guard.lastReplayCounter() == forged.replayCounter;
+               guard.lastReplayCounter() == third.replayCounter;
     }
 
     struct alignas(size_t) RxWord

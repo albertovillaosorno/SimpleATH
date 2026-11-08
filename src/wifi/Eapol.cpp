@@ -23,6 +23,11 @@ namespace simpleath
         static constexpr size_t K_REPLAY_COUNTER_BYTES = 8;
         static constexpr size_t K_KEY_DATA_LENGTH_OFFSET = 93;
         static constexpr uint8_t K_EAPOL_KEY_PACKET_TYPE = 3;
+        // Exact WPA2-PSK CCMP M1/M3 Key Information masks: RSN version 2,
+        // pairwise, ACK and M3-only install/MIC/secure/encrypted bits.
+        static constexpr uint16_t K_PAIRWISE_1_INFO = 0x008aU;
+        static constexpr uint16_t K_PAIRWISE_3_INFO = 0x13caU;
+        static constexpr uint16_t K_CCMP_KEY_BYTES = 16;
 
         static uint16_t read_big16(const uint8_t *const bytes)
         {
@@ -244,7 +249,11 @@ namespace simpleath
             // particular, an all-zero authenticator nonce cannot become the
             // retained replay identity of a synthetically forged M1.
             if (frame.message != KeyMessage::Pairwise1 ||
-                frame.nonce == nullptr ||
+                frame.keyInformation != K_PAIRWISE_1_INFO ||
+                frame.descriptorVersion != K_KEY_DESCRIPTOR_VERSION ||
+                frame.keyLength != K_CCMP_KEY_BYTES || frame.hasMic ||
+                !frame.keyAck || frame.secure || frame.encryptedData ||
+                frame.installationRequested || frame.nonce == nullptr ||
                 !any_nonzero(frame.nonce, K_KEY_NONCE_BYTES))
             {
                 return EapolResult::InvalidKeyInformation;
@@ -283,8 +292,11 @@ namespace simpleath
             // A caller's MIC-verification assertion cannot turn an M1-style
             // frame into a verified M3 without the parser-required Key Info
             // flags. Reject it before advancing the replay counter or phase.
-            if (!frame.hasMic || !frame.keyAck || !frame.secure ||
-                !frame.encryptedData || !frame.installationRequested)
+            if (frame.keyInformation != K_PAIRWISE_3_INFO ||
+                frame.descriptorVersion != K_KEY_DESCRIPTOR_VERSION ||
+                frame.keyLength != K_CCMP_KEY_BYTES || !frame.hasMic ||
+                !frame.keyAck || !frame.secure || !frame.encryptedData ||
+                !frame.installationRequested)
                 return EapolResult::InvalidKeyInformation;
             if (frame.nonce == nullptr ||
                 frame.replayCounter <= latestReplayCounter_)
