@@ -128,7 +128,18 @@ namespace simpleath
         }
         if (!validatePermanentMac(candidate))
         {
-            for (size_t index = 0; index < 6; ++index)
+            // Failed decoding must revoke an old output, but not by erasing
+            // the caller's borrowed EEPROM source. The public API supports
+            // successful in-place decode, so reject only the invalid-source
+            // overlap before writing failure cleanup into raw NVM evidence.
+            const uintptr_t source = reinterpret_cast<uintptr_t>(words);
+            const uintptr_t destination = reinterpret_cast<uintptr_t>(out);
+            const bool aliased = source <= destination
+                                     ? destination - source < sizeof(candidate)
+                                     : source - destination < sizeof(candidate);
+            if (aliased)
+                return Result::InvalidMacAddress;
+            for (size_t index = 0; index < sizeof(candidate); ++index)
             {
                 out[index] = 0;
             }

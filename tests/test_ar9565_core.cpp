@@ -132,6 +132,34 @@ int main()
     for (uint8_t octet : mac)
         if (octet)
             return 9;
+
+    // In-place EEPROM MAC decoding is allowed after a verified unicast MAC,
+    // but failed decoding must not zero immutable raw EEPROM word evidence.
+    uint16_t invalidAliasWords[3] = {0x0111, 0x2233, 0x4455};
+    uint8_t *const aliasBytes = reinterpret_cast<uint8_t *>(invalidAliasWords);
+    if (decodeEepromMac(invalidAliasWords, aliasBytes) !=
+            Result::InvalidMacAddress ||
+        invalidAliasWords[0] != 0x0111 || invalidAliasWords[1] != 0x2233 ||
+        invalidAliasWords[2] != 0x4455)
+        return 11;
+    // An output beginning *inside* the words is just as unsafe to erase.
+    uint16_t partialAliasWords[6] = {0x0111, 0x2233, 0x4455,
+                                     0x6677, 0x8899, 0xaabb};
+    uint8_t *const partial = reinterpret_cast<uint8_t *>(partialAliasWords) + 2;
+    if (decodeEepromMac(partialAliasWords, partial) !=
+            Result::InvalidMacAddress ||
+        partialAliasWords[0] != 0x0111 || partialAliasWords[1] != 0x2233 ||
+        partialAliasWords[2] != 0x4455 || partialAliasWords[3] != 0x6677 ||
+        partialAliasWords[4] != 0x8899 || partialAliasWords[5] != 0xaabb)
+        return 12;
+    uint16_t validAliasWords[3] = {0x0211, 0x2233, 0x4455};
+    uint8_t *const validAliasBytes =
+        reinterpret_cast<uint8_t *>(validAliasWords);
+    if (decodeEepromMac(validAliasWords, validAliasBytes) != Result::Ok)
+        return 13;
+    for (size_t i = 0; i < sizeof(expected); ++i)
+        if (validAliasBytes[i] != expected[i])
+            return 14;
     if (!rejectReentrantBusRevocation())
         return 10;
     return 0;
