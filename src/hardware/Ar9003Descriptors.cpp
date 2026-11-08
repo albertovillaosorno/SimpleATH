@@ -64,6 +64,7 @@ namespace simpleath
         static constexpr uint32_t K_RX_RSSI_WORD = 5U;
         static constexpr uint32_t K_RX_FLAGS_WORD = 11U;
         static constexpr uint32_t K_RX_LENGTH_MASK = 0x0fffU;
+        static constexpr uint32_t K_RX_MAX_SINGLE_MPDU_BYTES = 2346U;
         static constexpr uint32_t K_RX_MORE_FRAGMENTS = 0x1000U;
         static constexpr uint32_t K_RX_HT40 = 0x2U;
         static constexpr uint32_t K_RX_BYTE_SHIFT = 24U;
@@ -294,9 +295,11 @@ namespace simpleath
                                 !status.phyError && !status.micError &&
                                 !status.keyMiss;
             // AR_RxMore is a chained DMA buffer, not an 802.11 MAC
-            // fragment. No RX-chain reassembly exists in this codec, so
-            // never promote one partial buffer as a complete FCS-checked MPDU.
+            // fragment. No RX-chain or oversized MPDU reassembly exists in
+            // this codec. The 12-bit hardware length field by itself cannot
+            // authorize bytes beyond the reviewed 2346-byte MPDU ceiling.
             if (!status.frameValid || status.frameLength == 0 ||
+                status.frameLength > K_RX_MAX_SINGLE_MPDU_BYTES ||
                 status.moreFragments)
             {
                 return DescriptorError::ReceiveError;

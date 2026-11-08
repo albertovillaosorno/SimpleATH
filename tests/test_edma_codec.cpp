@@ -368,6 +368,22 @@ int main()
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.frameValid || decoded.frameLength != 128u)
         return 50;
+    // The single-buffer, non-aggregating RX path has no reviewed MPDU
+    // larger than the IEEE 802.11 2346-octet limit including its FCS.
+    // A 12-bit hardware length alone cannot authorize a 4095-byte frame.
+    rx.word[2] = 2346u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || decoded.frameLength != 2346u)
+        return 51;
+    rx.word[2] = 2347u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+        decoded.completed || decoded.frameValid || decoded.frameLength)
+        return 52;
+    rx.word[2] = 4095u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+        decoded.completed || decoded.frameValid || decoded.frameLength)
+        return 53;
+    rx.word[2] = 128u;
     rx.word[11] = 0;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Incomplete ||
         decoded.completed || decoded.frameValid || decoded.frameLength)
