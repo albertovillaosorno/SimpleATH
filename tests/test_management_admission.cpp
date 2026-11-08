@@ -764,6 +764,63 @@ namespace
         return true;
     }
 
+    bool rejectTrailingOpenAuthenticationBody()
+    {
+        // IEEE 802.11 Open System transaction 2 has six fixed bytes. The
+        // optional vendor-specific IE suffix must be complete and cannot
+        // smuggle arbitrary unparsed bytes into an accepted response.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t response[40] {};
+        response[0] = 0xb0;
+        std::memcpy(response + 4, kStation, 6);
+        std::memcpy(response + 10, kAp, 6);
+        std::memcpy(response + 16, kAp, 6);
+        response[26] = 2;
+        uint16_t status = 777;
+        if (parseAuthenticationResponse(response, 30, station, ap, status) !=
+                Result::Ok ||
+            status != 0)
+            return false;
+        status = 777;
+        response[30] = 0xdd;
+        if (parseAuthenticationResponse(response, 31, station, ap, status) !=
+                Result::InvalidElement ||
+            status != 777)
+            return false;
+        // Vendor-specific IEs (OUI plus optional vendor bytes) are legal
+        // suffixes and must not break otherwise valid infrastructure auth.
+        response[30] = 221;
+        response[31] = 3;
+        response[32] = 0x00;
+        response[33] = 0x11;
+        response[34] = 0x22;
+        if (parseAuthenticationResponse(response, 35, station, ap, status) !=
+                Result::Ok ||
+            status != 0)
+            return false;
+        response[35] = 221;
+        response[36] = 3;
+        response[37] = 0x00;
+        response[38] = 0x44;
+        response[39] = 0x55;
+        if (parseAuthenticationResponse(response, sizeof(response), station, ap,
+                                        status) != Result::Ok ||
+            status != 0)
+            return false;
+        status = 777;
+        response[30] = 1; // Non-vendor IE is not defined for Open System.
+        if (parseAuthenticationResponse(response, 35, station, ap, status) !=
+                Result::InvalidElement ||
+            status != 777)
+            return false;
+        response[30] = 221;
+        response[31] = 2; // Vendor IE must carry its three-byte OUI.
+        return parseAuthenticationResponse(response, 34, station, ap, status) ==
+                   Result::InvalidElement &&
+               status == 777;
+    }
+
     bool rejectInvalidManagementRxIdentities()
     {
         const Mac empty {};
@@ -901,6 +958,8 @@ int main()
         return 12;
     if (!rejectInvalidManagementRxIdentities())
         return 13;
+    if (!rejectTrailingOpenAuthenticationBody())
+        return 22;
     if (!rejectConflictingBssModes())
         return 14;
     if (!rejectForgedBssAssociationTx())

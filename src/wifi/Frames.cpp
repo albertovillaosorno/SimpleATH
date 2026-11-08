@@ -793,6 +793,22 @@ namespace simpleath
                 return Result::InvalidFrame;
             if (length - parsed.headerLength < 6)
                 return Result::Truncated;
+            // Open System transaction 2 carries six fixed body bytes.
+            // IEEE 802.11 also permits optional vendor-specific elements.
+            // Validate the complete suffix without treating it as an auth
+            // extension or rejecting legitimate vendor IEs outright.
+            Elements extensions(bytes + parsed.headerLength + 6,
+                                length - parsed.headerLength - 6);
+            Element extension {};
+            for (;;)
+            {
+                const CursorStatus next = extensions.next(extension);
+                if (next == CursorStatus::End)
+                    break;
+                if (next != CursorStatus::Element || extension.id != 221 ||
+                    extension.length < 3)
+                    return Result::InvalidElement;
+            }
             const uint8_t *body = bytes + parsed.headerLength;
             if (read16(body) != 0 || read16(body + 2) != 2)
                 return Result::UnsupportedFrame;
