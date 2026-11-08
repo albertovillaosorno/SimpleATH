@@ -284,7 +284,11 @@ namespace simpleath
             }
             parsed.valid = true;
             parsed.security = Security::UnsupportedRsn;
-            if (parsed.pairwiseCcmp && parsed.akmPsk && !parsed.pmfRequired)
+            // The supported WPA2-PSK station requires CCMP for both group
+            // and pairwise traffic. Do not advertise a mixed-mode or unknown
+            // group cipher as joinable WPA2-Personal during scanning.
+            if (parsed.groupCcmp && parsed.pairwiseCcmp && parsed.akmPsk &&
+                !parsed.pmfRequired)
                 parsed.security = Security::Wpa2Personal;
             else if (parsed.pairwiseCcmp && parsed.akmEnterprise)
                 parsed.security = Security::Wpa2Enterprise;

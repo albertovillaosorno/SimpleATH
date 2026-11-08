@@ -172,7 +172,24 @@ namespace
             parsed.rsnIeLength != sizeof(rsnIe) ||
             std::memcmp(parsed.rsnIe, rsnIe, sizeof(rsnIe)) != 0)
             return false;
-        frame[34] = 0x01; // Forged RSN on an Open capability BSS.
+
+        // Pairwise CCMP and PSK do not make a group-TKIP (or unknown group)
+        // advertisement usable by this CCMP-only station. Preserve the
+        // parsed suite metadata, but classify it as unsupported for scanning.
+        frame[kBeaconBytes + 7] = 2; // Group cipher TKIP.
+        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
+                Result::Ok ||
+            parsed.rsn.security != Security::UnsupportedRsn ||
+            parsed.rsn.groupCcmp || !parsed.rsn.pairwiseCcmp ||
+            !parsed.rsn.akmPsk)
+            return false;
+        frame[kBeaconBytes + 7] = 0x7f; // Unknown group cipher.
+        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
+                Result::Ok ||
+            parsed.rsn.security != Security::UnsupportedRsn)
+            return false;
+        frame[kBeaconBytes + 7] = 4; // Restore compatible CCMP group.
+        frame[34] = 0x01;            // Forged RSN on an Open capability BSS.
         if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
             Result::InvalidSecurity)
             return false;
