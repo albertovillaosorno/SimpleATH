@@ -373,8 +373,13 @@ namespace
                              decoded) != DataPathResult::Ok ||
             decoded.payload != frame + 32)
             return false;
+        frame[1] = 0x02; // Post-key cleartext EAPOL cannot bypass CCMP.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             decoded) != DataPathResult::UnverifiedDecryption ||
+            decoded.payload || decoded.payloadLength)
+            return false;
         link.pairwiseAndGroupKeysInstalled = false;
-        frame[1] = 0x02; // Cleartext M1/M3 may still arrive before install.
+        // Before installation, unprotected M1/M3 is still permissible.
         return inspectStationRx(link, frame, sizeof(frame), false, true, false,
                                 decoded) == DataPathResult::Ok &&
                decoded.payload == frame + 32;

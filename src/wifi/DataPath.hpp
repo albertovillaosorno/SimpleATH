@@ -85,7 +85,8 @@ namespace simpleath
         // FCS and decrypted integrity/packet number using a real hardware
         // backend. Association addresses must be valid; WPA2-PSK EAPOL
         // handshake traffic must be unicast to this station. Protected
-        // EAPOL also requires installed keys for this selected link. On error,
+        // EAPOL requires installed keys and verified CCMP; cleartext EAPOL is
+        // only permitted before the selected link installs its keys. On error,
         // output is zeroed, including its borrowed payload pointer. A result
         // overlapping the link or RX frame returns OverlappingBuffers without
         // modifying the aliased memory.

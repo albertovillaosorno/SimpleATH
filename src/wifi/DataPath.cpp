@@ -268,6 +268,13 @@ namespace simpleath
                     if (header.protectedFrame &&
                         !link.pairwiseAndGroupKeysInstalled)
                         return DataPathResult::UnverifiedDecryption;
+                    // Cleartext EAPOL is reserved for initial M1/M3 before
+                    // the PTK/GTK exists. After installation, an AP-origin
+                    // EAPOL frame needs verified CCMP protection; accepting
+                    // a plaintext rekey request would bypass the key port.
+                    if (!header.protectedFrame &&
+                        link.pairwiseAndGroupKeysInstalled)
+                        return DataPathResult::UnverifiedDecryption;
                 }
                 if (parsed.etherType != kEtherTypeEapol)
                 {
