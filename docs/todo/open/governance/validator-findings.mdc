@@ -616,6 +616,44 @@ are common repeated header issues, **not** exhaustive counts or proof that
 fixing those warnings alone would turn the 52 failing units green. The strict
 policy and its root configuration are unchanged.
 
+## Four portable identity-guard regressions and clean committed checkpoint, 2026-11-07 20:06 CST
+
+A coordinated continuation pushed four further focused **DCO commits** on
+`main`, without relaxing any lint or test requirement:
+
+- `1362b3b`: public data-path TX and RX reject a station MAC identical to the
+  selected BSSID, even for a caller-constructed `LinkContext` (host regression
+  red-before exit 24).
+- `7baf287`: public WPA2 supplicant `begin` refuses that same invalid
+  station/authenticator identity before retaining cryptographic callbacks
+  (red-before exit 38).
+- `2c058b0`: public authentication/association TX serializers refuse
+  self-BSSID identities before emitting a frame (red-before exit 12).
+- `7a0473d`: public authentication/association response parsers reject
+  zero, multicast or identical caller station/AP identities without altering
+  result outputs (red-before exit 13).
+
+Every corresponding offline synthetic fixture passed strict C++14 and C++17
+AddressSanitizer/UndefinedBehaviorSanitizer host builds **after** the fix,
+scoped Clang-Format and `git diff --check`. A concurrent peer separately
+DCO-pushed `f27f0d8`, rejecting self-BSSID identity in `WifiEngine` **before**
+WPA2 setup; its independent red-before exit 25 and green sanitized host
+check were reported by its author. These tests do not establish a native
+802.11 link, actual hardware DMA, RF behavior or OS compatibility.
+
+A whole-repository validation overlapping that peer's tracked edit recorded
+one source-snapshot drift and is explicitly **not an acceptance result**.
+After coordinating a frozen source snapshot, the rerun covered the entire
+repository without drift. Finally, on **clean, committed, synchronized
+`main` at `f27f0d8`**, one default-on `python3 -B tools/validate.py` run
+reported `scope=repository`, `source_only=true`, `tests_requested=true`:
+**162 files, 413 required checks, 358 cached / 55 executed, 361 pass,
+52 fail, 0 skipped, no source drift**. Every failure remains strict
+Clang-Tidy. The process JSON matched `.cache/validate/report.json`
+byte-for-byte. This is a complete-scope **cache-backed** report, not an
+uncached all-check execution. P0 remains **OPEN**; no native/hardware work or
+lint weakening was authorized or performed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
