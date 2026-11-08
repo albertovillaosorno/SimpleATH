@@ -654,6 +654,64 @@ byte-for-byte. This is a complete-scope **cache-backed** report, not an
 uncached all-check execution. P0 remains **OPEN**; no native/hardware work or
 lint weakening was authorized or performed.
 
+## Uncached clean-main full report and WPA2/management guards, 2026-11-07 20:32 CST
+
+Three further source-only DCO commits were pushed directly to `main` after
+independent synthetic host regressions failed against the prior source:
+
+- `6bb2096`: public WPA2 `ReplayGuard` now requires canonical M1/M3 Key
+  Information masks, descriptor version 2, CCMP key length 16 and matching
+  flag fields, not merely a caller-provided `KeyFrame::message` enum or
+  `mic_verified=true` assertion. The malformed metadata fixture was red
+  before the patch (exit 39) and green afterward, including legitimate M1/M3.
+- `76dac06`: management scan parsing refuses a Beacon whose destination is
+  anything other than broadcast while still accepting a directed unicast
+  Probe Response. The newly added synthetic regression was red before the
+  patch (exit 2) and green after it.
+- `d1edb76`: scan parsing rejects simultaneous ESS and IBSS capability bits,
+  consistent with the existing association response guard. A standalone
+  IBSS-only advertisement still parses as `infrastructure=false`, and an
+  ordinary ESS advertisement remains admissible. The new regression was red
+  before the patch (exit 14) and green after it.
+
+Every focused fixture passed strict offline C++14 and C++17 ASan/UBSan host
+runs after the fix, plus scoped Clang-Format and diff checks. A mandatory
+full default `python3 -B tools/validate.py` was run on a frozen source snapshot
+for **each** patch; all three runs covered 162 files and 413 requested checks,
+with 361 passing, 52 failing strict Clang-Tidy, 0 skipped or source drift.
+The JSON printed by each invocation exactly matched the saved report.
+
+Crucially, a separate **fully uncached** `python3 -B tools/validate.py
+--no-cache` run on **clean, synced, committed `main` at `d1edb76`** executed
+**all 413 of 413 checks**, with **zero cached**, **361 passing**, **52 failing**,
+**zero skipped**, and **no source-snapshot drift**. All failures were strict
+Clang-Tidy translation-unit checks; Clang-Format 23.1.2, Clang-Tidy 23.1.2,
+Ruff check/format 0.16.10, BasedPyright 1.40.1, and requested portable host
+tests were included. The full process JSON and
+`.cache/validate/report.json` were byte-for-byte identical. The command
+properly exited nonzero; **P0 remains OPEN** despite the stable complete
+run, and no claim of native driver or radio readiness is made.
+
+For actionable Tidy backlog sizing, an independent standalone invocation of
+the same installed `clang-tidy -p .` analyzed all **52 failing translation
+units**, with no timeouts. These emitted **27,338 check-tagged diagnostic
+instances** total, prominently `readability-identifier-naming` (7,867),
+`readability-uppercase-literal-suffix` (5,218), `readability-magic-numbers`
+(3,839), `readability-braces-around-statements` (1,543), and
+`cppcoreguidelines-pro-bounds-pointer-arithmetic` (1,019). These are raw
+**repeated warning occurrences**, many from shared headers; they are not
+unique source defects or the 52 failed-check count. The shortest failing
+units, `src/platform/Ar9565NativeDma.cpp` and `Ar9565NativePci.cpp`, each
+emit two warnings: the configured path-based `llvm-header-guard` convention
+and `cppcoreguidelines-macro-usage` on the preprocessor safety feature gate.
+These require a portable, reviewed solution; replacing a native backend
+`#if` gate with `constexpr`, disabling Tidy or hiding the native source would
+not satisfy the acceptance contract. No linter rule, tool invocation,
+compilation database, cache key or test coverage was weakened here.
+
+All activity above is source-only and synthetic/offline; it did not perform
+native kernel builds, PCI/DMA access, RF transmission, CI or hardware testing.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
