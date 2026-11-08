@@ -140,8 +140,9 @@ namespace simpleath
         // Incomplete even when the vendor field has not been written yet.
         // A result aliasing raw status is rejected untouched to preserve DMA
         // source bytes. Queue IDs outside the supported 0..9 range are
-        // rejected. The owner must confirm hardware has stopped DMA before ring
-        // recycle.
+        // rejected. Incoherent done statuses asserting both XmitOK and a
+        // terminal failure are rejected without retaining a false success.
+        // The owner must confirm hardware has stopped DMA before ring recycle.
         DescriptorError decodeTxCompletion(const TxCompletionWords &status,
                                            TxCompletion &out);
 

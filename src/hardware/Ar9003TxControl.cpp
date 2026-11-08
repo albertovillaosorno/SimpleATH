@@ -372,6 +372,15 @@ namespace simpleath
             complete.txOpportunityExceeded = (final & 0x00020000U) != 0;
             complete.shortRetries = static_cast<uint8_t>((flags >> 4U) & 0xfU);
             complete.longRetries = static_cast<uint8_t>((flags >> 8U) & 0xfU);
+            // AR_FrmXmitOK is a terminal success. A DMA status also claiming
+            // exhausted retries, filtering, configuration/expiry failure, or
+            // TXOP exhaustion is incoherent; a forged status must not be
+            // promoted to a successful transmit-completion callback.
+            if (complete.frameTransmitOk &&
+                (complete.excessiveRetries || complete.filtered ||
+                 complete.configError || complete.expired ||
+                 complete.txOpportunityExceeded))
+                return DescriptorError::CorruptStatus;
             out = complete;
             return DescriptorError::Ok;
         }

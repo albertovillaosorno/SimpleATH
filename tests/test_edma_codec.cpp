@@ -459,5 +459,38 @@ int main()
         encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
             TxControlError::Ok)
         return 57;
+
+    // A completed descriptor cannot report both successful transmission and
+    // a terminal failure. Reject forged/incoherent status words rather than
+    // leaking a false success to the future TX completion handler.
+    tx.word[0] = 0x168c8000u | (9u << 8u);
+    tx.word[8] = (24u << 1u) | 1u;
+    const uint32_t terminalFailureBits[] = {0x00000002u, 0x00000008u,
+                                            0x00040000u, 0x00080000u};
+    for (uint32_t terminal : terminalFailureBits)
+    {
+        tx.word[3] = terminal | 1u; // AR_FrmXmitOK and a terminal failure.
+        completed.frameTransmitOk = true;
+        if (decodeTxCompletion(tx, completed) !=
+                DescriptorError::CorruptStatus ||
+            completed.frameTransmitOk || completed.excessiveRetries ||
+            completed.sequenceNumber)
+            return 58;
+    }
+    tx.word[3] = 1u;
+    tx.word[8] |= 0x00020000u; // TXOP exceeded despite XmitOK.
+    completed.frameTransmitOk = true;
+    if (decodeTxCompletion(tx, completed) != DescriptorError::CorruptStatus ||
+        completed.frameTransmitOk || completed.txOpportunityExceeded ||
+        completed.sequenceNumber)
+        return 59;
+    // An ordinary failed TX retains its explicit diagnostic bits, but never
+    // gets upgraded to a successful transmission.
+    tx.word[8] &= ~0x00020000u;
+    tx.word[3] = 0x00000002u;
+    if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
+        completed.frameTransmitOk || !completed.excessiveRetries ||
+        completed.sequenceNumber != 24u)
+        return 60;
     return 0;
 }
