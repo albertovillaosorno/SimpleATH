@@ -470,6 +470,31 @@ change is source-only; no kext or hardware action was taken.
 This closes only the compiler-version identity and replaceable-lock defects,
 **not** the outstanding Clang-Tidy failures. **P0 remains OPEN**.
 
+## Stable full-repository checkpoint after durable lock (2026-11-07)
+
+After `d12842c` moved the run lock into Git-private metadata, the next
+uninterrupted default `python3 -B tools/validate.py` report covered the source
+subsequently committed as `ef188be`: `scope=repository`, `source_only=true`,
+`tests_requested=true`, **162 files, 413 checks, 0 cached, 413 executed,
+361 passed, 52 failed, and 0 skipped**. Every failure came from Clang-Tidy;
+no source-snapshot drift occurred. Standard output and the saved JSON report
+matched byte-for-byte. Ruff, BasedPyright, Clang-Format and offline host tests
+had no failures. The 52 Clang-Tidy findings remain unresolved.
+
+Commit `ef188be` also corrected an RSN scan-classification inconsistency:
+CCMP/PSK with a group-TKIP or unknown group cipher is no longer advertised
+as supported WPA2-Personal by the CCMP-only station. The added management
+frame regression failed on the previous source (exit 4), then passed with
+strict C++14 and C++17 AddressSanitizer/UndefinedBehaviorSanitizer host runs.
+This does not verify actual Wi-Fi operation.
+
+After separate commit `d675ead`, a second stable full validation recorded
+**162 files, 413 checks, 304 cached, 109 executed, 361 passed, 52 Clang-Tidy
+failed, 0 skipped, and no source-snapshot drift**. Its stdout again matched
+the saved JSON report. Unlike the first run, the second reused valid lint
+cache results while retaining the complete repository-wide scope.
+**P0 remains OPEN** until the Clang-Tidy failures are resolved.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
