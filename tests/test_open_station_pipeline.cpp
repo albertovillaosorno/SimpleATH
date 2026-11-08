@@ -247,7 +247,7 @@ namespace
         // The WPA2 4-way handshake for the selected BSSID must never accept
         // an EAPOL-Key frame bridged through the AP from another transmitter.
         // Ordinary encrypted data may still originate behind the AP.
-        uint8_t frame[33] {};
+        uint8_t frame[131] {};
         frame[0] = 0x08; // FromDS data to this station.
         frame[1] = 0x02;
         addresses(frame, kStation);
@@ -255,6 +255,14 @@ namespace
         frame[26] = 3;
         frame[30] = 0x88;
         frame[31] = 0x8e;
+        frame[32] = 2; // Valid AP M1 as the only pre-key EAPOL exception.
+        frame[33] = 3;
+        frame[35] = 95;
+        frame[36] = 2;
+        frame[38] = 0x8a;
+        frame[40] = 16;
+        frame[48] = 1;
+        frame[49] = 7;
         LinkContext link {};
         link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
@@ -282,6 +290,84 @@ namespace
         return inspectStationRx(link, frame, sizeof(frame), false, true, true,
                                 msdu) == DataPathResult::Ok &&
                msdu.payload == frame + 32 && msdu.etherType == 0x0800;
+    }
+
+    bool rejectMalformedWpa2RxEapol()
+    {
+        // The public RX admission gate must not publish arbitrary bytes as
+        // an authenticated AP-side WPA2 M1/M3. Only complete pairwise M1/M3
+        // can cross the cleartext pre-key exception. No post-key rekey path
+        // exists in this portable engine.
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        uint8_t frame[132] {};
+        frame[0] = 0x08;
+        frame[1] = 0x02; // AP FromDS unprotected Data.
+        addresses(frame, kStation);
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x88;
+        frame[31] = 0x8e; // EAPOL EtherType.
+        frame[32] = 2;    // A one-byte truncated EAPOL frame.
+        Msdu result {};
+        result.payload = frame;
+        result.payloadLength = 10;
+        if (inspectStationRx(link, frame, 33, false, true, false, result) !=
+                DataPathResult::UnsupportedFrame ||
+            result.payload || result.payloadLength)
+            return false;
+
+        uint8_t *const eapol = frame + 32;
+        eapol[1] = 3;    // EAPOL-Key.
+        eapol[3] = 95;   // Complete fixed-length RSN EAPOL-Key body.
+        eapol[4] = 2;    // RSN descriptor.
+        eapol[6] = 0x8a; // M1: version 2, pairwise, ACK.
+        eapol[8] = 16;   // AP key length.
+        eapol[16] = 1;   // Replay counter.
+        eapol[17] = 7;   // ANonce.
+        if (inspectStationRx(link, frame, 131, false, true, false, result) !=
+                DataPathResult::Ok ||
+            result.payload != eapol || result.payloadLength != 99)
+            return false;
+        frame[131] = 0xa5; // Not part of the declared EAPOL packet.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             result) != DataPathResult::UnsupportedFrame ||
+            result.payload)
+            return false;
+
+        eapol[5] = 1;
+        eapol[6] = 0x0a; // M2: a supplicant reply, never AP-side RX.
+        eapol[8] = 0;
+        eapol[81] = 0x55; // MIC present.
+        if (inspectStationRx(link, frame, 131, false, true, false, result) !=
+                DataPathResult::UnsupportedFrame ||
+            result.payload)
+            return false;
+
+        eapol[5] = 0x13;
+        eapol[6] = 0xca; // M3: AP install/MIC/secure/encrypted flags.
+        eapol[8] = 16;
+        if (inspectStationRx(link, frame, 131, false, true, false, result) !=
+                DataPathResult::Ok ||
+            result.payload != eapol)
+            return false;
+        link.pairwiseAndGroupKeysInstalled = true;
+        frame[1] = 0x42; // Protected AP EAPOL after initial key install.
+        if (inspectStationRx(link, frame, 131, false, true, true, result) !=
+                DataPathResult::UnsupportedFrame ||
+            result.payload)
+            return false;
+        // Open networks retain the generic Ethernet-II EAPOL pass-through.
+        link.security = LinkSecurity::Open;
+        frame[1] = 0x02;
+        return inspectStationRx(link, frame, 33, false, true, false, result) ==
+                   DataPathResult::Ok &&
+               result.payload == frame + 32;
     }
 
     bool rejectUnboundWpa2Eapol()
@@ -400,7 +486,7 @@ namespace
 
         // A forged verified-decryption flag cannot make protected EAPOL
         // admissible before the selected link reports installed keys.
-        uint8_t frame[33] {};
+        uint8_t frame[131] {};
         frame[0] = 0x08;
         frame[1] = 0x42; // FromDS + protected.
         addresses(frame, kStation);
@@ -408,7 +494,14 @@ namespace
         frame[26] = 3;
         frame[30] = 0x88;
         frame[31] = 0x8e;
-        frame[32] = 1;
+        frame[32] = 2; // Valid incoming pairwise M1.
+        frame[33] = 3;
+        frame[35] = 95;
+        frame[36] = 2;
+        frame[38] = 0x8a;
+        frame[40] = 16;
+        frame[48] = 1;
+        frame[49] = 7;
         Msdu decoded {};
         decoded.payload = frame;
         decoded.payloadLength = 1;
@@ -418,8 +511,8 @@ namespace
             return false;
         link.pairwiseAndGroupKeysInstalled = true;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
-                             decoded) != DataPathResult::Ok ||
-            decoded.payload != frame + 32)
+                             decoded) != DataPathResult::UnsupportedFrame ||
+            decoded.payload || decoded.payloadLength)
             return false;
         frame[1] = 0x02; // Post-key cleartext EAPOL cannot bypass CCMP.
         if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
@@ -692,6 +785,8 @@ int main()
         return 21;
     if (!rejectUnboundWpa2Eapol())
         return 31;
+    if (!rejectMalformedWpa2RxEapol())
+        return 43;
     if (!rejectCryptoProviderContextAliases())
         return 22;
     // Native lifecycle must allocate/serialize persistent owner storage.

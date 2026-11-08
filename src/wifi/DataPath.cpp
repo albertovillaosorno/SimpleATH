@@ -275,6 +275,21 @@ namespace simpleath
                     if (!header.protectedFrame &&
                         link.pairwiseAndGroupKeysInstalled)
                         return DataPathResult::UnverifiedDecryption;
+                    // There is no reviewed post-install group-rekey path.
+                    // A verified CCMP bit alone cannot make an arbitrary
+                    // encrypted EAPOL packet an authorized engine action.
+                    if (link.pairwiseAndGroupKeysInstalled)
+                        return DataPathResult::UnsupportedFrame;
+                    // The only pre-install plaintext exception is an exact
+                    // AP-origin M1 or M3; malformed, group, supplicant-side
+                    // or trailing EAPOL data must not enter the handshake.
+                    KeyFrame key {};
+                    if (parseEapolKey(parsed.payload, parsed.payloadLength,
+                                      key) != EapolResult::Ok ||
+                        key.eapolLength != parsed.payloadLength ||
+                        (key.message != KeyMessage::Pairwise1 &&
+                         key.message != KeyMessage::Pairwise3))
+                        return DataPathResult::UnsupportedFrame;
                 }
                 if (parsed.etherType != kEtherTypeEapol)
                 {

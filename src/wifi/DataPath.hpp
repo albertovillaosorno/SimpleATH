@@ -84,9 +84,10 @@ namespace simpleath
         // network interface. The caller must have checked the EDMA RX status,
         // FCS and decrypted integrity/packet number using a real hardware
         // backend. Association addresses must be valid; WPA2-PSK EAPOL
-        // handshake traffic must be unicast to this station. Protected
-        // EAPOL requires installed keys and verified CCMP; cleartext EAPOL is
-        // only permitted before the selected link installs its keys. On error,
+        // handshake traffic must be unicast to this station. Only a complete
+        // parsed AP-side M1/M3 is accepted as cleartext before key install.
+        // Post-install group rekey EAPOL is unsupported until its own guarded
+        // implementation exists, even with otherwise verified CCMP. On error,
         // output is zeroed, including its borrowed payload pointer. A result
         // overlapping the link or RX frame returns OverlappingBuffers without
         // modifying the aliased memory.
