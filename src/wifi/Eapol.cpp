@@ -240,8 +240,12 @@ namespace simpleath
             {
                 return EapolResult::OverlappingBuffers;
             }
+            // A public KeyFrame is not necessarily parser-created. In
+            // particular, an all-zero authenticator nonce cannot become the
+            // retained replay identity of a synthetically forged M1.
             if (frame.message != KeyMessage::Pairwise1 ||
-                frame.nonce == nullptr)
+                frame.nonce == nullptr ||
+                !any_nonzero(frame.nonce, K_KEY_NONCE_BYTES))
             {
                 return EapolResult::InvalidKeyInformation;
             }
@@ -276,6 +280,12 @@ namespace simpleath
             {
                 return EapolResult::MicNotVerified;
             }
+            // A caller's MIC-verification assertion cannot turn an M1-style
+            // frame into a verified M3 without the parser-required Key Info
+            // flags. Reject it before advancing the replay counter or phase.
+            if (!frame.hasMic || !frame.keyAck || !frame.secure ||
+                !frame.encryptedData || !frame.installationRequested)
+                return EapolResult::InvalidKeyInformation;
             if (frame.nonce == nullptr ||
                 frame.replayCounter <= latestReplayCounter_)
             {

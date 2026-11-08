@@ -456,6 +456,43 @@ namespace
         return true;
     }
 
+    bool rejectForgedReplayMetadata()
+    {
+        // ReplayGuard is a public boundary: a caller-built KeyFrame cannot
+        // bypass the parser's required nonzero ANonce or M3 MIC flags.
+        uint8_t m1[99] {};
+        makeM1(m1);
+        KeyFrame first {};
+        if (parseEapolKey(m1, sizeof(m1), first) != EapolResult::Ok)
+            return false;
+        ReplayGuard guard;
+        uint8_t emptyNonce[32] {};
+        KeyFrame forged = first;
+        forged.nonce = emptyNonce;
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty ||
+            guard.lastReplayCounter() != 0)
+            return false;
+        if (guard.acceptMessage1(first) != EapolResult::Ok)
+            return false;
+        forged = first;
+        forged.message = KeyMessage::Pairwise3;
+        forged.replayCounter = first.replayCounter + 1u;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::AwaitingMessage3 ||
+            guard.lastReplayCounter() != first.replayCounter)
+            return false;
+        forged.hasMic = true;
+        forged.secure = true;
+        forged.encryptedData = true;
+        forged.installationRequested = true;
+        return guard.acceptVerifiedMessage3(forged, true) == EapolResult::Ok &&
+               guard.phase() == HandshakePhase::Message3MicVerified &&
+               guard.lastReplayCounter() == forged.replayCounter;
+    }
+
     struct alignas(size_t) RxWord
     {
             size_t word;
@@ -465,6 +502,8 @@ namespace
 
 int main()
 {
+    if (!rejectForgedReplayMetadata())
+        return 39;
     if (!rejectEapolParserInputAlias())
         return 25;
     FakeCrypto fake {};
