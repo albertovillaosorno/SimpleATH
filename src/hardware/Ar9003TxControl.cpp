@@ -168,8 +168,12 @@ namespace simpleath
             // solicit ACKs or an RTS/CTS exchange, irrespective of whether
             // the caller marked the radio and policy fields as ready.
             if (request.packetType == TxPacketType::Beacon &&
-                (!request.noAck || request.rts || request.cts))
+                (!request.noAck || request.rts || request.cts ||
+                 request.rate[0].attempts != 1 || request.rate[1].attempts ||
+                 request.rate[2].attempts || request.rate[3].attempts))
             {
+                // Broadcast Beacon has no ACK-driven retransmission: exactly
+                // one attempt with one legacy rate, as in ath9k beacon.c.
                 return TxControlError::UnsupportedControl;
             }
             if (request.crypto == TxCrypto::Clear &&

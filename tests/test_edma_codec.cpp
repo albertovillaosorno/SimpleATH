@@ -245,6 +245,7 @@ int main()
         !same(descriptor, beforeBeaconPolicy))
         return 36;
     request.rate[0].rateCode = 0x1b;
+    request.rate[0].attempts = 1; // One broadcast Beacon attempt.
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor) ||
         (descriptor.word[12] & 0x01000000u) == 0)
@@ -285,6 +286,44 @@ int main()
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeInvalidPadding))
         return 42;
+
+    // No station ACKs broadcast beacons. Unlike data retries, a beacon
+    // must have exactly one transmit attempt in its first rate series.
+    // Compare Linux ath9k beacon.c: series[0].Tries = 1.
+    request.packetType = TxPacketType::Beacon;
+    request.noAck = true;
+    request.onAirFrameLength = 564;
+    request.rate[0].attempts = 2;
+    const TxDescriptor beforeBeaconRetries = descriptor;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeBeaconRetries))
+        return 43;
+    request.rate[0].attempts = 1;
+    request.rate[1].attempts = 1;
+    request.rate[1].rateCode = 0x1b;
+    request.rate[1].antennaChainMask = 1;
+    request.rate[1].powerIndex = 1;
+    policy.maximumTxPowerIndex[1] = 8;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeBeaconRetries))
+        return 44;
+    request.rate[1] = {};
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        ((descriptor.word[13] >> 16u) & 0xffffu) != 1u)
+        return 45;
+    // Multi-rate retries are still supported for ordinary data frames.
+    request.packetType = TxPacketType::Normal;
+    request.noAck = false;
+    request.rate[0].attempts = 2;
+    request.rate[1].attempts = 1;
+    request.rate[1].rateCode = 0x0b;
+    request.rate[1].antennaChainMask = 1;
+    request.rate[1].powerIndex = 1;
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        ((descriptor.word[13] >> 16u) & 0xffu) != 0x12u)
+        return 46;
 
     RxStatusWords rx {};
     rx.word[0] = 0x168c0000u;
