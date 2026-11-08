@@ -506,6 +506,41 @@ namespace
         return true;
     }
 
+    bool revokeRejectedRsnSecurity()
+    {
+        // A reused RSN output must not retain WPA2 authorization after a
+        // malformed or absent replacement element. Alias rejection below
+        // remains separately required to preserve the input's original bytes.
+        constexpr uint8_t validRsn[20] {1, 0,    0,    0x0f, 0xac, 4, 1,
+                                        0, 0,    0x0f, 0xac, 4,    1, 0,
+                                        0, 0x0f, 0xac, 2,    0,    0};
+        Rsn parsed {};
+        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok ||
+            !parsed.valid || parsed.security != Security::Wpa2Personal)
+            return false;
+        const uint8_t truncated[2] {1, 0};
+        if (parseRsn(truncated, sizeof(truncated), parsed) !=
+                Result::InvalidSecurity ||
+            parsed.valid || parsed.present ||
+            parsed.security == Security::Wpa2Personal)
+            return false;
+        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
+            return false;
+        uint8_t incorrectVersion[sizeof(validRsn)] {};
+        std::memcpy(incorrectVersion, validRsn, sizeof(validRsn));
+        incorrectVersion[0] = 2;
+        if (parseRsn(incorrectVersion, sizeof(incorrectVersion), parsed) !=
+                Result::InvalidSecurity ||
+            parsed.valid || parsed.present ||
+            parsed.security == Security::Wpa2Personal)
+            return false;
+        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
+            return false;
+        return parseRsn(nullptr, 0, parsed) == Result::NullBuffer &&
+               !parsed.valid && !parsed.present &&
+               parsed.security != Security::Wpa2Personal;
+    }
+
     bool rejectOverlappingManagementRx()
     {
         Frame parsedFrame {};
@@ -725,5 +760,7 @@ int main()
         return 15;
     if (!rejectForgedPrivacyAssociationTx())
         return 16;
+    if (!revokeRejectedRsnSecurity())
+        return 17;
     return 0;
 }

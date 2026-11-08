@@ -215,10 +215,14 @@ namespace simpleath
 
         Result parseRsn(const uint8_t *data, size_t length, Rsn &out)
         {
-            if (!data)
-                return Result::NullBuffer;
+            // Preserve borrowed input on detectable aliases, but revoke a
+            // previous security verdict on every ordinary parse failure.
+            // A caller must never reuse WPA2 authorization after bad RSNE.
             if (overlaps(&out, sizeof(out), data, length))
                 return Result::OverlappingBuffers;
+            out = {};
+            if (!data)
+                return Result::NullBuffer;
             // RSN version(2), group suite(4), pairwise count(2), suites,
             // AKM count(2), suites, optional RSN capabilities(2).
             if (length < 2 + 4 + 2 + 4 + 2 + 4)
