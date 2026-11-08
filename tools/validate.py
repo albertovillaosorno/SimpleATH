@@ -503,11 +503,43 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
     Returns:
         A digest suitable for rejecting reports assembled across live edits.
 
+    Raises:
+        ValueError: If a host fixture is a symlink, not a stable local file.
+
     """
     configurations = {
         root / config for names in CONFIGS.values() for config in names
     }
     manifests = set((root / "tests").rglob("*.sources"))
+    # Host tests also read non-source fixture bytes (for example, captured
+    # frames, JSON or binary vectors). Those inputs must invalidate a shared
+    # completed report even though they are not standalone lint targets.
+    # Ignore interpreter/linter caches created by tests during the scan.
+    test_directory = root / "tests"
+    generated_directories = frozenset({
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+    })
+    test_fixtures = {
+        path
+        for path in test_directory.rglob("*")
+        if (path.is_file() or path.is_symlink())
+        and path.suffix.lower() not in SUPPORTED
+        and not any(
+            part in generated_directories
+            for part in path.relative_to(test_directory).parts[:-1]
+        )
+    }
+    # Host fixture symlinks can escape the repository or change their target
+    # without changing a tracked source. Fail closed rather than reading them.
+    linked = next(
+        (path for path in sorted(test_fixtures) if path.is_symlink()), None
+    )
+    if linked is not None:
+        message = f"Linked test fixture: {linked.relative_to(root)}"
+        raise ValueError(message)
     # Python stubs participate in type checking without being lint targets.
     stubs = {
         p
@@ -515,7 +547,9 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
         for p in (root / directory).rglob("*.pyi")
         if p.is_file()
     }
-    inputs = sorted(set(sources) | configurations | manifests | stubs)
+    inputs = sorted(
+        set(sources) | configurations | manifests | stubs | test_fixtures
+    )
     digest = hashlib.sha256()
     for path in inputs:
         digest.update(path.relative_to(root).as_posix().encode())

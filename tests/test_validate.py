@@ -714,6 +714,92 @@ class CompactReports(unittest.TestCase):
         assert failed["diagnostics"] == ["bad header"]
 
 
+class NonSourceFixtureSnapshot(unittest.TestCase):
+    """Verify the report identity includes every host-test input type."""
+
+    @staticmethod
+    def test_snapshot_tracks_non_source_host_test_fixtures() -> None:
+        """Content, arrival and removal of host fixtures change run identity."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "tests/test_fixture.py"
+            _ = source.write_text("import unittest", encoding="utf-8")
+            fixture = root / "tests/fixtures/wpa2-eapol.bin"
+            fixture.parent.mkdir()
+            first = validator.input_snapshot(root, [source])
+            _ = fixture.write_bytes(b"m1")
+            created = validator.input_snapshot(root, [source])
+            assert first != created
+            _ = fixture.write_bytes(b"m3")
+            changed = validator.input_snapshot(root, [source])
+            assert created != changed
+            fixture.unlink()
+            assert validator.input_snapshot(root, [source]) == first
+
+            # Interpreter bytecode caches are not test fixtures and may be
+            # created by a test run itself; never report them as source drift.
+            generated = root / "tests/__pycache__/test_fixture.cpython-314.pyc"
+            generated.parent.mkdir()
+            _ = generated.write_bytes(b"interpreter generated")
+            assert validator.input_snapshot(root, [source]) == first
+
+    @staticmethod
+    def test_fixture_edit_during_validation_fails_report() -> None:
+        """A mixed host fixture must not produce a reusable report."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/example.py"
+            _ = source.write_text("print('ok')", encoding="utf-8")
+            fixture = root / "tests/scan-record.json"
+            _ = fixture.write_text('{"frame": "old"}', encoding="utf-8")
+
+            def change_fixture(working_root: Path) -> list[validator.Finding]:
+                assert working_root == root
+                _ = fixture.write_text('{"frame": "new"}', encoding="utf-8")
+                return [
+                    _sample_finding("tests/test_fake.py", "python-test", "pass")
+                ]
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "src/example.py", "ruff", "pass"
+                    ),
+                ),
+                mock.patch.object(
+                    validator, "run_tests", side_effect=change_fixture
+                ),
+                mock.patch.object(
+                    validator, "_version", return_value="fixture"
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 1
+            report = (root / ".cache/validate/report.json").read_text()
+            assert SNAPSHOT_FAILURE_FRAGMENT in report
+
+    @staticmethod
+    def test_snapshot_rejects_symlinked_test_fixture() -> None:
+        """Never follow a test fixture link outside the source tree."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "tests/test_fixture.py"
+            _ = source.write_text("import unittest", encoding="utf-8")
+            fixture = root / "tests/fixture.bin"
+            fixture.symlink_to(Path(directory).parent / "outside-fixture.bin")
+            assert _rejects(
+                lambda: validator.input_snapshot(root, [source]),
+                "Linked test fixture",
+            )
+
+
 class FullRepositoryRun(unittest.TestCase):
     """Ensure the shared report cannot omit checks or race between agents."""
 
