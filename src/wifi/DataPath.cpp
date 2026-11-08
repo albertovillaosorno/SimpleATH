@@ -190,6 +190,11 @@ namespace simpleath
             if (header.type != FrameType::Data || header.toDs ||
                 !header.fromDs || !sameMac(header.bssid, link.bssid))
                 return DataPathResult::NotFromAssociatedAccessPoint;
+            // FromDS address 3 is the originating Ethernet source, not the
+            // access point. Never forward a forged group or zero source into
+            // the native Ethernet interface, even with a valid AP receiver.
+            if (!validStationMac(header.source))
+                return DataPathResult::InvalidAddress;
             // Multicast/broadcast is accepted; unicast must address our
             // station.
             if ((header.destination.bytes[0] & 1u) == 0 &&

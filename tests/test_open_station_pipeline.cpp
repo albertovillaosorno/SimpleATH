@@ -83,6 +83,53 @@ namespace
         frame[33] = 0x84;
     }
 
+    bool rejectInvalidFromDsSource()
+    {
+        // FromDS address 3 is the originating Ethernet SA. An all-zero or
+        // multicast source is never a valid individual Ethernet sender, even
+        // when the AP BSSID and our receiver address are otherwise valid.
+        uint8_t frame[33] {};
+        frame[0] = 0x08; // Data.
+        frame[1] = 0x02; // From DS.
+        addresses(frame, kStation);
+        std::memcpy(frame + 16, kAp, 6); // Valid Ethernet source.
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x08;
+        frame[31] = 0x00;
+        frame[32] = 0x45;
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Open;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        Msdu result {};
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             result) != DataPathResult::Ok ||
+            result.payload != frame + 32)
+            return false;
+        // Broadcast source (multicast bit set), zero source, and another
+        // multicast source must all fail without borrowing stale RX bytes.
+        frame[16] = 0xff;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             result) != DataPathResult::InvalidAddress ||
+            result.payload)
+            return false;
+        std::memset(frame + 16, 0, 6);
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             result) != DataPathResult::InvalidAddress ||
+            result.payload)
+            return false;
+        frame[16] = 0x01;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             result) != DataPathResult::InvalidAddress ||
+            result.payload)
+            return false;
+        return true;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -164,6 +211,8 @@ int main()
     using namespace simpleath::ieee80211;
     if (!rejectStationManagementTxAlias())
         return 19;
+    if (!rejectInvalidFromDsSource())
+        return 20;
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;
