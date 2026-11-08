@@ -116,6 +116,32 @@ namespace
                !header.moreFragments && header.fragment == 0;
     }
 
+    bool rejectZeroBeaconInterval()
+    {
+        // A zero TU interval is not a valid AP advertisement. A direct
+        // parser consumer must not retain an earlier BSSID/security verdict
+        // when the next Beacon or Probe Response has invalid fixed fields.
+        uint8_t frame[kBeaconBytes] {};
+        makeBeacon(frame);
+        Beacon parsed {};
+        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok)
+            return false;
+        frame[32] = 0;
+        frame[33] = 0;
+        if (parseBeacon(frame, sizeof(frame), parsed) != Result::InvalidFrame ||
+            parsed.intervalTu != 0 || parsed.ssidLength != 0 ||
+            parsed.bssid.bytes[0] != 0 ||
+            parsed.rsn.security != Security::UnsupportedRsn)
+            return false;
+        makeBeacon(frame);
+        frame[0] = 0x50; // A directed Probe Response has the same fixed fields.
+        std::memcpy(frame + 4, kStation, 6);
+        frame[32] = 0;
+        return parseBeacon(frame, sizeof(frame), parsed) ==
+                   Result::InvalidFrame &&
+               parsed.intervalTu == 0 && parsed.ssidLength == 0;
+    }
+
     bool rejectHiddenAssociationName()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -845,5 +871,7 @@ int main()
         return 18;
     if (!revokeRejectedBeaconSecurity())
         return 19;
+    if (!rejectZeroBeaconInterval())
+        return 20;
     return 0;
 }

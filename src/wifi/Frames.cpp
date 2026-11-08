@@ -422,9 +422,14 @@ namespace simpleath
             parsed.timestamp = read64(fixed);
             parsed.intervalTu = read16(fixed + 8);
             parsed.capabilities = read16(fixed + 10);
+            // A zero beacon interval cannot describe a usable AP, even if
+            // its otherwise valid SSID and RSNE might look joinable. Reject
+            // this fixed-field error at the shared Beacon/Probe Response
+            // parser boundary, not only in individual scan consumers.
             // ESS and IBSS advertise different BSS types. Accepting both
             // as infrastructure can poison scan selection with a forged BSS.
-            if ((parsed.capabilities & 0x0003u) == 0x0003u)
+            if (parsed.intervalTu == 0 ||
+                (parsed.capabilities & 0x0003u) == 0x0003u)
                 return Result::InvalidFrame;
             parsed.infrastructure = (parsed.capabilities & 1u) != 0;
             parsed.hiddenSsid = true;
