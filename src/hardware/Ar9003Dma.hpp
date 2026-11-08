@@ -31,7 +31,8 @@ namespace simpleath
             UnexpectedState,
             NotReadyToTransmit,
             GenerationExhausted,
-            InvalidDirection
+            InvalidDirection,
+            AliasedMetadata
         };
 
         enum class Direction : uint8_t
@@ -56,6 +57,9 @@ namespace simpleath
                 bool synchronized;
         };
 
+        // A DMA span must not overlap the Mapping object describing it: a
+        // device write or descriptor copy could corrupt its trusted IOVA,
+        // direction, synchronization state or retained CPU pointer.
         Error validateMapping(const Mapping &mapping, size_t requiredBytes);
         Error validateDescriptorRing(const Mapping &mapping,
                                      size_t descriptorBytes, size_t count,

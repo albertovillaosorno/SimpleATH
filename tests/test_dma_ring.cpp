@@ -100,6 +100,25 @@ int main()
     if (validateMapping(validMapping, sizeof(validHost)) != Error::Ok ||
         validateDescriptorRing(validMapping, 16, 4, 16) != Error::Ok)
         return 11;
+    // A caller-built mapping may point its DMA CPU span into its own
+    // descriptor. A DMA write could then corrupt the IOVA, size, direction,
+    // or synchronization evidence while the owner still relies on them.
+    Mapping metadataMapping = validMapping;
+    metadataMapping.cpuAddress = &metadataMapping;
+    metadataMapping.length = sizeof(metadataMapping);
+    if (validateMapping(metadataMapping, sizeof(metadataMapping)) !=
+            Error::AliasedMetadata ||
+        validateDescriptorRing(metadataMapping, sizeof(metadataMapping), 1,
+                               alignof(Mapping)) != Error::AliasedMetadata)
+        return 17;
+    // Partial overlap at an interior byte is equally unsafe.
+    metadataMapping.cpuAddress =
+        reinterpret_cast<uint8_t *>(&metadataMapping) + 4;
+    metadataMapping.length = 8;
+    if (validateMapping(metadataMapping, 8) != Error::AliasedMetadata ||
+        validateDescriptorRing(metadataMapping, 8, 1, alignof(Mapping)) !=
+            Error::AliasedMetadata)
+        return 18;
     // A 32-bit IOVA must cover the full mapped segment, not merely the
     // caller's short required prefix. Otherwise later offsets can wrap the
     // device's 32-bit address space even though initial validation passed.

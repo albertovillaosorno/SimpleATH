@@ -29,6 +29,14 @@ namespace simpleath
             {
                 return Error::MissingBuffer;
             }
+            // Caller-built DMA mappings cannot point into their own trusted
+            // descriptor metadata. Reject even a partial overlap before an
+            // owner can hand that span to the IOMMU or hardware.
+            if (overlaps_storage(mapping.cpuAddress, mapping.length, &mapping,
+                                 sizeof(mapping)))
+            {
+                return Error::AliasedMetadata;
+            }
             // A caller-built Mapping can contain an arbitrary enum value.
             // An unknown DMA direction cannot be safely interpreted by the
             // future IOMMU owner, even if other mapping flags claim success.
