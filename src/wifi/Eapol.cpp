@@ -72,6 +72,42 @@ namespace simpleath
                                    : first - second < second_bytes;
         }
 
+        static bool replay_metadata_matches_wire(const KeyFrame &frame)
+        {
+            // ReplayGuard accepts public, caller-built KeyFrame values. Keep
+            // the nonce and scalar replay/key fields tied to the same bounded
+            // EAPOL frame rather than trusting detached metadata. The M3 MIC
+            // bytes may already have been zeroed for verification, so never
+            // reparse the whole packet at this stage.
+            if (frame.eapolBytes == nullptr || frame.nonce == nullptr ||
+                frame.eapolLength <
+                    K_EAPOL_HEADER_BYTES + K_EAPOL_KEY_FIXED_BYTES ||
+                frame.eapolLength >
+                    K_EAPOL_HEADER_BYTES + K_MAX_EAPOL_BODY_BYTES)
+                return false;
+            const auto origin = reinterpret_cast<uintptr_t>(frame.eapolBytes);
+            const auto nonce = reinterpret_cast<uintptr_t>(frame.nonce);
+            if (nonce < origin ||
+                nonce - origin != K_EAPOL_HEADER_BYTES + K_KEY_NONCE_OFFSET)
+                return false;
+            const uint8_t *const bytes = frame.eapolBytes;
+            if (bytes[0] < 1 || bytes[0] > 3 ||
+                bytes[1] != K_EAPOL_KEY_PACKET_TYPE ||
+                bytes[K_EAPOL_HEADER_BYTES] != K_KEY_DESCRIPTOR_TYPE ||
+                static_cast<size_t>(read_big16(bytes + 2)) +
+                        K_EAPOL_HEADER_BYTES !=
+                    frame.eapolLength)
+                return false;
+            return read_big16(bytes + K_EAPOL_HEADER_BYTES + 1) ==
+                       frame.keyInformation &&
+                   read_big16(bytes + K_EAPOL_HEADER_BYTES + 3) ==
+                       frame.keyLength &&
+                   read_big64(bytes + K_EAPOL_HEADER_BYTES + 5) ==
+                       frame.replayCounter &&
+                   read_big16(bytes + K_EAPOL_HEADER_BYTES +
+                              K_KEY_DATA_LENGTH_OFFSET) == frame.keyDataLength;
+        }
+
         EapolResult parseEapolKey(const uint8_t *const frame, size_t length,
                                   KeyFrame &out)
         {
@@ -250,6 +286,8 @@ namespace simpleath
             // A caller may not borrow its nonce or frame metadata from the
             // replay guard: advancing it would corrupt the still-read input.
             if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlaps_storage(this, sizeof(*this), frame.eapolBytes,
+                                 frame.eapolLength) ||
                 overlaps_storage(this, sizeof(*this), frame.nonce,
                                  K_KEY_NONCE_BYTES))
             {
@@ -263,7 +301,8 @@ namespace simpleath
                 frame.descriptorVersion != K_KEY_DESCRIPTOR_VERSION ||
                 frame.keyLength != K_CCMP_KEY_BYTES || frame.hasMic ||
                 !frame.keyAck || frame.secure || frame.encryptedData ||
-                frame.installationRequested || frame.nonce == nullptr ||
+                frame.installationRequested ||
+                !replay_metadata_matches_wire(frame) ||
                 !any_nonzero(frame.nonce, K_KEY_NONCE_BYTES))
             {
                 return EapolResult::InvalidKeyInformation;
@@ -285,6 +324,8 @@ namespace simpleath
                                                         bool mic_verified)
         {
             if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlaps_storage(this, sizeof(*this), frame.eapolBytes,
+                                 frame.eapolLength) ||
                 overlaps_storage(this, sizeof(*this), frame.nonce,
                                  K_KEY_NONCE_BYTES))
             {
@@ -313,6 +354,8 @@ namespace simpleath
             {
                 return EapolResult::ReplayDetected;
             }
+            if (!replay_metadata_matches_wire(frame))
+                return EapolResult::InvalidKeyInformation;
             uint8_t difference = 0;
             for (size_t i = 0; i < sizeof(initialAnonce_); ++i)
             {

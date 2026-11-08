@@ -681,6 +681,77 @@ namespace
                guard.lastReplayCounter() == third.replayCounter;
     }
 
+    bool rejectForgedReplayWireMetadata()
+    {
+        // ReplayGuard is public: a caller may copy parser metadata then
+        // substitute a different nonce or scalar replay counter. Never
+        // advance on values detached from the actual EAPOL-Key image.
+        uint8_t firstBytes[99] {};
+        makeM1(firstBytes);
+        KeyFrame first {};
+        if (parseEapolKey(firstBytes, sizeof(firstBytes), first) !=
+            EapolResult::Ok)
+            return false;
+        ReplayGuard guard;
+        KeyFrame forged = first;
+        uint8_t detachedNonce[32] {};
+        std::memcpy(detachedNonce, first.nonce, sizeof(detachedNonce));
+        forged.nonce = detachedNonce;
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
+            return false;
+        forged = first;
+        ++forged.replayCounter;
+        if (guard.acceptMessage1(forged) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.lastReplayCounter() != 0)
+            return false;
+        forged = first;
+        forged.eapolBytes = nullptr;
+        if (guard.acceptMessage1(forged) != EapolResult::InvalidKeyInformation)
+            return false;
+        forged = first;
+        --forged.eapolLength;
+        if (guard.acceptMessage1(forged) != EapolResult::InvalidKeyInformation)
+            return false;
+        if (guard.acceptMessage1(first) != EapolResult::Ok)
+            return false;
+
+        uint8_t thirdBytes[155] {};
+        makeM3(thirdBytes);
+        KeyFrame third {};
+        if (parseEapolKey(thirdBytes, sizeof(thirdBytes), third) !=
+            EapolResult::Ok)
+            return false;
+        forged = third;
+        std::memcpy(detachedNonce, third.nonce, sizeof(detachedNonce));
+        forged.nonce = detachedNonce;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::AwaitingMessage3)
+            return false;
+        forged = third;
+        ++forged.replayCounter;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.lastReplayCounter() != first.replayCounter)
+            return false;
+        forged = third;
+        forged.eapolBytes = nullptr;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+            EapolResult::InvalidKeyInformation)
+            return false;
+        forged = third;
+        --forged.eapolLength;
+        if (guard.acceptVerifiedMessage3(forged, true) !=
+            EapolResult::InvalidKeyInformation)
+            return false;
+        return guard.acceptVerifiedMessage3(third, true) == EapolResult::Ok &&
+               guard.phase() == HandshakePhase::Message3MicVerified &&
+               guard.lastReplayCounter() == third.replayCounter;
+    }
+
     struct alignas(size_t) RxWord
     {
             size_t word;
@@ -696,6 +767,8 @@ int main()
         return 41;
     if (!rejectForgedReplayMetadata())
         return 39;
+    if (!rejectForgedReplayWireMetadata())
+        return 42;
     if (!rejectEapolParserInputAlias())
         return 25;
     FakeCrypto fake {};
