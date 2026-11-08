@@ -567,6 +567,52 @@ namespace
                !parsed.eapolBytes && !parsed.nonce;
     }
 
+    bool rejectWrongPairwiseKeyLengths()
+    {
+        // The authenticator M1/M3 carry CCMP Key Length=16. The
+        // supplicant M2/M4 carry zero. A public parsed KeyFrame should
+        // not claim a valid handshake message with opposite lengths.
+        uint8_t first[99] {};
+        makeM1(first);
+        KeyFrame parsed {};
+        first[8] = 0;
+        if (parseEapolKey(first, sizeof(first), parsed) !=
+                EapolResult::InvalidKeyInformation ||
+            parsed.eapolBytes || parsed.nonce)
+            return false;
+        first[8] = 16;
+        if (parseEapolKey(first, sizeof(first), parsed) != EapolResult::Ok ||
+            parsed.message != KeyMessage::Pairwise1)
+            return false;
+
+        uint8_t third[155] {};
+        makeM3(third);
+        third[8] = 0;
+        if (parseEapolKey(third, sizeof(third), parsed) !=
+                EapolResult::InvalidKeyInformation ||
+            parsed.eapolBytes || parsed.nonce)
+            return false;
+        third[8] = 16;
+        if (parseEapolKey(third, sizeof(third), parsed) != EapolResult::Ok ||
+            parsed.message != KeyMessage::Pairwise3)
+            return false;
+
+        uint8_t fourth[99] {};
+        makeM1(fourth);
+        fourth[5] = 0x03; // MIC+secure, no ACK or key install.
+        fourth[6] = 0x0a;
+        fourth[8] = 0;
+        fourth[17] = 0;
+        fourth[81] = 0x55;
+        if (parseEapolKey(fourth, sizeof(fourth), parsed) != EapolResult::Ok ||
+            parsed.message != KeyMessage::Pairwise4)
+            return false;
+        fourth[8] = 16;
+        return parseEapolKey(fourth, sizeof(fourth), parsed) ==
+                   EapolResult::InvalidKeyInformation &&
+               !parsed.eapolBytes && !parsed.nonce;
+    }
+
     bool rejectForgedReplayMetadata()
     {
         // ReplayGuard is a public boundary: a caller-built KeyFrame cannot
@@ -646,6 +692,8 @@ int main()
 {
     if (!rejectMalformedMessage2())
         return 40;
+    if (!rejectWrongPairwiseKeyLengths())
+        return 41;
     if (!rejectForgedReplayMetadata())
         return 39;
     if (!rejectEapolParserInputAlias())
