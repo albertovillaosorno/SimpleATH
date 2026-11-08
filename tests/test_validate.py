@@ -381,6 +381,19 @@ class CacheValidation(unittest.TestCase):
             assert _lint_fingerprint(root, first, "clang-tidy") != updated
 
     @staticmethod
+    def test_objective_c_imported_unit_invalidates_tidy() -> None:
+        """An Objective-C #import of a .mm file is a source dependency."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            owner = root / "src/owner.mm"
+            imported = root / "src/imported.mm"
+            _ = owner.write_text('#import "imported.mm"', encoding="utf-8")
+            _ = imported.write_text("int before;", encoding="utf-8")
+            initial = _lint_fingerprint(root, owner, "clang-tidy")
+            _ = imported.write_text("int after;", encoding="utf-8")
+            assert _lint_fingerprint(root, owner, "clang-tidy") != initial
+
+    @staticmethod
     def test_lint_cache_tracks_language_search_environments() -> None:
         """Native include and Python import paths must invalidate own lint."""
         with tempfile.TemporaryDirectory() as directory:

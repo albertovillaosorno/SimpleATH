@@ -69,8 +69,11 @@ NATIVE_SHARED = (NATIVE - UNITS) | frozenset({
 NATIVE_IMPLEMENTATION_TARGET = (
     rb'(?:[<"][^>"\r\n]+\.(?:c|cc|cpp|cxx|m|mm)[>"]|[^<"\s])'
 )
+NATIVE_INCLUDE_DIRECTIVE = (
+    rb"(?m)^[ \t]*#[ \t]*(?:include|include_next|import)[ \t]+"
+)
 IMPLEMENTATION_INCLUDE = re.compile(
-    rb"(?m)^[ \t]*#[ \t]*include[ \t]+" + NATIVE_IMPLEMENTATION_TARGET,
+    NATIVE_INCLUDE_DIRECTIVE + NATIVE_IMPLEMENTATION_TARGET,
     re.IGNORECASE,
 )
 NATIVE_TESTS = frozenset({".cpp", ".mm"})
