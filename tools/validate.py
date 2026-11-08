@@ -24,6 +24,7 @@ from typing import Literal
 from typing import TYPE_CHECKING
 from typing import TypeIs
 from typing import TypedDict
+from typing import cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -77,6 +78,7 @@ raise SystemExit(code)
 """
 PYTHON_SUFFIX = ".py"
 STATUS_OK: Literal["pass"] = "pass"
+FAILED: Literal["fail"] = "fail"
 SKIPPED: Literal["skipped"] = "skipped"
 type Status = Literal["pass", "fail", "skipped"]
 
@@ -1057,6 +1059,16 @@ def _completed_pair(
     return (record, report) if valid else None
 
 
+def _nonnegative_count(value: object) -> TypeIs[int]:
+    """Reject negative integers and boolean impostors in report counts.
+
+    Returns:
+        True only for nonnegative, non-boolean integers.
+
+    """
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _report_counts(
     value: object, files: int
 ) -> tuple[int, int, int, int] | None:
@@ -1066,18 +1078,61 @@ def _report_counts(
         Ordered pass/fail/skipped/check totals, or no trustworthy counts.
 
     """
-    if not _mapping(value) or value.get("files") != files:
+    if (
+        not _mapping(value)
+        or not _nonnegative_count(value.get("files"))
+        or value["files"] != files
+    ):
         return None
     values = [value.get(key) for key in ("pass", "fail", "skipped", "checks")]
-    if not all(
-        isinstance(number, int) and not isinstance(number, bool) and number >= 0
-        for number in values
-    ):
+    if not all(_nonnegative_count(number) for number in values):
         return None
     passed, failed, skipped, checks = (
         int(number) for number in values if isinstance(number, int)
     )
     return (passed, failed, skipped, checks)
+
+
+def _report_execution_counts_match(
+    summary: object, total: int, skipped: int
+) -> bool:
+    """Every check must be skipped, executed, or reused, exactly once.
+
+    Returns:
+        Whether the execution summary accounts for every check.
+
+    """
+    if not _mapping(summary):
+        return False
+    cached = summary.get("cached")
+    executed = summary.get("executed")
+    return (
+        _nonnegative_count(cached)
+        and _nonnegative_count(executed)
+        and cached + executed + skipped == total
+    )
+
+
+def _report_actionable_counts_match(
+    rows: object, failed: int, skipped: int
+) -> bool:
+    """Compact reports may omit passes, never failures or skipped checks.
+
+    Returns:
+        Whether every non-pass has a matching detailed result.
+
+    """
+    if not isinstance(rows, list):
+        return False
+    typed_rows = cast("list[object]", rows)
+    if len(typed_rows) != failed + skipped:
+        return False
+    statuses = [
+        row.get("status") if _mapping(row) else None for row in typed_rows
+    ]
+    return (
+        statuses.count(FAILED) == failed and statuses.count(SKIPPED) == skipped
+    )
 
 
 def _report_summary_code(value: object, source_count: int) -> int | None:
@@ -1094,15 +1149,20 @@ def _report_summary_code(value: object, source_count: int) -> int | None:
     if header != expected or counts is None:
         return None
     passed, failed, skipped, checks = counts
-    return (
-        (EXIT_FAILURE if failed or skipped else 0)
-        if passed + failed + skipped == checks
-        else None
+    consistent = (
+        passed + failed + skipped == checks
+        and _report_execution_counts_match(
+            value.get("summary"), checks, skipped
+        )
+        and _report_actionable_counts_match(
+            value.get("results"), failed, skipped
+        )
     )
+    return (EXIT_FAILURE if failed or skipped else 0) if consistent else None
 
 
-def _report_code(report_text: str, source_count: int) -> int | None:
-    """Reject incomplete reports while preserving a real failing status.
+def report_exit_code(report_text: str, source_count: int) -> int | None:
+    """Reject incomplete completed reports while preserving real failures.
 
     Returns:
         The report's real exit status or None for malformed information.
@@ -1138,7 +1198,7 @@ def _completed_report(
     try:
         inputs = _current_inputs(root)
         identity = _run_identity(root, options, inputs)
-        code = _report_code(report_text, len(inputs.sources))
+        code = report_exit_code(report_text, len(inputs.sources))
         # Recheck after reading every source; mixed versions cannot share.
         unchanged = inputs == _current_inputs(root)
     except OSError, ValueError, RecursionError:

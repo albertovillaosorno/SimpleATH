@@ -1176,6 +1176,49 @@ class FullRepositoryRun(unittest.TestCase):
             assert locked
 
 
+class CompletedReportIntegrity(unittest.TestCase):
+    """Reused compact reports must agree with their own failure evidence."""
+
+    @staticmethod
+    def test_rejects_missing_or_relabelled_actionable_results() -> None:
+        """A truncated failure list cannot be served as a completed scan."""
+        passed = _sample_finding("src/ok.cpp", "clang-format", "pass")
+        failed = _sample_finding("src/bad.cpp", "clang-tidy", "fail")
+        skipped = _sample_finding(
+            "tests/test_missing.py", "python-test", "skipped"
+        )
+        report = validator.build_report(
+            [passed, failed, skipped], files=2, tests=True, tools={}
+        )
+        assert validator.report_exit_code(json.dumps(report), 2) == 1
+        # The SHA-256 marker only authenticates the report bytes, not that
+        # every required non-pass result survived serialization.
+        report["results"] = [failed]
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+        rows = [dict(failed), dict(skipped)]
+        report["results"] = rows
+        rows[0]["status"] = "pass"
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+        rows[0]["status"] = "skipped"
+        assert validator.report_exit_code(json.dumps(report), 2) is None
+
+    @staticmethod
+    def test_rejects_impossible_cache_counts() -> None:
+        """Run statistics must account for all executed or reused checks."""
+        passed = _sample_finding("src/ok.cpp", "clang-format", "pass")
+        report = validator.build_report([passed], files=1, tests=True, tools={})
+        assert validator.report_exit_code(json.dumps(report), 1) == 0
+        summary = cast("dict[str, object]", report["summary"])
+        summary["cached"] = True
+        assert validator.report_exit_code(json.dumps(report), 1) is None
+        summary["cached"] = 1
+        summary["executed"] = 1
+        assert validator.report_exit_code(json.dumps(report), 1) is None
+        summary["executed"] = 0
+        summary["files"] = True
+        assert validator.report_exit_code(json.dumps(report), 1) is None
+
+
 class DefaultCliOptions(unittest.TestCase):
     """Keep CLI defaults aligned with the configured validation policy."""
 
