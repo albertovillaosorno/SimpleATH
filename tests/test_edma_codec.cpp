@@ -357,6 +357,17 @@ int main()
         decoded.frameLength != 128 || decoded.rateCode != 0x0b ||
         decoded.timestamp != 7654u || decoded.combinedRssi != -40)
         return 12;
+    // AR_RxMore is a chained DMA buffer, not a complete on-air MPDU.
+    // Even an apparently good FCS bit cannot authorize forwarding a partial
+    // buffer without a separately verified RX-chain reassembly path.
+    rx.word[2] |= 0x1000u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+        decoded.completed || decoded.frameValid || decoded.frameLength)
+        return 49;
+    rx.word[2] &= ~0x1000u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || decoded.frameLength != 128u)
+        return 50;
     rx.word[11] = 0;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Incomplete ||
         decoded.completed || decoded.frameValid || decoded.frameLength)

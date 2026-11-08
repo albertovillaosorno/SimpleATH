@@ -129,8 +129,12 @@ namespace simpleath
 
         // Caller must first synchronize DMA and verify a complete status write.
         // This only decodes status; it does not read payloads or acknowledge
-        // IRQs. Ordinary errors clear out. An alias with the raw status
-        // instead fails without writing into DMA-visible source storage.
+        // IRQs. AR_RxMore marks an incomplete chained DMA buffer and is
+        // rejected: there is no RX-chain reassembly here. The future owner
+        // must also suppress orphaned tail buffers after a rejected chain;
+        // an isolated last descriptor cannot reveal prior chain membership.
+        // Ordinary errors clear out. An alias with the raw status instead
+        // fails without writing into DMA-visible source storage.
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out);
 
     } // namespace edma

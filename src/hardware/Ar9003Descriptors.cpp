@@ -293,7 +293,11 @@ namespace simpleath
                                 !status.crcError && !status.decryptError &&
                                 !status.phyError && !status.micError &&
                                 !status.keyMiss;
-            if (!status.frameValid || status.frameLength == 0)
+            // AR_RxMore is a chained DMA buffer, not an 802.11 MAC
+            // fragment. No RX-chain reassembly exists in this codec, so
+            // never promote one partial buffer as a complete FCS-checked MPDU.
+            if (!status.frameValid || status.frameLength == 0 ||
+                status.moreFragments)
             {
                 return DescriptorError::ReceiveError;
             }
