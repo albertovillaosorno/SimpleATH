@@ -32,6 +32,7 @@ COMPILER_ERROR_MARKER = ": error:"
 SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
 MISSING_PYTHON_COMPLETION = "without unittest"
+INCOMPLETE_TEST_SUITE = "Incomplete unittest suite"
 FULL_SCOPE_FRAGMENT = '"scope": "repository"'
 ONE_FAILURE_FRAGMENT = '"fail": 1'
 SNAPSHOT_FAILURE_FRAGMENT = '"tool": "source-snapshot"'
@@ -983,6 +984,32 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             assert _rejects(
                 lambda: validator.input_snapshot(root, [source]),
                 "Linked test fixture",
+            )
+
+
+class PythonCompletionIntegrity(unittest.TestCase):
+    """An early-stopped unittest suite is not a complete host test run."""
+
+    @staticmethod
+    def test_early_stop_cannot_hide_unexecuted_failing_test() -> None:
+        """A partial successful unittest result must fail host validation."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            _ = (root / "tests/test_stopped.py").write_text(
+                """import unittest
+class Stopped(unittest.TestCase):
+    def test_a_stop(self):
+        self._outcome.result.stop()
+    def test_z_unreached(self):
+        self.fail('Must not be silently ignored')
+""",
+                encoding="utf-8",
+            )
+            result = validator.run_tests(root)[0]
+            assert result["status"] == EXPECTED_FAIL
+            assert any(
+                INCOMPLETE_TEST_SUITE in detail
+                for detail in result["diagnostics"]
             )
 
 

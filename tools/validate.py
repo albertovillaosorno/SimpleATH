@@ -94,12 +94,18 @@ import sys
 import unittest
 suite = unittest.TestLoader().discover(
     sys.argv[1], pattern=sys.argv[2], top_level_dir=sys.argv[3])
-if not suite.countTestCases():
+expected = suite.countTestCases()
+if not expected:
     raise SystemExit(5)
 result = unittest.TextTestRunner(verbosity=2).run(suite)
 counts = f"Tests run: {result.testsRun}; skipped: {len(result.skipped)}"
 sys.stdout.write(counts + chr(10))
-code = 1 if not result.wasSuccessful() else 0
+complete = result.testsRun == expected
+if not complete:
+    sys.stderr.write(
+        f"Incomplete unittest suite: executed {result.testsRun} of {expected}"
+        + chr(10))
+code = 1 if not result.wasSuccessful() or not complete else 0
 if not code and result.skipped:
     code = 5
 raise SystemExit(code)
