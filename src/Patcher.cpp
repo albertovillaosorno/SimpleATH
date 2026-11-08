@@ -7,11 +7,13 @@
 //
 
 #include "Patcher.hpp"
+#include <cstdint>
 #include <sys/systm.h>
 
-uintptr_t KernelPatcher::branchTarget(uintptr_t target, uintptr_t pc)
+uintptr_t KernelPatcher::branchTarget(uintptr_t target,
+                                      uintptr_t program_counter)
 {
-    auto delta = static_cast<int64_t>(target - pc);
+    const auto delta = static_cast<int64_t>(target - program_counter);
     return delta >= INT32_MIN && delta <= INT32_MAX
                ? target
                : ath::allocateStub(image, target);
