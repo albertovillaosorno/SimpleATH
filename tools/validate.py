@@ -81,6 +81,12 @@ SUPPORTED = NATIVE | {".py"}
 TIMEOUT_SECONDS = 60.0
 OUTPUT_LIMIT = 256 * 1024
 DIAGNOSTIC_LIMIT = 12
+# A Python test module can terminate its own discovery process with exit(0)
+# before unittest executes anything. The child runner prints this final count
+# only after a nonempty suite was actually executed without skips.
+PYTHON_TEST_COMPLETION = re.compile(
+    r"(?:^|\n)Tests run: [1-9][0-9]*; skipped: 0\n?\Z"
+)
 EXIT_FAILURE = 1
 EXIT_SKIPPED = 5
 PYTHON_TEST_DRIVER = """\
@@ -862,14 +868,20 @@ def _python_test(root: Path, test: Path) -> Finding:
         ],
         cwd=root,
     )
-    status: Status = "pass" if result.code == 0 else "fail"
+    completed = PYTHON_TEST_COMPLETION.search(result.stdout) is not None
+    status: Status = "pass" if result.code == 0 and completed else "fail"
     if result.code == EXIT_SKIPPED:
         status = "skipped"
+    diagnostics = _diagnostics(result)
+    if result.code == 0 and not completed:
+        diagnostics.insert(
+            0, "Python host test exited without unittest completion"
+        )
     return _finding(
         relative,
         "python-test",
         status,
-        details=_diagnostics(result) or ["No runnable tests or tests skipped"],
+        details=diagnostics or ["No runnable tests or tests skipped"],
     )
 
 

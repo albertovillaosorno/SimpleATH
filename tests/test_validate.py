@@ -31,6 +31,7 @@ EXPECTED_FAIL = "fail"
 COMPILER_ERROR_MARKER = ": error:"
 SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
+MISSING_PYTHON_COMPLETION = "without unittest"
 FULL_SCOPE_FRAGMENT = '"scope": "repository"'
 ONE_FAILURE_FRAGMENT = '"fail": 1'
 SNAPSHOT_FAILURE_FRAGMENT = '"tool": "source-snapshot"'
@@ -631,6 +632,20 @@ class PythonExecution(unittest.TestCase):
             root = _root(directory)
             _ = (root / "tests/test_empty.py").write_text("", encoding="utf-8")
             assert validator.run_tests(root)[0]["status"] == EXPECTED_SKIP
+
+    @staticmethod
+    def test_premature_python_exit_zero_is_not_a_pass() -> None:
+        """An import-time process exit must not masquerade as run tests."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            _ = (root / "tests/test_early_exit.py").write_text(
+                "import os\nos._exit(0)\n", encoding="utf-8"
+            )
+            result = validator.run_tests(root)[0]
+            assert result["status"] == EXPECTED_FAIL
+            assert any(
+                MISSING_PYTHON_COMPLETION in d for d in result["diagnostics"]
+            )
 
     @staticmethod
     def test_python_failure_is_not_a_pass() -> None:
