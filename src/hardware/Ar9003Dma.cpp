@@ -29,6 +29,14 @@ namespace simpleath
             {
                 return Error::MissingBuffer;
             }
+            // A caller-built Mapping can contain an arbitrary enum value.
+            // An unknown DMA direction cannot be safely interpreted by the
+            // future IOMMU owner, even if other mapping flags claim success.
+            if (mapping.direction != Direction::ToDevice &&
+                mapping.direction != Direction::FromDevice)
+            {
+                return Error::InvalidDirection;
+            }
             if (!mapping.iommuMapped)
             {
                 return Error::UnmappedBuffer;

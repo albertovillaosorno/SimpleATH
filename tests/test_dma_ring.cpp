@@ -113,5 +113,20 @@ int main()
     if (validateMapping(endingIo, 8) != Error::Ok ||
         validateDescriptorRing(endingIo, 8, 1, 4) != Error::Ok)
         return 13;
+    // An untrusted caller can cast an arbitrary byte into the public mapping
+    // direction enum. Neither TX nor RX may treat that as a real DMA transfer
+    // direction merely because the IOVA, size and synchronization flags fit.
+    Mapping invalidDirection = validMapping;
+    invalidDirection.direction = static_cast<Direction>(0xffu);
+    if (validateMapping(invalidDirection, 16) != Error::InvalidDirection ||
+        validateDescriptorRing(invalidDirection, 16, 2, 16) !=
+            Error::InvalidDirection)
+        return 15;
+    Mapping receiveMapping = validMapping;
+    receiveMapping.direction = Direction::FromDevice;
+    if (validateMapping(receiveMapping, 16) != Error::Ok ||
+        validateDescriptorRing(receiveMapping, 16, 2, 16) !=
+            Error::InvalidAlignment)
+        return 16;
     return 0;
 }

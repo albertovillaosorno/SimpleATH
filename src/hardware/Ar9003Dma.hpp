@@ -30,7 +30,8 @@ namespace simpleath
             InvalidSlot,
             UnexpectedState,
             NotReadyToTransmit,
-            GenerationExhausted
+            GenerationExhausted,
+            InvalidDirection
         };
 
         enum class Direction : uint8_t
@@ -44,6 +45,8 @@ namespace simpleath
                 void *cpuAddress;
                 uint64_t deviceBusAddress;
                 size_t length;
+                // Only ToDevice/FromDevice are valid IOMMU transfer directions.
+                // Forged enum values are never treated as mapped DMA.
                 Direction direction;
                 // True only after the platform's DMA API has made a valid IOMMU
                 // mapping.
