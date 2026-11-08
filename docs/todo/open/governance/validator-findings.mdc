@@ -564,6 +564,58 @@ they must not be treated as stable checkpoints.
 No mandatory checks were skipped or suppressed; no native driver build,
 RF/PCI/DMA operations, CI or hardware test was performed.
 
+## Five independent DMA, Wi-Fi and patch-helper checkpoints, 2026-11-07 19:47 CST
+
+A separate source-only continuation coordinated per-file claims and pushed
+five reviewed DCO commits to `main` without changing mandatory lint options,
+loosening the baseline, or touching active peers' source paths:
+
+- `9baad64`: direct `<cstdint>` include, const displacement and clear argument
+  naming in the legacy patch helper; behavior is unchanged.
+- `1e9abd2`: DMA mapping validation rejects a retained CPU-address span that
+  would wrap `uintptr_t`, including for otherwise IOMMU-tagged allocations.
+  A synthetic mapping failed the new regression before the fix (exit 10).
+- `8ff1513`: association serialization rejects hidden or all-zero names,
+  including forged `hiddenSsid=false` metadata following the nonempty
+  zero-filled beacon fix; regression failed before the guard (exit 11).
+- `080c996`: station network selection rejects a caller-forged visible
+  all-zero SSID before entering authentication. The regression failed before
+  the guard (exit 23), and a genuine visible candidate remained selectable.
+- `e8929d3`: 32-bit DMA IOVA validation now covers the full retained bus
+  segment, not only the smaller requested prefix. Regression failed before
+  the guard (exit 12); a span ending at exactly `0xffffffff` stays valid.
+
+Each new DMA/Wi-Fi regression passed strict C++14 and C++17 portable host
+builds with AddressSanitizer and UndefinedBehaviorSanitizer after its change;
+all changed native source/test files passed Clang-Format and `git diff --check`.
+After **each** focused patch, a coordinated full default-on
+`python3 -B tools/validate.py` run recorded `scope=repository`,
+`source_only=true`, `tests_requested=true`, **162 source files, 413 checks,
+304-305 cached, 108-109 executed, 361 passing, 52 failing, zero skipped**.
+All 52 failures were strict Clang-Tidy translation-unit checks. No missing
+compiler, Ruff, BasedPyright, Clang-Format, host-test, or source-snapshot
+failure appeared; the complete JSON printed by each run was byte-identical
+to `.cache/validate/report.json`. These are **cache-backed complete-scope
+reports on stable pre-commit source**, not fresh uncached or final clean-HEAD
+acceptance. The known Clang-Tidy P0 backlog remains OPEN, and these synthetic
+host tests prove neither native macOS kext correctness nor device/radio/DMA
+operation.
+
+A separately coordinated source-only peer then pushed DCO `1362b3b`:
+public DataPath TX and RX reject `LinkContext` with station MAC equal to
+BSSID. The independent test failed before the fix (exit 24), then passed
+under C++14 and a C++17 sanitizer build. Its stable full default validator
+also covered **162 files / 413 checks, 361 pass, 52 Clang-Tidy fail, zero
+skipped or source drift**, with byte-identical process and saved reports.
+These checks do not establish functional radio or native driver operation.
+
+For triage only, the report retains at most the first twelve diagnostic lines
+per check: among these **capped samples**, `llvm-header-guard` appeared in
+42 failing translation units and `modernize-deprecated-headers` in 33. These
+are common repeated header issues, **not** exhaustive counts or proof that
+fixing those warnings alone would turn the 52 failing units green. The strict
+policy and its root configuration are unchanged.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
