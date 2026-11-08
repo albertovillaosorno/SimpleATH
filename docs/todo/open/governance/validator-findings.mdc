@@ -751,6 +751,35 @@ result, not a green report. **P0 stays OPEN** until the 52 native Tidy
 failures are actually resolved without weakening coverage. No kext build,
 CI, tag, device operation or RF experiment was performed.
 
+
+## Complete uncached clean-main checkpoint, 2026-11-07 22:25 CST
+
+On **clean, committed, origin-synchronized `main` at `ba310c9`**, after the
+coordinated WPA2, scan ticket, RX EAPOL, DMA token, payload restore and
+native include fixes, `python3 -B tools/validate.py --no-cache` executed
+**all 413 required checks** over **162 source files**. The structured
+repository report had **0 cached, 413 executed, 361 pass, 52 fail, 0 skipped**.
+All 52 failing checks remain strict Clang-Tidy; Clang-Format, Ruff check/format,
+BasedPyright and the offline host tests did not fail or skip. The tracked
+working tree and HEAD stayed unchanged throughout, no source-snapshot drift
+was reported, and process stdout JSON matched `.cache/validate/report.json`
+byte-for-byte. The validator correctly exited nonzero; **P0 stays OPEN**.
+
+Focused, DCO-signed main commits in this continuation were `22fa8c5`
+(crypto replay metadata bound to actual EAPOL), `034b692` (rejected scan
+requests preserve live ticket), `5ca3947` (bounded pre-key M1/M3 RX EAPOL
+admission), `7388ccc` (preserve distinct native diagnostic headlines without
+reducing check coverage), `4cd71e5` (Patcher direct declaration include),
+`3fe37e1` (native bootstrap direct integer include), `8f29ef9` (reject
+aliasing in payload restoration) and `ba310c9` (failed DMA reservations
+preserve outstanding owner token). The new scan, EAPOL, payload and DMA
+regressions failed against the earlier source, then passed portable C++14 and
+C++17 host builds with AddressSanitizer and UndefinedBehaviorSanitizer.
+The validator's own 41 focused Python tests passed, plus scoped Ruff,
+formatting and BasedPyright checks. Source-only host tests do not prove
+native Tahoe ABI, kernel extension behavior, hardware DMA or Wi-Fi operation.
+No kext build, device access, RF activity, CI or lint relaxation occurred.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
