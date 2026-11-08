@@ -744,6 +744,50 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             assert validator.input_snapshot(root, [source]) == first
 
     @staticmethod
+    def test_snapshot_tracks_source_support_assets() -> None:
+        """ABI JSON inputs and native ledgers invalidate completed reports."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/core.cpp"
+            _ = source.write_text("int core;", encoding="utf-8")
+            baseline = validator.input_snapshot(root, [source])
+            for name in (
+                "src/platform/abi/manifest.json",
+                "tools/reference-data.json",
+                "src/linux/linux-port-ledger.jsonl",
+            ):
+                asset = root / name
+                asset.parent.mkdir(parents=True, exist_ok=True)
+                _ = asset.write_bytes(b"one")
+                first = validator.input_snapshot(root, [source])
+                assert first != baseline, name
+                _ = asset.write_bytes(b"two")
+                assert validator.input_snapshot(root, [source]) != first, name
+                asset.unlink()
+                assert validator.input_snapshot(root, [source]) == baseline
+
+            # Bulk checked-out Linux references are not live native inputs.
+            linux = root / "src/linux/drivers/net/sample.conf"
+            linux.parent.mkdir(parents=True)
+            _ = linux.write_bytes(b"reference only")
+            assert validator.input_snapshot(root, [source]) == baseline
+
+    @staticmethod
+    def test_snapshot_rejects_symlinked_source_support_asset() -> None:
+        """Never allow ABI evidence to link outside the repository."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/core.cpp"
+            _ = source.write_text("int core;", encoding="utf-8")
+            asset = root / "src/platform/abi/manifest.json"
+            asset.parent.mkdir(parents=True)
+            asset.symlink_to(Path(directory).parent / "outside-abi.json")
+            assert _rejects(
+                lambda: validator.input_snapshot(root, [source]),
+                "Linked support input",
+            )
+
+    @staticmethod
     def test_snapshot_streams_fixture_bytes() -> None:
         """Hash host fixture bytes without allocating the entire file."""
         with tempfile.TemporaryDirectory() as directory:

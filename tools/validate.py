@@ -497,49 +497,67 @@ def _signature(
     return digest.hexdigest()
 
 
-def input_snapshot(root: Path, sources: list[Path]) -> bytes:
-    """Fingerprint the complete selected source, rule, and test-manifest state.
+def _support_inputs(root: Path) -> set[Path]:
+    """Select full-run host fixture and native reference inputs.
 
     Returns:
-        A digest suitable for rejecting reports assembled across live edits.
+        Paths to the non-source support files checked by host tests.
 
     Raises:
-        ValueError: If a host fixture is a symlink, not a stable local file.
+        ValueError: If any support input is a symlink.
 
     """
-    configurations = {
-        root / config for names in CONFIGS.values() for config in names
-    }
-    manifests = set((root / "tests").rglob("*.sources"))
-    # Host tests also read non-source fixture bytes (for example, captured
-    # frames, JSON or binary vectors). Those inputs must invalidate a shared
-    # completed report even though they are not standalone lint targets.
-    # Ignore interpreter/linter caches created by tests during the scan.
-    test_directory = root / "tests"
+    # Host tests read non-source fixtures and pinned ABI snapshots/manifest
+    # under src/platform/abi. Every such input participates in full-run
+    # identity and source-drift detection, but not in per-language lint cache
+    # keys. Ignore generated test caches and the bulk Linux reference checkout;
+    # its source provenance ledger is the one supported input from that tree.
     generated_directories = frozenset({
         "__pycache__",
         ".pytest_cache",
         ".mypy_cache",
         ".ruff_cache",
     })
-    test_fixtures = {
+    linux_reference = root / "src/linux"
+    ledger = linux_reference / "linux-port-ledger.jsonl"
+    support_inputs = {
         path
-        for path in test_directory.rglob("*")
+        for section in ("src", "tools", "tests")
+        for path in (root / section).rglob("*")
         if (path.is_file() or path.is_symlink())
         and path.suffix.lower() not in SUPPORTED
+        and (not path.is_relative_to(linux_reference) or path == ledger)
         and not any(
             part in generated_directories
-            for part in path.relative_to(test_directory).parts[:-1]
+            for part in path.relative_to(root).parts[:-1]
         )
     }
-    # Host fixture symlinks can escape the repository or change their target
-    # without changing a tracked source. Fail closed rather than reading them.
+    # A source fixture symlink can escape the checkout or change its target
+    # without changing the path. Reject before reading any of its bytes.
     linked = next(
-        (path for path in sorted(test_fixtures) if path.is_symlink()), None
+        (path for path in sorted(support_inputs) if path.is_symlink()), None
     )
     if linked is not None:
-        message = f"Linked test fixture: {linked.relative_to(root)}"
+        kind = (
+            "test fixture"
+            if linked.is_relative_to(root / "tests")
+            else "support input"
+        )
+        message = f"Linked {kind}: {linked.relative_to(root)}"
         raise ValueError(message)
+    return support_inputs
+
+
+def input_snapshot(root: Path, sources: list[Path]) -> bytes:
+    """Fingerprint the complete source, rule, and host-evidence input state.
+
+    Returns:
+        A digest suitable for rejecting reports assembled across live edits.
+
+    """
+    configurations = {
+        root / config for names in CONFIGS.values() for config in names
+    }
     # Python stubs participate in type checking without being lint targets.
     stubs = {
         p
@@ -548,7 +566,7 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
         if p.is_file()
     }
     inputs = sorted(
-        set(sources) | configurations | manifests | stubs | test_fixtures
+        set(sources) | configurations | stubs | _support_inputs(root)
     )
     digest = hashlib.sha256()
     for path in inputs:
