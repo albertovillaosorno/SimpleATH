@@ -454,7 +454,10 @@ namespace simpleath
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return Wpa2Result::InvalidState;
             }
-            if (!signedMessage2)
+            // A provider that returns success without producing a MIC cannot
+            // advance the handshake with an unparseable plaintext M2.
+            if (!signedMessage2 ||
+                !nonzero(calculatedMic, sizeof(calculatedMic)))
             {
                 secureClear(response, sizeof(response));
                 secureClear(calculatedMic, sizeof(calculatedMic));
@@ -624,7 +627,10 @@ namespace simpleath
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return Wpa2Result::InvalidState;
             }
-            if (!signedResponse)
+            // Do not install keys until M4 is a valid, MIC-bearing response.
+            // The public EAPOL-Key parser rejects MIC-present/zero frames.
+            if (!signedResponse ||
+                !nonzero(calculatedMic, sizeof(calculatedMic)))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));

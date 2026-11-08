@@ -97,6 +97,7 @@ namespace
             bool revokeOnNonce = false;
             bool revokeOnPtk = false;
             unsigned revokeMicCall = 0;
+            unsigned zeroMicCall = 0;
             bool revokeOnUnwrap = false;
             bool revokeOnPairwise = false;
             bool revokeOnGroup = false;
@@ -150,7 +151,7 @@ namespace
             state.owner->reset();
         state.observedKck = kck[0];
         for (size_t index = 0; index < 16; ++index)
-            out[index] = 0x55;
+            out[index] = state.zeroMicCall == state.micCalls ? 0 : 0x55;
         return true;
     }
 
@@ -348,6 +349,57 @@ namespace
             return false;
         supplicant.reset();
         return callbacks.rollbackCalls == 1;
+    }
+
+    bool rejectZeroMicCallback(unsigned zeroMicCall)
+    {
+        // A callback reporting success with a zero MIC cannot authorize an
+        // EAPOL-Key response: the public parser rejects MIC-present/zero.
+        // M4 must be checked BEFORE any keycache installation is attempted.
+        HandshakeCallbacks callbacks {};
+        callbacks.zeroMicCall = zeroMicCall;
+        Wpa2Supplicant supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+            return false;
+        uint8_t m1[99] {};
+        makeM1(m1);
+        uint8_t m2[121] {};
+        std::memset(m2, 0xa5, sizeof(m2));
+        size_t written = 17;
+        const Wpa2Result first =
+            supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written);
+        if (zeroMicCall == 1)
+        {
+            if (first != Wpa2Result::MicCalculationFailure || written != 0 ||
+                m2[0] != 0xa5 || callbacks.micCalls != 1 ||
+                callbacks.pairwiseCalls || callbacks.groupCalls ||
+                supplicant.state() != Wpa2State::Failed ||
+                supplicant.keysInstalled())
+                return false;
+        }
+        else
+        {
+            if (first != Wpa2Result::Ok || written != sizeof(m2))
+                return false;
+            uint8_t m3[155] {};
+            makeM3(m3);
+            uint8_t m4[99] {};
+            std::memset(m4, 0xa5, sizeof(m4));
+            written = 17;
+            const Wpa2Result third =
+                supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
+            if (third != Wpa2Result::MicCalculationFailure || written != 0 ||
+                m4[0] != 0xa5 || callbacks.micCalls != 3 ||
+                callbacks.unwrapCalls != 1 || callbacks.pairwiseCalls ||
+                callbacks.groupCalls || supplicant.keysInstalled() ||
+                supplicant.state() != Wpa2State::Failed)
+                return false;
+        }
+        supplicant.reset();
+        return callbacks.rollbackCalls == 0;
     }
 
     enum class HandshakeCase : uint8_t
@@ -852,6 +904,8 @@ namespace
 
 int main()
 {
+    if (!rejectZeroMicCallback(1) || !rejectZeroMicCallback(3))
+        return 48;
     if (!rejectTrailingHandshakeBytes())
         return 46;
     if (!rejectMalformedMessage2())
