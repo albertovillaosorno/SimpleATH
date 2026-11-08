@@ -137,6 +137,63 @@ namespace
         return true;
     }
 
+    bool rejectIdenticalLinkIdentities()
+    {
+        // A public LinkContext is not proof of an association. A station
+        // cannot be its own AP/BSSID, even when both MACs are unicast.
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = link.station;
+        link.security = LinkSecurity::Open;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+
+        uint8_t ethernet[17] {};
+        std::memcpy(ethernet, kAp, 6);
+        std::memcpy(ethernet + 6, kStation, 6);
+        ethernet[12] = 0x08;
+        ethernet[13] = 0x00;
+        ethernet[14] = 0x45;
+        uint8_t tx[64] {};
+        std::memset(tx, 0xa5, sizeof(tx));
+        SerializedData txResult {};
+        txResult.frameBytes = 77;
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx),
+                             txResult) != DataPathResult::InvalidAddress ||
+            txResult.frameBytes != 77 || tx[0] != 0xa5)
+            return false;
+
+        uint8_t frame[33] {};
+        frame[0] = 0x08;
+        frame[1] = 0x02; // FromDS.
+        addresses(frame, kStation);
+        std::memcpy(frame + 10, kStation, 6); // Forged self-BSSID.
+        std::memcpy(frame + 16, kAp, 6);      // Distinct valid Ethernet source.
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x08;
+        frame[31] = 0x00;
+        frame[32] = 0x45;
+        Msdu rxResult {};
+        rxResult.payload = frame;
+        rxResult.payloadLength = 1;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             rxResult) != DataPathResult::InvalidAddress ||
+            rxResult.payload || rxResult.payloadLength)
+            return false;
+
+        // Both directions still accept a genuinely distinct valid AP.
+        std::memcpy(link.bssid.bytes, kAp, 6);
+        std::memcpy(frame + 10, kAp, 6);
+        return prepareStationTx(link, ethernet, sizeof(ethernet), 2, tx,
+                                sizeof(tx), txResult) == DataPathResult::Ok &&
+               inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                                rxResult) == DataPathResult::Ok &&
+               rxResult.payload == frame + 32;
+    }
+
     bool rejectForeignWpa2Authenticator()
     {
         // The WPA2 4-way handshake for the selected BSSID must never accept
@@ -351,6 +408,8 @@ int main()
         return 23;
     if (!rejectInvalidFromDsSource())
         return 20;
+    if (!rejectIdenticalLinkIdentities())
+        return 24;
     if (!rejectForeignWpa2Authenticator())
         return 21;
     if (!rejectCryptoProviderContextAliases())

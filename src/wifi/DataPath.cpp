@@ -58,8 +58,11 @@ namespace simpleath
             // failure.
             if (!out || !ethernet)
                 return DataPathResult::NullBuffer;
+            // The selected station and the AP must be distinct; callers can
+            // construct LinkContext without passing station association.
             if (!validStationMac(link.station) ||
-                !physicalBssidValid(link.bssid))
+                !physicalBssidValid(link.bssid) ||
+                sameMac(link.station, link.bssid))
                 return DataPathResult::InvalidAddress;
             if (!link.rfReady)
                 return DataPathResult::RadioNotReady;
@@ -172,8 +175,11 @@ namespace simpleath
             result = {};
             if (!frame)
                 return DataPathResult::NullBuffer;
+            // The selected station and the AP must be distinct; callers can
+            // construct LinkContext without passing station association.
             if (!validStationMac(link.station) ||
-                !physicalBssidValid(link.bssid))
+                !physicalBssidValid(link.bssid) ||
+                sameMac(link.station, link.bssid))
                 return DataPathResult::InvalidAddress;
             if (!link.rfReady || !link.associated)
                 return DataPathResult::NotAssociated;
