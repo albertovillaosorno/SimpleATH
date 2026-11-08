@@ -744,6 +744,23 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             assert validator.input_snapshot(root, [source]) == first
 
     @staticmethod
+    def test_snapshot_streams_fixture_bytes() -> None:
+        """Hash host fixture bytes without allocating the entire file."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/example.py"
+            _ = source.write_text("pass", encoding="utf-8")
+            fixture = root / "tests/large-vector.bin"
+            _ = fixture.write_bytes(b"\x00\xff" * 65536)
+            with mock.patch.object(
+                Path,
+                "read_bytes",
+                side_effect=AssertionError("unbounded source snapshot read"),
+            ):
+                streamed = validator.input_snapshot(root, [source])
+            assert streamed == validator.input_snapshot(root, [source])
+
+    @staticmethod
     def test_fixture_edit_during_validation_fails_report() -> None:
         """A mixed host fixture must not produce a reusable report."""
         with tempfile.TemporaryDirectory() as directory:

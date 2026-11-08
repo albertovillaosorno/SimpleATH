@@ -554,11 +554,15 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
     for path in inputs:
         digest.update(path.relative_to(root).as_posix().encode())
         digest.update(b"\0")
-        if path.is_file():
-            digest.update(b"present\0")
-            digest.update(path.read_bytes())
-        else:
+        if not path.is_file():
             digest.update(b"absent\0")
+            continue
+        digest.update(b"present\0")
+        # Binary host fixtures may be substantially larger than source
+        # files. A bounded read avoids loading entire dumps into RAM.
+        with path.open("rb") as source:
+            while chunk := source.read(256 * 1024):
+                digest.update(chunk)
     return digest.digest()
 
 
