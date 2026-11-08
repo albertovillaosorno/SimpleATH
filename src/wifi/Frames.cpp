@@ -347,7 +347,10 @@ namespace simpleath
                         return Result::InvalidElement;
                     seenSsid = true;
                     parsed.ssidLength = element.length;
-                    parsed.hiddenSsid = element.length == 0;
+                    // Some APs hide a name with an all-zero, fixed-length
+                    // SSID IE instead of an empty IE. Only a nonzero octet
+                    // makes the advertised name visible.
+                    parsed.hiddenSsid = true;
                     for (size_t i = 0; i < element.length; ++i)
                     {
                         parsed.ssid[i] = element.data[i];

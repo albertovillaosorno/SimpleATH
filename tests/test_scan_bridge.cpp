@@ -376,5 +376,31 @@ int main()
             recycled.beacon.bssid.bytes[5] == 0xfdu)
             return 29;
     }
+    // Hidden beacons also use nonempty, all-zero SSID IEs. These are not
+    // visible four-byte NUL network names and must never be selectable or
+    // exposed to the native scan-results iterator.
+    uint8_t zeroNamed[kBeaconBytes] {};
+    makeBeacon(zeroNamed, 6);
+    for (size_t i = 38; i < 42; ++i)
+        zeroNamed[i] = 0;
+    Beacon zeroParsed {};
+    static ScanCache zeroNameCache;
+    const uint8_t nullName[4] {};
+    Bss zeroSelected {};
+    static LegacyScanBridge zeroNameBridge;
+    ScanBridgeTicket zeroNameTicket {};
+    if (parseBeacon(zeroNamed, sizeof(zeroNamed), zeroParsed) != Result::Ok ||
+        !zeroParsed.hiddenSsid || zeroParsed.ssidLength != 4 ||
+        zeroNameCache.observe(zeroNamed, sizeof(zeroNamed), -38, 3000) !=
+            Result::Ok ||
+        zeroNameCache.strongest(nullName, sizeof(nullName), 6, true, true,
+                                zeroSelected) ||
+        zeroNameCache.strongest(nullptr, 0, 6, true, true, zeroSelected) ||
+        zeroNameBridge.beginScan(1, zeroNameTicket) != ScanBridgeResult::Ok ||
+        zeroNameBridge.completeScan(zeroNameCache, zeroNameTicket, true) !=
+            ScanBridgeResult::Ok ||
+        zeroNameBridge.status().resultCount != 0 ||
+        zeroNameBridge.status().rejectedEntries != 1)
+        return 31;
     return 0;
 }
