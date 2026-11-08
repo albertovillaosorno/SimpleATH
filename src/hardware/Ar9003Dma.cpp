@@ -46,6 +46,15 @@ namespace simpleath
             {
                 return Error::InsufficientLength;
             }
+            // An IOMMU flag does not make a CPU pointer span valid. Reject
+            // mappings whose full retained host allocation wraps uintptr_t,
+            // before any future caller can add offsets to that pointer.
+            const uintptr_t host_start =
+                reinterpret_cast<uintptr_t>(mapping.cpuAddress);
+            if (mapping.length - 1U > UINTPTR_MAX - host_start)
+            {
+                return Error::AddressOverflow;
+            }
             if (required_bytes - 1U >
                 K_DEVICE_MAX_ADDRESS - mapping.deviceBusAddress)
             {

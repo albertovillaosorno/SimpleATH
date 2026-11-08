@@ -69,5 +69,24 @@ int main()
             preserved.descriptorCompleted ||
         ring.release(owned) != Error::Ok || ring.reset() != Error::Ok)
         return 9;
+    // A fabricated CPU span that wraps host uintptr_t cannot describe a
+    // retained DMA allocation, even when the reported device IOVA is valid.
+    // No CPU memory is dereferenced in this synthetic mapping regression.
+    const Mapping overflowingHost {reinterpret_cast<void *>(UINTPTR_MAX - 3U),
+                                   0x1000U,
+                                   8,
+                                   Direction::ToDevice,
+                                   true,
+                                   true};
+    if (validateMapping(overflowingHost, 8) != Error::AddressOverflow ||
+        validateDescriptorRing(overflowingHost, 8, 1, 4) !=
+            Error::AddressOverflow)
+        return 10;
+    alignas(64) uint8_t validHost[64] {};
+    const Mapping validMapping {validHost,           0x1000U, sizeof(validHost),
+                                Direction::ToDevice, true,    true};
+    if (validateMapping(validMapping, sizeof(validHost)) != Error::Ok ||
+        validateDescriptorRing(validMapping, 16, 4, 16) != Error::Ok)
+        return 11;
     return 0;
 }
