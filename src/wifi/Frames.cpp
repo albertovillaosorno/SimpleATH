@@ -138,11 +138,21 @@ namespace simpleath
             return 2u + selectedCount + (selectedCount > 8 ? 2u : 0u);
         }
 
+        // Public association APIs also accept caller-built Beacon values.
+        // Do not size or serialize association TX to an AP without a usable
+        // beacon cadence and an explicitly known 2.4-GHz primary channel.
+        static bool validAssociationCadenceAndChannel(const Beacon &network)
+        {
+            return network.intervalTu != 0 && network.channel >= 1u &&
+                   network.channel <= 14u;
+        }
+
         size_t associationRequestLength(const Beacon &network)
         {
             uint8_t selected[12] {};
             size_t selectedCount = 0;
-            if (network.ssidLength == 0 ||
+            if (!validAssociationCadenceAndChannel(network) ||
+                network.ssidLength == 0 ||
                 network.ssidLength > sizeof(network.ssid) ||
                 !selectAssociationRates(network, selected, selectedCount))
                 return 0;
@@ -656,6 +666,8 @@ namespace simpleath
             if (!validStationMac(station) || !validStationMac(network.bssid) ||
                 sameMac(station, network.bssid))
                 return Result::InvalidAddress;
+            if (!validAssociationCadenceAndChannel(network))
+                return Result::InvalidFrame;
             // Public callers can manufacture Beacon metadata without parsing
             // it. The BSS must advertise ESS, not IBSS or contradictory modes.
             if ((network.capabilities & 0x0003u) != 0x0001u)

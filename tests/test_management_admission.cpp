@@ -266,6 +266,48 @@ namespace
                parsed.infrastructure;
     }
 
+    bool rejectInvalidAssociationTimingAndChannel()
+    {
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+            Result::Ok)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[128] {};
+        const auto rejected = [&]() -> bool
+        {
+            std::memset(output, 0xa5, sizeof(output));
+            size_t written = 47;
+            const size_t needed = associationRequestLength(network);
+            const Result result = makeAssociationRequest(
+                station, network, 1, output, sizeof(output), written);
+            return needed == 0 && result == Result::InvalidFrame &&
+                   written == 0 && output[0] == 0xa5;
+        };
+
+        // Public clients can synthesize Beacon metadata without parseBeacon
+        // or Station::select. Neither a zero beacon cadence nor a missing or
+        // invalid channel is a viable association request destination.
+        network.intervalTu = 0;
+        if (!rejected())
+            return false;
+        network.intervalTu = 100;
+        network.channel = 0;
+        if (!rejected())
+            return false;
+        network.channel = 15;
+        if (!rejected())
+            return false;
+        network.channel = 6;
+        size_t written = 0;
+        return associationRequestLength(network) != 0 &&
+               makeAssociationRequest(station, network, 2, output,
+                                      sizeof(output), written) == Result::Ok &&
+               written != 0 && output[0] == 0;
+    }
+
     bool rejectForgedBssAssociationTx()
     {
         uint8_t advertisement[kBeaconBytes] {};
@@ -873,5 +915,7 @@ int main()
         return 19;
     if (!rejectZeroBeaconInterval())
         return 20;
+    if (!rejectInvalidAssociationTimingAndChannel())
+        return 21;
     return 0;
 }
