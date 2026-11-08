@@ -712,6 +712,45 @@ compilation database, cache key or test coverage was weakened here.
 All activity above is source-only and synthetic/offline; it did not perform
 native kernel builds, PCI/DMA access, RF transmission, CI or hardware testing.
 
+## Four more source guards and clean uncached checkpoint, 2026-11-07 21:00 CST
+
+Four source-only DCO commits landed on main with isolated regression proofs:
+
+- `84d3a53`: the LLC RX decoder now refuses oversized nonaggregated MPDUs.
+  A buffer with FCS is limited to 2346 bytes, or 2342 without FCS. The
+  Objective-C++ fixture checked both exact boundaries, then failed before
+  the guard (exit 9) on an oversized buffer.
+- `b9f8965` (coordinated peer): direct association request serialization now
+  verifies its advertised privacy and exact WPA2 RSNE policy rather than
+  trusting the caller's forged security enum.
+- `ac2f8b3` (coordinated peer): association response privacy must agree with
+  the selected BSS. Its WPA2 synthetic response fixture was corrected to
+  advertise ESS+privacy after the first full test run found that mismatch.
+- `e2da63c`: public WPA2 PTK derivation refuses identical station and AP
+  identities without overwriting the caller's output key. The standalone
+  synthetic regression failed before the guard (exit 8).
+
+For both fixes owned by this continuation, strict C++14 and C++17 offline
+host programs passed AddressSanitizer and UndefinedBehaviorSanitizer after
+fixing the red-before cases. The coordinated peer reported equivalent strict
+host regressions for the two association fixes. Scoped Clang-Format and
+`git diff --check` passed. The intermediate combined whole-repository
+validator runs were accepted only when the source snapshot stayed frozen;
+an earlier drifted run and a newly exposed WPA2 fixture failure were
+corrected and rerun, never reported as passing.
+
+On clean, committed, origin-synchronized **main `e2da63c`**, the mandatory
+`python3 -B tools/validate.py --no-cache` finished with nonzero status:
+`scope=repository`, `source_only=true`, `tests_requested=true`, **162
+source files and 413 required checks, 0 cached, 413 executed, 361 passed,
+52 failed, 0 skipped**. **All failures were strict Clang-Tidy**; no
+Clang-Format, Ruff, BasedPyright or offline host test check failed or was
+skipped. There was **no source-snapshot drift**, and stdout JSON matched
+`.cache/validate/report.json` byte-for-byte. This is a fresh full uncached
+result, not a green report. **P0 stays OPEN** until the 52 native Tidy
+failures are actually resolved without weakening coverage. No kext build,
+CI, tag, device operation or RF experiment was performed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
