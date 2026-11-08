@@ -103,6 +103,7 @@ namespace
         // The AP may advertise an optional rate the station hardware lacks.
         // Association TX correctly omits it, so an Association Response
         // containing ONLY that rate cannot establish a common PHY rate.
+        candidate.beacon.rates[1] = 0x04; // 2 Mbps is optional in this BSS.
         candidate.beacon.rates[2] = 0x7f;
         candidate.beacon.rateCount = 3;
         candidate.occupied = true;
@@ -159,6 +160,15 @@ namespace
         // rate, even if base Supported Rates retains a matching rate.
         response[32] = 0x82; // Matching 1 Mbps basic rate.
         response[35] = 0xff; // Unsupported basic rate in extended IE.
+        if (owner.onAssociationResponse(response, sizeof(response)) !=
+                StationResult::FrameRejected ||
+            owner.state() != StationState::AssociationFramePrepared ||
+            owner.associationId() != 0)
+            return false;
+        // The AP cannot upgrade a selected optional rate to a new mandatory
+        // basic rate in its response without forcing a rescan. This local PHY
+        // rate is supported, but was not advertised as a required BSS rate.
+        response[35] = 0x84; // 2 Mbps basic; selected BSS offered 0x04.
         if (owner.onAssociationResponse(response, sizeof(response)) !=
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||

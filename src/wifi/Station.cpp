@@ -41,11 +41,21 @@ namespace simpleath
                         // local/AP rates can make a response compatible.
                         const bool supported =
                             associationRateSupported(selected, element.data[i]);
-                        // An AP must not silently add a new mandatory basic
-                        // rate after the selected BSS advertisement. Even
-                        // when another rate is shared, rescan before TX.
-                        if (!supported && (element.data[i] & 0x80u) != 0)
-                            return false;
+                        // A response's basic bit is part of the negotiated
+                        // BSS contract, not merely a supported PHY code. The
+                        // AP cannot upgrade an optional rate to mandatory
+                        // after our association request. Duplicate beacon
+                        // rates may carry either bit, so accept a required
+                        // response rate only when it was originally basic.
+                        if ((element.data[i] & 0x80u) != 0)
+                        {
+                            bool selectedBasic = false;
+                            for (size_t j = 0; j < selected.rateCount; ++j)
+                                selectedBasic |=
+                                    selected.rates[j] == element.data[i];
+                            if (!supported || !selectedBasic)
+                                return false;
+                        }
                         sharedRate |= supported;
                     }
                 }
