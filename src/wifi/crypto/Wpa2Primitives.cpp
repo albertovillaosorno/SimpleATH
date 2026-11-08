@@ -402,7 +402,11 @@ namespace simpleath
             {
                 if (!pmk || !aNonce || !sNonce || !outputPtk)
                     return Error::InvalidArgument;
-                if (!validStationMac(ap) || !validStationMac(station))
+                // Public callers need not pass through station selection.
+                // An authenticator cannot also be the supplicant whose
+                // traffic keys are being derived.
+                if (!validStationMac(ap) || !validStationMac(station) ||
+                    sameMac(ap, station))
                     return Error::InvalidArgument;
                 // The MAC identities are references supplied by the caller,
                 // not necessarily detached values. Even though the derivation

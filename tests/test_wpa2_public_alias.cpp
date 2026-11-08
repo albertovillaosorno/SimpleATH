@@ -49,6 +49,26 @@ namespace
                          independentPtk) == Error::Ok;
     }
 
+    bool rejectSamePtkIdentity()
+    {
+        // A standalone PTK request must not derive traffic keys for a
+        // self-authenticating AP/station pair, even with two valid unicast
+        // MACs and distinct nonces. Rejection leaves old output untouched.
+        const Mac identity {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t pmk[32] {};
+        uint8_t anonce[32] {};
+        uint8_t snonce[32] {};
+        anonce[0] = 1;
+        snonce[0] = 2;
+        uint8_t output[48] {};
+        std::memset(output, 0xa5, sizeof(output));
+        uint8_t before[sizeof(output)] {};
+        std::memset(before, 0xa5, sizeof(before));
+        return derivePtk(pmk, identity, identity, anonce, snonce, output) ==
+                   Error::InvalidArgument &&
+               std::memcmp(output, before, sizeof(output)) == 0;
+    }
+
     bool rejectMicKeyAlias()
     {
         uint8_t kck[16] {};
@@ -220,5 +240,7 @@ int main()
         return 6;
     if (!calculateReferenceMicVector())
         return 7;
+    if (!rejectSamePtkIdentity())
+        return 8;
     return 0;
 }
