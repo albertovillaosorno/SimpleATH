@@ -481,6 +481,16 @@ namespace simpleath
                 outcome = NvmDiscoveryResult::CorruptImage;
                 break;
             }
+            // A correctly checksummed delta may still replace the 2-GHz
+            // calibration pier frequencies with zeros, out-of-band values or
+            // a nonincreasing sequence. Keep the raw summary diagnostic API
+            // permissive, but never publish that image as selected board data.
+            if (!board.summary.calibrationPierBinsPlausible)
+            {
+                status.lastBoardResult = EepromResult::UnsupportedFormat;
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
+            }
             // Pinned dictionaries contain placeholder MAC addresses; a
             // reference/delta with no actual board MAC must not be promoted
             // to a recovered device identity, even if its chain mask fits.

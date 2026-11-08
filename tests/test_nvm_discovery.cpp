@@ -134,14 +134,23 @@ namespace
     // compressed frame MUST supply a distinct actual-board MAC and 0x11 mask;
     // no naked/default template can pass selection for AR9565.
     void writeBoard(uint8_t *bytes, uint16_t origin, bool corrupt,
-                    bool placeholderMac = false)
+                    bool placeholderMac = false, bool malformedPier = false)
     {
         constexpr uint8_t payload[] = {2,    6,    0x02, 0xa0, 0xb1, 0xc2,
                                        0xd3, 0xe4, 24,   1,    0x11};
-        uint8_t frame[sizeof(payload) + 6] {};
-        uint8_t updated[sizeof(payload)] {};
+        uint8_t frame[sizeof(payload) + 3 + 6] {};
+        uint8_t updated[sizeof(payload) + 3] {};
         for (size_t i = 0; i < sizeof(payload); ++i)
             updated[i] = payload[i];
+        size_t payloadBytes = sizeof(payload);
+        if (malformedPier)
+        {
+            // Previous records ended at byte 33. A valid, checksummed
+            // delta can replace the first 2-GHz calibration bin at 138.
+            updated[payloadBytes++] = 105;
+            updated[payloadBytes++] = 1;
+            updated[payloadBytes++] = 0; // Invalid 2300-MHz bin.
+        }
         if (placeholderMac)
         {
             constexpr uint8_t genericMac[] = {0, 2, 3, 4, 5, 6};
@@ -150,17 +159,17 @@ namespace
         }
         frame[0] = 0x62; // block compression, pinned template id 2.
         frame[1] = 0;
-        frame[2] = static_cast<uint8_t>(sizeof(payload) << 4);
+        frame[2] = static_cast<uint8_t>(payloadBytes << 4);
         frame[3] = 1;
         uint16_t checksum = 0;
-        for (size_t i = 0; i < sizeof(payload); ++i)
+        for (size_t i = 0; i < payloadBytes; ++i)
         {
             frame[4 + i] = updated[i];
             checksum = static_cast<uint16_t>(checksum + updated[i]);
         }
-        frame[4 + sizeof(payload)] = static_cast<uint8_t>(checksum);
-        frame[5 + sizeof(payload)] = static_cast<uint8_t>(checksum >> 8);
-        for (size_t i = 0; i < sizeof(frame); ++i)
+        frame[4 + payloadBytes] = static_cast<uint8_t>(checksum);
+        frame[5 + payloadBytes] = static_cast<uint8_t>(checksum >> 8);
+        for (size_t i = 0; i < payloadBytes + 6; ++i)
             bytes[origin - i] = frame[i];
         if (corrupt)
             bytes[origin - 5] ^= 1;
@@ -507,5 +516,17 @@ int main()
         fixture.status.result != NvmDiscoveryResult::Ok ||
         fixture.storage[0] != 0xa5)
         return 29;
+
+    // A frame can have a correct checksum and board identity yet replace a
+    // calibration pier with an invalid bin. Do not publish it as selected
+    // board data, even though RF TX is still separately disabled.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false, false, true);
+    if (run(fixture) != NvmDiscoveryResult::CorruptImage ||
+        fixture.board.valid || fixture.board.image.restored ||
+        fixture.status.lastBoardResult !=
+            simpleath::EepromResult::UnsupportedFormat ||
+        fixture.status.attempts != 1 || !clean(fixture))
+        return 30;
     return 0;
 }

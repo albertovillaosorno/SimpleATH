@@ -104,8 +104,9 @@ namespace simpleath
     // authorization. Source, origin and silicon come from the same serialized
     // exclusive PCI transaction; "valid" means only that the pinned delta
     // chain, permanent MAC, single chain and supported gain indexes passed
-    // static checks. Calibration/regulatory flags stay false. No fallbacks to
-    // template-only images. Caller owns lifetime and must discard on teardown,
+    // static checks, including plausible ordered 2-GHz calibration pier bins.
+    // Calibration/regulatory flags stay false. No fallbacks to template-only
+    // images. Caller owns lifetime and must discard on teardown,
     // D0 loss, reset/resume or a subsequent acquisition failure.
     struct NvmBoardSelection
     {
