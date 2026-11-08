@@ -138,11 +138,14 @@ namespace simpleath
             {
                 return Result::InvalidFrame;
             }
-            // IEEE 802.1H reserves the bridge-tunnel SNAP OUI for Ethernet-II
-            // AARP/IPX. The ordinary RFC 1042 form for these EtherTypes must
-            // be kept as 802.3 LLC rather than misreported as Ethernet-II.
-            if (standard_snap && (ether_type == K_ETHERTYPE_AARP ||
-                                  ether_type == K_ETHERTYPE_IPX))
+            // IEEE 802.1H bridge-tunnel SNAP is reserved for Ethernet-II
+            // AARP/IPX; other Ethernet-II types, particularly EAPOL-Key,
+            // must use ordinary RFC 1042 SNAP. Never reinterpret a forged
+            // bridge OUI as a valid pairwise handshake or IPv4 payload.
+            const bool tunneled_type =
+                ether_type == K_ETHERTYPE_AARP || ether_type == K_ETHERTYPE_IPX;
+            if ((standard_snap && tunneled_type) ||
+                (bridge_tunnel_snap && !tunneled_type))
             {
                 return Result::UnsupportedFrame;
             }

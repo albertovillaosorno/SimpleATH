@@ -44,6 +44,28 @@ int main()
     if (decodeLlcData(frame, sizeof(frame), false, false, payload) != Result::Ok ||
         payload.etherType != 0x80f3)
         return 5;
+    // Bridge-tunnel SNAP is reserved for AARP and IPX. An EAPOL-Key with
+    // bridge-tunnel OUI is not a valid RFC 1042 WPA2 handshake payload.
+    frame[30] = 0x88;
+    frame[31] = 0x8e;
+    if (decodeLlcData(frame, sizeof(frame), false, false, payload) !=
+            Result::UnsupportedFrame ||
+        payload.payload || payload.payloadLength)
+        return 11;
+    // Nor can an ordinary IPv4 frame borrow this exceptional SNAP OUI.
+    frame[30] = 0x08;
+    frame[31] = 0x00;
+    if (decodeLlcData(frame, sizeof(frame), false, false, payload) !=
+            Result::UnsupportedFrame ||
+        payload.payload || payload.payloadLength)
+        return 12;
+    frame[30] = 0x81;
+    frame[31] = 0x37; // Valid bridge-tunnel IPX still passes.
+    if (decodeLlcData(frame, sizeof(frame), false, false, payload) != Result::Ok ||
+        payload.etherType != 0x8137)
+        return 13;
+    frame[30] = 0x80;
+    frame[31] = 0xf3;
     if (decodeLlcData(nullptr, 0, false, false, payload) != Result::NullBuffer ||
         payload.payload || payload.payloadLength)
         return 6;

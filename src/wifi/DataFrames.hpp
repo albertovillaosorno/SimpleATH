@@ -26,6 +26,8 @@ namespace simpleath
         // already verified decryption, replay/PN and MIC integrity, with no
         // hardware key miss. Crypto headers/trailers must already have been
         // removed, leaving plaintext LLC immediately after the 802.11 header.
+        // AARP/IPX require bridge-tunnel SNAP OUI 00:00:f8; all other
+        // Ethernet-II types, including EAPOL, require RFC 1042 OUI 00:00:00.
         // Input remains owned by the caller. A-MSDU aggregation, CF variants
         // and fragmented MSDUs are deliberately rejected. On ordinary error
         // the output is zeroed, including its borrowed payload pointer. An
