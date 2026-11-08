@@ -107,6 +107,21 @@ namespace simpleath
                 return TxControlError::FrameLengthInvalid;
             }
 
+            // The validated pointer descriptor carries at most four
+            // nonaggregated DMA payload segments. Its control word must
+            // describe exactly the same on-air MPDU, including the FCS the
+            // radio appends; otherwise the host could advertise bytes that
+            // have no matching bounded DMA payload (or truncate a segment).
+            constexpr uint32_t kHardwareFcsBytes = 4U;
+            uint32_t mappedPayloadBytes = 0;
+            for (size_t slot = 0; slot < 4; ++slot)
+                mappedPayloadBytes += descriptor.word[3U + 2U * slot] >> 16U;
+            if (static_cast<uint32_t>(request.onAirFrameLength) !=
+                mappedPayloadBytes + kHardwareFcsBytes)
+            {
+                return TxControlError::FrameLengthInvalid;
+            }
+
             if (!policy.siliconIdentified ||
                 !policy.boardCalibrationValidated ||
                 !policy.channelRegulatoryAuthorized ||

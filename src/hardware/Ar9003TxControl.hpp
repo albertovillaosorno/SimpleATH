@@ -62,7 +62,9 @@ namespace simpleath
 
         struct TxControlRequest
         {
-                uint16_t onAirFrameLength; // Includes FCS, 1..4095.
+                // Includes 4 radio-generated FCS bytes, and must equal the
+                // sum of the validated descriptor's DMA segment lengths + 4.
+                uint16_t onAirFrameLength; // 1..4095 hardware field.
                 TxPacketType packetType;
                 TxCrypto crypto;
                 uint8_t keyCacheIndex; // 0xff when no key.

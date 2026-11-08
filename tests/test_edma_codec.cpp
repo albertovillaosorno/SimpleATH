@@ -65,7 +65,8 @@ int main()
         return 6;
 
     TxControlRequest request {};
-    request.onAirFrameLength = 128;
+    request.onAirFrameLength =
+        564; // 560 mapped payload octets plus 4-byte FCS.
     request.packetType = TxPacketType::Normal;
     request.crypto = TxCrypto::Clear;
     request.keyCacheIndex = 0xff;
@@ -92,12 +93,32 @@ int main()
     policy.boardCalibrationValidated = true;
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor) ||
-        descriptor.word[11] != (128u | (1u << 16u)) ||
+        descriptor.word[11] != (564u | (1u << 16u)) ||
         descriptor.word[13] != (2u << 16u) || descriptor.word[14] != 0x0bu)
         return 8;
     for (size_t index = 0; index <= 10; ++index)
         if (descriptor.word[index] != beforeControl.word[index])
             return 9;
+    // The descriptor's four pointer segment lengths cover 560 payload
+    // octets. The control field includes exactly four further hardware FCS
+    // octets, not an independently forged length that could mismatch DMA.
+    const TxDescriptor beforeLengthMismatch = descriptor;
+    request.onAirFrameLength = 128;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeLengthMismatch))
+        return 28;
+    request.onAirFrameLength = 563; // Even a one-byte shortfall is invalid.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeLengthMismatch))
+        return 29;
+    request.onAirFrameLength = 565; // Reject overreading the pointer payload.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeLengthMismatch))
+        return 30;
+    request.onAirFrameLength = 564;
     const TxDescriptor beforePolicyError = descriptor;
     request.crypto = TxCrypto::Ccmp;
     request.keyCacheIndex = 1;
