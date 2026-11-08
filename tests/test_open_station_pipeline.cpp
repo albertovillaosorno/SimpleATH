@@ -323,6 +323,39 @@ namespace
                owner.state() == StationState::CandidateSelected;
     }
 
+    bool rejectForgedInfrastructureCapability()
+    {
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        Bss candidate {};
+        if (parseBeacon(advertisement, sizeof(advertisement),
+                        candidate.beacon) != Result::Ok)
+            return false;
+        candidate.occupied = true;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        Station owner;
+        if (owner.enterScanning(true, true) != StationResult::Ok)
+            return false;
+
+        // The public selection API must not trust a caller-forged
+        // infrastructure flag when the 802.11 capabilities say otherwise.
+        // Neither ESS nor IBSS, IBSS only, and both bits are all invalid.
+        const uint16_t invalidModes[] {0u, 2u, 3u};
+        for (const uint16_t mode : invalidModes)
+        {
+            candidate.beacon.capabilities = mode;
+            if (owner.select(station, candidate) !=
+                    StationResult::UnsupportedNetwork ||
+                owner.state() != StationState::Scanning ||
+                owner.candidate().occupied)
+                return false;
+        }
+        // A genuine infrastructure advertisement is still selectable.
+        candidate.beacon.capabilities = 1u;
+        return owner.select(station, candidate) == StationResult::Ok &&
+               owner.state() == StationState::CandidateSelected;
+    }
+
     bool rejectEngineSelfBssidBeforeCrypto()
     {
         // A forged local station address equal to the selected WPA2 AP must
@@ -450,6 +483,8 @@ int main()
         return 19;
     if (!rejectForgedVisibleZeroName())
         return 23;
+    if (!rejectForgedInfrastructureCapability())
+        return 26;
     if (!rejectInvalidFromDsSource())
         return 20;
     if (!rejectIdenticalLinkIdentities())

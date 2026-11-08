@@ -54,6 +54,9 @@ namespace simpleath
             if (!validStationMac(station) || !candidate.occupied ||
                 !validStationMac(beacon.bssid) ||
                 sameMac(station, beacon.bssid) || !beacon.infrastructure ||
+                // The public BSS snapshot flag is not proof of ESS mode.
+                // IBSS and contradictory capabilities must not reach auth.
+                (beacon.capabilities & 0x0003u) != 0x0001u ||
                 beacon.hiddenSsid || beacon.ssidLength == 0 ||
                 beacon.ssidLength > sizeof(beacon.ssid) ||
                 beacon.channel == 0 || beacon.channel > 14 ||
