@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "DataPath.hpp"
+#include "Eapol.hpp"
 
 namespace simpleath
 {
@@ -88,9 +89,33 @@ namespace simpleath
             // This WPA2-PSK transport only emits pairwise M2/M4 to the
             // selected AP; never serialize EAPOL to a forged group or peer
             // destination through the public data-path API.
-            if (link.security == LinkSecurity::Wpa2Ccmp && isEapol &&
-                !sameMac(destination, link.bssid))
-                return DataPathResult::InvalidAddress;
+            if (link.security == LinkSecurity::Wpa2Ccmp && isEapol)
+            {
+                if (!sameMac(destination, link.bssid))
+                    return DataPathResult::InvalidAddress;
+                // The public Ethernet serializer must not become a generic
+                // plaintext EAPOL injection path. Only the initial 4-way
+                // exchange's supplicant replies have an explicit exception.
+                // A parsed reply must occupy the entire supplied Ethernet
+                // payload; any trailing bytes would be sent unauthenticated.
+                KeyFrame key {};
+                const size_t eapolBytes = ethernetBytes - kEthernetHeaderBytes;
+                if (parseEapolKey(ethernet + kEthernetHeaderBytes, eapolBytes,
+                                  key) != EapolResult::Ok ||
+                    key.eapolLength != eapolBytes ||
+                    (key.message != KeyMessage::Pairwise2 &&
+                     key.message != KeyMessage::Pairwise4))
+                    return DataPathResult::InvalidEthernetFrame;
+                // M2 is only valid while awaiting key installation. M4 is
+                // the final cleartext 4-way response AFTER MIC-checked M3
+                // has installed pairwise and group keycache state.
+                if (key.message == KeyMessage::Pairwise2 &&
+                    link.pairwiseAndGroupKeysInstalled)
+                    return DataPathResult::NeedsCcmpEncryption;
+                if (key.message == KeyMessage::Pairwise4 &&
+                    !link.pairwiseAndGroupKeysInstalled)
+                    return DataPathResult::MissingKeys;
+            }
             if (link.security == LinkSecurity::Wpa2Ccmp && !isEapol)
             {
                 if (!link.pairwiseAndGroupKeysInstalled)

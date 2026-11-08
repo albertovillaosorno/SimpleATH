@@ -238,9 +238,9 @@ namespace
 
     bool rejectUnboundWpa2Eapol()
     {
-        // This limited WPA2-PSK station may send M2/M4 only to its selected
-        // authenticator. A public link context cannot authorize broadcast or
-        // third-party EAPOL transmissions before key installation.
+        // This limited WPA2-PSK station may send only parsed pairwise M2
+        // before keys and M4 after keys, both to its selected authenticator.
+        // Generic EAPOL or a forged AP-side M1/M3 must not get a TX frame.
         LinkContext link {};
         link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
@@ -248,33 +248,106 @@ namespace
         link.associated = true;
         link.rfReady = true;
         link.channelPermitted = true;
-        uint8_t ethernet[15] {};
+        constexpr size_t kM2EthernetBytes = 14u + 121u;
+        uint8_t ethernet[kM2EthernetBytes + 1u] {};
         std::memcpy(ethernet, kAp, 6);
         std::memcpy(ethernet + 6, kStation, 6);
         ethernet[12] = 0x88;
         ethernet[13] = 0x8e;
-        ethernet[14] = 1;
-        uint8_t tx[64] {};
+        uint8_t *eapol = ethernet + 14;
+        eapol[0] = 2;
+        eapol[1] = 3;
+        eapol[3] = 117; // Fixed RSN descriptor plus 22-byte RSNE.
+        eapol[4] = 2;
+        eapol[5] = 1;
+        eapol[6] = 0x0a;  // Supplicant M2 key info.
+        eapol[16] = 1;    // Replay counter.
+        eapol[17] = 7;    // SNonce.
+        eapol[81] = 0x55; // Synthetic nonzero MIC.
+        eapol[98] = 22;
+        const uint8_t rsne[22] {48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+                                0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0};
+        std::memcpy(eapol + 99, rsne, sizeof(rsne));
+        uint8_t tx[192] {};
         std::memset(tx, 0xa5, sizeof(tx));
         SerializedData prepared {};
         prepared.frameBytes = 91;
         std::memset(ethernet, 0xff, 6);
-        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+        if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
                              sizeof(tx),
                              prepared) != DataPathResult::InvalidAddress ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
             return false;
         std::memcpy(ethernet, kStation, 6);
         ethernet[5] ^= 1u; // Valid foreign unicast destination.
-        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+        if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
                              sizeof(tx),
                              prepared) != DataPathResult::InvalidAddress ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
             return false;
         std::memcpy(ethernet, kAp, 6);
-        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+        // An arbitrary 1-byte EAPOL body is not an authorized key response.
+        if (prepareStationTx(link, ethernet, 15, 1, tx, sizeof(tx), prepared) !=
+                DataPathResult::InvalidEthernetFrame ||
+            tx[0] != 0xa5 || prepared.frameBytes != 91)
+            return false;
+        // A syntactically valid incoming M1 must not be transmitted from the
+        // station through the public EAPOL serializer.
+        eapol[5] = 0;
+        eapol[6] = 0x8a;
+        eapol[8] = 16;
+        eapol[81] = 0;
+        if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
+                             sizeof(tx), prepared) !=
+                DataPathResult::InvalidEthernetFrame ||
+            tx[0] != 0xa5 || prepared.frameBytes != 91)
+            return false;
+        eapol[5] = 1;
+        eapol[6] = 0x0a;
+        eapol[8] = 0;
+        eapol[81] = 0x55;
+        if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
                              sizeof(tx), prepared) != DataPathResult::Ok ||
-            !prepared.isEapol || prepared.frameBytes != 33)
+            !prepared.isEapol || prepared.frameBytes != 153)
+            return false;
+        // M2 cannot be sent in the clear after pairwise/group installation.
+        link.pairwiseAndGroupKeysInstalled = true;
+        std::memset(tx, 0xa5, sizeof(tx));
+        if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
+                             sizeof(tx),
+                             prepared) != DataPathResult::NeedsCcmpEncryption ||
+            tx[0] != 0xa5 || prepared.frameBytes != 153)
+            return false;
+        // M4 carries no SNonce/key data and is the final cleartext 4-way
+        // handshake response after M3 has installed the PTK/GTK.
+        eapol[3] = 95;
+        eapol[5] = 3;
+        eapol[6] = 0x0a;
+        eapol[17] = 0;
+        eapol[98] = 0;
+        constexpr size_t kM4EthernetBytes = 14u + 99u;
+        if (prepareStationTx(link, ethernet, kM4EthernetBytes, 1, tx,
+                             sizeof(tx), prepared) != DataPathResult::Ok ||
+            !prepared.isEapol || prepared.frameBytes != 131)
+            return false;
+        link.pairwiseAndGroupKeysInstalled = false;
+        std::memset(tx, 0xa5, sizeof(tx));
+        if (prepareStationTx(link, ethernet, kM4EthernetBytes, 1, tx,
+                             sizeof(tx),
+                             prepared) != DataPathResult::MissingKeys ||
+            tx[0] != 0xa5 || prepared.frameBytes != 131)
+            return false;
+        // A valid EAPOL payload cannot conceal an extra trailing byte.
+        eapol[5] = 1;
+        eapol[3] = 117;
+        eapol[6] = 0x0a;
+        eapol[17] = 7;
+        eapol[98] = 22;
+        eapol[121] = 0xa5; // Outside the 121 bytes declared by EAPOL.
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx), prepared) !=
+                DataPathResult::InvalidEthernetFrame ||
+            tx[0] != 0xa5 || prepared.frameBytes != 131)
             return false;
 
         // A forged verified-decryption flag cannot make protected EAPOL

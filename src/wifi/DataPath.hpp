@@ -66,8 +66,9 @@ namespace simpleath
 
         // Serialize one Ethernet-II MSDU to an unprotected 802.11 ToDS data
         // frame. WPA2 non-EAPOL traffic requires a separately implemented CCMP
-        // path and will fail closed until that exists. WPA2-PSK EAPOL M2/M4
-        // must address the selected BSSID, never a group or unrelated peer.
+        // path and will fail closed until that exists. Only a complete parsed
+        // WPA2 EAPOL M2 before key install or M4 after key install is allowed,
+        // and it must address the selected BSSID, never a group or peer.
         // The result has NO FCS;
         // hardware would append it only after its PHY/crypto TX path is
         // properly implemented. This routine NEVER submits a packet to the
