@@ -532,6 +532,38 @@ The outstanding **52 Clang-Tidy failures are unchanged and P0 remains OPEN**.
 These tests establish only portable host behavior; no native driver build,
 real RF/PCI/DMA execution, CI or hardware test was performed.
 
+## Stable portable Wi-Fi ownership and hidden-SSID checkpoint, 2026-11-07 19:29 CST
+
+Two more independent source-only DCO fixes were pushed on clean `main`:
+`15f4c00` rejects an opaque writable cryptographic provider context that
+points anywhere inside its parent `WifiEngine`, not only inside its nested
+crypto adapter; `c1bd4b5` classifies an advertised SSID IE with nonzero
+length but *all zero octets* as hidden, so the scan cache does not select
+it as a visible NUL-name network and the scan bridge does not expose it.
+Both changes include isolated host regressions that failed against the
+previous source (exit 30 and exit 31, respectively) and passed with strict
+C++14 and C++17 AddressSanitizer/UndefinedBehaviorSanitizer builds after
+fixes. Both touched source/test pairs passed Clang-Format and diff checks.
+
+On **clean committed `main` at `15f4c00`**, a full default-on
+`python3 -B tools/validate.py` run recorded `scope=repository`,
+`source_only=true`, `tests_requested=true`: **162 files, 413 checks, 306
+cached, 107 executed, 361 pass, 52 fail, zero skipped**. After `c1bd4b5`,
+a separate **clean committed `main`** whole-repository run recorded the
+same scope: **162 files, 413 checks, 358 cached, 55 executed, 361 pass,
+52 fail, zero skipped**. Every failure in both runs was Clang-Tidy;
+no source-snapshot drift occurred, and stdout was byte-identical to the
+saved `.cache/validate/report.json`. A pre-commit run for the second fix
+also covered all 413 checks with 304 cached, 109 executed, the same
+pass/fail totals and no drift. These are complete **cache-backed** reports,
+not fresh uncached acceptance. Previous attempts at an uncached final scan
+were invalidated by source mutation and repeated Terminal orchestration;
+they must not be treated as stable checkpoints.
+
+**P0 remains OPEN** for 52 native Clang-Tidy translation-unit failures.
+No mandatory checks were skipped or suppressed; no native driver build,
+RF/PCI/DMA operations, CI or hardware test was performed.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
