@@ -163,6 +163,11 @@ namespace simpleath
                                              uint16_t sequence, uint8_t *output,
                                              size_t capacity, size_t &written);
 
+        // Exact association TX capacity for the selected BSS's common legacy
+        // rates, or zero if the BSS requires a PHY rate this station lacks.
+        // Does not itself authorize a link or validate its security policy.
+        size_t associationRequestLength(const Beacon &network);
+
         // Only open and WPA2-PSK (CCMP group and pairwise) association
         // templates. No credentials or traffic keys are installed by this
         // serializer.

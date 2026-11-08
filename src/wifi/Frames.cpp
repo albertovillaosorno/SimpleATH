@@ -84,6 +84,73 @@ namespace simpleath
                                            0x0c, 0x12, 0x18, 0x24};
         static const uint8_t K_EXTENDED_RATES[4] = {0x30, 0x48, 0x60, 0x6c};
 
+        // Offer only local legacy PHY rates also advertised by the selected
+        // AP. Preserve the AP's basic-rate markers. A basic rate unknown to
+        // the AR9565 cannot be negotiated, even when optional rates overlap.
+        // The probe request may advertise the full local set independently.
+        static bool selectAssociationRates(const Beacon &network,
+                                           uint8_t (&selected)[12],
+                                           size_t &selectedCount)
+        {
+            selectedCount = 0;
+            if (network.rateCount == 0 ||
+                network.rateCount > sizeof(network.rates))
+                return false;
+            for (size_t i = 0; i < network.rateCount; ++i)
+            {
+                const uint8_t rate = network.rates[i];
+                const uint8_t phyRate = rate & 0x7fu;
+                if (phyRate == 0)
+                    return false;
+                bool available = false;
+                for (uint8_t known : K_RATES)
+                    available |= (known & 0x7fu) == phyRate;
+                for (uint8_t known : K_EXTENDED_RATES)
+                    available |= (known & 0x7fu) == phyRate;
+                if (!available)
+                {
+                    if ((rate & 0x80u) != 0)
+                        return false;
+                    continue;
+                }
+                bool duplicate = false;
+                for (size_t j = 0; j < selectedCount; ++j)
+                {
+                    if ((selected[j] & 0x7fu) == phyRate)
+                    {
+                        // A later duplicate marked basic must not lose that
+                        // mandatory bit when we collapse duplicate PHY rates.
+                        selected[j] |= rate & 0x80u;
+                        duplicate = true;
+                        break;
+                    }
+                }
+                if (!duplicate)
+                    selected[selectedCount++] = rate;
+            }
+            return selectedCount != 0;
+        }
+
+        static size_t associationRateIeBytes(size_t selectedCount)
+        {
+            // Two bytes for Supported Rates, plus Extended Supported Rates
+            // only when more than eight local/AP rates are negotiated.
+            return 2u + selectedCount + (selectedCount > 8 ? 2u : 0u);
+        }
+
+        size_t associationRequestLength(const Beacon &network)
+        {
+            uint8_t selected[12] {};
+            size_t selectedCount = 0;
+            if (network.ssidLength == 0 ||
+                network.ssidLength > sizeof(network.ssid) ||
+                !selectAssociationRates(network, selected, selectedCount))
+                return 0;
+            return 28u + 2u + network.ssidLength +
+                   associationRateIeBytes(selectedCount) +
+                   (network.rsn.security == Security::Wpa2Personal ? 22u : 0u);
+        }
+
         bool sameMac(const Mac &left, const Mac &right)
         {
             uint8_t difference = 0;
@@ -616,8 +683,13 @@ namespace simpleath
                     !validated.pairwiseCcmp || !validated.akmPsk)
                     return Result::InvalidSecurity;
             }
-            const size_t needed =
-                28 + 2 + network.ssidLength + 10 + 6 + (secure ? 22u : 0u);
+            uint8_t selectedRates[12] {};
+            size_t selectedCount = 0;
+            if (!selectAssociationRates(network, selectedRates, selectedCount))
+                return Result::InvalidElement;
+            const size_t needed = 28u + 2u + network.ssidLength +
+                                  associationRateIeBytes(selectedCount) +
+                                  (secure ? 22u : 0u);
             if (capacity < needed)
                 return Result::BufferTooSmall;
             for (size_t i = 0; i < needed; ++i)
@@ -636,14 +708,20 @@ namespace simpleath
             output[offset++] = network.ssidLength;
             copy_bytes(output + offset, network.ssid, network.ssidLength);
             offset += network.ssidLength;
+            const size_t baseCount = selectedCount > 8 ? 8u : selectedCount;
             output[offset++] = 1;
-            output[offset++] = 8;
-            copy_bytes(output + offset, K_RATES, 8);
-            offset += 8;
-            output[offset++] = 50;
-            output[offset++] = 4;
-            copy_bytes(output + offset, K_EXTENDED_RATES, 4);
-            offset += 4;
+            output[offset++] = static_cast<uint8_t>(baseCount);
+            copy_bytes(output + offset, selectedRates, baseCount);
+            offset += baseCount;
+            if (selectedCount > baseCount)
+            {
+                output[offset++] = 50;
+                output[offset++] =
+                    static_cast<uint8_t>(selectedCount - baseCount);
+                copy_bytes(output + offset, selectedRates + baseCount,
+                           selectedCount - baseCount);
+                offset += selectedCount - baseCount;
+            }
             if (secure)
             {
                 // Version 1, CCMP group/pairwise, PSK AKM, no negotiated PMF.

@@ -113,6 +113,10 @@ namespace simpleath
             for (size_t i = 0; i < beacon.rateCount; ++i)
                 if ((beacon.rates[i] & 0x7fu) == 0)
                     return StationResult::UnsupportedNetwork;
+            // Never start authentication with an AP that requires an unknown
+            // local basic rate, or has no common legacy rate to negotiate.
+            if (associationRequestLength(beacon) == 0)
+                return StationResult::UnsupportedNetwork;
 
             // Station::select is public, not only called through ScanCache.
             // Refuse a forged BSS snapshot that disagrees with its own

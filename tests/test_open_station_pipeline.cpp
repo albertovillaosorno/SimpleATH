@@ -157,6 +157,62 @@ namespace
                owner.associationId() == 1;
     }
 
+    bool associationUsesSelectedRates()
+    {
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+                Result::Ok ||
+            network.rateCount != 2)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t request[128] {};
+        size_t written = 0;
+        // The AP offers only 1/2 Mbps. A station must not invent 10 more
+        // association rates or claim 5.5/11 Mbps as AP basic requirements.
+        if (makeAssociationRequest(station, network, 1, request,
+                                   sizeof(request), written) != Result::Ok ||
+            written != 38 || request[34] != 1 || request[35] != 2 ||
+            request[36] != 0x82 || request[37] != 0x84)
+            return false;
+        // Supported Rates holds at most eight entries. A ninth compatible
+        // AP rate belongs in Extended Supported Rates. An unknown optional
+        // rate must not be falsely advertised as a local capability.
+        const uint8_t offered[] {0x82, 0x84, 0x8b, 0x96, 0x0c,
+                                 0x12, 0x18, 0x24, 0x30, 0x7f};
+        network.rateCount = sizeof(offered);
+        std::memcpy(network.rates, offered, sizeof(offered));
+        if (makeAssociationRequest(station, network, 2, request,
+                                   sizeof(request), written) != Result::Ok ||
+            written != 47 || request[34] != 1 || request[35] != 8 ||
+            request[44] != 50 || request[45] != 1 || request[46] != 0x30)
+            return false;
+        // The same PHY rate may occur twice with different basic flags.
+        // Deduplication must retain the mandatory bit, not drop it.
+        network.rateCount = 3;
+        network.rates[0] = 0x02;
+        network.rates[1] = 0x82;
+        network.rates[2] = 0x84;
+        if (makeAssociationRequest(station, network, 3, request,
+                                   sizeof(request), written) != Result::Ok ||
+            written != 38 || request[36] != 0x82 || request[37] != 0x84)
+            return false;
+        network.rateCount = sizeof(offered);
+        std::memcpy(network.rates, offered, sizeof(offered));
+        // A new mandatory basic rate unknown to this hardware is never
+        // negotiated, even if many optional rates overlap.
+        network.rates[9] = 0xff;
+        std::memset(request, 0xa5, sizeof(request));
+        written = 777;
+        if (makeAssociationRequest(station, network, 3, request,
+                                   sizeof(request),
+                                   written) != Result::InvalidElement ||
+            written != 0 || request[0] != 0xa5)
+            return false;
+        return true;
+    }
+
     bool rejectInvalidFromDsSource()
     {
         // FromDS address 3 is the originating Ethernet SA. An all-zero or
@@ -786,6 +842,8 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!associationUsesSelectedRates())
+        return 44;
     if (!rejectDisjointAssociationRates())
         return 32;
     if (!rejectEngineSelfBssidBeforeCrypto())
@@ -841,9 +899,11 @@ int main()
         return 5;
     uint8_t auth[30] {};
     authenticationResponse(auth);
-    if (engine.acceptRx(auth, sizeof(auth), 0, 1010, syntheticTrust, tx,
-                        sizeof(tx), action) != EngineResult::Ok ||
-        action.kind != ActionKind::TransmitAssociation || action.bytes == 0 ||
+    // Exact selected-rate capacity must work before authentication is
+    // consumed; the former fixed 12-rate estimate rejected this 38-byte TX.
+    if (engine.acceptRx(auth, sizeof(auth), 0, 1010, syntheticTrust, tx, 38,
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::TransmitAssociation || action.bytes != 38 ||
         action.nativeInterfaceUsable)
         return 6;
     uint8_t assoc[34] {};
