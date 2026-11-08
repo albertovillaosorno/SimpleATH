@@ -579,10 +579,32 @@ namespace simpleath
             const bool secure = network.rsn.security == Security::Wpa2Personal;
             if (network.rsn.security != Security::Open && !secure)
                 return Result::InvalidSecurity;
-            if (secure && (!network.rsn.valid || !network.rsn.pairwiseCcmp ||
-                           !network.rsn.groupCcmp || !network.rsn.akmPsk ||
-                           network.rsn.pmfRequired))
+            // Public callers need not have used parseBeacon/Station::select.
+            // Do not silently downgrade a privacy BSS to Open, or advertise
+            // WPA2 based on forged suite flags rather than a validated RSNE.
+            if (!secure && ((network.capabilities & 0x10u) != 0 ||
+                            network.rsn.present || network.rsnIeLength != 0))
                 return Result::InvalidSecurity;
+            if (secure)
+            {
+                if ((network.capabilities & 0x10u) == 0 ||
+                    !network.rsn.present || !network.rsn.valid ||
+                    !network.rsn.pairwiseCcmp || !network.rsn.groupCcmp ||
+                    !network.rsn.akmPsk || network.rsn.pmfRequired ||
+                    network.rsnIeLength < 20 ||
+                    network.rsnIeLength > sizeof(network.rsnIe) ||
+                    network.rsnIe[0] != 48 ||
+                    static_cast<size_t>(network.rsnIe[1]) + 2 !=
+                        network.rsnIeLength)
+                    return Result::InvalidSecurity;
+                Rsn validated {};
+                if (parseRsn(network.rsnIe + 2, network.rsnIeLength - 2,
+                             validated) != Result::Ok ||
+                    validated.security != Security::Wpa2Personal ||
+                    validated.pmfRequired || !validated.groupCcmp ||
+                    !validated.pairwiseCcmp || !validated.akmPsk)
+                    return Result::InvalidSecurity;
+            }
             const size_t needed =
                 28 + 2 + network.ssidLength + 10 + 6 + (secure ? 22u : 0u);
             if (capacity < needed)

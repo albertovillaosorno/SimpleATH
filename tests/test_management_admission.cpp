@@ -272,6 +272,59 @@ namespace
                written != 0 && output[0] == 0;
     }
 
+    bool rejectForgedPrivacyAssociationTx()
+    {
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+            Result::Ok)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[128] {};
+        const auto rejected = [&]() -> bool
+        {
+            std::memset(output, 0xa5, sizeof(output));
+            size_t written = 37;
+            return makeAssociationRequest(station, network, 1, output,
+                                          sizeof(output),
+                                          written) == Result::InvalidSecurity &&
+                   written == 0 && output[0] == 0xa5;
+        };
+
+        // Beacon::rsn.security and RSN suite flags are caller-controlled.
+        // Neither an Open downgrade of a privacy BSS, nor a forged WPA2
+        // upgrade without a real matching RSNE, may emit association bytes.
+        network.capabilities = 0x11u; // Privacy on but labeled Open.
+        if (!rejected())
+            return false;
+        network.capabilities = 1u;
+        network.rsn.security = Security::Wpa2Personal;
+        network.rsn.present = true;
+        network.rsn.valid = true;
+        network.rsn.groupCcmp = true;
+        network.rsn.pairwiseCcmp = true;
+        network.rsn.akmPsk = true;
+        if (!rejected()) // Privacy off, RSNE absent.
+            return false;
+        network.capabilities = 0x11u;
+        if (!rejected()) // Privacy on, RSNE still absent.
+            return false;
+        const uint8_t rsnIe[22] {48, 20,   1,    0,    0,    0x0f, 0xac, 4,
+                                 1,  0,    0,    0x0f, 0xac, 4,    1,    0,
+                                 0,  0x0f, 0xac, 2,    0,    0};
+        std::memcpy(network.rsnIe, rsnIe, sizeof(rsnIe));
+        network.rsnIeLength = sizeof(rsnIe);
+        network.rsnIe[7] = 2; // Fake metadata says CCMP; RSNE says TKIP.
+        if (!rejected())
+            return false;
+        network.rsnIe[7] = 4;
+        size_t written = 0;
+        return makeAssociationRequest(station, network, 2, output,
+                                      sizeof(output), written) == Result::Ok &&
+               written != 0 && output[0] == 0;
+    }
+
     bool rejectInvalidRates()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -670,5 +723,7 @@ int main()
         return 14;
     if (!rejectForgedBssAssociationTx())
         return 15;
+    if (!rejectForgedPrivacyAssociationTx())
+        return 16;
     return 0;
 }
