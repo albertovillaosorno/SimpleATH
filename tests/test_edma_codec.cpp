@@ -357,6 +357,25 @@ int main()
         decoded.frameLength != 128 || decoded.rateCode != 0x0b ||
         decoded.timestamp != 7654u || decoded.combinedRssi != -40)
         return 12;
+    // Without a reviewed A-MPDU deaggregation/reorder/BlockAck pipeline,
+    // aggregate fragments cannot be authorized for native RX delivery solely
+    // by a successful per-buffer CRC and DMA completion bit. The codec must
+    // not publish any status that asserts aggregate membership or continuation.
+    const uint32_t aggregateFlags[] = {0x00010000u, 0x00020000u, 0x20000000u,
+                                       0x20030000u};
+    for (uint32_t aggregate : aggregateFlags)
+    {
+        rx.word[11] = 3u | aggregate;
+        decoded.completed = true;
+        decoded.frameValid = true;
+        decoded.frameLength = 128;
+        if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+            decoded.completed || decoded.frameValid || decoded.frameLength ||
+            decoded.aggregated || decoded.aggregationFirst ||
+            decoded.aggregationContinues)
+            return 61;
+    }
+    rx.word[11] = 3u;
     // AR_RxMore is a chained DMA buffer, not a complete on-air MPDU.
     // Even an apparently good FCS bit cannot authorize forwarding a partial
     // buffer without a separately verified RX-chain reassembly path.

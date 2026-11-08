@@ -295,12 +295,15 @@ namespace simpleath
                                 !status.phyError && !status.micError &&
                                 !status.keyMiss;
             // AR_RxMore is a chained DMA buffer, not an 802.11 MAC
-            // fragment. No RX-chain or oversized MPDU reassembly exists in
-            // this codec. The 12-bit hardware length field by itself cannot
-            // authorize bytes beyond the reviewed 2346-byte MPDU ceiling.
+            // fragment. There is no RX-chain, A-MPDU deaggregation/reorder
+            // or BlockAck path here. Even a valid per-MPDU CRC cannot
+            // authorize an aggregate's first, middle or last member for
+            // native delivery without that independently reviewed pipeline.
+            // The 12-bit length field cannot authorize jumbo MPDUs either.
             if (!status.frameValid || status.frameLength == 0 ||
                 status.frameLength > K_RX_MAX_SINGLE_MPDU_BYTES ||
-                status.moreFragments)
+                status.moreFragments || status.aggregated ||
+                status.aggregationContinues || status.aggregationFirst)
             {
                 return DescriptorError::ReceiveError;
             }

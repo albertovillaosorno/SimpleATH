@@ -133,8 +133,11 @@ namespace simpleath
         // rejected: there is no RX-chain reassembly here. The future owner
         // must also suppress orphaned tail buffers after a rejected chain;
         // an isolated last descriptor cannot reveal prior chain membership.
+        // RX statuses with A-MPDU membership/continuation flags are rejected
+        // until a separately reviewed BlockAck/deaggregation/reorder path is
+        // available; a valid per-buffer CRC is not aggregate admission.
         // A single RX status longer than the 2346-byte MPDU ceiling is also
-        // rejected until a separate, reviewed aggregation path exists.
+        // rejected.
         // Ordinary errors clear out. An alias with the raw status instead
         // fails without writing into DMA-visible source storage.
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out);
