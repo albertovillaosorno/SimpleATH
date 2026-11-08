@@ -237,6 +237,35 @@ namespace
                providerContext.calls == 0x1235u;
     }
 
+    bool rejectForgedVisibleZeroName()
+    {
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        Bss candidate {};
+        if (parseBeacon(advertisement, sizeof(advertisement),
+                        candidate.beacon) != Result::Ok)
+            return false;
+        candidate.occupied = true;
+        std::memset(candidate.beacon.ssid, 0, sizeof(candidate.beacon.ssid));
+        candidate.beacon.hiddenSsid = false;
+        Station owner;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        if (owner.enterScanning(true, true) != StationResult::Ok)
+            return false;
+        // A forged scan snapshot must not reach authentication if its SSID
+        // has no actual visible octet, regardless of its hidden flag.
+        if (owner.select(station, candidate) !=
+                StationResult::UnsupportedNetwork ||
+            owner.state() != StationState::Scanning ||
+            owner.candidate().occupied)
+            return false;
+        beacon(advertisement);
+        return parseBeacon(advertisement, sizeof(advertisement),
+                           candidate.beacon) == Result::Ok &&
+               owner.select(station, candidate) == StationResult::Ok &&
+               owner.state() == StationState::CandidateSelected;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -318,6 +347,8 @@ int main()
     using namespace simpleath::ieee80211;
     if (!rejectStationManagementTxAlias())
         return 19;
+    if (!rejectForgedVisibleZeroName())
+        return 23;
     if (!rejectInvalidFromDsSource())
         return 20;
     if (!rejectForeignWpa2Authenticator())

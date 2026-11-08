@@ -60,6 +60,14 @@ namespace simpleath
                 beacon.intervalTu == 0 || beacon.rateCount == 0 ||
                 beacon.rateCount > sizeof(beacon.rates))
                 return StationResult::UnsupportedNetwork;
+            // The hidden flag is snapshot metadata, not proof of a visible
+            // name. Reject a forged all-zero fixed-length SSID before
+            // advancing into authentication; the serializer also refuses it.
+            bool hasVisibleSsidByte = false;
+            for (size_t i = 0; i < beacon.ssidLength; ++i)
+                hasVisibleSsidByte |= beacon.ssid[i] != 0;
+            if (!hasVisibleSsidByte)
+                return StationResult::UnsupportedNetwork;
             for (size_t i = 0; i < beacon.rateCount; ++i)
                 if ((beacon.rates[i] & 0x7fu) == 0)
                     return StationResult::UnsupportedNetwork;
