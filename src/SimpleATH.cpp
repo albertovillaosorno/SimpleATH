@@ -3,9 +3,9 @@
 // This code deliberately does not enable bus mastering, allocate DMA buffers,
 // request interrupts, write RF registers, or register a networking interface.
 // Actual AR9565 Wi-Fi operation requires a separately validated backend.
-#include "hardware/Ar9565Core.hpp"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
+#include <cstdint>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <mach/kmod.h>
