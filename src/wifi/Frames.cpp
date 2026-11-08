@@ -314,6 +314,15 @@ namespace simpleath
             if (header.protectedFrame || !validStationMac(header.source) ||
                 !sameMac(header.source, header.bssid))
                 return Result::InvalidFrame;
+            // IEEE 802.11 Beacons are broadcast advertisements. A directed
+            // Probe Response can be unicast, but a unicast/multicast Beacon
+            // must not enter the scan cache as a legitimate BSS discovery.
+            if (header.subtype == 8)
+            {
+                for (const uint8_t octet : header.destination.bytes)
+                    if (octet != 0xffu)
+                        return Result::InvalidFrame;
+            }
             if (length - header.headerLength < 12)
                 return Result::Truncated;
             const uint8_t *fixed = frame + header.headerLength;

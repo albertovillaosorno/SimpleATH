@@ -203,6 +203,19 @@ namespace
         if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
             return false;
         makeBeacon(frame);
+        std::memcpy(frame + 4, kStation, 6); // Beacon must be broadcast.
+        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
+            return false;
+        makeBeacon(frame);
+        frame[4] = 0xfe; // Other group-addressed beacons are not broadcast.
+        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
+            return false;
+        makeBeacon(frame);
+        frame[0] = 0x50; // A Probe Response may be directed to our station.
+        std::memcpy(frame + 4, kStation, 6);
+        if (parseBeacon(frame, sizeof(frame), out) != Result::Ok)
+            return false;
+        makeBeacon(frame);
         frame[1] |= 0x40; // Protected management frame without decrypt.
         return parseBeacon(frame, sizeof(frame), out) == Result::InvalidFrame;
     }
