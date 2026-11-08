@@ -88,5 +88,18 @@ int main()
     if (validateMapping(validMapping, sizeof(validHost)) != Error::Ok ||
         validateDescriptorRing(validMapping, 16, 4, 16) != Error::Ok)
         return 11;
+    // A 32-bit IOVA must cover the full mapped segment, not merely the
+    // caller's short required prefix. Otherwise later offsets can wrap the
+    // device's 32-bit address space even though initial validation passed.
+    const Mapping crossingIo {validHost,           0xfffffff0U, 32,
+                              Direction::ToDevice, true,        true};
+    if (validateMapping(crossingIo, 8) != Error::AddressOverflow ||
+        validateDescriptorRing(crossingIo, 8, 1, 4) != Error::AddressOverflow)
+        return 12;
+    const Mapping endingIo {validHost,           0xfffffff0U, 16,
+                            Direction::ToDevice, true,        true};
+    if (validateMapping(endingIo, 8) != Error::Ok ||
+        validateDescriptorRing(endingIo, 8, 1, 4) != Error::Ok)
+        return 13;
     return 0;
 }

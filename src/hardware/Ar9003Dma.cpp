@@ -55,7 +55,9 @@ namespace simpleath
             {
                 return Error::AddressOverflow;
             }
-            if (required_bytes - 1U >
+            // The IOVA describes the entire retained mapping, not just the
+            // minimum descriptor prefix. No mapped byte may exceed 32 bits.
+            if (mapping.length - 1U >
                 K_DEVICE_MAX_ADDRESS - mapping.deviceBusAddress)
             {
                 return Error::AddressOverflow;
