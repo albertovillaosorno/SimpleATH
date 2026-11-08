@@ -986,6 +986,78 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             )
 
 
+class DriftedLintCache(unittest.TestCase):
+    """Mixed-snapshot lint results must never poison a future clean scan."""
+
+    @staticmethod
+    def test_source_drift_never_publishes_unverified_cache_entries() -> None:
+        """An in-flight edit can make a cached pass refer to untested bytes."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/example.py"
+            _ = source.write_text("original", encoding="utf-8")
+            for config in (
+                name for names in validator.CONFIGS.values() for name in names
+            ):
+                _ = (root / config).write_text("fixture", encoding="utf-8")
+            _cache(
+                root,
+                {
+                    "fingerprint": "existing",
+                    "status": "pass",
+                    "diagnostics": [],
+                },
+            )
+            cache_path = root / ".cache/validate/cache.json"
+            original_cache = cache_path.read_bytes()
+            calls: list[list[str]] = []
+
+            def lint_during_edit(
+                argv: list[str],
+                *,
+                cwd: Path,
+                seconds: float = validator.TIMEOUT_SECONDS,
+            ) -> validator.Process:
+                assert cwd == root
+                assert seconds == validator.TIMEOUT_SECONDS
+                calls.append(argv)
+                if len(calls) == 1:
+                    # The first lint key was computed for the original bytes,
+                    # but the fake linter actually sees the changed source.
+                    _ = source.write_text("modified", encoding="utf-8")
+                return validator.Process(0, "", "")
+
+            host = _sample_finding("tests/test_fake.py", "python-test", "pass")
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator, "_command", return_value=[sys.executable]
+                ),
+                mock.patch.object(
+                    validator, "_version", return_value="fixture"
+                ),
+                mock.patch.object(
+                    validator, "run_process", side_effect=lint_during_edit
+                ),
+                mock.patch.object(validator, "run_tests", return_value=[host]),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                assert validator.main() == 1
+                assert (
+                    SNAPSHOT_FAILURE_FRAGMENT
+                    in (root / ".cache/validate/report.json").read_text()
+                )
+                assert cache_path.read_bytes() == original_cache
+                _ = source.write_text("original", encoding="utf-8")
+                before = len(calls)
+                assert validator.main() == 0
+                assert len(calls) - before == PYTHON_SOURCE_AND_HOST_CHECKS - 1
+
+
 class FullRepositoryRun(unittest.TestCase):
     """Ensure the shared report cannot omit checks or race between agents."""
 

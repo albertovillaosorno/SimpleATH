@@ -1416,10 +1416,14 @@ def _validate(options: Options) -> int:
     report = build_report(
         results, files=len(sources), tests=options.tests, tools=lint.versions
     )
-    _save(
-        ROOT / ".cache/validate/cache.json",
-        {"schema": CACHE_VERSION, "entries": lint.entries},
-    )
+    # Lint may have read a newer revision than its earlier cache key.
+    # Never persist results from a mixed-source scan, even when its report
+    # correctly fails with source-snapshot drift. Preserve prior good cache.
+    if stable:
+        _save(
+            ROOT / ".cache/validate/cache.json",
+            {"schema": CACHE_VERSION, "entries": lint.entries},
+        )
     report_text = json.dumps(report, indent=2) + "\n"
     _save(ROOT / ".cache/validate/report.json", report)
     if stable:
