@@ -100,11 +100,13 @@ namespace simpleath
 
         Result parseFrame(const uint8_t *bytes, size_t length, Frame &out)
         {
-            if (!bytes)
-                return Result::NullBuffer;
             // Never overwrite a borrowed RX frame through the result object.
+            // Revoke a previously accepted header on any ordinary rejection.
             if (overlaps(&out, sizeof(out), bytes, length))
                 return Result::OverlappingBuffers;
+            out = {};
+            if (!bytes)
+                return Result::NullBuffer;
             if (length < 2)
                 return Result::Truncated;
             const uint16_t control = read16(bytes);
@@ -221,6 +223,7 @@ namespace simpleath
             if (overlaps(&out, sizeof(out), data, length))
                 return Result::OverlappingBuffers;
             out = {};
+            out.security = Security::UnsupportedRsn;
             if (!data)
                 return Result::NullBuffer;
             // RSN version(2), group suite(4), pairwise count(2), suites,
@@ -304,8 +307,12 @@ namespace simpleath
 
         Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out)
         {
+            // Refuse aliases before touching the borrowed frame, and never
+            // expose stale BSSID, SSID or WPA2 policy after a rejected beacon.
             if (overlaps(&out, sizeof(out), frame, length))
                 return Result::OverlappingBuffers;
+            out = {};
+            out.rsn.security = Security::UnsupportedRsn;
             Frame header {};
             Result result = parseFrame(frame, length, header);
             if (result != Result::Ok)

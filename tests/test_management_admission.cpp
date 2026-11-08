@@ -522,7 +522,7 @@ namespace
         if (parseRsn(truncated, sizeof(truncated), parsed) !=
                 Result::InvalidSecurity ||
             parsed.valid || parsed.present ||
-            parsed.security == Security::Wpa2Personal)
+            parsed.security != Security::UnsupportedRsn)
             return false;
         if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
             return false;
@@ -532,13 +532,92 @@ namespace
         if (parseRsn(incorrectVersion, sizeof(incorrectVersion), parsed) !=
                 Result::InvalidSecurity ||
             parsed.valid || parsed.present ||
-            parsed.security == Security::Wpa2Personal)
+            parsed.security != Security::UnsupportedRsn)
             return false;
         if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
             return false;
         return parseRsn(nullptr, 0, parsed) == Result::NullBuffer &&
                !parsed.valid && !parsed.present &&
-               parsed.security != Security::Wpa2Personal;
+               parsed.security == Security::UnsupportedRsn;
+    }
+
+    bool revokeRejectedFrameMetadata()
+    {
+        // Caller-owned parser output may be reused across DMA frames. An
+        // unsupported or incomplete header must revoke the earlier BSSID and
+        // address rather than leaving it available after a failed result.
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        Frame parsed {};
+        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
+                Result::Ok ||
+            parsed.headerLength != 24 || parsed.source.bytes[0] != kAp[0])
+            return false;
+        advertisement[0] |= 1; // Nonzero 802.11 protocol version.
+        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
+                Result::UnsupportedFrame ||
+            parsed.headerLength != 0 || parsed.source.bytes[0] != 0 ||
+            parsed.bssid.bytes[0] != 0)
+            return false;
+        makeBeacon(advertisement);
+        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
+            Result::Ok)
+            return false;
+        if (parseFrame(advertisement, 1, parsed) != Result::Truncated ||
+            parsed.headerLength != 0 || parsed.bssid.bytes[0] != 0)
+            return false;
+        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
+            Result::Ok)
+            return false;
+        return parseFrame(nullptr, 0, parsed) == Result::NullBuffer &&
+               parsed.headerLength == 0 && parsed.source.bytes[0] == 0;
+    }
+
+    bool revokeRejectedBeaconSecurity()
+    {
+        // A valid WPA2 BSS may precede a malformed or unsupported beacon.
+        // Reject the replacement without retaining SSID, BSSID or RSNE
+        // authorization from the earlier successful parse.
+        constexpr uint8_t rsnIe[22] {48, 20,   1,    0,    0,    0x0f, 0xac, 4,
+                                     1,  0,    0,    0x0f, 0xac, 4,    1,    0,
+                                     0,  0x0f, 0xac, 2,    0,    0};
+        uint8_t advertisement[kBeaconBytes + sizeof(rsnIe)] {};
+        makeBeacon(advertisement);
+        advertisement[34] |= 0x10; // Privacy bit.
+        std::memcpy(advertisement + kBeaconBytes, rsnIe, sizeof(rsnIe));
+        Beacon parsed {};
+        const auto accepted = [&]()
+        {
+            return parseBeacon(advertisement, sizeof(advertisement), parsed) ==
+                       Result::Ok &&
+                   parsed.rsn.security == Security::Wpa2Personal &&
+                   parsed.rsnIeLength == sizeof(rsnIe) &&
+                   parsed.ssidLength == 4 && parsed.bssid.bytes[0] == kAp[0];
+        };
+        if (!accepted())
+            return false;
+        advertisement[0] = 0x40; // Probe request is not an advertisement.
+        if (parseBeacon(advertisement, sizeof(advertisement), parsed) !=
+                Result::UnsupportedFrame ||
+            parsed.rsn.valid ||
+            parsed.rsn.security != Security::UnsupportedRsn ||
+            parsed.rsnIeLength || parsed.ssidLength || parsed.bssid.bytes[0])
+            return false;
+        advertisement[0] = 0x80;
+        if (!accepted())
+            return false;
+        if (parseBeacon(advertisement, 3, parsed) != Result::Truncated ||
+            parsed.rsn.valid ||
+            parsed.rsn.security != Security::UnsupportedRsn ||
+            parsed.rsnIeLength || parsed.ssidLength || parsed.bssid.bytes[0])
+            return false;
+        if (!accepted())
+            return false;
+        return parseBeacon(nullptr, 0, parsed) == Result::NullBuffer &&
+               !parsed.rsn.valid &&
+               parsed.rsn.security == Security::UnsupportedRsn &&
+               parsed.rsnIeLength == 0 && parsed.ssidLength == 0 &&
+               parsed.bssid.bytes[0] == 0;
     }
 
     bool rejectOverlappingManagementRx()
@@ -762,5 +841,9 @@ int main()
         return 16;
     if (!revokeRejectedRsnSecurity())
         return 17;
+    if (!revokeRejectedFrameMetadata())
+        return 18;
+    if (!revokeRejectedBeaconSecurity())
+        return 19;
     return 0;
 }
