@@ -251,6 +251,25 @@ int main()
         (descriptor.word[12] & 0x01000000u) == 0)
         return 37;
 
+    // Probe Response is transmitted before association, so the recipient
+    // cannot be assumed to support HT MCS rates. Reject HT management TX
+    // rather than silently using a data-only modulation, preserving the
+    // untouched descriptor on failure. A normal legacy-rate response works.
+    request.packetType = TxPacketType::ProbeResponse;
+    request.noAck = false;
+    request.rate[0].rateCode = 0x80; // MCS0 cannot carry Probe Response.
+    const TxDescriptor beforeProbeRate = descriptor;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeProbeRate))
+        return 47;
+    request.rate[0].rateCode = 0x1b;
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        !validTxPointerDescriptor(descriptor))
+        return 48;
+    request.packetType = TxPacketType::Beacon;
+    request.noAck = true;
+
     // Linux ath9k beacon.c: pkt_len = skb->len + FCS_LEN, but buf_len
     // = roundup(skb->len, 4). The 560-byte mapped DMA span is valid for
     // Beacon on-air sizes 561..564, including 0..3 bytes of tail padding.

@@ -229,9 +229,10 @@ namespace simpleath
                     return TxControlError::InvalidChain;
                 }
                 const bool htRate = ht_rate_valid(series.rateCode);
-                // A broadcast beacon must use a legacy basic-rate family
-                // readable before HT capability negotiation, not MCS0..7.
-                if (request.packetType == TxPacketType::Beacon && htRate)
+                // Both Beacon and Probe Response are emitted before the
+                // recipient's HT capabilities are negotiated. Management TX
+                // must use a legacy PHY rate that a scanning STA can decode.
+                if (request.packetType != TxPacketType::Normal && htRate)
                     return TxControlError::UnsupportedControl;
                 if (!htRate && !legacy_rate_valid(series.rateCode))
                 {
