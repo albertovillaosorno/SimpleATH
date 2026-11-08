@@ -96,6 +96,7 @@ namespace simpleath
         // rates. An RTS/CTS control rate must be supported legacy modulation.
         // Beacon and ProbeResponse packet types may use only cleartext;
         // protected management (BIP/PMF) is not implemented by this encoder.
+        // Beacon also requires noAck, no RTS/CTS, and legacy-only rates.
         // Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields)
         // into an existing validated pointer descriptor. This does not make a
         // packet safe to send until the macOS PCI owner and DMA completion path

@@ -218,6 +218,38 @@ int main()
         !validTxPointerDescriptor(descriptor))
         return 33;
 
+    // Beacon is broadcast, carries no ACK exchange, and must use an
+    // interoperable legacy basic rate. The control encoder must not allow
+    // a caller to request retries/RTS or HT modulation for this packet type.
+    request.packetType = TxPacketType::Beacon;
+    request.crypto = TxCrypto::Clear;
+    request.keyCacheIndex = 0xff;
+    request.rate[0].rateCode = 0x1b; // 1 Mbps basic CCK rate.
+    const TxDescriptor beforeBeaconPolicy = descriptor;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeBeaconPolicy))
+        return 34;
+    request.noAck = true;
+    request.rts = true;
+    request.rtsCtsRateCode = 0x1b;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeBeaconPolicy))
+        return 35;
+    request.rts = false;
+    request.rtsCtsRateCode = 0;
+    request.rate[0].rateCode = 0x80; // HT MCS0 is not a beacon basic rate.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::UnsupportedControl ||
+        !same(descriptor, beforeBeaconPolicy))
+        return 36;
+    request.rate[0].rateCode = 0x1b;
+    if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
+        !validTxPointerDescriptor(descriptor) ||
+        (descriptor.word[12] & 0x01000000u) == 0)
+        return 37;
+
     RxStatusWords rx {};
     rx.word[0] = 0x168c0000u;
     rx.word[1] = 0x0b000000u;

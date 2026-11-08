@@ -156,6 +156,14 @@ namespace simpleath
             {
                 return TxControlError::UnsupportedCipher;
             }
+            // Beacons are broadcast management announcements. They cannot
+            // solicit ACKs or an RTS/CTS exchange, irrespective of whether
+            // the caller marked the radio and policy fields as ready.
+            if (request.packetType == TxPacketType::Beacon &&
+                (!request.noAck || request.rts || request.cts))
+            {
+                return TxControlError::UnsupportedControl;
+            }
             if (request.crypto == TxCrypto::Clear &&
                 request.keyCacheIndex != 0xffU)
             {
@@ -209,6 +217,10 @@ namespace simpleath
                     return TxControlError::InvalidChain;
                 }
                 const bool htRate = ht_rate_valid(series.rateCode);
+                // A broadcast beacon must use a legacy basic-rate family
+                // readable before HT capability negotiation, not MCS0..7.
+                if (request.packetType == TxPacketType::Beacon && htRate)
+                    return TxControlError::UnsupportedControl;
                 if (!htRate && !legacy_rate_valid(series.rateCode))
                 {
                     return TxControlError::InvalidRate;
