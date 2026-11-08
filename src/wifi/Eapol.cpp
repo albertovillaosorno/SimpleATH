@@ -196,6 +196,15 @@ namespace simpleath
             {
                 return EapolResult::UnsupportedMessage;
             }
+            // A supplicant's M2 carries its freshly generated SNonce. Its
+            // Key Length is zero, unlike the authenticator's M1/M3 CCMP
+            // length of 16. A MIC flag alone does not make a zero-nonce or
+            // wrong-length M2 a valid handshake message.
+            if (message == KeyMessage::Pairwise2 &&
+                (key_length != 0 || !any_nonzero(nonce, K_KEY_NONCE_BYTES)))
+            {
+                return EapolResult::InvalidKeyInformation;
+            }
 
             KeyFrame parsed {};
             parsed.eapolBytes = frame;

@@ -539,6 +539,34 @@ namespace
         return true;
     }
 
+    bool rejectMalformedMessage2()
+    {
+        // Pairwise M2 includes a freshly generated nonzero SNonce and
+        // advertises zero Key Length. Merely setting MIC+pairwise flags
+        // must not classify a malformed message as a valid WPA2 handshake.
+        uint8_t message[99] {};
+        makeM1(message);
+        message[5] = 0x01;  // MIC present; no authenticator ACK.
+        message[6] = 0x0a;  // Pairwise, RSN descriptor version 2.
+        message[8] = 0;     // Supplicant Key Length is zero.
+        message[81] = 0x55; // Synthetic nonzero MIC, not authenticated here.
+        KeyFrame parsed {};
+        if (parseEapolKey(message, sizeof(message), parsed) !=
+                EapolResult::Ok ||
+            parsed.message != KeyMessage::Pairwise2)
+            return false;
+        message[17] = 0; // Invalid all-zero SNonce.
+        if (parseEapolKey(message, sizeof(message), parsed) !=
+                EapolResult::InvalidKeyInformation ||
+            parsed.eapolBytes || parsed.nonce)
+            return false;
+        message[17] = 7;
+        message[8] = 16; // M1/M3 key length must not be copied to M2.
+        return parseEapolKey(message, sizeof(message), parsed) ==
+                   EapolResult::InvalidKeyInformation &&
+               !parsed.eapolBytes && !parsed.nonce;
+    }
+
     bool rejectForgedReplayMetadata()
     {
         // ReplayGuard is a public boundary: a caller-built KeyFrame cannot
@@ -616,6 +644,8 @@ namespace
 
 int main()
 {
+    if (!rejectMalformedMessage2())
+        return 40;
     if (!rejectForgedReplayMetadata())
         return 39;
     if (!rejectEapolParserInputAlias())
