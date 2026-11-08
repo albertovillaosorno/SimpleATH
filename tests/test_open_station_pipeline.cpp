@@ -130,6 +130,48 @@ namespace
         return true;
     }
 
+    bool rejectForeignWpa2Authenticator()
+    {
+        // The WPA2 4-way handshake for the selected BSSID must never accept
+        // an EAPOL-Key frame bridged through the AP from another transmitter.
+        // Ordinary encrypted data may still originate behind the AP.
+        uint8_t frame[33] {};
+        frame[0] = 0x08; // FromDS data to this station.
+        frame[1] = 0x02;
+        addresses(frame, kStation);
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x88;
+        frame[31] = 0x8e;
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        Msdu msdu {};
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             msdu) != DataPathResult::Ok ||
+            msdu.etherType != 0x888e)
+            return false;
+        frame[21] ^= 1u; // Different valid unicast source, same AP/BSSID.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             msdu) !=
+                DataPathResult::NotFromAssociatedAccessPoint ||
+            msdu.payload || msdu.payloadLength)
+            return false;
+        // Do not accidentally ban other unicast Ethernet sources behind the
+        // AP for actual protected data with validated integrity and keys.
+        frame[1] |= 0x40;
+        frame[30] = 0x08;
+        frame[31] = 0x00;
+        link.pairwiseAndGroupKeysInstalled = true;
+        return inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                                msdu) == DataPathResult::Ok &&
+               msdu.payload == frame + 32 && msdu.etherType == 0x0800;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -213,6 +255,8 @@ int main()
         return 19;
     if (!rejectInvalidFromDsSource())
         return 20;
+    if (!rejectForeignWpa2Authenticator())
+        return 21;
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;

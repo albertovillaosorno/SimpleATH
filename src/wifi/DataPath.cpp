@@ -214,9 +214,18 @@ namespace simpleath
             {
                 // WPA2-PSK pairwise handshake frames are addressed to this
                 // station, never to an arbitrary multicast destination.
-                if (parsed.etherType == kEtherTypeEapol &&
-                    !sameMac(parsed.destination, link.station))
-                    return DataPathResult::NotForThisStation;
+                if (parsed.etherType == kEtherTypeEapol)
+                {
+                    if (!sameMac(parsed.destination, link.station))
+                        return DataPathResult::NotForThisStation;
+                    // Only the selected BSSID is this limited WPA2-PSK
+                    // station's authenticator. A different unicast Ethernet
+                    // SA may be bridged by the AP, but must not inject M1/M3
+                    // into the pairwise handshake. Ordinary data can retain
+                    // a distinct wired/bridged Ethernet source.
+                    if (!sameMac(parsed.source, link.bssid))
+                        return DataPathResult::NotFromAssociatedAccessPoint;
+                }
                 if (parsed.etherType != kEtherTypeEapol)
                 {
                     if (!link.pairwiseAndGroupKeysInstalled ||
