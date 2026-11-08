@@ -992,6 +992,12 @@ def _run_identity(
         "CXX",
         "LD_LIBRARY_PATH",
         "DYLD_LIBRARY_PATH",
+        # Native host compilation/execution and Python tests depend on the
+        # selected scratch directory; a peer using a full or unavailable
+        # temporary filesystem cannot safely share another peer's result.
+        "TMPDIR",
+        "TMP",
+        "TEMP",
     )
     environment = {name: os.environ.get(name) for name in environment_names}
     request: dict[str, object] = {

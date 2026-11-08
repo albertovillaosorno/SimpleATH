@@ -7,6 +7,7 @@ from contextlib import redirect_stdout
 import fcntl
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -1190,6 +1191,80 @@ class FullRepositoryRun(unittest.TestCase):
             ):
                 assert validator.main() == 0
             assert locked
+
+
+def _assert_host_temp_rechecks(name: str, root: Path, tests: mock.Mock) -> None:
+    """Emulate a waiter whose host temp environment differs from its peer."""
+    first = str(root / "scratch-first")
+    second = str(root / "scratch-second")
+
+    def contended(_: int, operation: int) -> None:
+        if operation & fcntl.LOCK_NB:
+            raise BlockingIOError
+
+    with mock.patch.dict(os.environ, {name: first}):
+        assert validator.main() == 0
+        before = tests.call_count
+        # A waiter read the previous completion token before the leader ran.
+        with (
+            mock.patch.object(
+                validator, "_completion_token", return_value=None
+            ),
+            mock.patch.object(fcntl, "flock", side_effect=contended),
+        ):
+            assert validator.main() == 0
+        assert tests.call_count == before
+
+    with (
+        mock.patch.dict(os.environ, {name: second}),
+        mock.patch.object(validator, "_completion_token", return_value=None),
+        mock.patch.object(fcntl, "flock", side_effect=contended),
+    ):
+        assert validator.main() == 0
+    assert tests.call_count == before + 1, name
+
+
+class CompletedRunEnvironment(unittest.TestCase):
+    """Never share an offline host report across distinct scratch roots."""
+
+    @staticmethod
+    def test_host_temp_directory_changes_completed_run_identity() -> None:
+        """TMPDIR, TMP and TEMP all affect native and Python temp storage."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/driver.py"
+            _ = source.write_text("source", encoding="utf-8")
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(
+                    validator.LintRun,
+                    "check",
+                    return_value=_sample_finding(
+                        "src/driver.py", "ruff-check", "pass"
+                    ),
+                ),
+                mock.patch.object(
+                    validator,
+                    "run_tests",
+                    return_value=[
+                        _sample_finding(
+                            "tests/test_fake.py", "python-test", "pass"
+                        )
+                    ],
+                ) as tests,
+                mock.patch.object(
+                    validator,
+                    "_tool_versions",
+                    return_value={"ruff": "fixture"},
+                ),
+                mock.patch.object(sys, "argv", ["validate.py"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                for name in ("TMPDIR", "TMP", "TEMP"):
+                    _assert_host_temp_rechecks(name, root, tests)
 
 
 class CompletedReportIntegrity(unittest.TestCase):
