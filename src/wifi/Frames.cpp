@@ -440,16 +440,16 @@ namespace simpleath
                                 uint8_t *output, size_t capacity,
                                 size_t &written)
         {
-            if (!output)
-            {
-                written = 0;
-                return Result::NullBuffer;
-            }
             if (aliasesSerializedInput(output, capacity, written, &station,
                                        sizeof(station)) ||
                 aliasesSerializedInput(output, capacity, written, ssid,
                                        ssidLength))
                 return Result::OverlappingBuffers;
+            if (!output)
+            {
+                written = 0;
+                return Result::NullBuffer;
+            }
             written = 0;
             if (!validStationMac(station))
                 return Result::InvalidAddress;
@@ -489,16 +489,16 @@ namespace simpleath
                                              uint16_t sequence, uint8_t *output,
                                              size_t capacity, size_t &written)
         {
-            if (!output)
-            {
-                written = 0;
-                return Result::NullBuffer;
-            }
             if (aliasesSerializedInput(output, capacity, written, &station,
                                        sizeof(station)) ||
                 aliasesSerializedInput(output, capacity, written, &bssid,
                                        sizeof(bssid)))
                 return Result::OverlappingBuffers;
+            if (!output)
+            {
+                written = 0;
+                return Result::NullBuffer;
+            }
             written = 0;
             if (!validStationMac(station) || !validStationMac(bssid))
                 return Result::InvalidAddress;
@@ -525,16 +525,16 @@ namespace simpleath
                                       uint16_t sequence, uint8_t *output,
                                       size_t capacity, size_t &written)
         {
-            if (!output)
-            {
-                written = 0;
-                return Result::NullBuffer;
-            }
             if (aliasesSerializedInput(output, capacity, written, &station,
                                        sizeof(station)) ||
                 aliasesSerializedInput(output, capacity, written, &network,
                                        sizeof(network)))
                 return Result::OverlappingBuffers;
+            if (!output)
+            {
+                written = 0;
+                return Result::NullBuffer;
+            }
             written = 0;
             if (!validStationMac(station) || !validStationMac(network.bssid))
                 return Result::InvalidAddress;

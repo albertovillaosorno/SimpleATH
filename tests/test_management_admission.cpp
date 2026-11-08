@@ -298,6 +298,23 @@ namespace
                              countBuffer.count) != Result::OverlappingBuffers ||
             std::memcmp(&countBuffer, previousCount, sizeof(countBuffer)) != 0)
             return false;
+
+        // An absent TX buffer must not bypass alias safety: written may also
+        // contain a borrowed SSID source, and clearing it before rejecting
+        // the missing buffer would silently mutate the caller's input.
+        size_t aliasedLength = 0x11223344u;
+        const auto *borrowedSsid =
+            reinterpret_cast<const uint8_t *>(&aliasedLength);
+        if (makeProbeRequest(station, borrowedSsid, sizeof(aliasedLength), 5,
+                             nullptr, 0,
+                             aliasedLength) != Result::OverlappingBuffers ||
+            aliasedLength != 0x11223344u)
+            return false;
+        aliasedLength = 99;
+        if (makeProbeRequest(station, ssid, sizeof(ssid), 5, nullptr, 0,
+                             aliasedLength) != Result::NullBuffer ||
+            aliasedLength != 0)
+            return false;
         return true;
     }
 
