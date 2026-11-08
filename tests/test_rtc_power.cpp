@@ -22,7 +22,9 @@ namespace
             bool stuckWake = false;
             bool backwardOnRevision = false;
             bool revokeAfterFirstWrite = false;
+            bool revokeOnSecondClock = false;
             bool sawColdReset = false;
+            unsigned readAttempts = 0;
             unsigned reads = 0;
             unsigned writes = 0;
             unsigned delays = 0;
@@ -42,6 +44,7 @@ namespace
             static bool read32(void *context, uint32_t offset, uint32_t *value)
             {
                 auto &self = get(context);
+                ++self.readAttempts;
                 if (!self.alive || !value)
                     return false;
                 ++self.reads;
@@ -106,6 +109,8 @@ namespace
             {
                 auto &self = get(context);
                 ++self.clocks;
+                if (self.revokeOnSecondClock && self.clocks == 2)
+                    self.alive = false;
                 return self.time;
             }
 
@@ -337,6 +342,23 @@ int main()
             fake.clocks || fake.reads || fake.writes ||
             status.boardStateInvalidated || context.workaroundCaptured)
             return 21;
+    }
+    {
+        // The clock callback can itself revoke the underlying PCI owner.
+        // Checking canReset before that callback is insufficient: no stale
+        // MMIO read may be attempted after the revocation.
+        FakeRtc fake {};
+        fake.revokeOnSecondClock = true;
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        const auto backend = fake.backend();
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::AccessRevoked ||
+            fake.clocks != 2 || fake.readAttempts != 0 || fake.reads ||
+            fake.writes || status.boardStateInvalidated ||
+            context.workaroundCaptured)
+            return 22;
     }
     return 0;
 }

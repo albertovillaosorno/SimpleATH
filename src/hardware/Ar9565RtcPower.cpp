@@ -60,6 +60,11 @@ namespace simpleath
                     if (!b_.canReset(b_.context, b_.ownerEpoch))
                         return RtcResult::AccessRevoked;
                     const uint64_t now = b_.nowMicros(b_.context);
+                    // The clock provider may itself revoke the PCI mapping.
+                    // Do not grant an MMIO read/write from the pre-clock
+                    // ownership check alone.
+                    if (!b_.canReset(b_.context, b_.ownerEpoch))
+                        return RtcResult::AccessRevoked;
                     if (now < previous_)
                         return RtcResult::InvalidClock;
                     previous_ = now;
