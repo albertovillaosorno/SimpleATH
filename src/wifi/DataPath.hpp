@@ -66,7 +66,9 @@ namespace simpleath
 
         // Serialize one Ethernet-II MSDU to an unprotected 802.11 ToDS data
         // frame. WPA2 non-EAPOL traffic requires a separately implemented CCMP
-        // path and will fail closed until that exists. The result has NO FCS;
+        // path and will fail closed until that exists. WPA2-PSK EAPOL M2/M4
+        // must address the selected BSSID, never a group or unrelated peer.
+        // The result has NO FCS;
         // hardware would append it only after its PHY/crypto TX path is
         // properly implemented. This routine NEVER submits a packet to the
         // device. Input, link and output/result storage must be disjoint;
@@ -81,7 +83,8 @@ namespace simpleath
         // network interface. The caller must have checked the EDMA RX status,
         // FCS and decrypted integrity/packet number using a real hardware
         // backend. Association addresses must be valid; WPA2-PSK EAPOL
-        // handshake traffic must be unicast to this station. On error the
+        // handshake traffic must be unicast to this station. Protected
+        // EAPOL also requires installed keys for this selected link. On error,
         // output is zeroed, including its borrowed payload pointer. A result
         // overlapping the link or RX frame returns OverlappingBuffers without
         // modifying the aliased memory.

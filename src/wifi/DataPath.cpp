@@ -85,6 +85,12 @@ namespace simpleath
                 return DataPathResult::InvalidEthernetFrame;
 
             const bool isEapol = etherType == kEtherTypeEapol;
+            // This WPA2-PSK transport only emits pairwise M2/M4 to the
+            // selected AP; never serialize EAPOL to a forged group or peer
+            // destination through the public data-path API.
+            if (link.security == LinkSecurity::Wpa2Ccmp && isEapol &&
+                !sameMac(destination, link.bssid))
+                return DataPathResult::InvalidAddress;
             if (link.security == LinkSecurity::Wpa2Ccmp && !isEapol)
             {
                 if (!link.pairwiseAndGroupKeysInstalled)
@@ -231,6 +237,12 @@ namespace simpleath
                     // a distinct wired/bridged Ethernet source.
                     if (!sameMac(parsed.source, link.bssid))
                         return DataPathResult::NotFromAssociatedAccessPoint;
+                    // Even an affirmative caller-supplied MIC/PN trust bit
+                    // cannot authorize a protected handshake packet before
+                    // this selected link has actually installed its keys.
+                    if (header.protectedFrame &&
+                        !link.pairwiseAndGroupKeysInstalled)
+                        return DataPathResult::UnverifiedDecryption;
                 }
                 if (parsed.etherType != kEtherTypeEapol)
                 {

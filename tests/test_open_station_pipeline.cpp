@@ -236,6 +236,77 @@ namespace
                msdu.payload == frame + 32 && msdu.etherType == 0x0800;
     }
 
+    bool rejectUnboundWpa2Eapol()
+    {
+        // This limited WPA2-PSK station may send M2/M4 only to its selected
+        // authenticator. A public link context cannot authorize broadcast or
+        // third-party EAPOL transmissions before key installation.
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        uint8_t ethernet[15] {};
+        std::memcpy(ethernet, kAp, 6);
+        std::memcpy(ethernet + 6, kStation, 6);
+        ethernet[12] = 0x88;
+        ethernet[13] = 0x8e;
+        ethernet[14] = 1;
+        uint8_t tx[64] {};
+        std::memset(tx, 0xa5, sizeof(tx));
+        SerializedData prepared {};
+        prepared.frameBytes = 91;
+        std::memset(ethernet, 0xff, 6);
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx),
+                             prepared) != DataPathResult::InvalidAddress ||
+            tx[0] != 0xa5 || prepared.frameBytes != 91)
+            return false;
+        std::memcpy(ethernet, kStation, 6);
+        ethernet[5] ^= 1u; // Valid foreign unicast destination.
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx),
+                             prepared) != DataPathResult::InvalidAddress ||
+            tx[0] != 0xa5 || prepared.frameBytes != 91)
+            return false;
+        std::memcpy(ethernet, kAp, 6);
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx), prepared) != DataPathResult::Ok ||
+            !prepared.isEapol || prepared.frameBytes != 33)
+            return false;
+
+        // A forged verified-decryption flag cannot make protected EAPOL
+        // admissible before the selected link reports installed keys.
+        uint8_t frame[33] {};
+        frame[0] = 0x08;
+        frame[1] = 0x42; // FromDS + protected.
+        addresses(frame, kStation);
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x88;
+        frame[31] = 0x8e;
+        frame[32] = 1;
+        Msdu decoded {};
+        decoded.payload = frame;
+        decoded.payloadLength = 1;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             decoded) != DataPathResult::UnverifiedDecryption ||
+            decoded.payload || decoded.payloadLength)
+            return false;
+        link.pairwiseAndGroupKeysInstalled = true;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             decoded) != DataPathResult::Ok ||
+            decoded.payload != frame + 32)
+            return false;
+        link.pairwiseAndGroupKeysInstalled = false;
+        frame[1] = 0x02; // Cleartext M1/M3 may still arrive before install.
+        return inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                                decoded) == DataPathResult::Ok &&
+               decoded.payload == frame + 32;
+    }
+
     bool rejectCryptoProviderContextAliases()
     {
         // The adapter's opaque hardware owner is writable callback state.
@@ -491,6 +562,8 @@ int main()
         return 24;
     if (!rejectForeignWpa2Authenticator())
         return 21;
+    if (!rejectUnboundWpa2Eapol())
+        return 31;
     if (!rejectCryptoProviderContextAliases())
         return 22;
     // Native lifecycle must allocate/serialize persistent owner storage.
