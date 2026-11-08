@@ -185,6 +185,13 @@ namespace simpleath
                 state_ = StationState::Failed;
                 return StationResult::AssociationRejected;
             }
+            // The AP's successful Association Response must retain the
+            // selected BSS's privacy policy. Never advance to Open or WPA2
+            // using a response that advertises the opposite protection bit.
+            // parseAssociationResponse already proved the 24-byte header and
+            // six-byte fixed response body are present.
+            if (((bytes[24] ^ chosen_.beacon.capabilities) & 0x10u) != 0)
+                return StationResult::FrameRejected;
             associationId_ = aid;
             if (chosen_.beacon.rsn.security == Security::Wpa2Personal)
             {

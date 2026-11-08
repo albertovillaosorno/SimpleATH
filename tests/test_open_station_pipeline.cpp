@@ -533,6 +533,16 @@ int main()
         return 6;
     uint8_t assoc[34] {};
     associationResponse(assoc);
+    // A changed AP privacy capability cannot silently turn our selected
+    // Open BSS into a protected association; retain retryable TX state.
+    assoc[24] |= 0x10u;
+    if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
+                        sizeof(tx),
+                        action) != EngineResult::InvalidReceivedFrame ||
+        engine.stationState() != StationState::AssociationFramePrepared ||
+        action.kind != ActionKind::None)
+        return 27;
+    assoc[24] &= static_cast<uint8_t>(~0x10u);
     if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::OpenAssociationEstablished ||

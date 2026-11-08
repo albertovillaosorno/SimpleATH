@@ -287,7 +287,7 @@ namespace
         std::memcpy(assoc + 4, station.bytes, 6);
         std::memcpy(assoc + 10, ap.bytes, 6);
         std::memcpy(assoc + 16, ap.bytes, 6);
-        assoc[24] = 1; // ESS.
+        assoc[24] = 0x11; // ESS + privacy, matching the WPA2 BSS.
         assoc[28] = 1;
         assoc[29] = 0xc0; // Valid AID 1.
         assoc[30] = 1;    // Supported rates.
