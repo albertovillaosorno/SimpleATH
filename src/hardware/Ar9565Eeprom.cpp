@@ -142,7 +142,13 @@ namespace simpleath
             overlaps(&info, sizeof(info), &templates, sizeof(templates)) ||
             overlaps(&image, sizeof(image), &templates, sizeof(templates)) ||
             overlaps(&info, sizeof(info), templates.context, 1) ||
-            overlaps(&image, sizeof(image), templates.context, 1))
+            overlaps(&image, sizeof(image), templates.context, 1) ||
+            // The callback may mutate its context after the frame checksum
+            // and delta bounds have been validated. Do not let it rewrite
+            // validated input bytes before applying an unchecked delta copy,
+            // or overwrite the callback table itself.
+            overlaps(frame, frameBytes, templates.context, 1) ||
+            overlaps(&templates, sizeof(templates), templates.context, 1))
             return EepromResult::InvalidArgument;
         info = {};
         if (!frame)
@@ -247,7 +253,11 @@ namespace simpleath
             overlaps(scratch, scratchBytes, &templates, sizeof(templates)) ||
             overlaps(&status, sizeof(status), templates.context, 1) ||
             overlaps(&image, sizeof(image), templates.context, 1) ||
-            overlaps(scratch, scratchBytes, templates.context, 1))
+            overlaps(scratch, scratchBytes, templates.context, 1) ||
+            // A callback cannot rewrite future unparsed input blocks or its
+            // own callback table during a multi-block reconstruction.
+            overlaps(storage, storageBytes, templates.context, 1) ||
+            overlaps(&templates, sizeof(templates), templates.context, 1))
             return EepromResult::InvalidArgument;
         // No frame-sized allocation is made on the kernel stack.
         status = {};

@@ -3,6 +3,20 @@
 // Synthetic packed EEPROM image; never sourced from hardware or RF.
 #include "hardware/Ar9565Eeprom.hpp"
 
+namespace
+{
+    const uint8_t *mutatingTemplateLookup(void *context, uint8_t reference,
+                                          size_t *length)
+    {
+        // A provider legitimately mutates its own context, which the caller
+        // has forged to refer to a checksum-verified input delta frame.
+        auto *borrowedFrame = static_cast<uint8_t *>(context);
+        borrowedFrame[6] = 0x99;
+        return simpleath::pinnedEepromTemplates().find(nullptr, reference,
+                                                       length);
+    }
+} // namespace
+
 int main()
 {
     using namespace simpleath;
@@ -124,6 +138,52 @@ int main()
                           restoreStatus) != EepromResult::InvalidArgument ||
         restoreStatus.result != EepromResult::BadChecksum)
         return 9;
+
+    // The callback is allowed to mutate its opaque context. If that context
+    // points inside a validated delta, its find() can silently replace bytes
+    // AFTER checksum + delta-bounds validation but BEFORE delta application.
+    // Reject the alias before invoking any callback or changing frame/image.
+    uint8_t mutableDelta[] = {0x62, 0x00, 0x30, 0x01, 0x00,
+                              0x01, 0x22, 0x23, 0x00};
+    EepromTemplates hostile {mutableDelta, mutatingTemplateLookup};
+    static EepromImage borrowedImage {};
+    borrowedImage.bytes[0] = 0x77;
+    EepromBlockInfo borrowedInfo {};
+    borrowedInfo.major = 99;
+    if (applyEepromBlock(mutableDelta, sizeof(mutableDelta), hostile,
+                         borrowedImage,
+                         borrowedInfo) != EepromResult::InvalidArgument ||
+        mutableDelta[6] != 0x22 || borrowedImage.bytes[0] != 0x77 ||
+        borrowedImage.restored || borrowedInfo.major != 99)
+        return 16;
+    // The provider table itself cannot be writable callback context either.
+    EepromTemplates tableAlias = pinnedEepromTemplates();
+    tableAlias.context = &tableAlias;
+    if (applyEepromBlock(mutableDelta, sizeof(mutableDelta), tableAlias,
+                         borrowedImage,
+                         borrowedInfo) != EepromResult::InvalidArgument ||
+        borrowedImage.bytes[0] != 0x77 || borrowedImage.restored ||
+        borrowedInfo.major != 99)
+        return 17;
+
+    // Raw multi-block restoration likewise cannot let its callback rewrite
+    // borrowed NVM storage or its own callback function table. Fail before
+    // erasing the previously restored board, scratch or diagnostics.
+    EepromTemplates dumpAlias = pinnedEepromTemplates();
+    dumpAlias.context = &storage[sizeof(storage) - 1];
+    if (restoreEepromDump(storage, sizeof(storage), 0x3ff, dumpAlias, scratch,
+                          sizeof(scratch), image,
+                          restoreStatus) != EepromResult::InvalidArgument ||
+        image.bytes[0] != 2 || !image.restored || scratch[0] != 0xa5 ||
+        restoreStatus.result != EepromResult::BadChecksum)
+        return 18;
+    dumpAlias.context = &dumpAlias;
+    if (restoreEepromDump(storage, sizeof(storage), 0x3ff, dumpAlias, scratch,
+                          sizeof(scratch), image,
+                          restoreStatus) != EepromResult::InvalidArgument ||
+        image.bytes[0] != 2 || !image.restored || scratch[0] != 0xa5 ||
+        restoreStatus.result != EepromResult::BadChecksum)
+        return 19;
 
     // An empty or tampered diagnostic summary must never choose apparently
     // supported zero-index gain tables. Reject without retaining old gains.
