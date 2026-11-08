@@ -331,6 +331,10 @@ namespace simpleath
             parsed.timestamp = read64(fixed);
             parsed.intervalTu = read16(fixed + 8);
             parsed.capabilities = read16(fixed + 10);
+            // ESS and IBSS advertise different BSS types. Accepting both
+            // as infrastructure can poison scan selection with a forged BSS.
+            if ((parsed.capabilities & 0x0003u) == 0x0003u)
+                return Result::InvalidFrame;
             parsed.infrastructure = (parsed.capabilities & 1u) != 0;
             parsed.hiddenSsid = true;
             parsed.rsn.security = (parsed.capabilities & 0x10u) != 0

@@ -220,6 +220,26 @@ namespace
         return parseBeacon(frame, sizeof(frame), out) == Result::InvalidFrame;
     }
 
+    bool rejectConflictingBssModes()
+    {
+        uint8_t frame[kBeaconBytes] {};
+        makeBeacon(frame);
+        Beacon parsed {};
+        // IEEE 802.11 ESS and IBSS are mutually exclusive. A forged
+        // advertisement setting both must not be selected as infrastructure.
+        frame[34] = 3;
+        if (parseBeacon(frame, sizeof(frame), parsed) != Result::InvalidFrame)
+            return false;
+        makeBeacon(frame);
+        frame[34] = 2; // A legitimate IBSS remains non-infrastructure.
+        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok ||
+            parsed.infrastructure)
+            return false;
+        makeBeacon(frame);
+        return parseBeacon(frame, sizeof(frame), parsed) == Result::Ok &&
+               parsed.infrastructure;
+    }
+
     bool rejectInvalidRates()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -614,5 +634,7 @@ int main()
         return 12;
     if (!rejectInvalidManagementRxIdentities())
         return 13;
+    if (!rejectConflictingBssModes())
+        return 14;
     return 0;
 }
