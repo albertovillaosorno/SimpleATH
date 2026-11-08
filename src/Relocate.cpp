@@ -11,6 +11,21 @@
 
 namespace ath
 {
+    namespace
+    {
+        bool overlapsStorage(const void *first, size_t firstLength,
+                             const void *second, size_t secondLength)
+        {
+            if (!first || !second || !firstLength || !secondLength)
+                return false;
+            const auto left = reinterpret_cast<uintptr_t>(first);
+            const auto right = reinterpret_cast<uintptr_t>(second);
+            // Compare distances rather than adding potentially untrusted
+            // buffer lengths to an address-sized integer.
+            return left <= right ? right - left < firstLength
+                                 : left - right < secondLength;
+        }
+    } // namespace
 
     uint64_t payloadChecksum(const uint8_t *bytes, size_t length)
     {
@@ -32,6 +47,16 @@ namespace ath
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize ||
             (p.deltaSize && !p.delta))
+            return false;
+        // Both inputs must survive copying/zeroing the destination. In
+        // particular, an in-place delta is validated below, then destroyed
+        // before it can be replayed, silently changing the restored image.
+        // The payload metadata and image descriptor must remain intact too.
+        if (overlapsStorage(image.memory, p.mappedSize, p.bytes, p.size) ||
+            overlapsStorage(image.memory, p.mappedSize, p.delta, p.deltaSize) ||
+            overlapsStorage(image.memory, p.mappedSize, image.payload,
+                            sizeof(*image.payload)) ||
+            overlapsStorage(image.memory, p.mappedSize, &image, sizeof(image)))
             return false;
         uint32_t position = 0, end = 0;
         while (position < p.deltaSize)

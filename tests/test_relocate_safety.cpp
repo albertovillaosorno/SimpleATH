@@ -98,5 +98,50 @@ int main()
         return 28;
     uintptr_t resultingAddress = 0;
     std::memcpy(&resultingAddress, storage, sizeof(resultingAddress));
-    return resultingAddress == 0x2004 ? 0 : 29;
+    if (resultingAddress != 0x2004)
+        return 29;
+
+    // Restoration first validates each delta record, then zeroes the mapped
+    // destination before applying it. An aliased delta would be erased after
+    // validation, silently producing an image different from the payload.
+    uint8_t payloadBytes[8] {1, 2, 3, 4, 5, 6, 7, 8};
+    uint8_t mapped[32] {};
+    const uint8_t patch[9] {4, 0, 0, 0, 1, 0, 0, 0, 0x7f};
+    ath::Payload restored {};
+    restored.bytes = payloadBytes;
+    restored.bytesSize = sizeof(payloadBytes);
+    restored.size = sizeof(payloadBytes);
+    restored.mappedSize = sizeof(mapped);
+    restored.stubOffset = sizeof(payloadBytes);
+    restored.stubSize = sizeof(mapped) - sizeof(payloadBytes);
+    restored.delta = mapped + sizeof(payloadBytes);
+    restored.deltaSize = sizeof(patch);
+    std::memcpy(mapped + sizeof(payloadBytes), patch, sizeof(patch));
+    uint8_t previous[sizeof(mapped)] {};
+    std::memcpy(previous, mapped, sizeof(mapped));
+    ath::LinkedImage restoredImage {&restored, mapped, 0x3000, 7, false, true};
+    if (ath::restorePayload(restoredImage) ||
+        std::memcmp(previous, mapped, sizeof(mapped)) != 0)
+        return 30;
+
+    // Overlapping base bytes would enter memcpy with undefined behavior;
+    // reject them without touching the mapped image or its stub usage.
+    restored.delta = nullptr;
+    restored.deltaSize = 0;
+    restored.bytes = mapped + 1;
+    restored.bytesSize = sizeof(payloadBytes);
+    if (ath::restorePayload(restoredImage) ||
+        std::memcmp(previous, mapped, sizeof(mapped)) != 0 ||
+        restoredImage.stubUsed != 7)
+        return 31;
+
+    // Independent base/delta storage remains supported and clears old stubs.
+    restored.bytes = payloadBytes;
+    restored.delta = patch;
+    restored.deltaSize = sizeof(patch);
+    if (!ath::restorePayload(restoredImage) || mapped[4] != 0x7f ||
+        mapped[0] != 1 || mapped[7] != 8 || mapped[8] != 0 ||
+        restoredImage.stubUsed != 0)
+        return 32;
+    return 0;
 }
