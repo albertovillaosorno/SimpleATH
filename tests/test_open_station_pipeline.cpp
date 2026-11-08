@@ -332,6 +332,62 @@ namespace
                rxResult.payload == frame + 32;
     }
 
+    bool rejectOpenLinkWithInstalledWpa2Keys()
+    {
+        // A forged public LinkContext cannot announce a fresh open
+        // association while carrying an old WPA2 pairwise/group key claim.
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Open;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+
+        uint8_t ethernet[17] {};
+        std::memcpy(ethernet, kAp, 6);
+        std::memcpy(ethernet + 6, kStation, 6);
+        ethernet[12] = 0x08;
+        ethernet[13] = 0x00;
+        ethernet[14] = 0x45;
+        uint8_t tx[64] {};
+        std::memset(tx, 0xa5, sizeof(tx));
+        SerializedData prepared {};
+        prepared.frameBytes = 77;
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx), prepared) !=
+                DataPathResult::InvalidSecurityState ||
+            tx[0] != 0xa5 || prepared.frameBytes != 77)
+            return false;
+
+        uint8_t frame[33] {};
+        frame[0] = 0x08;
+        frame[1] = 0x02;
+        addresses(frame, kStation);
+        frame[24] = frame[25] = 0xaa;
+        frame[26] = 3;
+        frame[30] = 0x08;
+        frame[31] = 0x00;
+        frame[32] = 0x45;
+        Msdu decoded {};
+        decoded.payload = frame;
+        decoded.payloadLength = sizeof(frame);
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             decoded) != DataPathResult::InvalidSecurityState ||
+            decoded.payload || decoded.payloadLength)
+            return false;
+
+        // A legitimate open link still admits cleartext TX and RX.
+        link.pairwiseAndGroupKeysInstalled = false;
+        return prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                                sizeof(tx), prepared) == DataPathResult::Ok &&
+               prepared.frameBytes == 35 &&
+               inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                                decoded) == DataPathResult::Ok &&
+               decoded.payload == frame + 32;
+    }
+
     bool rejectForeignWpa2Authenticator()
     {
         // The WPA2 4-way handshake for the selected BSSID must never accept
@@ -452,9 +508,17 @@ namespace
                 DataPathResult::UnsupportedFrame ||
             result.payload)
             return false;
-        // Open networks retain the generic Ethernet-II EAPOL pass-through.
+        // An open link must not inherit a prior WPA2 session's key-installed
+        // claim; that contradiction cannot authorize plaintext receive.
         link.security = LinkSecurity::Open;
         frame[1] = 0x02;
+        if (inspectStationRx(link, frame, 33, false, true, false, result) !=
+                DataPathResult::InvalidSecurityState ||
+            result.payload)
+            return false;
+        // Open networks retain generic Ethernet-II EAPOL pass-through only
+        // after the previous security state has been fully revoked.
+        link.pairwiseAndGroupKeysInstalled = false;
         return inspectStationRx(link, frame, 33, false, true, false, result) ==
                    DataPathResult::Ok &&
                result.payload == frame + 32;
@@ -873,6 +937,8 @@ int main()
         return 20;
     if (!rejectIdenticalLinkIdentities())
         return 24;
+    if (!rejectOpenLinkWithInstalledWpa2Keys())
+        return 45;
     if (!rejectForeignWpa2Authenticator())
         return 21;
     if (!rejectUnboundWpa2Eapol())

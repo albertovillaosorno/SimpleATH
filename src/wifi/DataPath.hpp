@@ -30,7 +30,8 @@ namespace simpleath
             InvalidRxStatus,
             UnverifiedDecryption,
             MalformedFrame,
-            UnsupportedFrame
+            UnsupportedFrame,
+            InvalidSecurityState
         };
 
         enum class LinkSecurity : uint8_t
@@ -73,7 +74,8 @@ namespace simpleath
         // hardware would append it only after its PHY/crypto TX path is
         // properly implemented. This routine NEVER submits a packet to the
         // device. Input, link and output/result storage must be disjoint;
-        // aliases are rejected before any output is modified.
+        // aliases are rejected before any output is modified. An Open link
+        // must not retain a WPA2 key-installed claim from a previous session.
         DataPathResult prepareStationTx(const LinkContext &link,
                                         const uint8_t *ethernet,
                                         size_t ethernetBytes, uint16_t sequence,
@@ -90,7 +92,8 @@ namespace simpleath
         // implementation exists, even with otherwise verified CCMP. On error,
         // output is zeroed, including its borrowed payload pointer. A result
         // overlapping the link or RX frame returns OverlappingBuffers without
-        // modifying the aliased memory.
+        // modifying the aliased memory. Open links with a key-installed
+        // claim fail closed and revoke stale RX results.
         DataPathResult inspectStationRx(const LinkContext &link,
                                         const uint8_t *ieeeFrame,
                                         size_t ieeeFrameBytes, bool fcsIncluded,

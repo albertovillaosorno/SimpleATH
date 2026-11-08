@@ -71,6 +71,12 @@ namespace simpleath
                 return DataPathResult::CountryNotAuthorized;
             if (!link.associated)
                 return DataPathResult::NotAssociated;
+            // The link's keycache claim belongs to its selected security
+            // mode. A forged Open association with stale WPA2 keys must not
+            // authorize unprotected transmission through this public API.
+            if (link.security == LinkSecurity::Open &&
+                link.pairwiseAndGroupKeysInstalled)
+                return DataPathResult::InvalidSecurityState;
             if (ethernetBytes < kEthernetHeaderBytes)
                 return DataPathResult::InvalidEthernetFrame;
             const Mac destination {{ethernet[0], ethernet[1], ethernet[2],
@@ -216,6 +222,11 @@ namespace simpleath
                 return DataPathResult::NotAssociated;
             if (!link.channelPermitted)
                 return DataPathResult::CountryNotAuthorized;
+            // Revoke any stale borrowed MSDU if this Open association still
+            // claims key installation from an incompatible WPA2 session.
+            if (link.security == LinkSecurity::Open &&
+                link.pairwiseAndGroupKeysInstalled)
+                return DataPathResult::InvalidSecurityState;
             if (!fcsAndDmaValidated)
                 return DataPathResult::InvalidRxStatus;
             Frame header {};
