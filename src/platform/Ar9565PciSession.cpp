@@ -160,8 +160,12 @@ namespace simpleath
             offset > self.status_.barLengthBytes ||
             self.status_.barLengthBytes - offset < sizeof(uint32_t))
             return false;
+        // An MMIO callback can complete just as the provider loses D0.
+        // Recheck powered ownership before reporting a valid register sample,
+        // especially the final EEPROM word used to authorize inspection.
         return self.backend_.readBar0(self.backend_.context, offset, value) &&
-               *value != 0xffffffffu;
+               *value != 0xffffffffu &&
+               self.backend_.inD0(self.backend_.context);
     }
 
     PciSessionResult PciReadOnlySession::inspect()

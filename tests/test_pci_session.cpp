@@ -24,7 +24,9 @@ namespace
             bool powerDropsAfterReadback = false;
             bool powerDropsDuringMap = false;
             bool registerReadFails = false;
+            uint32_t revokeAfterBarOffset = 0;
             uint32_t eepromStatus = 0;
+            unsigned barReads = 0;
             unsigned claims = 0;
             unsigned releases = 0;
             unsigned maps = 0;
@@ -146,21 +148,27 @@ namespace
                 if (!self.claimed || !self.powered || !self.mapped ||
                     self.registerReadFails || !value || !(self.command & 2u))
                     return false;
+                ++self.barReads;
                 switch (offset)
                 {
                     case kRevisionRegister:
                         *value =
                             (static_cast<uint32_t>(kMacFamily) << 12u) | 0xffu;
-                        return true;
+                        break;
                     case kRtcStatusRegister:
                         *value = kRtcOn;
-                        return true;
+                        break;
                     case kEepromStatusRegister:
                         *value = self.eepromStatus;
-                        return true;
+                        break;
                     default:
                         return false;
                 }
+                // Synthesize a provider disappearing precisely after a
+                // successful MMIO sample, including the LAST EEPROM read.
+                if (self.revokeAfterBarOffset == offset)
+                    self.powered = false;
+                return true;
             }
 
             PciSessionBackend backend()
@@ -421,6 +429,31 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged)
             return 29;
+    }
+    {
+        // D0 may vanish while readBar0 itself is completing. In particular,
+        // the last EEPROM read must not declare the old session inspected.
+        const uint32_t revokeOffsets[] {kRevisionRegister,
+                                        kEepromStatusRegister};
+        for (uint32_t revokedAt : revokeOffsets)
+        {
+            FakePci fake {};
+            PciReadOnlySession session;
+            if (session.start(fake.backend()) != PciSessionResult::Ok)
+                return 30;
+            fake.revokeAfterBarOffset = revokedAt;
+            if (session.inspect() != PciSessionResult::CoreRejected ||
+                session.status().coreInspectResult !=
+                    Result::RegisterReadFailed ||
+                session.status().cleanupResult !=
+                    PciSessionResult::ProviderUnavailable ||
+                session.status().readAccessReady ||
+                !session.status().memoryDecodeChanged || fake.powered ||
+                fake.claimed || fake.mapped || fake.releases != 1 ||
+                fake.unmaps != 1 || fake.writes != 1 ||
+                fake.barReads != (revokedAt == kRevisionRegister ? 1u : 3u))
+                return 31;
+        }
     }
     return 0;
 }
