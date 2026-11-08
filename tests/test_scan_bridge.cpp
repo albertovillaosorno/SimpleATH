@@ -50,11 +50,52 @@ namespace
                entry.rates[0] == 0x82 && entry.rates[1] == 0x84 &&
                entry.security == Security::Open;
     }
+
+    bool preferCompatibleAssociationRates()
+    {
+        using namespace simpleath::ieee80211;
+        ScanCache cache;
+        uint8_t advertised[kBeaconBytes] {};
+        makeBeacon(advertised, 6);
+        if (cache.observe(advertised, sizeof(advertised), -60, 1) != Result::Ok)
+            return false;
+
+        // A stronger AP with the same SSID requires an unknown mandatory
+        // basic rate, even though another rate overlaps local capabilities.
+        advertised[15] = advertised[21] = 0x66;
+        advertised[44] = 0xff;
+        advertised[45] = 0x82;
+        if (cache.observe(advertised, sizeof(advertised), -25, 2) != Result::Ok)
+            return false;
+        const uint8_t ssid[] {'T', 'e', 's', 't'};
+        Bss choice {};
+        if (!cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
+            choice.beacon.bssid.bytes[5] != 0x55)
+            return false;
+
+        // Unknown optional rates do not prevent joining when a compatible
+        // rate remains; a stronger compatible AP should still win.
+        advertised[44] = 0x7f;
+        if (cache.observe(advertised, sizeof(advertised), -25, 3) !=
+                Result::Ok ||
+            !cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
+            choice.beacon.bssid.bytes[5] != 0x66)
+            return false;
+
+        // Optional rates alone are insufficient without any common rate.
+        advertised[45] = 0x7e;
+        return cache.observe(advertised, sizeof(advertised), -20, 4) ==
+                   Result::Ok &&
+               cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) &&
+               choice.beacon.bssid.bytes[5] == 0x55;
+    }
 } // namespace
 
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!preferCompatibleAssociationRates())
+        return 35;
     // Persistent owner-style allocations, no OS driver or bus interactions.
     static ScanCache cache;
     static LegacyScanBridge bridge;

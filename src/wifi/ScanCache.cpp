@@ -196,6 +196,12 @@ namespace simpleath
                 if (security != Security::Open &&
                     security != Security::Wpa2Personal)
                     continue;
+                // Rank only BSSes whose mandatory basic rates this PHY can
+                // honor and which have at least one common association rate.
+                // Otherwise a stronger unjoinable BSSID can mask a weaker
+                // compatible AP with the same SSID and security policy.
+                if (associationRequestLength(candidate.beacon) == 0)
+                    continue;
                 if (ssidLength != 0)
                 {
                     if (candidate.beacon.ssidLength != ssidLength)

@@ -44,6 +44,8 @@ namespace simpleath
                 // and 2.4GHz channel. If both security types are permitted,
                 // prefer WPA2/CCMP PSK over Open before comparing signal.
                 // Invalid/unmeasured RSSI never beats a measured value.
+                // Candidates must also share local legacy association rates
+                // and must not require an unsupported basic PHY rate.
                 // This does NOT check country-specific regulatory policy.
                 // A copy of the BSS is returned; no invalidatable pointers.
                 // The output cannot overlap the input SSID or this cache.
