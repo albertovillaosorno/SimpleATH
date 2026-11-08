@@ -744,6 +744,30 @@ namespace
             EapolResult::Ok)
             return false;
         ReplayGuard guard;
+        // The direct replay API cannot trust metadata copied from an earlier
+        // parse when the borrowed M1 bytes have since changed. A MIC bit of
+        // zero demands all-zero MIC bytes, independent of the caller's bool.
+        firstBytes[81] = 0x5a;
+        if (guard.acceptMessage1(first) != EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
+            return false;
+        firstBytes[81] = 0;
+        // A caller can also adjust the declared EAPOL length without fixing
+        // the fixed key body/key-data length. A parser would reject this.
+        uint8_t extraFirst[100] {};
+        std::memcpy(extraFirst, firstBytes, sizeof(firstBytes));
+        extraFirst[3] = 96; // Declared body exceeds fixed+keyDataLength.
+        extraFirst[99] = 0xa5;
+        KeyFrame extra = first;
+        extra.eapolBytes = extraFirst;
+        extra.eapolLength = sizeof(extraFirst);
+        extra.nonce = extraFirst + 17;
+        extra.mic = extraFirst + 81;
+        extra.keyRsc = extraFirst + 65;
+        extra.keyData = extraFirst + 99;
+        if (guard.acceptMessage1(extra) != EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::Empty)
+            return false;
         KeyFrame forged = first;
         uint8_t detachedNonce[32] {};
         std::memcpy(detachedNonce, first.nonce, sizeof(detachedNonce));
@@ -774,6 +798,22 @@ namespace
         KeyFrame third {};
         if (parseEapolKey(thirdBytes, sizeof(thirdBytes), third) !=
             EapolResult::Ok)
+            return false;
+        uint8_t extraThird[156] {};
+        std::memcpy(extraThird, thirdBytes, sizeof(thirdBytes));
+        extraThird[3] = 152; // 95 fixed + 56 key data != 152.
+        extraThird[155] = 0x5a;
+        extra = third;
+        extra.eapolBytes = extraThird;
+        extra.eapolLength = sizeof(extraThird);
+        extra.nonce = extraThird + 17;
+        extra.mic = extraThird + 81;
+        extra.keyRsc = extraThird + 65;
+        extra.keyData = extraThird + 99;
+        if (guard.acceptVerifiedMessage3(extra, true) !=
+                EapolResult::InvalidKeyInformation ||
+            guard.phase() != HandshakePhase::AwaitingMessage3 ||
+            guard.lastReplayCounter() != first.replayCounter)
             return false;
         forged = third;
         std::memcpy(detachedNonce, third.nonce, sizeof(detachedNonce));

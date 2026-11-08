@@ -90,6 +90,13 @@ namespace simpleath
             if (nonce < origin ||
                 nonce - origin != K_EAPOL_HEADER_BYTES + K_KEY_NONCE_OFFSET)
                 return false;
+            // A fabricated KeyFrame must not approve a mismatched fixed
+            // EAPOL-Key body/key-data length that the parser would reject.
+            // This also prevents an undeclared suffix from entering the public
+            // replay transition as if it were part of a parsed key packet.
+            if (frame.eapolLength - K_EAPOL_HEADER_BYTES !=
+                K_EAPOL_KEY_FIXED_BYTES + frame.keyDataLength)
+                return false;
             const uint8_t *const bytes = frame.eapolBytes;
             if (bytes[0] < 1 || bytes[0] > 3 ||
                 bytes[1] != K_EAPOL_KEY_PACKET_TYPE ||
@@ -303,6 +310,11 @@ namespace simpleath
                 !frame.keyAck || frame.secure || frame.encryptedData ||
                 frame.installationRequested ||
                 !replay_metadata_matches_wire(frame) ||
+                // Unlike M3, M1 has no MIC. Do not trust an old parser result
+                // if an untrusted RX buffer now contains nonzero MIC bytes.
+                any_nonzero(frame.eapolBytes + K_EAPOL_HEADER_BYTES +
+                                K_KEY_MIC_OFFSET,
+                            K_KEY_MIC_BYTES) ||
                 !any_nonzero(frame.nonce, K_KEY_NONCE_BYTES))
             {
                 return EapolResult::InvalidKeyInformation;
