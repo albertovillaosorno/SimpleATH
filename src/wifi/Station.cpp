@@ -18,6 +18,32 @@ namespace simpleath
                 return left <= right ? right - left < firstBytes
                                      : left - right < secondBytes;
             }
+
+            bool responseSharesSelectedRate(const uint8_t *frame, size_t length,
+                                            const Beacon &selected)
+            {
+                // The association parser already validated this 24-byte
+                // management header and six-byte fixed response body.
+                constexpr size_t kRatesOffset = 24u + 6u;
+                if (length < kRatesOffset)
+                    return false;
+                Elements cursor(frame + kRatesOffset, length - kRatesOffset);
+                Element element {};
+                while (cursor.next(element) == CursorStatus::Element)
+                {
+                    if (element.id != 1 && element.id != 50)
+                        continue;
+                    for (size_t i = 0; i < element.length; ++i)
+                        for (size_t j = 0; j < selected.rateCount; ++j)
+                            // The basic-rate marker does not change the PHY
+                            // rate. At least one selected BSS rate must still
+                            // be advertised by the AP on association success.
+                            if ((element.data[i] & 0x7fu) ==
+                                (selected.rates[j] & 0x7fu))
+                                return true;
+                }
+                return false;
+            }
         } // namespace
 
         Station::Station()
@@ -191,6 +217,11 @@ namespace simpleath
             // parseAssociationResponse already proved the 24-byte header and
             // six-byte fixed response body are present.
             if (((bytes[24] ^ chosen_.beacon.capabilities) & 0x10u) != 0)
+                return StationResult::FrameRejected;
+            // An AP can change its advertised Supported Rates after the
+            // scan. A response with no shared selected-BSS rate is not a
+            // viable negotiated association; leave this state retryable.
+            if (!responseSharesSelectedRate(bytes, length, chosen_.beacon))
                 return StationResult::FrameRejected;
             associationId_ = aid;
             if (chosen_.beacon.rsn.security == Security::Wpa2Personal)

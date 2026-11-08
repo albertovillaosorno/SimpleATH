@@ -90,6 +90,54 @@ namespace
         frame[33] = 0x84;
     }
 
+    bool rejectDisjointAssociationRates()
+    {
+        // A successful response cannot replace the selected BSS rate set
+        // with an entirely disjoint one, then claim a usable association.
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        Bss candidate {};
+        if (parseBeacon(advertisement, sizeof(advertisement),
+                        candidate.beacon) != Result::Ok)
+            return false;
+        candidate.occupied = true;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        Station owner;
+        uint8_t tx[128] {};
+        size_t written = 0;
+        if (owner.enterScanning(true, true) != StationResult::Ok ||
+            owner.select(station, candidate) != StationResult::Ok ||
+            owner.authenticationRequest(1, tx, sizeof(tx), written) !=
+                Result::Ok)
+            return false;
+        uint8_t authentication[30] {};
+        authenticationResponse(authentication);
+        if (owner.onAuthenticationResponse(
+                authentication, sizeof(authentication)) != StationResult::Ok ||
+            owner.associationRequest(2, tx, sizeof(tx), written) != Result::Ok)
+            return false;
+
+        uint8_t response[36] {};
+        associationResponse(response);
+        response[31] = 1;    // One base Supported Rate.
+        response[32] = 0x96; // 11 Mbps, not in the selected 1/2 Mbps BSS.
+        response[33] = 50;   // Extended Supported Rates.
+        response[34] = 1;
+        response[35] = 0x0c; // 6 Mbps, also absent from the selected BSS.
+        if (owner.onAssociationResponse(response, sizeof(response)) !=
+                StationResult::FrameRejected ||
+            owner.state() != StationState::AssociationFramePrepared ||
+            owner.associationId() != 0)
+            return false;
+        // Extended Supported Rates can supply the common rate. Ignore the
+        // basic-rate marker when comparing the same underlying PHY rate.
+        response[35] = 0x04; // 2 Mbps matches advertised basic 0x84.
+        return owner.onAssociationResponse(response, sizeof(response)) ==
+                   StationResult::NetworkInterfaceNotImplemented &&
+               owner.state() == StationState::AssociatedOpen &&
+               owner.associationId() == 1;
+    }
+
     bool rejectInvalidFromDsSource()
     {
         // FromDS address 3 is the originating Ethernet SA. An all-zero or
@@ -626,6 +674,8 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectDisjointAssociationRates())
+        return 32;
     if (!rejectEngineSelfBssidBeforeCrypto())
         return 25;
     if (!rejectStationManagementTxAlias())
