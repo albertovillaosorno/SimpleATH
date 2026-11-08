@@ -109,18 +109,26 @@ namespace simpleath
 
             // The validated pointer descriptor carries at most four
             // nonaggregated DMA payload segments. Its control word must
-            // describe exactly the same on-air MPDU, including the FCS the
-            // radio appends; otherwise the host could advertise bytes that
-            // have no matching bounded DMA payload (or truncate a segment).
+            // describe those mapped bytes, including the 4-byte FCS the
+            // radio appends. Linux ath9k beacon.c maps roundup(skb->len, 4)
+            // while announcing skb->len + FCS_LEN on air: only Beacon may
+            // carry 0..3 octets of mapped DMA tail padding. That padding
+            // must be initialized by the future hardware owner.
             constexpr uint32_t kHardwareFcsBytes = 4U;
+            if (request.onAirFrameLength <= kHardwareFcsBytes)
+                return TxControlError::FrameLengthInvalid;
             uint32_t mappedPayloadBytes = 0;
             for (size_t slot = 0; slot < 4; ++slot)
                 mappedPayloadBytes += descriptor.word[3U + 2U * slot] >> 16U;
-            if (static_cast<uint32_t>(request.onAirFrameLength) !=
-                mappedPayloadBytes + kHardwareFcsBytes)
-            {
+            const uint32_t payloadBytes =
+                static_cast<uint32_t>(request.onAirFrameLength) -
+                kHardwareFcsBytes;
+            const uint32_t expectedMappedBytes =
+                request.packetType == TxPacketType::Beacon
+                    ? (payloadBytes + 3U) & ~3U
+                    : payloadBytes;
+            if (mappedPayloadBytes != expectedMappedBytes)
                 return TxControlError::FrameLengthInvalid;
-            }
 
             if (!policy.siliconIdentified ||
                 !policy.boardCalibrationValidated ||

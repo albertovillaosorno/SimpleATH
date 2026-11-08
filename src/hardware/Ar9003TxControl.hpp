@@ -62,8 +62,9 @@ namespace simpleath
 
         struct TxControlRequest
         {
-                // Includes 4 radio-generated FCS bytes, and must equal the
-                // sum of the validated descriptor's DMA segment lengths + 4.
+                // Includes four radio-generated FCS bytes. Other packet
+                // types equal mapped DMA payload + 4; Beacon permits mapped
+                // payload rounded up by 0..3 initialized alignment bytes.
                 uint16_t onAirFrameLength; // 1..4095 hardware field.
                 TxPacketType packetType;
                 TxCrypto crypto;

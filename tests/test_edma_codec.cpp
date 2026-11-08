@@ -250,6 +250,42 @@ int main()
         (descriptor.word[12] & 0x01000000u) == 0)
         return 37;
 
+    // Linux ath9k beacon.c: pkt_len = skb->len + FCS_LEN, but buf_len
+    // = roundup(skb->len, 4). The 560-byte mapped DMA span is valid for
+    // Beacon on-air sizes 561..564, including 0..3 bytes of tail padding.
+    for (uint16_t onAir = 561; onAir <= 564; ++onAir)
+    {
+        request.onAirFrameLength = onAir;
+        if (encodeTxControls(request, policy, descriptor) !=
+                TxControlError::Ok ||
+            (descriptor.word[11] & 0xfffu) != onAir)
+            return 38;
+    }
+    const TxDescriptor beforeInvalidPadding = descriptor;
+    request.onAirFrameLength = 560; // Would need four padding bytes.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeInvalidPadding))
+        return 39;
+    request.onAirFrameLength = 565; // Too few mapped bytes for the frame.
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeInvalidPadding))
+        return 40;
+    // Other frame types never inherit the Beacon-only padding exception.
+    request.packetType = TxPacketType::Normal;
+    request.noAck = false;
+    request.onAirFrameLength = 561;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeInvalidPadding))
+        return 41;
+    request.packetType = TxPacketType::ProbeResponse;
+    if (encodeTxControls(request, policy, descriptor) !=
+            TxControlError::FrameLengthInvalid ||
+        !same(descriptor, beforeInvalidPadding))
+        return 42;
+
     RxStatusWords rx {};
     rx.word[0] = 0x168c0000u;
     rx.word[1] = 0x0b000000u;
