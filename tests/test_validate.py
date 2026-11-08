@@ -340,6 +340,47 @@ class CacheValidation(unittest.TestCase):
             )
 
     @staticmethod
+    def test_unrelated_native_unit_keeps_tidy_cache_valid() -> None:
+        """Editing one C++ unit must not recheck independent native units."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            first = root / "src/first.cpp"
+            second = root / "src/second.cpp"
+            header = root / "src/common.hpp"
+            _ = first.write_text("int first;", encoding="utf-8")
+            _ = second.write_text("int second;", encoding="utf-8")
+            _ = header.write_text("#pragma once", encoding="utf-8")
+            baseline = _lint_fingerprint(root, first, "clang-tidy")
+            _ = second.write_text("int changed;", encoding="utf-8")
+            assert _lint_fingerprint(root, first, "clang-tidy") == baseline
+            _ = first.write_text("int altered;", encoding="utf-8")
+            altered = _lint_fingerprint(root, first, "clang-tidy")
+            assert altered != baseline
+            _ = header.write_text("#pragma once\nint value;", encoding="utf-8")
+            assert _lint_fingerprint(root, first, "clang-tidy") != altered
+
+    @staticmethod
+    def test_included_native_implementation_and_fragments_invalidate() -> None:
+        """A translation unit including nonheaders still needs fresh lint."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            first = root / "src/first.cpp"
+            second = root / "src/second.cpp"
+            fragment = root / "src/shared.inc"
+            _ = first.write_text(
+                '#include "second.cpp"\n#include "shared.inc"',
+                encoding="utf-8",
+            )
+            _ = second.write_text("int second;", encoding="utf-8")
+            _ = fragment.write_text("int shared;", encoding="utf-8")
+            baseline = _lint_fingerprint(root, first, "clang-tidy")
+            _ = second.write_text("int changed;", encoding="utf-8")
+            updated = _lint_fingerprint(root, first, "clang-tidy")
+            assert updated != baseline
+            _ = fragment.write_text("int changed_shared;", encoding="utf-8")
+            assert _lint_fingerprint(root, first, "clang-tidy") != updated
+
+    @staticmethod
     def test_lint_cache_tracks_language_search_environments() -> None:
         """Native include and Python import paths must invalidate own lint."""
         with tempfile.TemporaryDirectory() as directory:

@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 
@@ -54,6 +55,24 @@ NATIVE = frozenset({
     ".mm",
 })
 UNITS = frozenset({".c", ".cc", ".cpp", ".cxx", ".m", ".mm"})
+# Translation units are hashed individually. Shared native inputs remain
+# global dependencies until a precise transitive include graph is available.
+NATIVE_SHARED = (NATIVE - UNITS) | frozenset({
+    ".def",
+    ".inc",
+    ".inl",
+    ".tpp",
+})
+# C/C++ may include a different implementation file, even via a macro.
+# Fall back to all units if that possibility exists, rather than reuse stale
+# Clang-Tidy results. Quoted or angled ordinary headers need no fallback.
+NATIVE_IMPLEMENTATION_TARGET = (
+    rb'(?:[<"][^>"\r\n]+\.(?:c|cc|cpp|cxx|m|mm)[>"]|[^<"\s])'
+)
+IMPLEMENTATION_INCLUDE = re.compile(
+    rb"(?m)^[ \t]*#[ \t]*include[ \t]+" + NATIVE_IMPLEMENTATION_TARGET,
+    re.IGNORECASE,
+)
 NATIVE_TESTS = frozenset({".cpp", ".mm"})
 SUPPORTED = NATIVE | {".py"}
 TIMEOUT_SECONDS = 60.0
@@ -478,20 +497,38 @@ def tool_version(executable: str, root: Path) -> str:
 
 
 def _dependencies(root: Path, tool: str) -> bytes:
-    """Digest only files a language-level analyzer could consume.
+    """Digest shared inputs without coupling unrelated translation units.
 
     Returns:
         A stable digest including relevant dependency paths and bytes.
 
     """
-    suffixes = {".py", ".pyi"} if tool == PYRIGHT_TOOL else NATIVE
-    digest = hashlib.sha256()
-    files = sorted(
+    suffixes = (
+        {".py", ".pyi"} if tool == PYRIGHT_TOOL else NATIVE_SHARED | UNITS
+    )
+    candidates = sorted(
         p
-        for d in ("src", "tools", "tests")
-        for p in (root / d).rglob("*")
+        for directory in ("src", "tools", "tests")
+        for p in (root / directory).rglob("*")
         if p.is_file() and p.suffix.lower() in suffixes
     )
+    # With no implementation/macro includes, a different .cpp cannot affect
+    # this translation unit. A shared header or include fragment still can.
+    # For less ordinary include forms, conservatively retain the old global
+    # native-unit dependency behavior rather than risk a false cache hit.
+    if tool == PYRIGHT_TOOL:
+        files = candidates
+    else:
+        needs_units = any(
+            IMPLEMENTATION_INCLUDE.search(path.read_bytes())
+            for path in candidates
+        )
+        files = [
+            path
+            for path in candidates
+            if needs_units or path.suffix.lower() not in UNITS
+        ]
+    digest = hashlib.sha256()
     for path in files:
         digest.update(str(path.relative_to(root)).encode())
         digest.update(path.read_bytes())
