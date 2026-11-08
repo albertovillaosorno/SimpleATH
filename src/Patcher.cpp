@@ -7,6 +7,7 @@
 //
 
 #include "Patcher.hpp"
+#include "Payload.hpp"
 #include <cstdint>
 #include <sys/systm.h>
 
