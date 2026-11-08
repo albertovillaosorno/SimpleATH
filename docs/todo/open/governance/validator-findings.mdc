@@ -388,6 +388,52 @@ cache-backed report; the preceding `32401ca` report independently ran
 all 410 checks uncached. **P0 remains OPEN**. No kext build, CI, RF or
 hardware activity occurred.
 
+## Coordinated scan-cache, relocation, PCI and NVM checkpoint, 2026-11-07 18:24 CST
+
+Source-only DCO commits pushed on `main` during this continuation:
+`48e6d35` rejects older beacon timestamps before overwriting or evicting a
+newer BSSID; `85ae780` guards the portable relocator against missing
+imported-image metadata, missing counted arrays and wrapped relocation
+addresses; `cbd28a8` registers the new standalone relocation regression in
+the deterministic Clang-Tidy compilation database; and `e5cf045`
+revalidates the NVM capture's PCI owner immediately after the timer callback
+before permitting an MMIO read. A concurrent lane separately pushed
+`2a4e6a3` (device inspection epoch), `358e3f7` (post-clock RTC owner
+check) and `5eaead6` (post-read PCI D0 owner check). Each changed source
+path was claimed with local agent coordination; the commits are DCO-signed.
+
+The delayed beacon regressions failed against the previous scan cache
+(exits 28 and 29), and the missing imported relocation payload crashed the
+previous source (exit 139). An NVM callback that revoked D0 during the first
+read budget produced a subsequent unauthorized read in the previous source
+(test exit 8). All three fixes then passed strict C++14 and C++17 host
+programs, including AddressSanitizer and UndefinedBehaviorSanitizer, plus
+Clang-Format. The separate NVM discovery regression also passed. These
+regressions do not exercise native PCI or Wi-Fi hardware.
+
+A coordinated, unchanged-source default `python3 -B tools/validate.py` run
+on the source content subsequently committed as `5eaead6` recorded
+`scope=repository`, `source_only=true`, `tests_requested=true`, **162
+source files, 413 requested checks, 361 passed, 52 failed, zero skipped**.
+All 52 failures were Clang-Tidy native translation-unit checks; no
+Ruff, BasedPyright, Clang-Format, host-test, missing-tool or snapshot-drift
+failures appeared. The process JSON and saved `.cache/validate/report.json`
+matched byte-for-byte. The new relocation fixture's Clang-Tidy check was
+actually executed, not bypassed. This is the latest stable source checkpoint
+that was reviewed before the later WPA2 concurrent edits, not a claim that
+`main` is fully lint-clean.
+
+The subsequent `e5cf045` NVM fix also passed complete repository checks
+with no skips or input drift while an unrelated uncommitted `Patcher.cpp`
+cleanup was being evaluated. That tentative cleanup revealed cascading
+strict Clang-Tidy findings and was **fully reverted without a commit**;
+its intermediate result is not final HEAD evidence. A still later validator
+run overlapped a separately claimed WPA2 supplicant change and reported a
+`source-snapshot` failure. That mixed-input report is **not** valid
+acceptance evidence and must be superseded by a stable whole-repository run
+after the WPA2 edit is committed. No linter rules, mandatory checks or
+cache invalidation behavior were weakened. **P0 remains OPEN**.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
