@@ -560,6 +560,10 @@ namespace simpleath
             if (!validStationMac(station) || !validStationMac(network.bssid) ||
                 sameMac(station, network.bssid))
                 return Result::InvalidAddress;
+            // Public callers can manufacture Beacon metadata without parsing
+            // it. The BSS must advertise ESS, not IBSS or contradictory modes.
+            if ((network.capabilities & 0x0003u) != 0x0001u)
+                return Result::InvalidFrame;
             if (network.ssidLength == 0 || network.ssidLength > 32 ||
                 !network.infrastructure || network.hiddenSsid)
                 return Result::InvalidSsid;

@@ -240,6 +240,38 @@ namespace
                parsed.infrastructure;
     }
 
+    bool rejectForgedBssAssociationTx()
+    {
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+            Result::Ok)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[128] {};
+        std::memset(output, 0xa5, sizeof(output));
+        // A caller-built Beacon can forge the infrastructure flag. The
+        // serializer must independently enforce ESS-only capabilities.
+        const uint16_t invalidModes[] {0u, 2u, 3u};
+        for (const uint16_t mode : invalidModes)
+        {
+            network.capabilities = mode;
+            size_t written = 77;
+            if (makeAssociationRequest(station, network, 1, output,
+                                       sizeof(output),
+                                       written) != Result::InvalidFrame ||
+                written != 0 || output[0] != 0xa5)
+                return false;
+        }
+        // Correct infrastructure metadata still produces a request.
+        network.capabilities = 1u;
+        size_t written = 0;
+        return makeAssociationRequest(station, network, 2, output,
+                                      sizeof(output), written) == Result::Ok &&
+               written != 0 && output[0] == 0;
+    }
+
     bool rejectInvalidRates()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -636,5 +668,7 @@ int main()
         return 13;
     if (!rejectConflictingBssModes())
         return 14;
+    if (!rejectForgedBssAssociationTx())
+        return 15;
     return 0;
 }
