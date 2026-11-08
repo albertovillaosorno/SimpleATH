@@ -631,6 +631,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_relocate_safety.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_relocate_safety.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_rtc_power.cpp",
     "arguments": [
       "clang++",
