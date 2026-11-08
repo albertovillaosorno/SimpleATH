@@ -75,14 +75,17 @@ namespace simpleath
                         freeSlot = i;
                     continue;
                 }
+                // A delayed RX callback must not rewind any cached clock or
+                // evict a newer BSSID on the strength of an older sample.
+                // Check all occupied entries, including those after a match.
+                if (nowMs < entries_[i].lastSeenMs)
+                    return Result::InvalidFrame;
                 if (sameMac(entries_[i].beacon.bssid, beacon.bssid))
                 {
                     slot = i;
-                    break;
+                    continue;
                 }
-                const uint64_t age = nowMs >= entries_[i].lastSeenMs
-                                         ? nowMs - entries_[i].lastSeenMs
-                                         : 0;
+                const uint64_t age = nowMs - entries_[i].lastSeenMs;
                 if (oldestSlot == kCapacity || age > oldest)
                 {
                     oldestSlot = i;

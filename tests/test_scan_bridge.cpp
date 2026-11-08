@@ -311,5 +311,46 @@ int main()
     }
     if (!preservedSameBssid)
         return 27;
+
+    // RX callbacks can arrive with a timestamp older than an already cached
+    // observation. Such a delayed frame must not replace a newer BSSID's
+    // security/channel/SSID metadata or roll its expiration clock backwards.
+    static ScanCache chronologicalCache;
+    uint8_t ordered[kBeaconBytes] {};
+    makeBeacon(ordered, 6);
+    if (chronologicalCache.observe(ordered, sizeof(ordered), -40, 2000) !=
+        Result::Ok)
+        return 28;
+    makeBeacon(ordered, 11);
+    if (chronologicalCache.observe(ordered, sizeof(ordered), -25, 1999) !=
+            Result::InvalidFrame ||
+        !chronologicalCache.snapshot(0, recycled) ||
+        recycled.lastSeenMs != 2000 || recycled.beacon.channel != 6 ||
+        recycled.rssiDbm != -40)
+        return 28;
+
+    // With the cache full, a frame older than the newest observation must
+    // not displace any BSSID just because another cached entry is older.
+    for (size_t i = 0; i < ScanCache::kCapacity - 1; ++i)
+    {
+        makeBeacon(ordered, 6);
+        ordered[15] = ordered[21] = static_cast<uint8_t>(i + 1);
+        if (chronologicalCache.observe(ordered, sizeof(ordered), -40,
+                                       2001 + i) != Result::Ok)
+            return 29;
+    }
+    makeBeacon(ordered, 6);
+    ordered[15] = ordered[21] = 0xfdu;
+    if (chronologicalCache.size() != ScanCache::kCapacity ||
+        chronologicalCache.observe(ordered, sizeof(ordered), -20, 2030) !=
+            Result::InvalidFrame ||
+        chronologicalCache.size() != ScanCache::kCapacity)
+        return 29;
+    for (size_t i = 0; i < ScanCache::kCapacity; ++i)
+    {
+        if (!chronologicalCache.snapshot(i, recycled) ||
+            recycled.beacon.bssid.bytes[5] == 0xfdu)
+            return 29;
+    }
     return 0;
 }
