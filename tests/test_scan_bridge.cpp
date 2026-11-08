@@ -90,6 +90,14 @@ int main()
         bridge.beginScan(2, ignored) != ScanBridgeResult::ScanInProgress ||
         bridge.next(ticket, entry) != ScanBridgeResult::ScanInProgress)
         return 2;
+    // A rejected duplicate scan request must not destroy the caller's live
+    // ticket. Otherwise a status poll can orphan the active scan and prevent
+    // its valid completion without any radio failure.
+    const ScanBridgeTicket liveTicket = ticket;
+    if (bridge.beginScan(2, ticket) != ScanBridgeResult::ScanInProgress ||
+        ticket.generation != liveTicket.generation ||
+        ticket.serial != liveTicket.serial)
+        return 32;
     if (cache.observe(beacon, sizeof(beacon), -41, 1000) != Result::Ok ||
         bridge.completeScan(cache, {ticket.generation, 2}, true) !=
             ScanBridgeResult::InvalidState ||
@@ -98,9 +106,21 @@ int main()
         bridge.completion(completed) != ScanBridgeResult::Ok ||
         completed.ticket.generation != ticket.generation ||
         completed.ticket.serial != ticket.serial || !completed.succeeded ||
-        completed.resultCount != 1 ||
-        bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok)
+        completed.resultCount != 1)
         return 3;
+    // Another request while SCAN_DONE is pending must preserve the ticket
+    // needed to acknowledge the pending completion and read its results.
+    if (bridge.beginScan(2, ticket) != ScanBridgeResult::EventPending ||
+        ticket.generation != liveTicket.generation ||
+        ticket.serial != liveTicket.serial)
+        return 33;
+    if (bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok)
+        return 3;
+    // A duplicate request serial must likewise preserve a completed ticket.
+    if (bridge.beginScan(1, ticket) != ScanBridgeResult::InvalidArgument ||
+        ticket.generation != liveTicket.generation ||
+        ticket.serial != liveTicket.serial)
+        return 34;
     completedTicket = ticket;
     if (bridge.next(completedTicket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 6) || !entry.signalMeasured || entry.rssiDbm != -41 ||

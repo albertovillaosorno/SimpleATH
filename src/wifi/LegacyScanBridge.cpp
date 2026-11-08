@@ -81,7 +81,9 @@ namespace simpleath
             // owner object and overwrite its generation or result storage.
             if (overlapsStorage(&ticket, sizeof(ticket), this, sizeof(*this)))
                 return ScanBridgeResult::InvalidArgument;
-            ticket = {};
+            // A failed request must leave an in-flight or just-completed
+            // caller ticket intact; it is still needed for completion and
+            // result enumeration. Mint an output only after all guards pass.
             if (serial == 0)
                 return ScanBridgeResult::InvalidArgument;
             if (state_.radioScanRunning)
@@ -93,6 +95,7 @@ namespace simpleath
             // No wraparound/reuse is possible within this object's lifetime.
             if (lastGeneration_ == UINT64_MAX)
                 return ScanBridgeResult::InvalidState;
+            ticket = {};
             ++lastGeneration_;
             state_.requestSerial = serial;
             state_.activeGeneration = lastGeneration_;
