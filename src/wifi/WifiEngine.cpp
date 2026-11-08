@@ -148,6 +148,11 @@ namespace simpleath
                 return EngineResult::NoMatchingBss;
             if (candidate.beacon.channel != requestedChannel)
                 return EngineResult::CountryNotAuthorized;
+            // Reject a forged local/AP identity before the WPA2 supplicant
+            // sees credentials. Station::select also checks this, but runs
+            // only after the optional security setup below.
+            if (sameMac(station, candidate.beacon.bssid))
+                return EngineResult::InvalidInput;
             const Security security = candidate.beacon.rsn.security;
             if (security == Security::Wpa2Personal)
             {

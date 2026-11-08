@@ -323,6 +323,48 @@ namespace
                owner.state() == StationState::CandidateSelected;
     }
 
+    bool rejectEngineSelfBssidBeforeCrypto()
+    {
+        // A forged local station address equal to the selected WPA2 AP must
+        // be rejected before handing identity and credentials to WPA2.
+        constexpr uint8_t rsnIe[22] {48, 20,   1,    0,    0,    0x0f, 0xac, 4,
+                                     1,  0,    0,    0x0f, 0xac, 4,    1,    0,
+                                     0,  0x0f, 0xac, 2,    0,    0};
+        uint8_t advertisement[49 + sizeof(rsnIe)] {};
+        beacon(advertisement);
+        advertisement[34] |= 0x10; // WPA2 privacy capability.
+        std::memcpy(advertisement + 49, rsnIe, sizeof(rsnIe));
+
+        WifiEngine engine;
+        uint32_t providerContext = 1;
+        const crypto::KeyHardware hardware {
+            &providerContext, fakeRandom, fakePairwise, fakeGroup, fakeRemove};
+        if (!engine.configureKeys(hardware) ||
+            engine.startScan(true, true) != EngineResult::Ok)
+            return false;
+        uint8_t output[256] {};
+        EngineAction action {};
+        const InputTrust verifiedRx {true, true, true, false};
+        if (engine.acceptRx(advertisement, sizeof(advertisement), -40, 1000,
+                            verifiedRx, output, sizeof(output),
+                            action) != EngineResult::Ok ||
+            engine.scan().size() != 1)
+            return false;
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const uint8_t ssid[] {'T', 'e', 's', 't'};
+        uint8_t pmk[32] {1};
+        if (engine.chooseNetwork(ap, ssid, sizeof(ssid), 6, false, true, pmk) !=
+                EngineResult::InvalidInput ||
+            engine.stationState() != StationState::Scanning)
+            return false;
+        // Rejecting the identity cannot consume a valid candidate or make a
+        // subsequent independently addressed WPA2 selection impossible.
+        return engine.chooseNetwork(station, ssid, sizeof(ssid), 6, false, true,
+                                    pmk) == EngineResult::Ok &&
+               engine.stationState() == StationState::CandidateSelected;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -402,6 +444,8 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectEngineSelfBssidBeforeCrypto())
+        return 25;
     if (!rejectStationManagementTxAlias())
         return 19;
     if (!rejectForgedVisibleZeroName())
