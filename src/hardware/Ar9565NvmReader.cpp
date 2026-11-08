@@ -65,6 +65,10 @@ namespace simpleath
                     if (!backend_.ownerInD0(backend_.context))
                         return NvmResult::SessionUnavailable;
                     now = backend_.nowMicros(backend_.context);
+                    // The clock callback itself may revoke the same owner.
+                    // Fail before any next read32/delay through that context.
+                    if (!backend_.ownerInD0(backend_.context))
+                        return NvmResult::SessionUnavailable;
                     if (now < lastMicros_)
                         return NvmResult::InvalidClock;
                     lastMicros_ = now;

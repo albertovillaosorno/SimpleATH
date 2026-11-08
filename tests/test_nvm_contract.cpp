@@ -15,10 +15,12 @@ namespace
             uint32_t ownerChecks = 0;
             uint32_t clocksAfterRevocation = 0;
             uint32_t delaysAfterRevocation = 0;
+            uint32_t readsAfterRevocation = 0;
             uint32_t clocksAfterFirstStatus = 0;
             bool triggerSeen = false;
             bool revokeAfterTriggerTimestamp = false;
             bool revokeDuringWaitTimestamp = false;
+            bool revokeDuringFirstBudgetClock = false;
             bool backwards = false;
             bool d0 = true;
     };
@@ -34,6 +36,8 @@ namespace
     {
         auto &fake = *static_cast<FakeNvm *>(context);
         ++fake.registerReads;
+        if (!fake.d0)
+            ++fake.readsAfterRevocation;
         switch (offset)
         {
             case simpleath::kRevisionRegister:
@@ -63,6 +67,13 @@ namespace
         ++fake.clockReads;
         if (!fake.d0)
             ++fake.clocksAfterRevocation;
+        if (fake.revokeDuringFirstBudgetClock && fake.clockReads == 2)
+        {
+            // Capture construction consumed clock sample one. The first
+            // read() budget consumes sample two, which may revoke the owner.
+            fake.revokeDuringFirstBudgetClock = false;
+            fake.d0 = false;
+        }
         if (fake.triggerSeen && fake.revokeAfterTriggerTimestamp)
         {
             // The post-trigger timestamp itself revokes ownership. The wait
@@ -179,5 +190,16 @@ int main()
         fake.delaysAfterRevocation != 0 || status.captureComplete || bytes[0] ||
         bytes[1])
         return 7;
+
+    // A monotonic time callback can revoke D0 during the first read budget.
+    // It is not safe to read even the silicon revision register afterward.
+    fake = {};
+    fake.revokeDuringFirstBudgetClock = true;
+    bytes[0] = bytes[1] = 0xaa;
+    if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
+        fake.clockReads != 2 || fake.registerReads != 0 ||
+        fake.readsAfterRevocation != 0 || status.captureComplete || bytes[0] ||
+        bytes[1])
+        return 8;
     return 0;
 }
