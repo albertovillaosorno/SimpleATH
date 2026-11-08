@@ -33,6 +33,13 @@ namespace
     {
     }
 
+    bool observingRandom(void *context, uint8_t *, size_t)
+    {
+        // Synthetic only: let tests detect a forbidden provider invocation.
+        ++*static_cast<size_t *>(context);
+        return true;
+    }
+
     void addresses(uint8_t *frame, const uint8_t *destination)
     {
         std::memcpy(frame + 4, destination, 6);
@@ -172,6 +179,64 @@ namespace
                msdu.payload == frame + 32 && msdu.etherType == 0x0800;
     }
 
+    bool rejectCryptoProviderContextAliases()
+    {
+        // The adapter's opaque hardware owner is writable callback state.
+        // Reject a crypto result whose buffer or length reference can erase
+        // even the first byte of that owner, before invoking any callback.
+        struct ProviderContext
+        {
+                size_t calls = 0x1234u;
+                uint8_t storage[128] {};
+        } providerContext {};
+
+        crypto::Adapter adapter;
+        const crypto::KeyHardware hw {&providerContext.calls, observingRandom,
+                                      fakePairwise, fakeGroup, fakeRemove};
+        if (!adapter.configure(hw))
+            return false;
+        const Wpa2Crypto callbacks = adapter.callbacks();
+        uint8_t kek[16] {};
+        uint8_t wrapped[24] {};
+        uint8_t output[32] {};
+        if (callbacks.unwrapGtk(callbacks.context, kek, wrapped,
+                                sizeof(wrapped), output, sizeof(output),
+                                &providerContext.calls) ||
+            providerContext.calls != 0x1234u)
+            return false;
+        if (callbacks.generateNonce(
+                callbacks.context,
+                reinterpret_cast<uint8_t *>(&providerContext.calls)) ||
+            providerContext.calls != 0x1234u)
+            return false;
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t pmk[32] {};
+        uint8_t nonce[32] {};
+        if (callbacks.derivePtk(
+                callbacks.context, pmk, ap, station, nonce, nonce,
+                reinterpret_cast<uint8_t *>(&providerContext)) ||
+            providerContext.calls != 0x1234u)
+            return false;
+        uint8_t eapol[99] {};
+        if (callbacks.micSha1(callbacks.context, pmk, eapol, sizeof(eapol),
+                              reinterpret_cast<uint8_t *>(&providerContext)) ||
+            providerContext.calls != 0x1234u)
+            return false;
+        size_t length = 123;
+        if (callbacks.unwrapGtk(callbacks.context, kek, wrapped,
+                                sizeof(wrapped),
+                                reinterpret_cast<uint8_t *>(&providerContext),
+                                sizeof(providerContext), &length) ||
+            length != 123 || providerContext.calls != 0x1234u)
+            return false;
+        // Disjoint outputs are still passed to a real configured provider.
+        // This host callback only counts invocations, not random bytes.
+        uint8_t independentNonce[32] {};
+        return callbacks.generateNonce(callbacks.context, independentNonce) &&
+               providerContext.calls == 0x1235u;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -257,6 +322,8 @@ int main()
         return 20;
     if (!rejectForeignWpa2Authenticator())
         return 21;
+    if (!rejectCryptoProviderContextAliases())
+        return 22;
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;

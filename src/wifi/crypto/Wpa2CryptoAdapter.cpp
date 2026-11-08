@@ -9,8 +9,11 @@ namespace simpleath
         {
             namespace
             {
-                // Callback outputs must not overwrite the adapter or its
-                // retained provider callbacks. Compare distances rather than
+                // Callback outputs must not overwrite the adapter, its
+                // retained callbacks, or the address of the opaque hardware
+                // context. Only the context's starting byte is known here;
+                // callers must guarantee its entire allocation is disjoint.
+                // Compare distances rather than
                 // forming potentially overflowing pointer ends.
                 bool overlaps(const void *a, size_t aBytes, const void *b,
                               size_t bBytes)
@@ -76,7 +79,8 @@ namespace simpleath
                     return false;
                 auto *adapter = static_cast<Adapter *>(context);
                 if (!adapter->configured_ || !adapter->hardware_.secureRandom ||
-                    overlaps(adapter, sizeof(*adapter), outNonce, 32))
+                    overlaps(adapter, sizeof(*adapter), outNonce, 32) ||
+                    overlaps(adapter->hardware_.context, 1, outNonce, 32))
                     return false;
                 return adapter->hardware_.secureRandom(
                     adapter->hardware_.context, outNonce, 32);
@@ -87,8 +91,10 @@ namespace simpleath
                               const uint8_t aNonce[32],
                               const uint8_t sNonce[32], uint8_t outPtk[48])
             {
-                if (!context || !static_cast<Adapter *>(context)->configured_ ||
-                    overlaps(context, sizeof(Adapter), outPtk, 48))
+                auto *adapter = static_cast<Adapter *>(context);
+                if (!adapter || !adapter->configured_ ||
+                    overlaps(adapter, sizeof(*adapter), outPtk, 48) ||
+                    overlaps(adapter->hardware_.context, 1, outPtk, 48))
                     return false;
                 return derivePtk(pmk, ap, station, aNonce, sNonce, outPtk) ==
                        Error::Ok;
@@ -98,8 +104,10 @@ namespace simpleath
                               const uint8_t *eapol, size_t frameBytes,
                               uint8_t outMic[16])
             {
-                if (!context || !static_cast<Adapter *>(context)->configured_ ||
-                    overlaps(context, sizeof(Adapter), outMic, 16))
+                auto *adapter = static_cast<Adapter *>(context);
+                if (!adapter || !adapter->configured_ ||
+                    overlaps(adapter, sizeof(*adapter), outMic, 16) ||
+                    overlaps(adapter->hardware_.context, 1, outMic, 16))
                     return false;
                 return calculateMic(key, eapol, frameBytes, outMic) ==
                        Error::Ok;
@@ -110,11 +118,14 @@ namespace simpleath
                                  uint8_t *out, size_t capacity,
                                  size_t *resultLength)
             {
-                if (!context || !resultLength ||
-                    !static_cast<Adapter *>(context)->configured_ ||
-                    overlaps(context, sizeof(Adapter), resultLength,
+                auto *adapter = static_cast<Adapter *>(context);
+                if (!adapter || !resultLength || !adapter->configured_ ||
+                    overlaps(adapter, sizeof(*adapter), resultLength,
                              sizeof(*resultLength)) ||
-                    overlaps(context, sizeof(Adapter), out, capacity))
+                    overlaps(adapter, sizeof(*adapter), out, capacity) ||
+                    overlaps(adapter->hardware_.context, 1, resultLength,
+                             sizeof(*resultLength)) ||
+                    overlaps(adapter->hardware_.context, 1, out, capacity))
                     return false;
                 // unwrapKey rejects overlapping length/key/ciphertext/output
                 // storage BEFORE it initializes the result length. Do not
