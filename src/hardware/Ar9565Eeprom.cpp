@@ -198,11 +198,20 @@ namespace simpleath
                 if (templates.find)
                     base = templates.find(templates.context, info.reference,
                                           &baseLength);
-                if (!base || baseLength != sizeof(image.bytes) ||
-                    base[1] != info.reference)
+                if (!base || baseLength != sizeof(image.bytes))
                     return EepromResult::MissingTemplate;
-                if (overlapsImage(base, baseLength, image))
+                // The callback's returned base is separately borrowed from
+                // its context. A forged 1088-byte length cannot turn a short
+                // verified delta or our own metadata into trusted template
+                // data, nor let its copy read beyond those allocations.
+                // Check known aliases before even reading the template ID.
+                if (overlaps(base, baseLength, frame, frameBytes) ||
+                    overlaps(base, baseLength, &templates, sizeof(templates)) ||
+                    overlaps(base, baseLength, &info, sizeof(info)) ||
+                    overlapsImage(base, baseLength, image))
                     return EepromResult::InvalidArgument;
+                if (base[1] != info.reference)
+                    return EepromResult::MissingTemplate;
             }
             else if (!image.restored)
             {

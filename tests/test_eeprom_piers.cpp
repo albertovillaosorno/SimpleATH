@@ -5,6 +5,20 @@
 
 namespace
 {
+    struct BorrowedTemplateReturn
+    {
+            const uint8_t *base;
+    };
+
+    const uint8_t *borrowedTemplateLookup(void *context, uint8_t,
+                                          size_t *length)
+    {
+        if (!context || !length)
+            return nullptr;
+        *length = simpleath::kAr9300EepromImageBytes;
+        return static_cast<BorrowedTemplateReturn *>(context)->base;
+    }
+
     const uint8_t *mutatingTemplateLookup(void *context, uint8_t reference,
                                           size_t *length)
     {
@@ -184,6 +198,34 @@ int main()
         image.bytes[0] != 2 || !image.restored || scratch[0] != 0xa5 ||
         restoreStatus.result != EepromResult::BadChecksum)
         return 19;
+
+    // A provider can also return a supposedly immutable template pointer
+    // into the already authenticated input block while its own context is
+    // separate. Never accept input bytes as a trusted template baseline.
+    // The synthetic base has a real 1088-byte backing allocation so this
+    // negative-before regression is defined behavior, even without a guard.
+    static uint8_t frameBacking[1120] {};
+    uint8_t *aliasedFrame = frameBacking + 8;
+    const uint8_t validDelta[] = {0x62, 0x00, 0x30, 0x01, 0x00,
+                                  0x01, 0x22, 0x23, 0x00};
+    for (size_t i = 0; i < sizeof(validDelta); ++i)
+        aliasedFrame[i] = validDelta[i];
+    frameBacking[7] = 2; // Base's template ID matches reference 2.
+    BorrowedTemplateReturn baseContext {frameBacking + 6};
+    EepromTemplates badBase {&baseContext, borrowedTemplateLookup};
+    static EepromImage unsafeBaseImage {};
+    unsafeBaseImage.bytes[0] = 0x7e;
+    EepromBlockInfo unsafeBaseInfo {};
+    unsafeBaseInfo.major = 91;
+    if (applyEepromBlock(aliasedFrame, sizeof(validDelta), badBase,
+                         unsafeBaseImage,
+                         unsafeBaseInfo) != EepromResult::InvalidArgument ||
+        // The metadata was parsed before the provider returned its base;
+        // the image must remain intact but lastBlock reports that header.
+        unsafeBaseInfo.major != 0 || unsafeBaseInfo.minor != 1 ||
+        unsafeBaseImage.bytes[0] != 0x7e || unsafeBaseImage.restored ||
+        aliasedFrame[6] != 0x22)
+        return 20;
 
     // An empty or tampered diagnostic summary must never choose apparently
     // supported zero-index gain tables. Reject without retaining old gains.

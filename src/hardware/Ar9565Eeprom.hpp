@@ -77,7 +77,9 @@ namespace simpleath
     // frame, or its own callback table; its complete allocation must remain
     // disjoint. If info aliases frame/image/templates, image aliases templates
     // or the context starts in image/info/frame/templates, InvalidArgument is
-    // returned before invoking callbacks or mutating image/info.
+    // returned before invoking callbacks or mutating image/info. A returned
+    // template base may not alias the source frame, callback table, image or
+    // diagnostics; its reported 1088-byte extent is checked before reading.
     EepromResult applyEepromBlock(const uint8_t *frame, size_t frameBytes,
                                   const EepromTemplates &templates,
                                   EepromImage &image, EepromBlockInfo &info);
