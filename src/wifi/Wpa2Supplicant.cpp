@@ -23,6 +23,24 @@ namespace simpleath
                 0,  0 // RSN capabilities: PMF not negotiated.
             };
 
+            // Crypto callbacks may reset and restart this owner. Keep the
+            // previous session's secret inputs in zeroized call-local storage
+            // so revoked callbacks cannot borrow newly installed credentials.
+            template <size_t N> struct ScopedSecret
+            {
+                    uint8_t bytes[N] {};
+                    ScopedSecret() = default;
+                    ScopedSecret(const ScopedSecret &) = delete;
+                    ScopedSecret &operator=(const ScopedSecret &) = delete;
+
+                    ~ScopedSecret()
+                    {
+                        volatile uint8_t *out = bytes;
+                        for (size_t i = 0; i < N; ++i)
+                            out[i] = 0;
+                    }
+            };
+
             void copyBytes(uint8_t *destination, const uint8_t *source,
                            size_t count)
             {
@@ -219,7 +237,7 @@ namespace simpleath
             : state_(Wpa2State::Inactive), crypto_ {}, replay_ {}, station_ {},
               ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, expectedRsnIe_ {},
               expectedRsnIeLength_(0), eapolVersion_(0),
-              keyInstallAttempted_(false)
+              keyInstallAttempted_(false), sessionEpoch_(0)
         {
         }
 
@@ -242,8 +260,10 @@ namespace simpleath
 
         Wpa2Result Wpa2Supplicant::fail(Wpa2Result error)
         {
-            if (keyInstallAttempted_ && crypto_.removeInstalledKeys)
-                crypto_.removeInstalledKeys(crypto_.context);
+            const bool rollback = keyInstallAttempted_;
+            const Wpa2Crypto previousCrypto = crypto_;
+            // Mark failed and revoke stored secrets BEFORE an untrusted
+            // rollback callback. A reentrant reset/begin owns fresh state.
             keyInstallAttempted_ = false;
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
@@ -251,13 +271,19 @@ namespace simpleath
             secureClear(expectedRsnIe_, sizeof(expectedRsnIe_));
             expectedRsnIeLength_ = 0;
             state_ = Wpa2State::Failed;
+            if (rollback && previousCrypto.removeInstalledKeys)
+                previousCrypto.removeInstalledKeys(previousCrypto.context);
             return error;
         }
 
         void Wpa2Supplicant::reset()
         {
-            if (keyInstallAttempted_ && crypto_.removeInstalledKeys)
-                crypto_.removeInstalledKeys(crypto_.context);
+            const bool rollback = keyInstallAttempted_;
+            const Wpa2Crypto previousCrypto = crypto_;
+            // Revoke the in-flight callback's epoch before it can resume.
+            // Clear state BEFORE rollback, which itself may call reset/begin.
+            ++sessionEpoch_;
+            keyInstallAttempted_ = false;
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
@@ -268,8 +294,9 @@ namespace simpleath
             station_ = {};
             ap_ = {};
             eapolVersion_ = 0;
-            keyInstallAttempted_ = false;
             state_ = Wpa2State::Inactive;
+            if (rollback && previousCrypto.removeInstalledKeys)
+                previousCrypto.removeInstalledKeys(previousCrypto.context);
         }
 
         Wpa2Result Wpa2Supplicant::begin(const Wpa2Crypto &crypto,
@@ -310,6 +337,7 @@ namespace simpleath
             copyBytes(pmk_, pmk, sizeof(pmk_));
             copyBytes(expectedRsnIe_, expectedRsnIe, expectedRsnIeLength);
             expectedRsnIeLength_ = expectedRsnIeLength;
+            ++sessionEpoch_;
             state_ = Wpa2State::AwaitingMessage1;
             return Wpa2Result::Ok;
         }
@@ -328,6 +356,7 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             if (!outMessage2 || capacity < kMessage2Length)
                 return Wpa2Result::BufferTooSmall;
+            const uint64_t epoch = sessionEpoch_;
             // M1 is not MIC-protected. Still capture its complete input once
             // so the stored ANonce/replay counter and PTK derivation cannot
             // observe different versions of a mutable RX/DMA buffer.
@@ -356,18 +385,49 @@ namespace simpleath
                 secureClear(receivedM1, sizeof(receivedM1));
                 return Wpa2Result::InvalidReplayCounter;
             }
-            if (!crypto_.generateNonce(crypto_.context, snonce_) ||
-                !nonzero(snonce_, sizeof(snonce_)))
+            state_ = Wpa2State::ProcessingMessage1;
+            uint8_t generatedNonce[32] {};
+            const bool nonceGenerated =
+                crypto_.generateNonce(crypto_.context, generatedNonce);
+            if (sessionEpoch_ != epoch)
             {
+                secureClear(generatedNonce, sizeof(generatedNonce));
+                secureClear(receivedM1, sizeof(receivedM1));
+                return Wpa2Result::InvalidState;
+            }
+            if (!nonceGenerated ||
+                !nonzero(generatedNonce, sizeof(generatedNonce)))
+            {
+                secureClear(generatedNonce, sizeof(generatedNonce));
                 secureClear(receivedM1, sizeof(receivedM1));
                 return fail(Wpa2Result::RandomFailure);
             }
-            if (!crypto_.derivePtk(crypto_.context, pmk_, ap_, station_,
-                                   parsed.nonce, snonce_, ptk_))
+            ScopedSecret<32> pmkSnapshot {};
+            copyBytes(pmkSnapshot.bytes, pmk_, sizeof(pmk_));
+            const Mac apSnapshot = ap_;
+            const Mac stationSnapshot = station_;
+            uint8_t derivedPtk[48] {};
+            const bool derived = crypto_.derivePtk(
+                crypto_.context, pmkSnapshot.bytes, apSnapshot, stationSnapshot,
+                parsed.nonce, generatedNonce, derivedPtk);
+            if (sessionEpoch_ != epoch)
             {
+                secureClear(generatedNonce, sizeof(generatedNonce));
+                secureClear(derivedPtk, sizeof(derivedPtk));
+                secureClear(receivedM1, sizeof(receivedM1));
+                return Wpa2Result::InvalidState;
+            }
+            if (!derived)
+            {
+                secureClear(generatedNonce, sizeof(generatedNonce));
+                secureClear(derivedPtk, sizeof(derivedPtk));
                 secureClear(receivedM1, sizeof(receivedM1));
                 return fail(Wpa2Result::KeyDerivationFailure);
             }
+            copyBytes(snonce_, generatedNonce, sizeof(snonce_));
+            copyBytes(ptk_, derivedPtk, sizeof(ptk_));
+            secureClear(generatedNonce, sizeof(generatedNonce));
+            secureClear(derivedPtk, sizeof(derivedPtk));
             eapolVersion_ = parsed.eapolBytes[0];
             secureClear(receivedM1, sizeof(receivedM1));
 
@@ -375,10 +435,21 @@ namespace simpleath
             populateEapolKey(response, sizeof(response), eapolVersion_, 0x010au,
                              parsed.replayCounter, snonce_);
             copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
+            ScopedSecret<16> kckSnapshot {};
+            copyBytes(kckSnapshot.bytes, ptk_, sizeof(kckSnapshot.bytes));
             uint8_t calculatedMic[16] {};
-            if (!crypto_.micSha1(crypto_.context, ptk_, response,
-                                 sizeof(response), calculatedMic))
+            const bool signedMessage2 =
+                crypto_.micSha1(crypto_.context, kckSnapshot.bytes, response,
+                                sizeof(response), calculatedMic);
+            if (sessionEpoch_ != epoch)
             {
+                secureClear(response, sizeof(response));
+                secureClear(calculatedMic, sizeof(calculatedMic));
+                return Wpa2Result::InvalidState;
+            }
+            if (!signedMessage2)
+            {
+                secureClear(response, sizeof(response));
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return fail(Wpa2Result::MicCalculationFailure);
             }
@@ -406,6 +477,7 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             if (!outMessage4 || capacity < kMessage4Length)
                 return Wpa2Result::BufferTooSmall;
+            const uint64_t epoch = sessionEpoch_;
             // Preflight the untrusted input only to bound the copy. Reparse
             // the private snapshot: KeyFrame contains borrowed pointers and
             // scalar replay/key-length fields, none of which may describe a
@@ -443,9 +515,22 @@ namespace simpleath
                       sizeof(receivedMic));
             for (size_t i = 0; i < sizeof(receivedMic); ++i)
                 signedEapol[kEapolHeaderBytes + 77u + i] = 0;
+            ScopedSecret<48> ptkSnapshot {};
+            copyBytes(ptkSnapshot.bytes, ptk_, sizeof(ptk_));
+            const Mac apSnapshot = ap_;
+            state_ = Wpa2State::ProcessingMessage3;
             uint8_t expectedMic[16] {};
-            if (!crypto_.micSha1(crypto_.context, ptk_, signedEapol,
-                                 parsed.eapolLength, expectedMic))
+            const bool verifiedMic =
+                crypto_.micSha1(crypto_.context, ptkSnapshot.bytes, signedEapol,
+                                parsed.eapolLength, expectedMic);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(signedEapol, sizeof(signedEapol));
+                secureClear(receivedMic, sizeof(receivedMic));
+                secureClear(expectedMic, sizeof(expectedMic));
+                return Wpa2Result::InvalidState;
+            }
+            if (!verifiedMic)
             {
                 secureClear(signedEapol, sizeof(signedEapol));
                 secureClear(receivedMic, sizeof(receivedMic));
@@ -482,14 +567,20 @@ namespace simpleath
 
             uint8_t decrypted[kMaximumGtkPlaintext] {};
             size_t decryptedLength = 0;
-            const bool unwrapped =
-                crypto_.unwrapGtk(crypto_.context, ptk_ + 16u, parsed.keyData,
-                                  parsed.keyDataLength, decrypted,
-                                  sizeof(decrypted), &decryptedLength);
+            const bool unwrapped = crypto_.unwrapGtk(
+                crypto_.context, ptkSnapshot.bytes + 16u, parsed.keyData,
+                parsed.keyDataLength, decrypted, sizeof(decrypted),
+                &decryptedLength);
             // The ciphertext and nonce are not needed after unwrap; ensure
             // even a provider failure cannot leave the authenticated RX image
             // in kernel stack memory past this operation.
             secureClear(signedEapol, sizeof(signedEapol));
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(decrypted, sizeof(decrypted));
+                secureClear(authenticatedRsc, sizeof(authenticatedRsc));
+                return Wpa2Result::InvalidState;
+            }
             if (!unwrapped || decryptedLength == 0 ||
                 decryptedLength > sizeof(decrypted))
             {
@@ -512,11 +603,19 @@ namespace simpleath
                              parsed.replayCounter, nullptr);
             uint8_t calculatedMic[16] {};
             const bool signedResponse =
-                crypto_.micSha1(crypto_.context, ptk_, response,
+                crypto_.micSha1(crypto_.context, ptkSnapshot.bytes, response,
                                 sizeof(response), calculatedMic);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
+                secureClear(calculatedMic, sizeof(calculatedMic));
+                return Wpa2Result::InvalidState;
+            }
             if (!signedResponse)
             {
                 secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return fail(Wpa2Result::MicCalculationFailure);
             }
@@ -530,14 +629,29 @@ namespace simpleath
             // A failed callback can still leave a partially written key slot.
             // Arm rollback before either hardware installation attempt.
             keyInstallAttempted_ = true;
-            if (!crypto_.installPairwiseTk(crypto_.context, ap_, ptk_ + 32u))
+            const bool pairwiseInstalled = crypto_.installPairwiseTk(
+                crypto_.context, apSnapshot, ptkSnapshot.bytes + 32u);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
+                return Wpa2Result::InvalidState;
+            }
+            if (!pairwiseInstalled)
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));
                 return fail(Wpa2Result::HardwareKeyInstallFailure);
             }
-            if (!crypto_.installGroupGtk(crypto_.context, keyId, gtk,
-                                         authenticatedRsc))
+            const bool groupInstalled = crypto_.installGroupGtk(
+                crypto_.context, keyId, gtk, authenticatedRsc);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(gtk, sizeof(gtk));
+                secureClear(response, sizeof(response));
+                return Wpa2Result::InvalidState;
+            }
+            if (!groupInstalled)
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));

@@ -39,7 +39,9 @@ namespace simpleath
             AwaitingMessage1,
             AwaitingMessage3,
             HardwareKeysInstalled,
-            Failed
+            Failed,
+            ProcessingMessage1,
+            ProcessingMessage3
         };
 
         // Callbacks run synchronously under the station's serialized workloop.
@@ -145,6 +147,9 @@ namespace simpleath
                 size_t expectedRsnIeLength_;
                 uint8_t eapolVersion_;
                 bool keyInstallAttempted_;
+                // Reset/begin revoke callbacks from an earlier handshake even
+                // when a provider reenters reset()+begin() before returning.
+                uint64_t sessionEpoch_;
         };
 
     } // namespace ieee80211

@@ -92,6 +92,13 @@ namespace
             bool pairwiseSuccess = true;
             bool groupSuccess = true;
             bool alteredRsn = false;
+            Wpa2Supplicant *owner = nullptr;
+            bool revokeOnNonce = false;
+            bool revokeOnPtk = false;
+            unsigned revokeMicCall = 0;
+            bool revokeOnUnwrap = false;
+            bool revokeOnPairwise = false;
+            bool revokeOnGroup = false;
             unsigned nonceCalls = 0;
             unsigned ptkCalls = 0;
             unsigned micCalls = 0;
@@ -99,6 +106,9 @@ namespace
             unsigned pairwiseCalls = 0;
             unsigned groupCalls = 0;
             unsigned rollbackCalls = 0;
+            uint8_t observedPmk = 0;
+            uint8_t observedKck = 0;
+            uint8_t observedKek = 0;
             uint8_t installedTk[16] {};
             uint8_t installedGtk[16] {};
             uint8_t installedRsc[8] {};
@@ -109,37 +119,48 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.nonceCalls;
+        if (state.revokeOnNonce && state.owner)
+            state.owner->reset();
         for (size_t index = 0; index < 32; ++index)
             out[index] = static_cast<uint8_t>(index + 1);
         return true;
     }
 
-    bool handshakePtk(void *context, const uint8_t[32], const Mac &,
+    bool handshakePtk(void *context, const uint8_t pmk[32], const Mac &,
                       const Mac &, const uint8_t[32], const uint8_t[32],
                       uint8_t out[48])
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.ptkCalls;
+        if (state.revokeOnPtk && state.owner)
+            state.owner->reset();
+        state.observedPmk = pmk[0];
         for (size_t index = 0; index < 48; ++index)
             out[index] = static_cast<uint8_t>(index + 1);
         return true;
     }
 
-    bool handshakeMic(void *context, const uint8_t[16], const uint8_t *, size_t,
-                      uint8_t out[16])
+    bool handshakeMic(void *context, const uint8_t kck[16], const uint8_t *,
+                      size_t, uint8_t out[16])
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.micCalls;
+        if (state.revokeMicCall == state.micCalls && state.owner)
+            state.owner->reset();
+        state.observedKck = kck[0];
         for (size_t index = 0; index < 16; ++index)
             out[index] = 0x55;
         return true;
     }
 
-    bool handshakeUnwrap(void *context, const uint8_t[16], const uint8_t *,
+    bool handshakeUnwrap(void *context, const uint8_t kek[16], const uint8_t *,
                          size_t, uint8_t *out, size_t capacity, size_t *written)
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.unwrapCalls;
+        if (state.revokeOnUnwrap && state.owner)
+            state.owner->reset();
+        state.observedKek = kek[0];
         if (capacity < 48)
             return false;
         std::memcpy(out, kRsnIe, sizeof(kRsnIe));
@@ -160,6 +181,8 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.pairwiseCalls;
+        if (state.revokeOnPairwise && state.owner)
+            state.owner->reset();
         if (std::memcmp(ap.bytes, kAp.bytes, sizeof(ap.bytes)) != 0)
             return false;
         std::memcpy(state.installedTk, tk, sizeof(state.installedTk));
@@ -171,6 +194,8 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.groupCalls;
+        if (state.revokeOnGroup && state.owner)
+            state.owner->reset();
         state.installedKeyId = keyId;
         std::memcpy(state.installedGtk, gtk, sizeof(state.installedGtk));
         std::memcpy(state.installedRsc, rsc, sizeof(state.installedRsc));
@@ -303,6 +328,66 @@ namespace
             return false;
         supplicant.reset();
         return state.rollbackCalls == (installationFailed ? 1u : 0u);
+    }
+
+    // Crypto callbacks may synchronously revoke the owner. No continuation
+    // may call a cleared provider, publish a response, or restore old state.
+    bool rejectRevokedCallback(unsigned stage)
+    {
+        HandshakeCallbacks callbacks {};
+        Wpa2Supplicant supplicant;
+        callbacks.owner = &supplicant;
+        callbacks.revokeOnNonce = stage == 0;
+        callbacks.revokeOnPtk = stage == 1;
+        callbacks.revokeMicCall = stage == 2   ? 1u
+                                  : stage == 3 ? 2u
+                                  : stage == 7 ? 3u
+                                               : 0u;
+        callbacks.revokeOnUnwrap = stage == 4;
+        callbacks.revokeOnPairwise = stage == 5;
+        callbacks.revokeOnGroup = stage == 6;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+            return false;
+        uint8_t m1[99] {};
+        makeM1(m1);
+        uint8_t m2[121] {};
+        std::memset(m2, 0xa5, sizeof(m2));
+        size_t written = 123;
+        if (stage <= 2)
+        {
+            if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2),
+                                      written) != Wpa2Result::InvalidState ||
+                written != 0 || m2[0] != 0xa5 ||
+                supplicant.state() != Wpa2State::Inactive ||
+                callbacks.groupCalls || callbacks.pairwiseCalls)
+                return false;
+            return (stage != 1 || callbacks.observedPmk == 1) &&
+                   (stage != 2 || callbacks.observedKck == 1);
+        }
+        if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
+                Wpa2Result::Ok ||
+            written != sizeof(m2))
+            return false;
+        uint8_t m3[155] {};
+        makeM3(m3);
+        uint8_t m4[99] {};
+        std::memset(m4, 0xa5, sizeof(m4));
+        written = 123;
+        const Wpa2Result outcome =
+            supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
+        const unsigned expectedRollback = (stage == 5 || stage == 6) ? 1u : 0u;
+        return outcome == Wpa2Result::InvalidState && written == 0 &&
+               m4[0] == 0xa5 && supplicant.state() == Wpa2State::Inactive &&
+               callbacks.rollbackCalls == expectedRollback &&
+               callbacks.groupCalls == (stage == 6 ? 1u : 0u) &&
+               callbacks.pairwiseCalls ==
+                   ((stage == 5 || stage == 6) ? 1u : 0u) &&
+               ((stage != 3 && stage != 7) || callbacks.observedKck == 1) &&
+               (stage != 4 || callbacks.observedKek == 17) &&
+               (stage != 5 || callbacks.installedTk[0] == 33);
     }
 
     bool rejectEapolParserInputAlias()
@@ -481,5 +566,8 @@ int main()
     for (const auto scenario : scenarios)
         if (!exerciseM3(scenario))
             return 15 + static_cast<int>(scenario);
+    for (unsigned stage = 0; stage <= 7; ++stage)
+        if (!rejectRevokedCallback(stage))
+            return 30 + static_cast<int>(stage);
     return 0;
 }
