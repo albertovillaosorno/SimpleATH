@@ -464,6 +464,57 @@ namespace
         return true;
     }
 
+    bool rejectInvalidManagementRxIdentities()
+    {
+        const Mac empty {};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t auth[30] {};
+        auth[0] = 0xb0; // Successful Open authentication transaction 2.
+        auth[26] = 2;
+        uint16_t status = 777;
+        // Equality of forged addresses does not make either identity a
+        // physical unicast AP or station.
+        if (parseAuthenticationResponse(auth, sizeof(auth), empty, empty,
+                                        status) != Result::InvalidAddress ||
+            status != 777)
+            return false;
+        std::memcpy(auth + 4, kAp, 6);
+        std::memcpy(auth + 10, kAp, 6);
+        std::memcpy(auth + 16, kAp, 6);
+        if (parseAuthenticationResponse(auth, sizeof(auth), ap, ap, status) !=
+                Result::InvalidAddress ||
+            status != 777)
+            return false;
+        std::memcpy(auth + 4, kStation, 6);
+        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
+                                        status) != Result::Ok ||
+            status != 0)
+            return false;
+
+        uint8_t association[kAssocBytes] {};
+        makeAssoc(association);
+        std::memset(association + 4, 0, 18);
+        status = 777;
+        uint16_t aid = 888;
+        if (parseAssociationResponse(association, sizeof(association), empty,
+                                     empty, status,
+                                     aid) != Result::InvalidAddress ||
+            status != 777 || aid != 888)
+            return false;
+        makeAssoc(association);
+        std::memcpy(association + 4, kAp, 6);
+        if (parseAssociationResponse(association, sizeof(association), ap, ap,
+                                     status, aid) != Result::InvalidAddress ||
+            status != 777 || aid != 888)
+            return false;
+        makeAssoc(association);
+        return parseAssociationResponse(association, sizeof(association),
+                                        station, ap, status,
+                                        aid) == Result::Ok &&
+               status == 0 && aid == 1;
+    }
+
     bool rejectNonInfrastructureAssociation()
     {
         uint8_t frame[kAssocBytes] {};
@@ -548,5 +599,7 @@ int main()
         return 11;
     if (!rejectSelfBssidManagementTx())
         return 12;
+    if (!rejectInvalidManagementRxIdentities())
+        return 13;
     return 0;
 }

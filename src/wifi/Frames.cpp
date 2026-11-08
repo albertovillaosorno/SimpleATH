@@ -619,6 +619,11 @@ namespace simpleath
                 overlaps(&statusCode, sizeof(statusCode), &bssid,
                          sizeof(bssid)))
                 return Result::OverlappingBuffers;
+            // Caller-provided association identities are not trusted merely
+            // because the incoming MAC header matches their bytes.
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
+                return Result::InvalidAddress;
             Frame parsed {};
             Result result = parseFrame(bytes, length, parsed);
             if (result != Result::Ok)
@@ -656,6 +661,11 @@ namespace simpleath
                 overlaps(&associationId, sizeof(associationId), &bssid,
                          sizeof(bssid)))
                 return Result::OverlappingBuffers;
+            // Caller-provided association identities are not trusted merely
+            // because the incoming MAC header matches their bytes.
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
+                return Result::InvalidAddress;
             Frame parsed {};
             Result result = parseFrame(bytes, length, parsed);
             if (result != Result::Ok)
