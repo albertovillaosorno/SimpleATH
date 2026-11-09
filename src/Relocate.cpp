@@ -128,9 +128,16 @@ namespace ath
             image.address > UINTPTR_MAX - p.mappedSize)
             return 0;
         const auto offset = p.stubOffset + image.stubUsed;
+        auto *const stub = image.memory + offset;
+        // Direct callers do not pass through relocateImage's metadata-alias
+        // checks. A forged stub reservation must not overwrite the payload
+        // descriptor or the LinkedImage state that owns this reservation.
+        if (overlapsStorage(stub, 16, image.payload, sizeof(*image.payload)) ||
+            overlapsStorage(stub, 16, &image, sizeof(image)))
+            return 0;
         const uint8_t jump[] = {0xFF, 0x25, 0, 0, 0, 0};
-        memcpy(image.memory + offset, jump, sizeof(jump));
-        memcpy(image.memory + offset + sizeof(jump), &target, sizeof(target));
+        memcpy(stub, jump, sizeof(jump));
+        memcpy(stub + sizeof(jump), &target, sizeof(target));
         image.stubUsed += 16;
         return image.address + offset;
     }

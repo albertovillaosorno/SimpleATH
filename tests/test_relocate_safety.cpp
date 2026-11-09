@@ -216,6 +216,42 @@ int main()
         executableAndStubs[16] != 0xff || executableAndStubs[17] != 0x25)
         return 34;
 
+    // The direct stub writer is also an entrypoint: a forged mapping can
+    // point its writable stub range into the payload descriptor itself.
+    // Do not corrupt the descriptors needed for subsequent memory safety.
+    ath::Payload selfDescribingPayload {};
+    selfDescribingPayload.size = 16;
+    selfDescribingPayload.mappedSize = sizeof(selfDescribingPayload);
+    selfDescribingPayload.stubOffset = 16;
+    selfDescribingPayload.stubSize = 16;
+    auto *payloadStorage = reinterpret_cast<uint8_t *>(&selfDescribingPayload);
+    uint8_t originalPayload[sizeof(selfDescribingPayload)] {};
+    std::memcpy(originalPayload, payloadStorage, sizeof(originalPayload));
+    ath::LinkedImage selfDescribingImage {
+        &selfDescribingPayload, payloadStorage, 0x7000, 0, false, true};
+    if (ath::allocateStub(selfDescribingImage, 0x12345678) != 0 ||
+        selfDescribingImage.stubUsed != 0 ||
+        std::memcmp(originalPayload, payloadStorage, sizeof(originalPayload)) !=
+            0)
+        return 38;
+
+    // A second forged mapping can alias the LinkedImage descriptor that
+    // carries its own memory pointer, allocation state and target address.
+    ath::Payload selfAliasedPayload {};
+    selfAliasedPayload.size = 0;
+    selfAliasedPayload.mappedSize = sizeof(ath::LinkedImage);
+    selfAliasedPayload.stubOffset = 0;
+    selfAliasedPayload.stubSize = 16;
+    ath::LinkedImage selfAliasedImage {
+        &selfAliasedPayload, nullptr, 0x8000, 0, false, true};
+    selfAliasedImage.memory = reinterpret_cast<uint8_t *>(&selfAliasedImage);
+    uint8_t originalImage[sizeof(selfAliasedImage)] {};
+    std::memcpy(originalImage, &selfAliasedImage, sizeof(originalImage));
+    if (ath::allocateStub(selfAliasedImage, 0x12345678) != 0 ||
+        std::memcmp(originalImage, &selfAliasedImage, sizeof(originalImage)) !=
+            0)
+        return 39;
+
     // Relocation metadata can itself live inside a caller-owned mapping.
     // Treat it as immutable input: writing the first relocated pointer must
     // never modify a still-live relocation record or return success.
