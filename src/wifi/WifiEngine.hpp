@@ -75,6 +75,10 @@ namespace simpleath
                 bool channelAuthorized;
                 bool dmaAndFcsVerified;
                 bool ccmpMicAndReplayVerified;
+                // Verified RX buffer may retain its four-byte trailing FCS.
+                // This describes byte layout, not FCS validation itself.
+                // TX callers leave false; historical stripped RX is default.
+                bool rxFrameIncludesFcs = false;
         };
 
         // Caller allocates this relatively large object on a persistent

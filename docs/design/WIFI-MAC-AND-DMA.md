@@ -36,7 +36,11 @@ for the **next separately authorized build**.
   cannot corrupt the received frame in-place. The station data path also
   rejects TX output/result overlap with Ethernet or link identity, and RX
   result overlap with frame or link identity before any write. These source
-  checks do not replace DMA ownership or hardware MIC/PN validation.
+  checks do not replace DMA ownership or hardware MIC/PN validation. The
+  engine's RX trust metadata records whether a verified DMA frame retains
+  its four-byte FCS; it excludes that trailer from beacon IE parsing and
+  LLC/SNAP Ethernet delivery. A native backend must supply both real FCS
+  layout and independent verification; metadata alone proves neither.
   Pointer relinking and TX control encoding revalidate the canonical block:
   at least one contiguous nonzero segment, 12-bit lengths, no 4-GiB crossing,
   zero unused slots, aligned link, supported queue and pointer checksum.

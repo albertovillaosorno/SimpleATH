@@ -1199,6 +1199,7 @@ int main()
     static WifiEngine engine;
     const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
     const InputTrust syntheticTrust {true, true, true, false};
+    const InputTrust verifiedRxWithFcs {true, true, true, false, true};
     const InputTrust unverifiedFrame {true, true, false, false};
     uint8_t tx[512] {};
     uint8_t probe[49] {};
@@ -1211,6 +1212,26 @@ int main()
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)
         return 2;
+    // An inconsistent FCS layout cannot underflow the MAC frame length.
+    const uint8_t truncatedFcs[3] {0x08, 0x02, 0xff};
+    if (engine.acceptRx(truncatedFcs, sizeof(truncatedFcs), -42, 999,
+                        verifiedRxWithFcs, tx, sizeof(tx),
+                        action) != EngineResult::InvalidReceivedFrame ||
+        action.kind != ActionKind::None)
+        return 54;
+    // A verified DMA buffer can still contain the trailing FCS. Those four
+    // bytes are NOT management information elements. The same parser must
+    // accept the BSS as a stripped frame, without corrupting scan admission.
+    uint8_t probeWithFcs[sizeof(probe) + 4] {};
+    std::memcpy(probeWithFcs, probe, sizeof(probe));
+    probeWithFcs[sizeof(probe)] = 0xfe;
+    probeWithFcs[sizeof(probe) + 1] = 0xff;
+    if (engine.acceptRx(probeWithFcs, sizeof(probeWithFcs), -42, 999,
+                        verifiedRxWithFcs, tx, sizeof(tx),
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::ScanCacheUpdated ||
+        engine.scan().size() != 1)
+        return 52;
     if (engine.acceptRx(probe, sizeof(probe), -42, 1000, syntheticTrust, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
@@ -1252,6 +1273,32 @@ int main()
         engine.stationState() != StationState::AssociatedOpen ||
         action.nativeInterfaceUsable || engine.hasNativeWifiInterface())
         return 7;
+
+    // On RX, a verified but retained FCS is not Ethernet payload. The
+    // caller-provided layout bit must strip it before LLC/SNAP delivery.
+    uint8_t incoming[24 + 8 + 3 + 4] {};
+    incoming[0] = 0x08; // Data subtype.
+    incoming[1] = 0x02; // FromDS, not ToDS.
+    std::memcpy(incoming + 4, kStation, 6);
+    std::memcpy(incoming + 10, kAp, 6);
+    std::memcpy(incoming + 16, kAp, 6);
+    incoming[24] = incoming[25] = 0xaa;
+    incoming[26] = 3;
+    incoming[30] = 0x08; // IPv4 Ethertype.
+    incoming[32] = 0x45;
+    incoming[33] = 0x01;
+    incoming[34] = 0x02;
+    incoming[35] = 0xfa; // FCS is verified externally, not decoded here.
+    incoming[36] = 0xfb;
+    incoming[37] = 0xfc;
+    incoming[38] = 0xfd;
+    if (engine.acceptRx(incoming, sizeof(incoming), -42, 1030,
+                        verifiedRxWithFcs, tx, sizeof(tx),
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload ||
+        action.receivedPayload != incoming + 32 ||
+        action.receivedPayloadBytes != 3 || action.etherType != 0x0800)
+        return 53;
 
     uint8_t ethernet[17] {};
     std::memcpy(ethernet, kAp, 6);

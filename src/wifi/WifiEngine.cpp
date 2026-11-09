@@ -449,8 +449,16 @@ namespace simpleath
             if (!frame || !trust.radioReady || !trust.channelAuthorized ||
                 !trust.dmaAndFcsVerified)
                 return EngineResult::InvalidInput;
+            // The trusted DMA owner must state whether the verified FCS was
+            // stripped. A retained FCS is neither a management IE tail nor
+            // Ethernet payload. Bounds/alias checks above cover the original
+            // allocation; all parsers below see only the on-air MAC body.
+            if (trust.rxFrameIncludesFcs && length < 4u)
+                return EngineResult::InvalidReceivedFrame;
+            const size_t macBytes =
+                length - (trust.rxFrameIncludesFcs ? 4u : 0u);
             Frame header {};
-            if (parseFrame(frame, length, header) != Result::Ok)
+            if (parseFrame(frame, macBytes, header) != Result::Ok)
                 return EngineResult::InvalidReceivedFrame;
 
             if (header.type == FrameType::Management)
@@ -459,17 +467,18 @@ namespace simpleath
                 {
                     if (station_.state() == StationState::Scanning)
                     {
-                        if (cache_.observe(frame, length, rssi, nowMs) ==
+                        if (cache_.observe(frame, macBytes, rssi, nowMs) ==
                             Result::Ok)
                             return emitPrepared(ActionKind::ScanCacheUpdated, 0,
                                                 action);
                     }
                 }
-                return handleManagement(frame, length, nowMs, out, capacity,
+                return handleManagement(frame, macBytes, nowMs, out, capacity,
                                         action);
             }
             if (header.type == FrameType::Data)
-                return handleData(frame, length, trust, out, capacity, action);
+                return handleData(frame, macBytes, trust, out, capacity,
+                                  action);
             return EngineResult::NoAction;
         }
 
