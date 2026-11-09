@@ -27,6 +27,11 @@ claim that the device has a usable WPA2 association.
 - Wpa2CryptoAdapter.cpp: real primitive callback wiring to the existing
   Wpa2Supplicant. Random nonces, CCMP pairwise/group hardware keycache
   programming and key removal require a separate native platform backend.
+- The public EAPOL replay guard now binds MIC, key RSC and key-data borrowed
+  pointers to the exact packet offsets, as it already does for the nonce and
+  scalar replay fields. A forged detached field is rejected before M1/M3
+  state publication; synthetic red/green tests cover all three pointers for
+  each message. This is no substitute for MIC verification or CCMP PN checks.
 
 These are new AGPL-3.0-only C++ sources built from published specifications
 (FIPS 180-4, RFC 2104, RFC 2898, FIPS 197, RFC 3394, IEEE 802.11).

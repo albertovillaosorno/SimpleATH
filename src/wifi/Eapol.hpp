@@ -79,8 +79,9 @@ namespace simpleath
 
         // This is only a replay guard. A verified MIC is necessary for message
         // 3, but it is not sufficient to claim a completed WPA2 four-way
-        // handshake. The borrowed frame metadata and nonce must not overlap
-        // this guard's persistent state.
+        // handshake. All borrowed frame fields must point into the same wire
+        // image at their defined offsets, and neither the frame nor its
+        // metadata may overlap this guard's persistent state.
         class ReplayGuard
         {
             public:

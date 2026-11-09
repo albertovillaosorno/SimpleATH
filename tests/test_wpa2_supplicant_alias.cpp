@@ -842,6 +842,24 @@ namespace
         --forged.eapolLength;
         if (guard.acceptMessage1(forged) != EapolResult::InvalidKeyInformation)
             return false;
+        // These three borrowed fields must identify the actual wire image,
+        // even when ReplayGuard does not consume their contents itself.
+        uint8_t detachedFields[32] {};
+        for (unsigned field = 0; field < 3; ++field)
+        {
+            forged = first;
+            if (field == 0)
+                forged.keyRsc = detachedFields;
+            else if (field == 1)
+                forged.mic = detachedFields;
+            else
+                forged.keyData = detachedFields;
+            if (guard.acceptMessage1(forged) !=
+                    EapolResult::InvalidKeyInformation ||
+                guard.phase() != HandshakePhase::Empty ||
+                guard.lastReplayCounter() != 0)
+                return false;
+        }
         if (guard.acceptMessage1(first) != EapolResult::Ok)
             return false;
 
@@ -890,6 +908,21 @@ namespace
         if (guard.acceptVerifiedMessage3(forged, true) !=
             EapolResult::InvalidKeyInformation)
             return false;
+        for (unsigned field = 0; field < 3; ++field)
+        {
+            forged = third;
+            if (field == 0)
+                forged.keyRsc = detachedFields;
+            else if (field == 1)
+                forged.mic = detachedFields;
+            else
+                forged.keyData = detachedFields;
+            if (guard.acceptVerifiedMessage3(forged, true) !=
+                    EapolResult::InvalidKeyInformation ||
+                guard.phase() != HandshakePhase::AwaitingMessage3 ||
+                guard.lastReplayCounter() != first.replayCounter)
+                return false;
+        }
         return guard.acceptVerifiedMessage3(third, true) == EapolResult::Ok &&
                guard.phase() == HandshakePhase::Message3MicVerified &&
                guard.lastReplayCounter() == third.replayCounter;

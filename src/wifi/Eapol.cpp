@@ -72,23 +72,35 @@ namespace simpleath
                                    : first - second < second_bytes;
         }
 
+        static bool at_wire_offset(const uint8_t *const frame,
+                                   const uint8_t *const field, size_t offset)
+        {
+            const auto origin = reinterpret_cast<uintptr_t>(frame);
+            const auto location = reinterpret_cast<uintptr_t>(field);
+            return location >= origin && location - origin == offset;
+        }
+
         static bool replay_metadata_matches_wire(const KeyFrame &frame)
         {
             // ReplayGuard accepts public, caller-built KeyFrame values. Keep
-            // the nonce and scalar replay/key fields tied to the same bounded
-            // EAPOL frame rather than trusting detached metadata. The M3 MIC
-            // bytes may already have been zeroed for verification, so never
-            // reparse the whole packet at this stage.
+            // every borrowed subfield and the scalar replay/key fields tied
+            // to the same bounded EAPOL image, not detached caller storage.
+            // The M3 MIC bytes may already be zeroed for verification, so
+            // never reparse the whole packet at this stage.
             if (frame.eapolBytes == nullptr || frame.nonce == nullptr ||
                 frame.eapolLength <
                     K_EAPOL_HEADER_BYTES + K_EAPOL_KEY_FIXED_BYTES ||
                 frame.eapolLength >
                     K_EAPOL_HEADER_BYTES + K_MAX_EAPOL_BODY_BYTES)
                 return false;
-            const auto origin = reinterpret_cast<uintptr_t>(frame.eapolBytes);
-            const auto nonce = reinterpret_cast<uintptr_t>(frame.nonce);
-            if (nonce < origin ||
-                nonce - origin != K_EAPOL_HEADER_BYTES + K_KEY_NONCE_OFFSET)
+            if (!at_wire_offset(frame.eapolBytes, frame.nonce,
+                                K_EAPOL_HEADER_BYTES + K_KEY_NONCE_OFFSET) ||
+                !at_wire_offset(frame.eapolBytes, frame.keyRsc,
+                                K_EAPOL_HEADER_BYTES + K_KEY_RSC_OFFSET) ||
+                !at_wire_offset(frame.eapolBytes, frame.mic,
+                                K_EAPOL_HEADER_BYTES + K_KEY_MIC_OFFSET) ||
+                !at_wire_offset(frame.eapolBytes, frame.keyData,
+                                K_EAPOL_HEADER_BYTES + K_EAPOL_KEY_FIXED_BYTES))
                 return false;
             // A fabricated KeyFrame must not approve a mismatched fixed
             // EAPOL-Key body/key-data length that the parser would reject.
