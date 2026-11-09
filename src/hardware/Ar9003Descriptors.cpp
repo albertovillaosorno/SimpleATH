@@ -64,6 +64,10 @@ namespace simpleath
         static constexpr uint32_t K_RX_RSSI_WORD = 5U;
         static constexpr uint32_t K_RX_FLAGS_WORD = 11U;
         static constexpr uint32_t K_RX_LENGTH_MASK = 0x0fffU;
+        // Shortest permitted received 802.11 control MPDU is an ACK/CTS:
+        // 10 MAC octets plus 4 received FCS octets. Longer data/management
+        // headers are checked by their separate downstream MAC parser.
+        static constexpr uint32_t K_RX_MIN_MPDU_BYTES = 14U;
         static constexpr uint32_t K_RX_MAX_SINGLE_MPDU_BYTES = 2346U;
         static constexpr uint32_t K_RX_MORE_FRAGMENTS = 0x1000U;
         static constexpr uint32_t K_RX_HT40 = 0x2U;
@@ -330,7 +334,8 @@ namespace simpleath
             // authorize an aggregate's first, middle or last member for
             // native delivery without that independently reviewed pipeline.
             // The 12-bit length field cannot authorize jumbo MPDUs either.
-            if (!status.frameValid || status.frameLength == 0 ||
+            if (!status.frameValid ||
+                status.frameLength < K_RX_MIN_MPDU_BYTES ||
                 status.frameLength > K_RX_MAX_SINGLE_MPDU_BYTES ||
                 !supportedRxRate(status.rateCode) ||
                 (status.ht40 && status.rateCode < 0x80U) ||

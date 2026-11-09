@@ -417,6 +417,25 @@ int main()
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.frameValid || decoded.frameLength != 128u)
         return 50;
+    // Even a control ACK/CTS MPDU has a ten-byte MAC header plus four
+    // radio-received FCS octets. A forged completed status shorter than 14
+    // bytes cannot be a valid 802.11 frame. Fourteen stays representable so
+    // the downstream frame parser can classify/reject control subtypes.
+    const uint32_t invalidShortLengths[] {1u, 4u, 13u};
+    for (uint32_t tooShort : invalidShortLengths)
+    {
+        rx.word[2] = tooShort;
+        decoded.completed = true;
+        decoded.frameValid = true;
+        decoded.frameLength = static_cast<uint16_t>(tooShort);
+        if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+            decoded.completed || decoded.frameValid || decoded.frameLength)
+            return 67;
+    }
+    rx.word[2] = 14u;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || decoded.frameLength != 14u)
+        return 68;
     // The single-buffer, non-aggregating RX path has no reviewed MPDU
     // larger than the IEEE 802.11 2346-octet limit including its FCS.
     // A 12-bit hardware length alone cannot authorize a 4095-byte frame.

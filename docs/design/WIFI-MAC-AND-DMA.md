@@ -48,6 +48,11 @@ for the **next separately authorized build**.
   The passive EDMA RX decoder rejects rate codes outside the AR9565 2.4 GHz
   CCK/OFDM and single-stream HT MCS0..7 set, including MCS8+ and nonsensical
   legacy-HT40 combinations, even when a forged status marks the CRC as good.
+  It also rejects completed MPDUs shorter than 14 bytes, the minimum
+  ACK/CTS MAC header plus FCS. The 14-byte control-frame boundary stays
+  representable; the downstream MAC parser separately excludes unsupported
+  control subtypes. Synthetic host tests cover 1/4/13-byte corruption and
+  that exact valid length. This is no substitute for DMA/FCS verification.
   This check does not prove a valid PHY demodulation, RX owner, FCS or CCMP
   integrity, which remain native backend requirements.
   No safe bus mastering, EDMA ring programming, interrupt completion, active
