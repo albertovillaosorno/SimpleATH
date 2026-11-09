@@ -90,6 +90,24 @@ namespace simpleath
             return overlaps(source, length, &image, sizeof(image));
         }
 
+        // A pinned reference image contains a generic MAC, not physical
+        // board identity. Discovery rejects these; reject them again for
+        // direct gain selectors that only receive a diagnostic summary.
+        bool isPinnedPlaceholderMac(const uint8_t mac[6])
+        {
+            for (const auto &entry : eeprom_templates::kCatalog)
+            {
+                if (entry.length != kAr9300EepromImageBytes)
+                    continue;
+                bool matches = true;
+                for (size_t i = 0; i < 6; ++i)
+                    matches = matches && mac[i] == entry.bytes[2 + i];
+                if (matches)
+                    return true;
+            }
+            return false;
+        }
+
         // Unlike upstream's permissive restoration, reject truncated records
         // and propagate every bounds failure. Validate the ENTIRE delta before
         // applying.
@@ -432,7 +450,8 @@ namespace simpleath
         // This only checks structural provenance; it does not establish that
         // the NVM was acquired from the physical board or calibrated.
         if (board.eepromVersion != 2 || !validatePermanentMac(board.mac) ||
-            board.txChainMask != 1 || board.rxChainMask != 1 ||
+            isPinnedPlaceholderMac(board.mac) || board.txChainMask != 1 ||
+            board.rxChainMask != 1 ||
             !(board.operationFlags & 0x02u))
             return EepromResult::InvalidBoardIdentity;
         // A direct gain-map caller must not bypass discovery's structural

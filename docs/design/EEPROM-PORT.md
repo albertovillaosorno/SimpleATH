@@ -30,8 +30,12 @@ rather than reusing a prior supported profile. Gain selection also rejects a
 zero-initialized or structurally invalid summary (version, permanent MAC,
 single-chain mask, 2 GHz capability, plausible ordered pier bins) before
 choosing usable-looking zero-index tables. Direct gain-mapping callers cannot
-bypass discovery's malformed-pier guard; selected gains still confer no RF
-permission. These are structural checks, not proof of NVM origin or calibration.
+bypass discovery's malformed-pier guard or its pinned dictionary MAC
+placeholder rejection. A synthetic direct selector with the generic template
+MAC previously returned usable-looking gains (host exit 22); the selector now
+returns `InvalidBoardIdentity` and resets both outputs to `Unknown`.
+Selected gains still confer no RF permission. These are structural checks,
+not proof of NVM origin or calibration.
 Initialization rejects `Unknown`.
 
 The block parser consumes header/payload/checksum in descending NVM address

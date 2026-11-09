@@ -257,6 +257,20 @@ int main()
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
         return 15;
+    // A pinned dictionary's generic MAC is not a physical board identity.
+    // Discovery rejects such placeholders, but a direct gain-table caller
+    // must not bypass that rejection by constructing a valid-looking summary.
+    invalid = accepted;
+    const uint8_t genericMac[] {0, 2, 3, 4, 5, 6};
+    for (size_t i = 0; i < sizeof(genericMac); ++i)
+        invalid.mac[i] = genericMac[i];
+    tx = TxGainProfile::HighOb;
+    rx = RxGainProfile::WithoutExternalLna;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+            EepromResult::InvalidBoardIdentity ||
+        tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+        return 22;
+
     // Gain selection may be called directly on a diagnostic summary. A
     // malformed-pier board must not supply a seemingly usable gain profile.
     invalid = accepted;
