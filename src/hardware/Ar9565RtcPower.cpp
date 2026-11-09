@@ -405,6 +405,11 @@ namespace simpleath
             else
                 result = run.check();
         }
+        // A final RTC read/awake callback can pass its post-operation gate
+        // while D0 ownership is revoked before bootstrap/readiness is
+        // published. A new capability check must precede all success state.
+        if (result == RtcResult::Ok)
+            result = run.check();
         if (result == RtcResult::Ok && !context.bootstrapCompleted)
         {
             // Commit readiness only after RTC status and MCI callbacks have

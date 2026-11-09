@@ -56,7 +56,12 @@ bits, forces wake, toggles RTC_RESET, polls RTC_STATUS for ON, issues a
 warm MAC reset, then sets the AR9565 WA workaround bit. Only successful
 bootstrap authorizes later EnsureAwake/WarmReset/ColdReset operations
 **in that ownership epoch only**. Readiness is committed after the final
-RTC status check and MCI callback, never merely after the last write.
+RTC status check, MCI callback and a separate ownership/clock gate, never
+merely after the last write. A synthetic callback regression revokes
+ownership immediately after the final status-read gate; the transition now
+returns `AccessRevoked` and clears bootstrap readiness rather than publishing
+success. This is not proof that a real provider can prevent an unguarded D0
+transition outside a serialized owner transaction.
 
 Warm/cold MAC reset polls AR_RTC_RC, conditionally handles host-interface
 sync timeouts, and uses 50 us reset assertion for this AR9003 variant.

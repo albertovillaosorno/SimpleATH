@@ -23,6 +23,9 @@ namespace
             bool backwardOnRevision = false;
             bool revokeAfterFirstWrite = false;
             bool revokeOnSecondClock = false;
+            bool revokeAfterFinalStatusCheck = false;
+            bool finalStatusRead = false;
+            unsigned finalStatusOwnerChecks = 0;
             bool sawColdReset = false;
             unsigned readAttempts = 0;
             unsigned reads = 0;
@@ -38,6 +41,14 @@ namespace
             static bool canReset(void *context, uint64_t ownerEpoch)
             {
                 auto &self = get(context);
+                if (self.revokeAfterFinalStatusCheck && self.finalStatusRead &&
+                    ++self.finalStatusOwnerChecks == 2)
+                {
+                    // The last post-read ownership check can succeed just
+                    // before the provider is revoked during publication.
+                    self.alive = false;
+                    return true;
+                }
                 return self.alive && self.epoch == ownerEpoch;
             }
 
@@ -61,6 +72,11 @@ namespace
                         return true;
                     case kRtcStatusRegister:
                         *value = self.stuckWake ? 1u : self.rtcStatus;
+                        // The bootstrap's last WA write precedes the final
+                        // RTC_STATUS read, with no more MMIO before success.
+                        if (self.revokeAfterFinalStatusCheck &&
+                            (self.workaround & (1u << 22u)))
+                            self.finalStatusRead = true;
                         return true;
                     case 0x704c: // AR_RTC_FORCE_WAKE
                         *value = self.forceWake;
@@ -359,6 +375,24 @@ int main()
             fake.writes || status.boardStateInvalidated ||
             context.workaroundCaptured)
             return 22;
+    }
+    {
+        // Ownership may disappear immediately after the last successful
+        // post-read gate but before readiness is written into the context.
+        // The public API must not publish a valid bootstrap in that window.
+        FakeRtc fake {};
+        fake.revokeAfterFinalStatusCheck = true;
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        const auto backend = fake.backend();
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::AccessRevoked ||
+            fake.alive || fake.finalStatusOwnerChecks != 3 ||
+            !status.boardStateInvalidated || status.rtcAwake ||
+            context.bootstrapCompleted || context.bootstrapEpoch ||
+            !status.resetCompleted)
+            return 23;
     }
     return 0;
 }
