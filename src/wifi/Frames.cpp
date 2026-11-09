@@ -102,11 +102,18 @@ namespace simpleath
                 const uint8_t phyRate = rate & 0x7fu;
                 if (phyRate == 0)
                     return false;
+                // Japan's channel 14 is 802.11b/CCK-only. Do not let
+                // the ordinary 2.4-GHz OFDM table make an otherwise
+                // untransmittable BSS look joinable. An unsupported *basic*
+                // rate must reject the BSS; optional rates can be omitted.
                 bool available = false;
-                for (uint8_t known : K_RATES)
-                    available |= (known & 0x7fu) == phyRate;
-                for (uint8_t known : K_EXTENDED_RATES)
-                    available |= (known & 0x7fu) == phyRate;
+                const size_t baseRateCount =
+                    network.channel == 14 ? 4u : sizeof(K_RATES);
+                for (size_t j = 0; j < baseRateCount; ++j)
+                    available |= (K_RATES[j] & 0x7fu) == phyRate;
+                if (network.channel != 14)
+                    for (uint8_t known : K_EXTENDED_RATES)
+                        available |= (known & 0x7fu) == phyRate;
                 if (!available)
                 {
                     if ((rate & 0x80u) != 0)
@@ -144,7 +151,11 @@ namespace simpleath
         static bool validAssociationCadenceAndChannel(const Beacon &network)
         {
             return network.intervalTu != 0 && network.channel >= 1u &&
-                   network.channel <= 14u;
+                   network.channel <= 14u &&
+                   // Even a forged public Beacon snapshot must not advertise
+                   // HT on channel 14, where the PHY is legacy CCK only.
+                   (network.channel != 14 ||
+                    (!network.htSupported && !network.ht40Allowed));
         }
 
         // Both public preflight sizing and serialization must use exactly the

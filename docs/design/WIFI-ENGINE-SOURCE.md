@@ -9,6 +9,10 @@ The new WifiEngine interface wires together existing portable modules:
   invalid/unmeasured values within the same security class; unsuccessful BSS
   lookups clear the returned snapshot.
 - Explicit per-channel selection and station authentication/association.
+  Channel 14 is CCK-only: mandatory OFDM rates and HT metadata make a BSS
+  unjoinable there; optional OFDM rates are excluded from the negotiated
+  Supported Rates IE. This matches the separate channel-14 power candidate
+  restriction and prevents a software-only false association promise.
   The authentication response handler preflights the exact association TX
   buffer size before consuming the station state transition; allocation
   failures can be retried without stranding authentication. A valid AP

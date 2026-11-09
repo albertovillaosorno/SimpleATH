@@ -974,6 +974,77 @@ namespace
         return associationRequestLength(invalid) == 0;
     }
 
+    bool rejectChannel14NonCckAssociation()
+    {
+        uint8_t advertisement[kBeaconBytes] {};
+        makeBeacon(advertisement);
+        advertisement[48] = 14; // Parsed BSS on the Japan-only channel.
+        Beacon network {};
+        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
+                Result::Ok ||
+            network.channel != 14)
+            return false;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        uint8_t output[128] {};
+        size_t written = 0;
+
+        // Baseline CCK-only channel-14 BSS remains joinable.
+        if (associationRequestLength(network) == 0 ||
+            makeAssociationRequest(station, network, 1, output, sizeof(output),
+                                   written) != Result::Ok ||
+            output[34] != 1 || output[35] != 2 || output[36] != 0x82 ||
+            output[37] != 0x84)
+            return false;
+
+        // An optional OFDM rate must not appear in an association request,
+        // while the same rate is allowed on ordinary 2.4-GHz channels.
+        network.rates[0] = 0x0c;
+        if (associationRequestLength(network) == 0 ||
+            associationRateSupported(network, 0x0c) ||
+            !associationRateSupported(network, 0x84) ||
+            makeAssociationRequest(station, network, 2, output, sizeof(output),
+                                   written) != Result::Ok ||
+            output[35] != 1 || output[36] != 0x84)
+            return false;
+        network.channel = 13;
+        if (associationRequestLength(network) == 0 ||
+            !associationRateSupported(network, 0x0c) ||
+            makeAssociationRequest(station, network, 3, output, sizeof(output),
+                                   written) != Result::Ok ||
+            output[35] != 2 || output[36] != 0x0c)
+            return false;
+
+        // A mandatory OFDM rate makes channel 14 unjoinable, even when
+        // another local CCK rate overlaps. Rejected serialization must leave
+        // the caller's TX buffer untouched and clear its stale byte count.
+        network.channel = 14;
+        network.rates[0] = 0x8c;
+        std::memset(output, 0xa5, sizeof(output));
+        written = 77;
+        if (associationRequestLength(network) != 0 ||
+            associationRateSupported(network, 0x84) ||
+            makeAssociationRequest(station, network, 4, output, sizeof(output),
+                                   written) != Result::InvalidElement ||
+            written != 0 || output[0] != 0xa5)
+            return false;
+
+        // An OFDM-only AP cannot join by advertising the unsupported rate as
+        // optional; a forged HT metadata flag is also invalid on channel 14.
+        network.rates[0] = 0x0c;
+        network.rates[1] = 0x12;
+        if (associationRequestLength(network) != 0)
+            return false;
+        network.rates[0] = 0x82;
+        network.rates[1] = 0x84;
+        network.htSupported = true;
+        if (associationRequestLength(network) != 0 ||
+            makeAssociationRequest(station, network, 5, output, sizeof(output),
+                                   written) != Result::InvalidFrame)
+            return false;
+        network.htSupported = false;
+        return associationRequestLength(network) != 0;
+    }
+
     bool enforceAssociationAdmission()
     {
         uint8_t frame[kAssocBytes] {};
@@ -1058,5 +1129,7 @@ int main()
         return 21;
     if (!rejectUnserializableAssociationLengths())
         return 24;
+    if (!rejectChannel14NonCckAssociation())
+        return 25;
     return 0;
 }
