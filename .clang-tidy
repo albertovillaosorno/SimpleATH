@@ -1,4 +1,4 @@
-# SimpleATH/macOS: preserve Darwin and hardware ABI spelling/layout while checking project camelCase, memory safety, and concurrency; missing Apple SDKs are reported as skipped, never faked.
+# SimpleATH/macOS: keep native ABI naming; missing SDK headers fail by default and only explicit --linux mode skips them.
 InheritParentConfig: false
 Checks: >
   -*,
@@ -16,6 +16,7 @@ Checks: >
   -cppcoreguidelines-avoid-c-arrays,
   -cppcoreguidelines-use-enum-class,
   -modernize-avoid-c-arrays,
+  -modernize-concat-nested-namespaces,
   -modernize-deprecated-headers,
   -modernize-use-trailing-return-type,
   -misc-use-anonymous-namespace,
