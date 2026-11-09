@@ -161,6 +161,11 @@ namespace simpleath
             {
                 if (frameLength < header.headerLength + 2)
                     return LinkMonitorResult::InvalidFrame;
+                // A Protected bit is meaningful for robust management only
+                // after PMF negotiation. An Open/non-PMF link must not trust
+                // a stale or forged caller assertion of MIC/PN verification.
+                if (header.protectedFrame && !status_.pmfNegotiated)
+                    return LinkMonitorResult::InvalidFrame;
                 if (status_.pmfNegotiated &&
                     (!header.protectedFrame || !protectedMicAndPnVerified))
                     return LinkMonitorResult::RejectedUnprotectedManagement;

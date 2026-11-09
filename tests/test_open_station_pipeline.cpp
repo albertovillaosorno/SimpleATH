@@ -962,6 +962,43 @@ namespace
                owner.state() == StationState::AssociationFramePrepared;
     }
 
+    bool rejectUnexpectedProtectedLinkManagementRx()
+    {
+        // A Protected bit with a caller-supplied true MIC/PN assertion cannot
+        // authenticate robust management when PMF was never negotiated.
+        // Neither forged deauth nor disassoc may revoke an Open association.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t forged[26] {};
+        addresses(forged, kStation);
+        forged[1] = 0x40; // Protected management frame.
+        forged[24] = 7;   // Nonzero reason code.
+        const uint8_t subtypes[] = {0xc0, 0xa0};
+        for (uint8_t subtype : subtypes)
+        {
+            LinkMonitor open;
+            if (open.started(station, ap, 100, 1000, false, false) !=
+                LinkMonitorResult::Ok)
+                return false;
+            forged[0] = subtype;
+            if (open.observeManagement(forged, sizeof(forged), 1500, true,
+                                       true) !=
+                    LinkMonitorResult::InvalidFrame ||
+                open.status().state != LinkState::Associated)
+                return false;
+        }
+        // A genuinely PMF-negotiated session still honors a verified robust
+        // management frame from its associated AP.
+        LinkMonitor pmf;
+        if (pmf.started(station, ap, 100, 1000, true, false) !=
+            LinkMonitorResult::Ok)
+            return false;
+        forged[0] = 0xc0;
+        return pmf.observeManagement(forged, sizeof(forged), 1500, true,
+                                     true) == LinkMonitorResult::Ok &&
+               pmf.status().state == LinkState::ReconnectPending;
+    }
+
     bool rejectAliasedLinkManagementRx()
     {
         // A callback may accidentally borrow a link monitor's live snapshot
@@ -1010,6 +1047,8 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectUnexpectedProtectedLinkManagementRx())
+        return 49;
     if (!rejectAliasedLinkManagementRx())
         return 47;
     if (!associationUsesSelectedRates())

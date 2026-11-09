@@ -87,6 +87,11 @@ for the **next separately authorized build**.
   monitor rejects station/BSSID inputs referencing its own retained snapshot
   before a restart clears that snapshot; a stale reconnect cannot report a
   new association with zeroed identities. This is not native link proof.
+- **Protected management needs negotiated PMF.** A deauthentication or
+  disassociation frame with the Protected bit set cannot revoke an Open or
+  non-PMF link, even if the caller presents an unrelated MIC/PN verdict.
+  Negotiated PMF still requires trusted cryptographic and replay validation;
+  the portable monitor does not supply that validation itself.
 - **No association means Wi-Fi connected.** The station's source-level
   state machine explicitly refuses to report a complete network interface.
 
