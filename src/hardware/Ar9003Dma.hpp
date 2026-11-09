@@ -32,13 +32,13 @@ namespace simpleath
             NotReadyToTransmit,
             GenerationExhausted,
             InvalidDirection,
-            AliasedMetadata
+            AliasedMetadata,
         };
 
         enum class Direction : uint8_t
         {
             ToDevice,
-            FromDevice
+            FromDevice,
         };
 
         struct Mapping
@@ -71,7 +71,7 @@ namespace simpleath
             Reserved,
             ReadyForHardware,
             OwnedByHardware,
-            Completed
+            Completed,
         };
 
         struct RingSlot
@@ -99,7 +99,7 @@ namespace simpleath
             public:
                 enum : size_t
                 {
-                    kMaximumSlots = 64
+                    kMaximumSlots = 64,
                 };
 
                 TxRing();

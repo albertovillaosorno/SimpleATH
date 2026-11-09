@@ -41,20 +41,27 @@ namespace simpleath
         // The descriptor is naturally aligned for cacheline-sized DMA
         // allocation. The future platform backend still must perform mapping
         // and cache coherence.
-        struct alignas(128) TxDescriptor
+        constexpr size_t kTxDescriptorBytes = 128U;
+        constexpr size_t kTxDescriptorWordCount =
+            kTxDescriptorBytes / sizeof(uint32_t);
+        constexpr size_t kRxStatusBytes = 48U;
+        constexpr size_t kRxStatusWordCount = kRxStatusBytes / sizeof(uint32_t);
+
+        struct alignas(kTxDescriptorBytes) TxDescriptor
         {
-                uint32_t word[32];
+                uint32_t word[kTxDescriptorWordCount];
         };
 
         struct RxStatusWords
         {
-                uint32_t word[12];
+                uint32_t word[kRxStatusWordCount];
         };
 
-        static_assert(sizeof(TxDescriptor) == 128,
+        static_assert(sizeof(TxDescriptor) == kTxDescriptorBytes,
                       "AR9003 TX descriptor is 128 bytes");
-        static_assert(alignof(TxDescriptor) >= 128, "TX descriptor alignment");
-        static_assert(sizeof(RxStatusWords) == 48,
+        static_assert(alignof(TxDescriptor) >= kTxDescriptorBytes,
+                      "TX descriptor alignment");
+        static_assert(sizeof(RxStatusWords) == kRxStatusBytes,
                       "AR9003 EDMA RX status is 48 bytes");
 
         enum class DescriptorError : uint8_t
@@ -70,7 +77,7 @@ namespace simpleath
             CorruptStatus,
             ReceiveError,
             InvalidDescriptor,
-            OverlappingBuffers
+            OverlappingBuffers,
         };
 
         struct Segment

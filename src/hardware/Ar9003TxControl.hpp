@@ -19,14 +19,14 @@ namespace simpleath
             Clear = 0,
             Wep = 1,
             Ccmp = 2,
-            Tkip = 3
+            Tkip = 3,
         };
 
         enum class TxPacketType : uint8_t
         {
             Normal = 0,
             Beacon = 3,
-            ProbeResponse = 4
+            ProbeResponse = 4,
         };
 
         enum class TxControlError : uint8_t
@@ -43,7 +43,7 @@ namespace simpleath
             InvalidChain,
             InvalidDuration,
             UnsupportedControl,
-            OverlappingBuffers
+            OverlappingBuffers,
         };
 
         struct TxRate
@@ -111,12 +111,16 @@ namespace simpleath
                                         const TxSafetyPolicy &policy,
                                         TxDescriptor &descriptor);
 
+        constexpr size_t kTxCompletionBytes = 36U;
+        constexpr size_t kTxCompletionWordCount =
+            kTxCompletionBytes / sizeof(uint32_t);
+
         struct TxCompletionWords
         {
-                uint32_t word[9];
+                uint32_t word[kTxCompletionWordCount];
         };
 
-        static_assert(sizeof(TxCompletionWords) == 36,
+        static_assert(sizeof(TxCompletionWords) == kTxCompletionBytes,
                       "AR9003 TX completion status size");
 
         struct TxCompletion
