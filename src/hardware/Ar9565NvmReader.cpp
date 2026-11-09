@@ -527,6 +527,17 @@ namespace simpleath
                 outcome = NvmDiscoveryResult::CorruptImage;
                 break;
             }
+            // Reconstructing and checking the board can outlive the last
+            // active capture callback. The owner may lose D0 while parsing;
+            // do not publish a snapshot using only the capture's earlier
+            // ownership checks. A revocable lease also checks its epoch.
+            if (!backend.ownerInD0(backend.context))
+            {
+                status.lastCapture.result = NvmResult::SessionUnavailable;
+                status.lastCapture.captureComplete = false;
+                outcome = NvmDiscoveryResult::CaptureFailed;
+                break;
+            }
             board.source = candidate.source;
             board.origin = candidate.origin;
             board.silicon = status.lastCapture.silicon;

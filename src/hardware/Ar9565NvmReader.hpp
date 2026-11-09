@@ -143,6 +143,7 @@ namespace simpleath
     // failures (including mid-capture absence, layout, checksum or identity)
     // abort instead of silently choosing another board. At most five probes
     // plus one full capture, each bounded by the reader's 2 s cap.
+    // Recheck D0 after software restoration, before publishing a board.
     // Does not grant permission to access devices or transmit: no native
     // owner is currently connected, and board calibration is incomplete.
     NvmDiscoveryResult discoverAr9565Nvm(const NvmReadBackend &backend,

@@ -20,6 +20,12 @@ namespace
             uint32_t revisionReads = 0;
             simpleath::NvmBoardLease *leaseToRevoke = nullptr;
             uint32_t revokeAtOwnerCheck = 0;
+            // Simulate a power loss on the final successful ownership check
+            // after the last EEPROM word, before software reconstruction.
+            bool revokeAfterFinalEepromWord = false;
+            bool fullEepromCapture = false;
+            bool finalEepromWordRead = false;
+            uint32_t finalWordOwnerChecks = 0;
             bool d0 = true;
             uint32_t failOwnerAfter = 0;
     };
@@ -44,6 +50,14 @@ namespace
         ++fake.ownerChecks;
         if (fake.leaseToRevoke && fake.ownerChecks == fake.revokeAtOwnerCheck)
             fake.leaseToRevoke->invalidate();
+        if (fake.revokeAfterFinalEepromWord && fake.finalEepromWordRead &&
+            ++fake.finalWordOwnerChecks == 2)
+        {
+            // The capture's post-read clock gets one last true response;
+            // any later owner gate must observe the lost D0 state.
+            fake.d0 = false;
+            return true;
+        }
         return fake.d0 &&
                (!fake.failOwnerAfter || fake.ownerChecks < fake.failOwnerAfter);
     }
@@ -70,6 +84,8 @@ namespace
         else if (offset >= 0x2000 && offset < 0x4000 && (offset & 3u) == 0)
         {
             fake.currentWord = (offset - 0x2000) / 4;
+            if (fake.currentWord == 0)
+                fake.fullEepromCapture = true;
             fake.finalReads = 0;
             if (fake.mutateHeaderOnFullRead && fake.currentWord == 0)
             {
@@ -89,6 +105,9 @@ namespace
                 *value = 0;
             else
             {
+                if (fake.revokeAfterFinalEepromWord && fake.fullEepromCapture &&
+                    fake.currentWord == 511)
+                    fake.finalEepromWordRead = true;
                 const uint32_t index = fake.currentWord * 2;
                 *value = fake.eeprom[index] |
                          (static_cast<uint32_t>(fake.eeprom[index + 1]) << 8);
@@ -528,5 +547,18 @@ int main()
             simpleath::EepromResult::UnsupportedFormat ||
         fixture.status.attempts != 1 || !clean(fixture))
         return 30;
+
+    // D0 can disappear after the final data read and clock check, while the
+    // recovered frame is still being restored. Reject publication on a fresh
+    // owner preflight, rather than trusting that old capture authorization.
+    reset(fixture.fake);
+    writeBoard(fixture.fake.eeprom, 0x3ff, false);
+    fixture.fake.revokeAfterFinalEepromWord = true;
+    if (run(fixture) != NvmDiscoveryResult::CaptureFailed ||
+        fixture.status.lastCapture.result !=
+            simpleath::NvmResult::SessionUnavailable ||
+        fixture.status.lastCapture.captureComplete || fixture.board.valid ||
+        fixture.board.image.restored || fixture.fake.d0 || !clean(fixture))
+        return 31;
     return 0;
 }

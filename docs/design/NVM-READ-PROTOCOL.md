@@ -63,10 +63,21 @@ Owner permission to edit source does not authorize invoking this capability.
   together with a checksum-restored image and structurally checked summary.
   Reject pinned dictionary placeholder MACs, unknown gain profiles and
   malformed board identity rather than turning a template into a device.
+  For a selected board, reject even a valid-checksum delta if the three
+  2.4 GHz calibration pier bins are out of range, duplicated or out of order.
+  The raw `summarizeBoardData` API can still report those invalid bins for
+  diagnostics; it never grants RF authorization. Source-only commit 8701516
+  adds an offline regression of this fail-closed board-selection check.
   Transient capture/scratch bytes are wiped even after success. Error
   cleanup clears the board selection; the future native owner must also
-  invalidate it on reset, D0 loss, teardown and resume. Neither the
-  `valid` snapshot flag nor plausible calibration bins grants RF permission;
+  invalidate it on reset, D0 loss, teardown and resume. A fresh owner/D0
+  preflight is required after all software reconstruction and gain checks:
+  successful capture alone is stale evidence if power disappears before
+  publication. On failure, selection and buffers are wiped, and diagnostics
+  report `CaptureFailed`/`SessionUnavailable`. The host regression forces
+  D0 loss after the last read's clock check and before reconstruction ends.
+  Neither the `valid` snapshot flag nor plausible calibration bins grants RF
+  permission;
   `calibrationValidated` and `regulatoryAuthorized` remain false.
 - `NvmBoardLease` retains the reconstructed image privately behind a
   strictly increasing owner epoch. A const board view is only borrowed under

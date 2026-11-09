@@ -64,6 +64,27 @@ origin, byte order and accepted block provenance with the immutable image.
 The EEPROM/OTP search spans are bounds, not discovered physical capacities.
 Never synthesize usable board data from the default dictionary alone.
 
+Source hardening commit 8701516 now rejects a selected, checksummed board
+whose three 2.4 GHz calibration pier bins are out of band or not strictly
+increasing. The raw summary API remains diagnostic and does not approve
+calibration or transmission. A synthetic corrupted-but-checksummed delta
+reproduced the prior false acceptance (host exit 30 before the fix, 0 after);
+C++14/C++17 ASan+UBSan regressions passed. The frozen full
+`tools/validate.py --no-cache` run executed all 413 checks: 363 passed, 50
+existing strict Clang-Tidy checks failed, zero skipped, no source drift.
+This is one structural rejection, not completion of the outstanding board
+calibration, native acquisition, or RF regulatory requirements.
+
+A subsequent source-only safety regression identified a late-D0 gap: after
+bounded NVM capture succeeded, restoring and checking the board involved no
+further PCI owner preflight, so a power loss at the final capture boundary
+could still publish an apparently valid board. Board selection now checks
+D0 again after reconstruction, reporting `CaptureFailed` with
+`SessionUnavailable` and wiping the candidate on loss. Synthetic regression
+`test_nvm_discovery` exited 31 on the prior source, while the corrected C++14
+and C++17 ASan+UBSan host runs passed. The owner must still serialize the
+whole transaction and invalidate leases on power transitions.
+
 The passive AR_EEPROM control register is 0x401c with its absent/corrupt flags;
 the AR9565 active EEPROM status/data register is 0x4084. They are distinct,
 legitimate registers. Reading either control/status value is not a full-image
