@@ -98,36 +98,52 @@ namespace simpleath
                                   : right - left < firstBytes);
         }
 
-        // The AR9565 is 1x1 802.11n on 2.4 GHz. A synthetically completed
-        // EDMA slot is not a valid received frame if its modulation is outside
-        // the legacy CCK/OFDM or single-stream HT MCS0..7 hardware contract.
-        static bool supportedRxRate(uint8_t code)
+        static constexpr uint8_t kCck1Mb = 0x1bU;
+        static constexpr uint8_t kCck2MbLong = 0x1aU;
+        static constexpr uint8_t kCck5p5MbLong = 0x19U;
+        static constexpr uint8_t kCck2MbShort = 0x1eU;
+        static constexpr uint8_t kCck5p5MbShort = 0x1dU;
+        static constexpr uint8_t kCck11MbLong = 0x18U;
+        static constexpr uint8_t kCck11MbShort = 0x1cU;
+        static constexpr uint8_t kOfdm6Mb = 0x0bU;
+        static constexpr uint8_t kOfdm9Mb = 0x0fU;
+        static constexpr uint8_t kOfdm12Mb = 0x0aU;
+        static constexpr uint8_t kOfdm18Mb = 0x0eU;
+        static constexpr uint8_t kOfdm24Mb = 0x09U;
+        static constexpr uint8_t kOfdm36Mb = 0x0dU;
+        static constexpr uint8_t kOfdm48Mb = 0x08U;
+        static constexpr uint8_t kOfdm54Mb = 0x0cU;
+
+        bool supportedAr9565LegacyRate(uint8_t code)
         {
-            if (code >= kHtMcs0 && code <= kHtMcs7)
-            {
-                return true;
-            }
             switch (code)
             {
-                case 0x1b:
-                case 0x1a:
-                case 0x19:
-                case 0x1e:
-                case 0x1d:
-                case 0x18:
-                case 0x1c:
-                case 0x0b:
-                case 0x0f:
-                case 0x0a:
-                case 0x0e:
-                case 0x09:
-                case 0x0d:
-                case 0x08:
-                case 0x0c:
+                case kCck1Mb:
+                case kCck2MbLong:
+                case kCck5p5MbLong:
+                case kCck2MbShort:
+                case kCck5p5MbShort:
+                case kCck11MbLong:
+                case kCck11MbShort:
+                case kOfdm6Mb:
+                case kOfdm9Mb:
+                case kOfdm12Mb:
+                case kOfdm18Mb:
+                case kOfdm24Mb:
+                case kOfdm36Mb:
+                case kOfdm48Mb:
+                case kOfdm54Mb:
                     return true;
                 default:
                     return false;
             }
+        }
+
+        // AR9565 is 1x1 on 2.4 GHz: only legacy rates and HT MCS0..7.
+        static bool supportedRxRate(uint8_t code)
+        {
+            return (code >= kHtMcs0 && code <= kHtMcs7) ||
+                   supportedAr9565LegacyRate(code);
         }
 
         uint16_t txPointerChecksum(const TxDescriptor &descriptor)

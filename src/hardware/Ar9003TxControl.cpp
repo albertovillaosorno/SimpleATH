@@ -53,31 +53,6 @@ namespace simpleath
                    type == TxPacketType::ProbeResponse;
         }
 
-        static bool legacyRateValid(uint8_t code)
-        {
-            switch (code)
-            {
-                case 0x1b:
-                case 0x1a:
-                case 0x19:
-                case 0x1e:
-                case 0x1d:
-                case 0x18:
-                case 0x1c:
-                case 0x0b:
-                case 0x0f:
-                case 0x0a:
-                case 0x0e:
-                case 0x09:
-                case 0x0d:
-                case 0x08:
-                case 0x0c:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
         static bool htRateValid(uint8_t code)
         {
             // AR9565 is 1x1: only MCS0..7 is representable.
@@ -156,7 +131,7 @@ namespace simpleath
             if (!packetTypeValid(request.packetType) ||
                 (request.rts && request.cts) ||
                 ((request.rts || request.cts)
-                     ? !legacyRateValid(request.rtsCtsRateCode)
+                     ? !supportedAr9565LegacyRate(request.rtsCtsRateCode)
                      : request.rtsCtsRateCode != 0))
             {
                 return TxControlError::UnsupportedControl;
@@ -249,7 +224,7 @@ namespace simpleath
                 {
                     return TxControlError::UnsupportedControl;
                 }
-                if (!htRate && !legacyRateValid(series.rateCode))
+                if (!htRate && !supportedAr9565LegacyRate(series.rateCode))
                 {
                     return TxControlError::InvalidRate;
                 }

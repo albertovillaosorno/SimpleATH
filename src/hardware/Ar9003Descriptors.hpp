@@ -114,6 +114,9 @@ namespace simpleath
                                             uint32_t nextDescriptorBusAddress);
         uint16_t txPointerChecksum(const TxDescriptor &descriptor);
 
+        // Keep RX and TX legacy CCK/OFDM modulation admission identical.
+        bool supportedAr9565LegacyRate(uint8_t code);
+
         struct RxStatus
         {
                 bool completed;

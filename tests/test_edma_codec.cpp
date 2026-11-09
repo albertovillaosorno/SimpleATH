@@ -11,11 +11,35 @@ namespace
     {
         return std::memcmp(&left, &right, sizeof(T)) == 0;
     }
+
+    bool exactLegacyRateWhitelist()
+    {
+        using simpleath::edma::supportedAr9565LegacyRate;
+        const uint8_t expectedCodes[] {0x1b, 0x1a, 0x19, 0x1e, 0x1d,
+                                       0x18, 0x1c, 0x0b, 0x0f, 0x0a,
+                                       0x0e, 0x09, 0x0d, 0x08, 0x0c};
+        for (unsigned candidate = 0; candidate <= 0xffU; ++candidate)
+        {
+            bool expected = false;
+            for (uint8_t code : expectedCodes)
+            {
+                expected |= candidate == code;
+            }
+            if (supportedAr9565LegacyRate(static_cast<uint8_t>(candidate)) !=
+                expected)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
 } // namespace
 
 int main()
 {
     using namespace simpleath::edma;
+    if (!exactLegacyRateWhitelist())
+        return 72;
     TxPointerBlock pointer {};
     pointer.queue = 9;
     pointer.segmentCount = 2;
