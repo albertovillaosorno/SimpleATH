@@ -780,6 +780,45 @@ formatting and BasedPyright checks. Source-only host tests do not prove
 native Tahoe ABI, kernel extension behavior, hardware DMA or Wi-Fi operation.
 No kext build, device access, RF activity, CI or lint relaxation occurred.
 
+## Coordinated source-hardening and full strict-scope checkpoint, 2026-11-09
+
+Three focused, DCO-signed, source-only main commits were pushed together:
+`fcbce5d` revokes stale authenticated status/association IDs on rejected
+management response parsing (preserving overlap rejection inputs untouched),
+`6ecb47d` publishes a WPA2 nonce only after the provider produces a
+nonzero successful result through separately zeroized scratch storage, and
+peer `5eaef59` makes association-request length preflight reject invalid
+BSS advertisements consistently with the actual serializer. The management
+stale-success regression failed against prior source (exit 23); the nonce
+partial-random-failure regression likewise failed against prior source
+(exit 2). Each correction passed independent C++14 and C++17 host tests with
+AddressSanitizer and UndefinedBehaviorSanitizer. The existing synthetic open
+station pipeline host test was updated to reject a no-op entropy provider.
+No native hardware randomness, driver operations, kext compilation, device
+access or real Wi-Fi functionality was claimed.
+
+A mandatory `python3 -B tools/validate.py` run on a **stable source snapshot**
+covering these corrections produced `scope=repository`, `source_only=true`,
+`tests_requested=true`: **163 source files, 416 checks, 305 cached,
+111 executed, 365 pass, 51 fail, zero skipped**. Every failed check was
+strict Clang-Tidy, including the newly added nonce-regression translation
+unit. Clang-Format, Ruff check/format, BasedPyright and offline host tests
+were neither failed nor skipped. The new test was registered in the tracked
+host-only Clang compilation database before the final scan. The report had
+**no input-snapshot drift**, and stdout JSON matched
+`.cache/validate/report.json` byte-for-byte (SHA-256
+`efe9b04edfea048d4a5ced806b418a81048114b1f93adba0dcbd40c8c003b682`).
+At scan time the peer's two preflight source changes were frozen but not yet
+committed; they were subsequently DCO-committed and pushed as `5eaef59`.
+Thus this checkpoint is **not** the required uncached acceptance on clean,
+committed `main`, and **P0 remains OPEN**. An attempted follow-on uncached
+scan cannot be used as that acceptance: a subsequent separate auth-RX fix
+changed tracked inputs during the attempt, and overlapping validator clients
+were terminated rather than claiming an immutable completion. The next
+candidate needs its own fresh, stable `--no-cache` scan after those edits
+are committed. Do not equate synthetic host coverage with verified native
+Tahoe ABI, macOS network-interface readiness or working RF.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
