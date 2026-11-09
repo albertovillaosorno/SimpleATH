@@ -76,6 +76,14 @@ IMPLEMENTATION_INCLUDE = re.compile(
     NATIVE_INCLUDE_DIRECTIVE + NATIVE_IMPLEMENTATION_TARGET,
     re.IGNORECASE,
 )
+NATIVE_LITERAL_INCLUDE = re.compile(
+    NATIVE_INCLUDE_DIRECTIVE + rb'[<"]([^>"\r\n]+)[>"]',
+    re.IGNORECASE,
+)
+NATIVE_MACRO_INCLUDE = re.compile(
+    NATIVE_INCLUDE_DIRECTIVE + rb'(?![<"])\S',
+    re.IGNORECASE,
+)
 NATIVE_TESTS = frozenset({".cpp", ".mm"})
 SUPPORTED = NATIVE | {".py"}
 TIMEOUT_SECONDS = 60.0
@@ -511,6 +519,64 @@ def tool_version(executable: str, root: Path) -> str:
     )
 
 
+def _native_extra_dependencies(
+    root: Path, native_inputs: list[bytes], suffixes: frozenset[str]
+) -> list[Path]:
+    """Include nonstandard native fragments without hashing unrelated assets.
+
+    Returns:
+        Included support files, or all support files for a macro include.
+
+    """
+    # C/C++ includes can name extensionless and nonstandard data fragments.
+    # Literal in-tree targets are precise; macro targets cannot be resolved.
+    literals = {
+        name
+        for data in native_inputs
+        for match in NATIVE_LITERAL_INCLUDE.finditer(data)
+        if (name := match.group(1).decode("utf-8", errors="surrogateescape"))
+        and Path(name).suffix.lower() not in suffixes
+    }
+    macro = any(NATIVE_MACRO_INCLUDE.search(data) for data in native_inputs)
+    if not literals and not macro:
+        return []
+    return sorted(
+        path
+        for path in _support_inputs(root)
+        if path.suffix.lower() not in suffixes
+        and (
+            macro
+            or any(
+                (relative := path.relative_to(root).as_posix()) == name
+                or relative.endswith("/" + name)
+                for name in literals
+            )
+        )
+    )
+
+
+def _native_shared_dependencies(
+    root: Path, candidates: list[Path], suffixes: frozenset[str]
+) -> list[Path]:
+    """Select native shared inputs and conservatively handle macro includes.
+
+    Returns:
+        Shared sources plus in-tree include fragments with other extensions.
+
+    """
+    native_inputs = [path.read_bytes() for path in candidates]
+    needs_units = any(
+        IMPLEMENTATION_INCLUDE.search(data) for data in native_inputs
+    )
+    files = [
+        path
+        for path in candidates
+        if needs_units or path.suffix.lower() not in UNITS
+    ]
+    files.extend(_native_extra_dependencies(root, native_inputs, suffixes))
+    return sorted(files)
+
+
 def _dependencies(root: Path, tool: str) -> bytes:
     """Digest shared inputs without coupling unrelated translation units.
 
@@ -527,22 +593,15 @@ def _dependencies(root: Path, tool: str) -> bytes:
         for p in (root / directory).rglob("*")
         if p.is_file() and p.suffix.lower() in suffixes
     )
-    # With no implementation/macro includes, a different .cpp cannot affect
-    # this translation unit. A shared header or include fragment still can.
-    # For less ordinary include forms, conservatively retain the old global
-    # native-unit dependency behavior rather than risk a false cache hit.
-    if tool == PYRIGHT_TOOL:
-        files = candidates
-    else:
-        needs_units = any(
-            IMPLEMENTATION_INCLUDE.search(path.read_bytes())
-            for path in candidates
+    # Native implementation/macro includes need the global unit fallback,
+    # while ordinary header and fragment edits affect just native Tidy.
+    files = (
+        candidates
+        if tool == PYRIGHT_TOOL
+        else _native_shared_dependencies(
+            root, candidates, NATIVE_SHARED | UNITS
         )
-        files = [
-            path
-            for path in candidates
-            if needs_units or path.suffix.lower() not in UNITS
-        ]
+    )
     digest = hashlib.sha256()
     for path in files:
         digest.update(str(path.relative_to(root)).encode())

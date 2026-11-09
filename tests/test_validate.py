@@ -263,6 +263,48 @@ class _FiveAgentFixture:
             assert len(self.calls) == expected
 
 
+class NativeFragmentCacheValidation(unittest.TestCase):
+    """Ensure included native fragment bytes invalidate Tidy results."""
+
+    @staticmethod
+    def test_unusual_native_include_fragment_invalidates_tidy() -> None:
+        """Literal in-tree includes must be tracked regardless of suffix."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            owner = root / "src/owner.cpp"
+            fragment = root / "src/tables/limits.tbl"
+            fragment.parent.mkdir()
+            _ = owner.write_text(
+                '#include "tables/limits.tbl"\nint owner;', encoding="utf-8"
+            )
+            _ = fragment.write_text("first", encoding="utf-8")
+            initial = _lint_fingerprint(root, owner, "clang-tidy")
+            unrelated = root / "src/unrelated.json"
+            _ = unrelated.write_text("unrelated", encoding="utf-8")
+            assert _lint_fingerprint(root, owner, "clang-tidy") == initial
+            _ = fragment.write_text("changed", encoding="utf-8")
+            changed = _lint_fingerprint(root, owner, "clang-tidy")
+            assert changed != initial
+            fragment.unlink()
+            assert _lint_fingerprint(root, owner, "clang-tidy") != changed
+
+    @staticmethod
+    def test_macro_native_include_tracks_unknown_fragments() -> None:
+        """Macro include targets cannot be resolved from literal syntax."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            owner = root / "src/owner.cpp"
+            fragment = root / "src/limits.tbl"
+            _ = owner.write_text(
+                '#define FILE_NAME "limits.tbl"\n#include FILE_NAME\n',
+                encoding="utf-8",
+            )
+            _ = fragment.write_text("before", encoding="utf-8")
+            initial = _lint_fingerprint(root, owner, "clang-tidy")
+            _ = fragment.write_text("after", encoding="utf-8")
+            assert _lint_fingerprint(root, owner, "clang-tidy") != initial
+
+
 class CacheValidation(unittest.TestCase):
     """Reject malformed cache values while retaining actual failure results."""
 
