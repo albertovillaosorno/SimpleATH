@@ -90,5 +90,26 @@ int main()
             Result::InvalidFrame ||
         payload.payload || payload.payloadLength)
         return 10;
+    // QoS Data with a retained FCS must not expose that trailer as payload.
+    uint8_t qosFrame[39] {};
+    for (size_t i = 0; i < 24; ++i)
+        qosFrame[i] = frame[i];
+    qosFrame[0] = 0x88; // QoS data.
+    for (size_t i = 0; i < 9; ++i)
+        qosFrame[26 + i] = frame[24 + i];
+    qosFrame[35] = 0xde;
+    qosFrame[36] = 0xad;
+    qosFrame[37] = 0xbe;
+    qosFrame[38] = 0xef;
+    if (decodeLlcData(qosFrame, sizeof(qosFrame), true, false, payload) !=
+            Result::Ok ||
+        !payload.qosFrame || payload.payload != qosFrame + 34 ||
+        payload.payloadLength != 1)
+        return 14;
+    qosFrame[24] = 0x80; // QoS A-MSDU present.
+    if (decodeLlcData(qosFrame, sizeof(qosFrame), true, false, payload) !=
+            Result::UnsupportedFrame ||
+        payload.payload || payload.payloadLength)
+        return 15;
     return 0;
 }

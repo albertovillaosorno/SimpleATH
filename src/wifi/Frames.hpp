@@ -11,6 +11,10 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        constexpr size_t kMacAddressBytes = 6;
+        constexpr size_t kMaxSsidBytes = 32;
+        constexpr size_t kMaxAdvertisedRates = 32;
+        constexpr size_t kMaxRsnIeBytes = 257;
 
         enum class Result : uint8_t
         {
@@ -24,7 +28,7 @@ namespace simpleath
             BufferTooSmall,
             InvalidAddress,
             InvalidSsid,
-            OverlappingBuffers
+            OverlappingBuffers,
         };
 
         enum class FrameType : uint8_t
@@ -32,7 +36,7 @@ namespace simpleath
             Management,
             Control,
             Data,
-            Extension
+            Extension,
         };
 
         enum class Security : uint8_t
@@ -42,12 +46,12 @@ namespace simpleath
             Wpa2Personal,
             Wpa2Enterprise,
             Wpa3Personal,
-            UnsupportedRsn
+            UnsupportedRsn,
         };
 
         struct Mac
         {
-                uint8_t bytes[6];
+                uint8_t bytes[kMacAddressBytes];
         };
 
         bool sameMac(const Mac &left, const Mac &right);
@@ -94,7 +98,7 @@ namespace simpleath
         struct Beacon
         {
                 Mac bssid;
-                uint8_t ssid[32];
+                uint8_t ssid[kMaxSsidBytes];
                 uint8_t ssidLength; // Binary SSID, not necessarily printable or
                                     // null terminated.
                 bool hiddenSsid;
@@ -108,12 +112,12 @@ namespace simpleath
                 uint16_t capabilities;
                 // Preserve advertised (including basic-rate marker) BSS rate
                 // codes.
-                uint8_t rates[32];
+                uint8_t rates[kMaxAdvertisedRates];
                 uint8_t rateCount;
                 // Full RSN information element including ID+length, for future
                 // CoreWLAN scan-result presentation without reconstructing
                 // security IE.
-                uint8_t rsnIe[257];
+                uint8_t rsnIe[kMaxRsnIeBytes];
                 uint16_t rsnIeLength;
                 Rsn rsn;
         };
@@ -129,7 +133,7 @@ namespace simpleath
         {
             Element,
             End,
-            Truncated
+            Truncated,
         };
 
         class Elements
