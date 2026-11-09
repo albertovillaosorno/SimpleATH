@@ -45,6 +45,11 @@ for the **next separately authorized build**.
   STBC, unknown rate codes or MCS8+, HT-only flags on legacy rates and
   invalid/stale RTS/CTS rates, regardless of caller-set policy flags. These
   descriptor checks do not verify the physical board or permit RF output.
+  The passive EDMA RX decoder rejects rate codes outside the AR9565 2.4 GHz
+  CCK/OFDM and single-stream HT MCS0..7 set, including MCS8+ and nonsensical
+  legacy-HT40 combinations, even when a forged status marks the CRC as good.
+  This check does not prove a valid PHY demodulation, RX owner, FCS or CCMP
+  integrity, which remain native backend requirements.
   No safe bus mastering, EDMA ring programming, interrupt completion, active
   RF calibration or 802.11 traffic pipeline exists. The descriptors must not
   be submitted to the physical device.

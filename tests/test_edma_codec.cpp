@@ -357,6 +357,36 @@ int main()
         decoded.frameLength != 128 || decoded.rateCode != 0x0b ||
         decoded.timestamp != 7654u || decoded.combinedRssi != -40)
         return 12;
+    // AR9565 has one RX chain and cannot report a successful 2-stream MCS8
+    // or arbitrary/undefined modulation. A forged DMA status claiming FCS
+    // success must not authorize that packet for native delivery.
+    const uint8_t unsupportedRates[] {0x00, 0x04, 0x88, 0xff};
+    for (uint8_t rate : unsupportedRates)
+    {
+        rx.word[1] = static_cast<uint32_t>(rate) << 24u;
+        decoded.completed = true;
+        decoded.frameValid = true;
+        decoded.frameLength = 128;
+        if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+            decoded.completed || decoded.frameValid || decoded.frameLength)
+            return 62;
+    }
+    rx.word[1] = 0x80000000u; // AR9565 MCS0 is a supported single stream.
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || decoded.rateCode != 0x80)
+        return 63;
+    rx.word[4] = 0x2u; // HT40 PHY flag is coherent with an HT rate only.
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || !decoded.ht40)
+        return 64;
+    rx.word[1] = 0x0b000000u; // Legacy 6 Mbps cannot be HT40.
+    if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
+        decoded.completed || decoded.frameValid || decoded.frameLength)
+        return 65;
+    rx.word[4] = 0;
+    if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
+        !decoded.frameValid || decoded.rateCode != 0x0b)
+        return 66;
     // Without a reviewed A-MPDU deaggregation/reorder/BlockAck pipeline,
     // aggregate fragments cannot be authorized for native RX delivery solely
     // by a successful per-buffer CRC and DMA completion bit. The codec must

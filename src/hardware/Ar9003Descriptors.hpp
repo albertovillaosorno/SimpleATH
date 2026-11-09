@@ -137,7 +137,9 @@ namespace simpleath
         // until a separately reviewed BlockAck/deaggregation/reorder path is
         // available; a valid per-buffer CRC is not aggregate admission.
         // A single RX status longer than the 2346-byte MPDU ceiling is also
-        // rejected.
+        // rejected. RX modulation must be a supported AR9565 legacy rate or
+        // single-stream HT MCS0..7; an HT40 indication on a legacy rate is
+        // invalid. Caller still proves actual PHY/RX/FCS and DMA integrity.
         // Ordinary errors clear out. An alias with the raw status instead
         // fails without writing into DMA-visible source storage.
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out);

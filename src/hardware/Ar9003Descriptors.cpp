@@ -93,6 +93,36 @@ namespace simpleath
                                   : right - left < first_bytes);
         }
 
+        // The AR9565 is 1x1 802.11n on 2.4 GHz. A synthetically completed
+        // EDMA slot is not a valid received frame if its modulation is outside
+        // the legacy CCK/OFDM or single-stream HT MCS0..7 hardware contract.
+        static bool supportedRxRate(uint8_t code)
+        {
+            if (code >= 0x80U && code <= 0x87U)
+                return true;
+            switch (code)
+            {
+                case 0x1b:
+                case 0x1a:
+                case 0x19:
+                case 0x1e:
+                case 0x1d:
+                case 0x18:
+                case 0x1c:
+                case 0x0b:
+                case 0x0f:
+                case 0x0a:
+                case 0x0e:
+                case 0x09:
+                case 0x0d:
+                case 0x08:
+                case 0x0c:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         uint16_t txPointerChecksum(const TxDescriptor &descriptor)
         {
             // Sum exactly the AR9003 pointer fields, with unsigned 32-bit wrap.
@@ -302,6 +332,8 @@ namespace simpleath
             // The 12-bit length field cannot authorize jumbo MPDUs either.
             if (!status.frameValid || status.frameLength == 0 ||
                 status.frameLength > K_RX_MAX_SINGLE_MPDU_BYTES ||
+                !supportedRxRate(status.rateCode) ||
+                (status.ht40 && status.rateCode < 0x80U) ||
                 status.moreFragments || status.aggregated ||
                 status.aggregationContinues || status.aggregationFirst)
             {
