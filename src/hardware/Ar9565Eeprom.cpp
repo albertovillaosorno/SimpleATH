@@ -451,8 +451,7 @@ namespace simpleath
         // the NVM was acquired from the physical board or calibrated.
         if (board.eepromVersion != 2 || !validatePermanentMac(board.mac) ||
             isPinnedPlaceholderMac(board.mac) || board.txChainMask != 1 ||
-            board.rxChainMask != 1 ||
-            !(board.operationFlags & 0x02u))
+            board.rxChainMask != 1 || !(board.operationFlags & 0x02u))
             return EepromResult::InvalidBoardIdentity;
         // A direct gain-map caller must not bypass discovery's structural
         // 2-GHz pier check. A raw summary is still only diagnostic and does
