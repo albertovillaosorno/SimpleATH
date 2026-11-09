@@ -68,9 +68,11 @@ namespace simpleath
     // checksum(2). Supports ath9k None and Block compression. Rejects malformed
     // delta streams before modifying image bytes. Initialize EepromImage to
     // zero or call discardEepromImage before the first direct block apply;
-    // contradictory restored/applied-block metadata is rejected. Other
-    // failures leave an existing image intact; caller must discard the
-    // entire restore chain on ANY failure. Frame and template storage must
+    // contradictory restored/applied-block metadata is rejected. Ordinary
+    // failures leave an existing image intact; if a template callback alters
+    // parsed output metadata or image restoration flags, the image is wiped
+    // and InvalidArgument is returned. Caller must discard the entire restore
+    // chain on ANY failure. Frame and template storage must
     // be immutable and disjoint from image/info; the caller owns their
     // lifetime for the duration of this serialized call. The opaque template
     // callback context must not point into writable outputs, the validated

@@ -39,6 +39,30 @@ namespace
                                                        length);
     }
 
+    struct OutputMetadataMutation
+    {
+            simpleath::EepromBlockInfo *info;
+            simpleath::EepromImage *image;
+            bool mutateReference;
+            unsigned calls = 0;
+    };
+
+    const uint8_t *metadataMutatingTemplateLookup(void *context,
+                                                  uint8_t reference,
+                                                  size_t *length)
+    {
+        auto &mutation = *static_cast<OutputMetadataMutation *>(context);
+        ++mutation.calls;
+        if (mutation.mutateReference)
+        {
+            mutation.info->reference = 3;
+            return simpleath::pinnedEepromTemplates().find(nullptr, 3, length);
+        }
+        mutation.image->appliedBlocks = 99;
+        return simpleath::pinnedEepromTemplates().find(nullptr, reference,
+                                                       length);
+    }
+
     const uint8_t *mutatingTemplateLookup(void *context, uint8_t reference,
                                           size_t *length)
     {
@@ -278,6 +302,33 @@ int main()
             EepromResult::InvalidDelta ||
         mutation.calls != 3 || lateImage.bytes[0] != 0x7e || lateImage.restored)
         return 30;
+
+    // A template callback can retain separately borrowed output pointers.
+    // Neither a substituted parsed reference nor a forged restored block
+    // count may authorize copying an unverified baseline into the image.
+    static EepromImage metadataImage {};
+    metadataImage.bytes[0] = 0x7e;
+    EepromBlockInfo metadataInfo {};
+    OutputMetadataMutation metadataMutation {&metadataInfo, &metadataImage,
+                                             true};
+    EepromTemplates metadataProvider {&metadataMutation,
+                                      metadataMutatingTemplateLookup};
+    if (applyEepromBlock(validDelta, sizeof(validDelta), metadataProvider,
+                         metadataImage,
+                         metadataInfo) != EepromResult::InvalidArgument ||
+        metadataMutation.calls != 1 || metadataInfo.reference != 2 ||
+        metadataImage.bytes[0] || metadataImage.restored ||
+        metadataImage.appliedBlocks)
+        return 31;
+    metadataImage.bytes[0] = 0x7e;
+    metadataMutation.mutateReference = false;
+    if (applyEepromBlock(validDelta, sizeof(validDelta), metadataProvider,
+                         metadataImage,
+                         metadataInfo) != EepromResult::InvalidArgument ||
+        metadataMutation.calls != 2 || metadataInfo.reference != 2 ||
+        metadataImage.bytes[0] || metadataImage.restored ||
+        metadataImage.appliedBlocks)
+        return 32;
 
     // An empty or tampered diagnostic summary must never choose apparently
     // supported zero-index gain tables. Reject without retaining old gains.

@@ -26,8 +26,15 @@ original compression header, every delta bound and the original/final payload
 checksum after lookup and **before** copying any template or delta bytes.
 Synthetic red/green host regressions mutate the validated count, payload and
 reference header during the callback; failures leave the prior image intact.
-These extra gates prevent stale validation from becoming an out-of-bounds
-copy; they do not make arbitrary concurrent mutation or dishonest template
+The parser also snapshots the parsed block metadata and restoration flags
+across template lookup. A callback retaining a separate pointer to the output
+metadata can otherwise substitute a different template reference after the
+frame was authenticated; a pointer to the image can forge its block count.
+Both violations now fail with `InvalidArgument` and wipe the image rather
+than publishing a forged reconstruction. Ordinary input-validation failures
+retain their previous image-preservation contract. These extra gates prevent
+stale validation from becoming an out-of-bounds copy or a false successful
+restore; they do not make arbitrary concurrent mutation or dishonest template
 contents safe, nor prove physical EEPROM provenance.
 
 The 1088-byte reconstructed image retains **all** board/calibration/target-power

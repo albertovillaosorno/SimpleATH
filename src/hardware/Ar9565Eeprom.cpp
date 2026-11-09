@@ -233,10 +233,27 @@ namespace simpleath
             const uint8_t *base = nullptr;
             if (info.reference)
             {
+                const EepromBlockInfo parsedInfo = info;
+                const uint16_t previousBlocks = image.appliedBlocks;
+                const bool previouslyRestored = image.restored;
                 size_t baseLength = 0;
                 if (templates.find)
                     base = templates.find(templates.context, info.reference,
                                           &baseLength);
+                // A callback retaining unrelated output pointers must not
+                // replace the verified reference or forge restoration state.
+                if (info.compression != parsedInfo.compression ||
+                    info.reference != parsedInfo.reference ||
+                    info.payloadBytes != parsedInfo.payloadBytes ||
+                    info.major != parsedInfo.major ||
+                    info.minor != parsedInfo.minor ||
+                    image.appliedBlocks != previousBlocks ||
+                    image.restored != previouslyRestored)
+                {
+                    info = parsedInfo;
+                    discardEepromImage(image);
+                    return EepromResult::InvalidArgument;
+                }
                 if (!base || baseLength != sizeof(image.bytes))
                     return EepromResult::MissingTemplate;
                 // The callback's returned base is separately borrowed from
