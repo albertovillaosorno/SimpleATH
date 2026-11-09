@@ -369,6 +369,8 @@ namespace simpleath
             complete.excessiveRetries = (flags & 0x00000002U) != 0;
             complete.fifoUnderrun = (flags & 0x00000004U) != 0;
             complete.filtered = (flags & 0x00000008U) != 0;
+            complete.delimiterUnderrun = (flags & 0x00010000U) != 0;
+            complete.dataUnderrun = (flags & 0x00020000U) != 0;
             complete.configError = (flags & 0x00040000U) != 0;
             complete.expired = (flags & 0x00080000U) != 0;
             complete.txOpportunityExceeded = (final & 0x00020000U) != 0;

@@ -49,6 +49,10 @@ for the **next separately authorized build**.
   underrun (as well as retry, filter, configuration, expiry and TXOP faults),
   rather than granting a contradictory positive completion. A lone underrun
   on a failed completion remains a diagnostic, not transmission success.
+  Separately, AR9003 data/delimiter underrun status3 bits (0x20000/0x10000)
+  remain observable as nonterminal diagnostics; the staged codec does not
+  implement ath9k trigger-level adaptation or claim that these flags alone
+  authorize a data transfer. No aggregation backend exists.
   The TX control encoder also rejects a claimed on-air MPDU below 14 bytes,
   even when the mapped DMA length matches it. The smallest ACK/CTS frame has
   a ten-byte MAC header plus a radio-generated four-byte FCS. Exactly 14

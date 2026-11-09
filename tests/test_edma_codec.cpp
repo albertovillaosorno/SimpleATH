@@ -599,5 +599,23 @@ int main()
         completed.frameTransmitOk || !completed.fifoUnderrun ||
         completed.sequenceNumber != 24u)
         return 71;
+    // AR_TxDataUnderrun and AR_TxDelimUnderrun are independent diagnostic
+    // flags, unlike AR_FIFOUnderrun. Keep their exact status for a future TX
+    // trigger-level owner without fabricating a terminal TX error.
+    const uint32_t warningBits[] {0x00010000u, 0x00020000u, 0x00030000u};
+    for (const uint32_t warning : warningBits)
+    {
+        tx.word[3] = 1u | warning;
+        if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
+            !completed.frameTransmitOk ||
+            completed.delimiterUnderrun != ((warning & 0x00010000u) != 0) ||
+            completed.dataUnderrun != ((warning & 0x00020000u) != 0))
+            return 72;
+    }
+    tx.word[3] = 1u;
+    if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
+        !completed.frameTransmitOk || completed.delimiterUnderrun ||
+        completed.dataUnderrun)
+        return 73;
     return 0;
 }

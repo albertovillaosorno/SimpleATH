@@ -131,6 +131,11 @@ namespace simpleath
                 bool excessiveRetries;
                 bool filtered;
                 bool fifoUnderrun;
+                // ath9k reports data and delimiter underruns as independent
+                // diagnostics (not terminal TX-error status bits). The native
+                // owner may need them to adjust trigger-level policy.
+                bool dataUnderrun;
+                bool delimiterUnderrun;
                 bool configError;
                 bool expired;
                 bool txOpportunityExceeded;
