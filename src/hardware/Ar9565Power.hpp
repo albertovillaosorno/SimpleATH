@@ -20,7 +20,7 @@ namespace simpleath
         UnsupportedPowerLimit,
         UnsupportedRate,
         InvalidArgument,
-        InvalidCtlIndexes
+        InvalidCtlIndexes,
     };
 
     struct PowerChannel
@@ -43,6 +43,9 @@ namespace simpleath
             int16_t eirpHalfDbm;
     };
 
+    // The ath9k 2-GHz MCS table has fourteen rate-power groups per width.
+    constexpr size_t kHtTargetPowerGroups = 14;
+
     // Half-dBm EEPROM target values, not hardware descriptor power indexes.
     // No calibration, radio programming, MCI/PAPRD correction or TX permission
     // is established by this result. All final hardware conversion remains
@@ -55,8 +58,8 @@ namespace simpleath
             uint8_t conductedCeilingHalfDbm;
             uint8_t cck[4];
             uint8_t ofdm[4];
-            uint8_t ht20[14];
-            uint8_t ht40[14];
+            uint8_t ht20[kHtTargetPowerGroups];
+            uint8_t ht40[kHtTargetPowerGroups];
             bool legacyOnlyChannel14;
             bool ht20Present;
             bool ht40Present;

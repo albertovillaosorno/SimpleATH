@@ -307,12 +307,12 @@ namespace simpleath
         }
         if (candidate.ht20Present)
         {
-            result = targets(bytes, 200, 226, 3, 14, candidate.controlMhz,
-                             candidate.ht20);
+            result = targets(bytes, 200, 226, 3, kHtTargetPowerGroups,
+                             candidate.controlMhz, candidate.ht20);
             if (result == PowerResult::Ok)
-                result =
-                    clamp(bytes, ceilings.ctlGroup, 5, candidate.controlMhz,
-                          static_cast<uint8_t>(cap), candidate.ht20, 14);
+                result = clamp(bytes, ceilings.ctlGroup, 5,
+                               candidate.controlMhz, static_cast<uint8_t>(cap),
+                               candidate.ht20, kHtTargetPowerGroups);
             if (result != PowerResult::Ok)
                 return result;
         }
@@ -321,11 +321,12 @@ namespace simpleath
             // ath9k interpolates HT40 targets at control frequency, but looks
             // up its CTL at synth center. Do not collapse these into one
             // frequency.
-            result = targets(bytes, 203, 268, 3, 14, candidate.controlMhz,
-                             candidate.ht40);
+            result = targets(bytes, 203, 268, 3, kHtTargetPowerGroups,
+                             candidate.controlMhz, candidate.ht40);
             if (result == PowerResult::Ok)
                 result = clamp(bytes, ceilings.ctlGroup, 7, candidate.synthMhz,
-                               static_cast<uint8_t>(cap), candidate.ht40, 14);
+                               static_cast<uint8_t>(cap), candidate.ht40,
+                               kHtTargetPowerGroups);
             if (result != PowerResult::Ok)
                 return result;
         }
