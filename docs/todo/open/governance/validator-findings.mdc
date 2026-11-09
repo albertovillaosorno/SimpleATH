@@ -846,6 +846,38 @@ four portable fixtures (`wpa2_supplicant_alias`, `wpa2_adapter_entropy`,
 with the same sanitizer settings. Formatting and diff checks were clean.
 A separate, uncommitted README author edit was deliberately not staged.
 
+## Frozen full source validation after native and RTC fixes, 2026-11-09
+
+Two DCO-signed source-only fixes were committed and pushed to `main`:
+`36649a1` corrects `findNativeLink` duplicate matching when a valid first
+match is at virtual address zero and explicitly bounds signed rel32 target
+arithmetic; `1394602` snapshots the validated RTC reset callback routing,
+provider token and owner epoch before callbacks can alter the caller's
+backend table. Each correction has an offline regression that failed on
+pre-fix source and passed after correction. The `relocate_safety` and
+`rtc_power` fixtures each passed C++14 and C++17 with `-Werror`,
+AddressSanitizer and UndefinedBehaviorSanitizer. Clang-Format and diff
+checks passed. The RTC design contract records the snapshot limitation:
+serialized owner access, retained callback context and device-side posted
+write ordering remain external requirements.
+
+A frozen `python3 -B tools/validate.py --no-cache` run on pushed source at
+**`1394602`** recorded `scope=repository`, `validation_mode=macos`,
+`tests_requested=true`: **163 files, 416 checks, 0 cached, 416 executed,
+365 passed, 51 failed, 0 skipped**. All 51 failed checks were Clang-Tidy
+translation units; there were no Clang-Format, Ruff, BasedPyright or offline
+host-test failures. The process JSON matched `.cache/validate/report.json`
+byte-for-byte, SHA-256
+`a5e519bb98f0ae8a46f3fc4348f3d987c6eb0e304104f24d6aa05e965b281814`.
+No input-snapshot drift was reported. A separate author-notes-only README
+commit (`53c3659`) was already present before this final source scan; it
+was not made by this validation task. Another agent's disjoint EDMA header
+edits began after the frozen source check and need their own validation.
+**P0 remains OPEN** because all 51 strict Clang-Tidy translation-unit
+failures remain unresolved, including checks constrained by unavailable
+authentic macOS SDK/KDK headers on this Linux host. No kext build, CI,
+hardware access, packet transfer or native Tahoe ABI verification occurred.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
