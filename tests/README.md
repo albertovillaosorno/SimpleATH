@@ -23,6 +23,21 @@ forces all tools to run again and refreshes the full-repository cache.
 python3 -B tools/validate.py --no-cache
 ```
 
+The default mode is macOS validation on every host, including Linux: absent
+Apple SDK/KDK headers are Clang-Tidy failures, not skipped checks. For an
+explicit Linux-only source audit, run:
+
+```sh
+python3 -B tools/validate.py --linux --no-cache
+```
+
+Only unresolved Apple SDK/KDK includes become explicit `skipped` results in
+this mode; skips still fail the validation gate. A macOS host rejects
+`--linux`. Reports record `validation_mode` as `macos` or `linux`, and neither
+cross-mode cached results nor concurrent completed runs are reused. Native
+macOS CI should use the default command with authentic Apple SDK/KDK headers;
+Linux-mode reports are never proof of a complete macOS native parse.
+
 Python tests use standard-library unittest: name modules `test_*.py` and add
 `__init__.py` to test packages. The runner launches each module's discovered
 suite in an isolated Python process. Zero tests, unittest skips and unavailable
