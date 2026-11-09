@@ -1,4 +1,4 @@
-# SimpleATH/macOS: keep native ABI naming; missing SDK headers fail by default and only explicit --linux mode skips them.
+# SimpleATH/macOS: keep C++14/native ABI naming; missing SDK headers fail by default and only explicit --linux mode skips them.
 InheritParentConfig: false
 Checks: >
   -*,
@@ -17,6 +17,7 @@ Checks: >
   -cppcoreguidelines-use-enum-class,
   -modernize-avoid-c-arrays,
   -modernize-concat-nested-namespaces,
+  -modernize-use-nodiscard,
   -modernize-deprecated-headers,
   -modernize-use-trailing-return-type,
   -misc-use-anonymous-namespace,
