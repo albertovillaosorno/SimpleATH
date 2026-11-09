@@ -19,6 +19,8 @@ namespace
     {
             RandomCase behavior = RandomCase::PartialFailure;
             unsigned calls = 0;
+            unsigned pairwiseCalls = 0;
+            unsigned groupCalls = 0;
             Adapter *adapter = nullptr;
             bool replaceDuringRandom = false;
             bool replacementConfigured = false;
@@ -56,15 +58,17 @@ namespace
                 return true;
             }
 
-            static bool pairwise(void *, const Mac &, const uint8_t[16])
+            static bool pairwise(void *context, const Mac &, const uint8_t[16])
             {
-                return false;
+                ++static_cast<Provider *>(context)->pairwiseCalls;
+                return true;
             }
 
-            static bool group(void *, uint8_t, const uint8_t[16],
+            static bool group(void *context, uint8_t, const uint8_t[16],
                               const uint8_t[8])
             {
-                return false;
+                ++static_cast<Provider *>(context)->groupCalls;
+                return true;
             }
 
             static void remove(void *)
@@ -115,6 +119,27 @@ int main()
     for (size_t i = 0; i < sizeof(nonce); ++i)
         if (nonce[i] != static_cast<uint8_t>(i + 1))
             return 8;
+    // Direct callback callers cannot bypass the supplicant's address,
+    // CCMP key index and reserved Key RSC preflight to program hardware.
+    const Mac invalidAp {{0x01, 0x11, 0x22, 0x33, 0x44, 0x55}};
+    const Mac validAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+    uint8_t key[16] {};
+    key[0] = 1;
+    uint8_t validRsc[8] {1, 2, 3, 4, 5, 6, 0, 0};
+    uint8_t invalidRsc[8] {1, 2, 3, 4, 5, 6, 1, 0};
+    if (callbacks.installPairwiseTk(callbacks.context, invalidAp, key) ||
+        provider.pairwiseCalls != 0)
+        return 9;
+    if (!callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
+        provider.pairwiseCalls != 1)
+        return 10;
+    if (callbacks.installGroupGtk(callbacks.context, 4, key, validRsc) ||
+        callbacks.installGroupGtk(callbacks.context, 2, key, invalidRsc) ||
+        provider.groupCalls != 0)
+        return 11;
+    if (!callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
+        provider.groupCalls != 1)
+        return 12;
     adapter.clear();
     return 0;
 }

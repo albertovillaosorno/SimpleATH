@@ -162,7 +162,9 @@ namespace simpleath
                 if (!context || !key)
                     return false;
                 auto *adapter = static_cast<Adapter *>(context);
-                return adapter->configured_ &&
+                // Callbacks are public and may be invoked without passing
+                // through the supplicant's checked BSS identity.
+                return validStationMac(ap) && adapter->configured_ &&
                        adapter->hardware_.installPairwise &&
                        adapter->hardware_.installPairwise(
                            adapter->hardware_.context, ap, key);
@@ -174,7 +176,10 @@ namespace simpleath
                 if (!context || !key || !keyRsc)
                     return false;
                 auto *adapter = static_cast<Adapter *>(context);
-                return adapter->configured_ &&
+                // The hardware must never see a reserved GTK index or the
+                // two reserved octets after the six-byte CCMP receive PN.
+                return keyId <= 3 && keyRsc[6] == 0 && keyRsc[7] == 0 &&
+                       adapter->configured_ &&
                        adapter->hardware_.installGroup &&
                        adapter->hardware_.installGroup(
                            adapter->hardware_.context, keyId, key, keyRsc);
