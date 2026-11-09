@@ -208,12 +208,12 @@ namespace simpleath
                 return status_;
             }
 
-            bool canTransmit() const
+            static bool canTransmit()
             {
                 return false;
             }
 
-            bool canReceive() const
+            static bool canReceive()
             {
                 return false;
             }

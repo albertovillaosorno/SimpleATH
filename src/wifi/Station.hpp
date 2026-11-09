@@ -83,7 +83,7 @@ namespace simpleath
 
                 // No crypto engine or macOS network interface is present: do
                 // not expose a "connected" success state.
-                bool hasFunctionalWifi() const
+                static bool hasFunctionalWifi()
                 {
                     return false;
                 }
