@@ -40,7 +40,12 @@ initialization to the primitive after alias rejection, and nonce, PTK, MIC,
 GTK plaintext and unwrap-length outputs are rejected when they overlap the
 adapter's own retained callback state. Alias errors leave the adapter and the
 aliased input untouched; this is source-only behavior, not proof of a secure
-platform keycache backend.
+platform keycache backend. Successful pairwise/GTK install callbacks are
+also checked against the adapter's retained configuration generation after
+the call. A callback returning success after it clears and reconfigures the
+adapter no longer publishes stale installed-key readiness; isolated red/green
+host regressions exercise both paths. This cannot verify actual keycache
+programming, serialize power loss or replace the native owner's teardown gate.
 
 The code wipes PMK/PTK, digest scratch, AES round keys and intermediate GTK
 when possible. The source is unaudited: volatile wiping cannot guarantee

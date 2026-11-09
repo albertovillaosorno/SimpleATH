@@ -164,10 +164,17 @@ namespace simpleath
                 auto *adapter = static_cast<Adapter *>(context);
                 // Callbacks are public and may be invoked without passing
                 // through the supplicant's checked BSS identity.
-                return validStationMac(ap) && adapter->configured_ &&
-                       adapter->hardware_.installPairwise &&
-                       adapter->hardware_.installPairwise(
-                           adapter->hardware_.context, ap, key);
+                if (!validStationMac(ap) || !adapter->configured_ ||
+                    !adapter->hardware_.installPairwise)
+                    return false;
+                // An install can report success after the provider has
+                // retired and reconfigured this same adapter. Never promote
+                // that stale completion into installed-key readiness.
+                const uint64_t generation = adapter->generation_;
+                const bool installed = adapter->hardware_.installPairwise(
+                    adapter->hardware_.context, ap, key);
+                return installed && adapter->configured_ &&
+                       adapter->generation_ == generation;
             }
 
             bool Adapter::group(void *context, uint8_t keyId,
@@ -178,11 +185,14 @@ namespace simpleath
                 auto *adapter = static_cast<Adapter *>(context);
                 // The hardware must never see a reserved GTK index or the
                 // two reserved octets after the six-byte CCMP receive PN.
-                return keyId <= 3 && keyRsc[6] == 0 && keyRsc[7] == 0 &&
-                       adapter->configured_ &&
-                       adapter->hardware_.installGroup &&
-                       adapter->hardware_.installGroup(
-                           adapter->hardware_.context, keyId, key, keyRsc);
+                if (keyId > 3 || keyRsc[6] != 0 || keyRsc[7] != 0 ||
+                    !adapter->configured_ || !adapter->hardware_.installGroup)
+                    return false;
+                const uint64_t generation = adapter->generation_;
+                const bool installed = adapter->hardware_.installGroup(
+                    adapter->hardware_.context, keyId, key, keyRsc);
+                return installed && adapter->configured_ &&
+                       adapter->generation_ == generation;
             }
 
             void Adapter::remove(void *context)

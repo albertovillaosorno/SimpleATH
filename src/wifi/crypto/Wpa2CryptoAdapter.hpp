@@ -51,6 +51,8 @@ namespace simpleath
                     // and adapter storage must not contain callback context.
                     // Callback outputs may not
                     // overlap the adapter's retained hardware/callback state.
+                    // Nonce and key-install success must retain the same
+                    // adapter generation after their hardware callback.
                     // Invalid unwrap-length aliases are returned untouched.
                     bool configure(const KeyHardware &hardware);
                     // Invalid adapter returns an all-null backend, which the

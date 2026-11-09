@@ -23,6 +23,8 @@ namespace
             unsigned groupCalls = 0;
             Adapter *adapter = nullptr;
             bool replaceDuringRandom = false;
+            bool replaceDuringPairwise = false;
+            bool replaceDuringGroup = false;
             bool replacementConfigured = false;
 
             static bool random(void *context, uint8_t *out, size_t length)
@@ -58,16 +60,37 @@ namespace
                 return true;
             }
 
+            static void replace(Provider &self)
+            {
+                self.adapter->clear();
+                const KeyHardware replacement {&self, random, pairwise, group,
+                                               remove};
+                self.replacementConfigured =
+                    self.adapter->configure(replacement);
+            }
+
             static bool pairwise(void *context, const Mac &, const uint8_t[16])
             {
-                ++static_cast<Provider *>(context)->pairwiseCalls;
+                auto &self = *static_cast<Provider *>(context);
+                ++self.pairwiseCalls;
+                if (self.replaceDuringPairwise)
+                {
+                    self.replaceDuringPairwise = false;
+                    replace(self);
+                }
                 return true;
             }
 
             static bool group(void *context, uint8_t, const uint8_t[16],
                               const uint8_t[8])
             {
-                ++static_cast<Provider *>(context)->groupCalls;
+                auto &self = *static_cast<Provider *>(context);
+                ++self.groupCalls;
+                if (self.replaceDuringGroup)
+                {
+                    self.replaceDuringGroup = false;
+                    replace(self);
+                }
                 return true;
             }
 
@@ -140,6 +163,25 @@ int main()
     if (!callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
         provider.groupCalls != 1)
         return 12;
+    // An install callback can retire and reconfigure the provider while it
+    // returns success for the OLD hardware owner. Such a stale completion
+    // cannot authorize pairwise or group key installation in the new epoch.
+    provider.replacementConfigured = false;
+    provider.replaceDuringPairwise = true;
+    if (callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
+        !provider.replacementConfigured || provider.pairwiseCalls != 2)
+        return 13;
+    if (!callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
+        provider.pairwiseCalls != 3)
+        return 14;
+    provider.replacementConfigured = false;
+    provider.replaceDuringGroup = true;
+    if (callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
+        !provider.replacementConfigured || provider.groupCalls != 2)
+        return 15;
+    if (!callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
+        provider.groupCalls != 3)
+        return 16;
     adapter.clear();
     return 0;
 }
