@@ -92,6 +92,12 @@ namespace simpleath
                 return DataPathResult::InvalidEthernetFrame;
 
             const bool isEapol = etherType == kEtherTypeEapol;
+            // Open associations have no 802.1X transport or supplicant in
+            // this driver. Only the separately parsed WPA2-PSK M2/M4 path
+            // may serialize EAPOL; do not send arbitrary cleartext EAPOL
+            // through the ordinary Open Ethernet-II data serializer.
+            if (link.security == LinkSecurity::Open && isEapol)
+                return DataPathResult::InvalidEthernetFrame;
             // This WPA2-PSK transport only emits pairwise M2/M4 to the
             // selected AP; never serialize EAPOL to a forged group or peer
             // destination through the public data-path API.

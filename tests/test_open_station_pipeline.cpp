@@ -398,6 +398,41 @@ namespace
                decoded.payload == frame + 32;
     }
 
+    bool rejectOpenAssociationEapolTx()
+    {
+        // This portable station supports Open data and WPA2-PSK M2/M4 only.
+        // An Open LinkContext must not smuggle an unchecked 802.1X/EAPOL
+        // payload into a cleartext data frame or native TX action.
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Open;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        uint8_t ethernet[17] {};
+        std::memcpy(ethernet, kAp, 6);
+        std::memcpy(ethernet + 6, kStation, 6);
+        ethernet[12] = 0x88;
+        ethernet[13] = 0x8e;
+        ethernet[14] = 2;
+        uint8_t tx[64] {};
+        std::memset(tx, 0xa5, sizeof(tx));
+        SerializedData prepared {};
+        prepared.frameBytes = 99;
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                             sizeof(tx), prepared) !=
+                DataPathResult::InvalidEthernetFrame ||
+            tx[0] != 0xa5 || prepared.frameBytes != 99)
+            return false;
+        // Ordinary Open IPv4 data remains permitted under the same link.
+        ethernet[12] = 0x08;
+        ethernet[13] = 0x00;
+        return prepareStationTx(link, ethernet, sizeof(ethernet), 1, tx,
+                                sizeof(tx), prepared) == DataPathResult::Ok &&
+               !prepared.isEapol && prepared.etherType == 0x0800;
+    }
+
     bool rejectForeignWpa2Authenticator()
     {
         // The WPA2 4-way handshake for the selected BSSID must never accept
@@ -995,6 +1030,8 @@ int main()
         return 24;
     if (!rejectOpenLinkWithInstalledWpa2Keys())
         return 45;
+    if (!rejectOpenAssociationEapolTx())
+        return 48;
     if (!rejectForeignWpa2Authenticator())
         return 21;
     if (!rejectUnboundWpa2Eapol())

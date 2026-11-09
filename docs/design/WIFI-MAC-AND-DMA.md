@@ -67,7 +67,10 @@ for the **next separately authorized build**.
   present in Linux cfg80211 `net/wireless/util.c` (see the upstream source
   in the evidence references below). RX admission also validates the selected
   unicast station/BSSID, rejects multicast WPA2-PSK handshake EAPOL and clears
-  any borrowed payload pointer on failed decoding or admission.
+  any borrowed payload pointer on failed decoding or admission. Open station
+  TX explicitly refuses EAPOL, because this source-only Open/WPA2-PSK driver
+  has no reviewed 802.1X mode; the public serializer's sole EAPOL exceptions
+  remain parsed WPA2-PSK M2 before keys and M4 after key installation.
 - **802.11 management code cannot transmit.** It creates byte sequences
   but needs calibrated RF hardware, actual RX/TX queues, regulatory policy,
   beacon/scan operation, association timers and packet scheduling.
