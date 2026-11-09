@@ -349,6 +349,11 @@ namespace simpleath
                         static_cast<uint8_t>(value >> (byte * 8));
             }
         }
+        // The last post-read D0 gate can succeed before the provider is
+        // revoked while these bytes are copied to the caller's buffer.
+        // Recheck ownership before publishing even a direct raw capture.
+        if (result == NvmResult::Ok && !backend.ownerInD0(backend.context))
+            result = NvmResult::SessionUnavailable;
         if (result != NvmResult::Ok)
         {
             clearBytes(destination, byteCount);

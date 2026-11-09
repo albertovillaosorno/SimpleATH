@@ -46,6 +46,12 @@ Owner permission to edit source does not authorize invoking this capability.
 - Capture ascending-address bytes, extracting low bytes first from the
   little-endian EEPROM/OTP words. restoreEepromDump reverses each block into
   the descending-address stream expected by ath9k's compression format.
+  Direct raw captures perform a final D0 ownership check after the last
+  payload's copy and before reporting `captureComplete`. Losing D0 in that
+  software-only interval returns `SessionUnavailable` and wipes the entire
+  output. A synthetic callback regression reproduces the pre-fix false
+  success and confirms this fail-closed publication gate; this is not
+  evidence of safe real hardware ownership or atomic power transitions.
 - Only the spans used by upstream AR9565 origin search are supported:
   up to 4096 EEPROM bytes and 1024 OTP bytes. Those are supported acquisition
   bounds, not a measurement of physical storage capacity.

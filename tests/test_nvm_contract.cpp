@@ -21,6 +21,8 @@ namespace
             bool revokeAfterTriggerTimestamp = false;
             bool revokeDuringWaitTimestamp = false;
             bool revokeDuringFirstBudgetClock = false;
+            bool revokeAfterFinalPayloadCheck = false;
+            uint32_t finalPayloadOwnerChecks = 0;
             bool backwards = false;
             bool d0 = true;
     };
@@ -29,6 +31,14 @@ namespace
     {
         auto &fake = *static_cast<FakeNvm *>(context);
         ++fake.ownerChecks;
+        if (fake.revokeAfterFinalPayloadCheck && fake.statusReads == 2 &&
+            ++fake.finalPayloadOwnerChecks == 2)
+        {
+            // The last payload read's post-clock gate still reports true,
+            // then D0 disappears before captured bytes are published.
+            fake.d0 = false;
+            return true;
+        }
         return fake.d0;
     }
 
@@ -209,6 +219,19 @@ int main()
         fake.readsAfterRevocation != 0 || status.captureComplete || bytes[0] ||
         bytes[1])
         return 8;
+    // The last payload read may finish its post-clock D0 check and copy its
+    // bytes while the provider loses power. A direct caller must not receive
+    // captureComplete or retained data without a fresh publication gate.
+    fake = {};
+    fake.revokeAfterFinalPayloadCheck = true;
+    bytes[0] = bytes[1] = 0xaa;
+    if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
+        fake.d0 || fake.finalPayloadOwnerChecks != 3 ||
+        fake.readsAfterRevocation || fake.clocksAfterRevocation ||
+        status.captureComplete || bytes[0] || bytes[1] ||
+        status.bytesAcquired != sizeof(bytes))
+        return 11;
+
     // Opaque callback state must not be borrowed from the callback table or
     // from the physical PCI identity. An owner callback is allowed to mutate
     // its context; invoking one with either borrowed input risks corrupting
