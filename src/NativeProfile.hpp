@@ -122,7 +122,7 @@ namespace ath
     {
         if (!text || !imports || !pattern.bytes || !pattern.mask ||
             !pattern.size || pattern.size > size || !pattern.references ||
-            !pattern.referenceCount)
+            !pattern.referenceCount || size > UINTPTR_MAX - address)
             return 0;
         uintptr_t result = 0;
         for (size_t offset = 0; offset <= size - pattern.size; ++offset)
@@ -150,8 +150,33 @@ namespace ath
                 const auto displacement = static_cast<int32_t>(
                     uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 |
                     uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24);
-                if (address + offset + reference.offset + 4 + displacement !=
-                    imports[reference.target])
+                // rel32 addresses are signed offsets from the next byte.
+                // Reject arithmetic wrap instead of accepting a fabricated
+                // import address on the opposite edge of the address space.
+                const uintptr_t next = address + offset + reference.offset + 4;
+                const int64_t signedDelta = displacement;
+                uintptr_t target = 0;
+                if (signedDelta < 0)
+                {
+                    const auto backward = static_cast<uintptr_t>(-signedDelta);
+                    if (backward > next)
+                    {
+                        matches = false;
+                        break;
+                    }
+                    target = next - backward;
+                }
+                else
+                {
+                    const auto forward = static_cast<uintptr_t>(signedDelta);
+                    if (forward > UINTPTR_MAX - next)
+                    {
+                        matches = false;
+                        break;
+                    }
+                    target = next + forward;
+                }
+                if (target != imports[reference.target])
                 {
                     matches = false;
                     break;

@@ -89,3 +89,15 @@ No bulk reconstruction, copied legacy stack or additional archive is required.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+## Native rel32 source-hardening checkpoint, 2026-11-09
+
+`NativeProfile.hpp::findNativeLink` now rejects native-pattern mapping ranges
+that cross `UINTPTR_MAX` and signed RIP-relative import targets that would
+underflow/overflow `uintptr_t`. Previously, a synthetic negative displacement
+from a low address matched an unrelated high import (pre-fix host exit 2).
+`tests/test_relocate_safety.cpp` covers valid forward/backward rel32 targets
+and three distinct wraparound cases with offline C++14/C++17 host execution.
+This guards bounded source parsing; it does not establish that the private
+Tahoe native class layout, symbol export eligibility or patch offsets match
+25G332, and this P0 TODO remains open.

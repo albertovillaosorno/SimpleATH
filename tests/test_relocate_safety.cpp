@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Portable malformed-payload guard tests; no kernel, PCI or kext operations.
+#include "NativeProfile.hpp"
 #include "Payload.hpp"
 
 #include <cstdint>
@@ -12,6 +13,52 @@ namespace
         for (size_t index = 0; index < count; ++index)
             if (bytes[index] != 0)
                 return false;
+        return true;
+    }
+
+    bool linkPatternBoundaries()
+    {
+        // The four-byte marker begins at offset 4. The final four bytes encode
+        // a signed x86 RIP-relative displacement from the end of the pattern.
+        uint8_t text[12] = {0,    0,    0,    0,    0x91, 0x92,
+                            0x93, 0x94, 0xfc, 0xff, 0xff, 0xff};
+        const uint8_t bytes[8] = {0x91, 0x92, 0x93, 0x94, 0, 0, 0, 0};
+        const uint8_t mask[8] = {0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0};
+        const ath::NativeCodeReference reference = {4, 0};
+        const ath::NativeLinkPattern pattern = {bytes, mask, 8, &reference, 1};
+        const uintptr_t validImport[] = {0x1008};
+        if (ath::findNativeLink(text, sizeof(text), 0x1000, pattern,
+                                validImport, 1) != 0x1004)
+            return false;
+
+        // A negative displacement may not wrap below address zero and match an
+        // unrelated high import address.
+        text[8] = 0xc0;
+        const uintptr_t wrappedNegative[] = {UINTPTR_MAX - 51};
+        if (ath::findNativeLink(text, sizeof(text), 0, pattern, wrappedNegative,
+                                1) != 0)
+            return false;
+
+        // Forward RIP-relative targets still resolve normally.
+        text[8] = 16;
+        text[9] = text[10] = text[11] = 0;
+        const uintptr_t forwardImport[] = {0x101c};
+        if (ath::findNativeLink(text, sizeof(text), 0x1000, pattern,
+                                forwardImport, 1) != 0x1004)
+            return false;
+
+        // A positive displacement may not wrap beyond the address space.
+        const uintptr_t wrappedPositive[] = {11};
+        if (ath::findNativeLink(text, sizeof(text), UINTPTR_MAX - 16, pattern,
+                                wrappedPositive, 1) != 0)
+            return false;
+
+        // The pattern itself may not straddle the address-space boundary.
+        text[8] = text[9] = text[10] = text[11] = 0;
+        const uintptr_t wrappedEnd[] = {6};
+        if (ath::findNativeLink(text, sizeof(text), UINTPTR_MAX - 5, pattern,
+                                wrappedEnd, 1) != 0)
+            return false;
         return true;
     }
 } // namespace
@@ -218,5 +265,8 @@ int main()
     if (ath::relocateImage(offsetImage, nullptr, 0, nullptr, 0, nullptr, 0) ||
         std::memcmp(oldOffsets, offsetBytes, sizeof(oldOffsets)) != 0)
         return 36;
+
+    if (!linkPatternBoundaries())
+        return 37;
     return 0;
 }
