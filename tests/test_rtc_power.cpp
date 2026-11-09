@@ -27,6 +27,9 @@ namespace
             bool finalStatusRead = false;
             unsigned finalStatusOwnerChecks = 0;
             bool sawColdReset = false;
+            bool retargetCallbacksOnRevision = false;
+            RtcPowerBackend *borrowedCallbacks = nullptr;
+            unsigned hijackedWrites = 0;
             unsigned readAttempts = 0;
             unsigned reads = 0;
             unsigned writes = 0;
@@ -52,6 +55,12 @@ namespace
                 return self.alive && self.epoch == ownerEpoch;
             }
 
+            static bool redirectedWrite(void *context, uint32_t, uint32_t)
+            {
+                ++get(context).hijackedWrites;
+                return false;
+            }
+
             static bool read32(void *context, uint32_t offset, uint32_t *value)
             {
                 auto &self = get(context);
@@ -66,6 +75,12 @@ namespace
                             (static_cast<uint32_t>(kMacFamily) << 12u) | 0xffu;
                         if (self.backwardOnRevision)
                             --self.time;
+                        if (self.retargetCallbacksOnRevision &&
+                            self.borrowedCallbacks)
+                        {
+                            self.borrowedCallbacks->ownerEpoch = self.epoch + 1;
+                            self.borrowedCallbacks->write32 = redirectedWrite;
+                        }
                         return true;
                     case kWorkaroundRegister:
                         *value = self.workaround;
@@ -447,6 +462,24 @@ int main()
             status.boardStateInvalidated || context.bootstrapCompleted ||
             context.bootstrapEpoch)
             return 29;
+    }
+    {
+        // A callback retaining the caller's table cannot redirect the
+        // in-flight epoch or MMIO writer after the first revision read.
+        FakeRtc fake {};
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        auto backend = fake.backend();
+        fake.borrowedCallbacks = &backend;
+        fake.retargetCallbacksOnRevision = true;
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::Ok ||
+            !context.bootstrapCompleted || !status.resetCompleted ||
+            fake.hijackedWrites != 0 || fake.writes == 0 ||
+            backend.ownerEpoch != fake.epoch + 1 ||
+            backend.write32 != FakeRtc::redirectedWrite)
+            return 30;
     }
     return 0;
 }

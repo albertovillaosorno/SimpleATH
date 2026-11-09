@@ -43,9 +43,13 @@ monotonic, and `delayMicros` must take at least the requested interval
 on that same clock. The transition checks observed elapsed time after
 every delay; a short delay is an explicit failure, not a successful
 reset pulse. Callback latency also counts toward a 250 ms global budget.
-Every access revalidates the ownership epoch and BAR bounds. A callback
-that cannot prove its contract must return failure; this source does not
-attempt an unsafe device-register fallback or guess a D0 state.
+Every access revalidates the ownership epoch and BAR bounds. Callback
+routing, provider token and owner epoch are copied once after alias preflight;
+retained pointers into the caller's original callback table cannot retarget
+an in-flight transition. This does not replace the required serialized owner
+and retained callback context. A callback that cannot prove its contract must
+return failure; this source does not attempt an unsafe device-register
+fallback or guess a D0 state.
 
 ## Supported sequence and fail-closed results
 

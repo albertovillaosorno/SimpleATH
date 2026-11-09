@@ -319,18 +319,22 @@ namespace simpleath
               overlaps(&backend, sizeof(backend), backend.context, 1) ||
               overlaps(&identity, sizeof(identity), backend.context, 1))))
             return RtcResult::InvalidArgument;
+        // A callback may retain and alter the caller's table mid-transition.
+        // Keep the validated routing and epoch fixed for this entire run.
+        const RtcPowerBackend stableBackend = backend;
         status = {};
-        if (!backend.context || !backend.providerToken || !backend.ownerEpoch ||
-            !backend.canReset || !backend.read32 || !backend.write32 ||
-            !backend.nowMicros || !backend.delayMicros ||
-            backend.barLengthBytes < kForceWake + 4 ||
+        if (!stableBackend.context || !stableBackend.providerToken ||
+            !stableBackend.ownerEpoch || !stableBackend.canReset ||
+            !stableBackend.read32 || !stableBackend.write32 ||
+            !stableBackend.nowMicros || !stableBackend.delayMicros ||
+            stableBackend.barLengthBytes < kForceWake + 4 ||
             (operation != RtcOperation::BootstrapPowerOn &&
              operation != RtcOperation::EnsureAwake &&
              operation != RtcOperation::WarmReset &&
              operation != RtcOperation::ColdReset))
             return status.result = RtcResult::InvalidArgument;
-        if (backend.mciEnabled &&
-            (!backend.beforeMacReset || !backend.afterRtcAwake))
+        if (stableBackend.mciEnabled &&
+            (!stableBackend.beforeMacReset || !stableBackend.afterRtcAwake))
             return status.result = RtcResult::CoexistenceUnavailable;
         // A caller-supplied context must be either fresh or a coherent
         // snapshot captured for a previous transition. Never honor a forged
@@ -347,12 +351,12 @@ namespace simpleath
             identity.spoofPossible)
             return status.result = RtcResult::UnsupportedIdentity;
         if (context.workaroundCaptured &&
-            context.providerToken != backend.providerToken)
+            context.providerToken != stableBackend.providerToken)
             return status.result = RtcResult::ProviderChanged;
         // Retain the original WA capture for this provider, but never carry
         // reset readiness across a different D0/ownership generation.
         if (context.bootstrapCompleted &&
-            context.bootstrapEpoch != backend.ownerEpoch)
+            context.bootstrapEpoch != stableBackend.ownerEpoch)
         {
             context.bootstrapCompleted = false;
             context.bootstrapEpoch = 0;
@@ -372,9 +376,10 @@ namespace simpleath
         // RtcRun samples the first timestamp in its constructor. The clock
         // may share the PCI owner's memory, so check the live epoch BEFORE
         // invoking it rather than relying only on RtcRun::check() later.
-        if (!backend.canReset(backend.context, backend.ownerEpoch))
+        if (!stableBackend.canReset(stableBackend.context,
+                                    stableBackend.ownerEpoch))
             return revokeReady(RtcResult::AccessRevoked);
-        RtcRun run(backend, context, status);
+        RtcRun run(stableBackend, context, status);
         uint32_t srev = 0;
         RtcResult result = run.read(kRevisionRegister, srev);
         if (result != RtcResult::Ok)
@@ -389,7 +394,7 @@ namespace simpleath
             result = run.read(kWorkaroundRegister, workaround);
             if (result != RtcResult::Ok)
                 return revokeReady(result);
-            context.providerToken = backend.providerToken;
+            context.providerToken = stableBackend.providerToken;
             context.srev = srev;
             context.workaroundValue = workaround | kWorkaroundWake;
             context.workaroundCaptured = true;
@@ -407,9 +412,9 @@ namespace simpleath
             if (result == RtcResult::Ok && (rtc & kRtcStatusMask) != kRtcOn)
                 result = RtcResult::WakeTimeout;
         }
-        if (result == RtcResult::Ok && backend.mciEnabled)
+        if (result == RtcResult::Ok && stableBackend.mciEnabled)
         {
-            if (!backend.afterRtcAwake(backend.context))
+            if (!stableBackend.afterRtcAwake(stableBackend.context))
                 result = RtcResult::CoexistenceUnavailable;
             else
                 result = run.check();
@@ -423,7 +428,7 @@ namespace simpleath
         {
             // Commit readiness only after RTC status and MCI callbacks have
             // succeeded. This also covers EnsureAwake after RTC shutdown.
-            context.bootstrapEpoch = backend.ownerEpoch;
+            context.bootstrapEpoch = stableBackend.ownerEpoch;
             context.bootstrapCompleted = true;
         }
         if (result != RtcResult::Ok)
