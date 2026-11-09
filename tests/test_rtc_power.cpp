@@ -394,5 +394,59 @@ int main()
             !status.resetCompleted)
             return 23;
     }
+    {
+        // After a successful bootstrap, a pre-MMIO loss of the reset owner
+        // must retire readiness. Even if a faulty provider returns to the
+        // same token/epoch, a stale WarmReset cannot skip rebootstrap.
+        FakeRtc fake {};
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        const auto backend = fake.backend();
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::Ok ||
+            !context.bootstrapCompleted)
+            return 24;
+        const unsigned priorWrites = fake.writes;
+        fake.alive = false;
+        if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::EnsureAwake,
+                                context, status) != RtcResult::AccessRevoked ||
+            status.boardStateInvalidated || fake.writes != priorWrites ||
+            context.bootstrapCompleted || context.bootstrapEpoch)
+            return 25;
+        fake.alive = true;
+        if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::WarmReset,
+                                context,
+                                status) != RtcResult::BootstrapRequired ||
+            fake.writes != priorWrites)
+            return 26;
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::Ok ||
+            !context.bootstrapCompleted)
+            return 27;
+    }
+    {
+        // Revocation during the clock callback, before the first MMIO read,
+        // is equally disqualifying even though no register was written.
+        FakeRtc fake {};
+        RtcPowerContext context {};
+        RtcPowerStatus status {};
+        const auto backend = fake.backend();
+        if (transitionAr9565Rtc(backend, kPhysical,
+                                RtcOperation::BootstrapPowerOn, context,
+                                status) != RtcResult::Ok)
+            return 28;
+        const unsigned beforeReads = fake.reads;
+        const unsigned beforeWrites = fake.writes;
+        fake.clocks = 0;
+        fake.revokeOnSecondClock = true;
+        if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::EnsureAwake,
+                                context, status) != RtcResult::AccessRevoked ||
+            fake.reads != beforeReads || fake.writes != beforeWrites ||
+            status.boardStateInvalidated || context.bootstrapCompleted ||
+            context.bootstrapEpoch)
+            return 29;
+    }
     return 0;
 }

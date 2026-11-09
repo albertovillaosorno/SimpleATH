@@ -360,26 +360,35 @@ namespace simpleath
         if (!context.bootstrapCompleted &&
             operation != RtcOperation::BootstrapPowerOn)
             return status.result = RtcResult::BootstrapRequired;
+        // A failed active operation cannot retain a prior bootstrap claim,
+        // even when power vanished before the first MMIO write. Otherwise a
+        // stale same-token/epoch retry could skip the mandatory reset.
+        const auto revokeReady = [&context, &status](RtcResult failure)
+        {
+            context.bootstrapCompleted = false;
+            context.bootstrapEpoch = 0;
+            return status.result = failure;
+        };
         // RtcRun samples the first timestamp in its constructor. The clock
         // may share the PCI owner's memory, so check the live epoch BEFORE
         // invoking it rather than relying only on RtcRun::check() later.
         if (!backend.canReset(backend.context, backend.ownerEpoch))
-            return status.result = RtcResult::AccessRevoked;
+            return revokeReady(RtcResult::AccessRevoked);
         RtcRun run(backend, context, status);
         uint32_t srev = 0;
         RtcResult result = run.read(kRevisionRegister, srev);
         if (result != RtcResult::Ok)
-            return status.result = result;
+            return revokeReady(result);
         if (decodeRevision(srev, status.silicon) != Result::Ok)
-            return status.result = RtcResult::UnsupportedSilicon;
+            return revokeReady(RtcResult::UnsupportedSilicon);
         if (context.workaroundCaptured && context.srev != srev)
-            return status.result = RtcResult::ProviderChanged;
+            return revokeReady(RtcResult::ProviderChanged);
         if (!context.workaroundCaptured)
         {
             uint32_t workaround = 0;
             result = run.read(kWorkaroundRegister, workaround);
             if (result != RtcResult::Ok)
-                return status.result = result;
+                return revokeReady(result);
             context.providerToken = backend.providerToken;
             context.srev = srev;
             context.workaroundValue = workaround | kWorkaroundWake;
@@ -417,13 +426,10 @@ namespace simpleath
             context.bootstrapEpoch = backend.ownerEpoch;
             context.bootstrapCompleted = true;
         }
-        if (result != RtcResult::Ok && status.boardStateInvalidated)
-        {
-            context.bootstrapCompleted = false;
-            context.bootstrapEpoch = 0;
-        }
-        status.rtcAwake = result == RtcResult::Ok;
-        return status.result = result;
+        if (result != RtcResult::Ok)
+            return revokeReady(result);
+        status.rtcAwake = true;
+        return status.result = RtcResult::Ok;
     }
 
 } // namespace simpleath

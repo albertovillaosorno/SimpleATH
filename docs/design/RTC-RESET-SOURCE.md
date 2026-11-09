@@ -60,8 +60,16 @@ RTC status check, MCI callback and a separate ownership/clock gate, never
 merely after the last write. A synthetic callback regression revokes
 ownership immediately after the final status-read gate; the transition now
 returns `AccessRevoked` and clears bootstrap readiness rather than publishing
-success. This is not proof that a real provider can prevent an unguarded D0
-transition outside a serialized owner transaction.
+success. Revocation during the initial ownership check or inside the first
+clock callback likewise retires a previously successful bootstrap *without*
+requiring any MMIO writes. The preflight revocation and every later
+active-operation failure discard the ready epoch; a subsequent reset must
+bootstrap anew even if a faulty provider reports the old owner token/epoch
+after a power interruption. The original workaround
+capture remains tied to the same provider; none of this verifies native PCI
+ownership or makes a stale native epoch acceptable. This is not proof that a
+real provider can prevent an unguarded D0 transition outside a serialized
+owner transaction.
 
 Warm/cold MAC reset polls AR_RTC_RC, conditionally handles host-interface
 sync timeouts, and uses 50 us reset assertion for this AR9003 variant.
