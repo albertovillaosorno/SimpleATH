@@ -234,12 +234,16 @@ namespace simpleath
             return PowerResult::InvalidArgument;
         out = {};
         BoardDataSummary board {};
-        if (summarizeBoardData(image, board) != EepromResult::Ok ||
-            !board.calibrationPierBinsPlausible)
-            // Discovery and direct gain selection reject malformed 2G
-            // calibration-pier geometry. A direct power calculation must not
-            // bypass that structural board check and publish usable-looking
-            // per-rate limits from a board discovery would have discarded.
+        if (summarizeBoardData(image, board) != EepromResult::Ok)
+            return PowerResult::InvalidBoard;
+        // Use the same structural identity, calibration-pier and supported
+        // gain-index gate as discovery's gain selection. Otherwise a caller
+        // can compute plausible power limits from the pinned generic template
+        // MAC (or another board discovery would have rejected). This does not
+        // establish a real board, calibration, regulatory or TX authority.
+        TxGainProfile txGain = TxGainProfile::Unknown;
+        RxGainProfile rxGain = RxGainProfile::Unknown;
+        if (selectBoardGainProfiles(board, txGain, rxGain) != EepromResult::Ok)
             return PowerResult::InvalidBoard;
         if ((ceilings.ctlGroup & 0x0fu) || ceilings.ctlGroup == 0xf0)
             return PowerResult::InvalidCtlGroup;

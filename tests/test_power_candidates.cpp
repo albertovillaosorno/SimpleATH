@@ -229,5 +229,28 @@ int main()
             PowerResult::Ok ||
         output.cck[0] != 24 || output.ofdm[0] != 24)
         return 21;
+
+    // A reconstruction dictionary's built-in placeholder MAC passes the
+    // elementary unicast check, but is not a physical board's identity.
+    // The direct numerical planner cannot bypass the gain selector's
+    // pinned-template exclusion even when targets/CTL/piers look plausible.
+    const uint8_t originalMac[6] {image.bytes[2], image.bytes[3],
+                                  image.bytes[4], image.bytes[5],
+                                  image.bytes[6], image.bytes[7]};
+    const uint8_t referenceMac[6] {0x00, 0x02, 0x03, 0x04, 0x05, 0x06};
+    for (size_t i = 0; i < 6; ++i)
+        image.bytes[i + 2] = referenceMac[i];
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidBoard ||
+        output.controlMhz || output.cck[0] || output.ofdm[0] ||
+        output.conductedCeilingHalfDbm)
+        return 22;
+    for (size_t i = 0; i < 6; ++i)
+        image.bytes[i + 2] = originalMac[i];
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::Ok ||
+        output.cck[0] != 24 || output.ofdm[0] != 24)
+        return 23;
     return 0;
 }
