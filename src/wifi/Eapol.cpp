@@ -8,45 +8,45 @@ namespace simpleath
 {
     namespace ieee80211
     {
-        static constexpr size_t K_EAPOL_HEADER_BYTES = 4;
-        static constexpr size_t K_EAPOL_KEY_FIXED_BYTES = 95;
-        static constexpr size_t K_MAX_EAPOL_BODY_BYTES = 2048;
-        static constexpr size_t K_KEY_NONCE_BYTES = 32;
-        static constexpr size_t K_KEY_MIC_BYTES = 16;
-        static constexpr size_t K_KEY_RSC_OFFSET = 61;
-        static constexpr size_t K_KEY_NONCE_OFFSET = 13;
-        static constexpr size_t K_KEY_MIC_OFFSET = 77;
-        static constexpr uint8_t K_KEY_DESCRIPTOR_TYPE = 2;
-        static constexpr uint8_t K_KEY_DESCRIPTOR_VERSION = 2;
-        static constexpr uint16_t K_UNSUPPORTED_INFO = 0xe030U;
-        static constexpr uint32_t K_BITS_PER_BYTE = 8;
-        static constexpr size_t K_REPLAY_COUNTER_BYTES = 8;
-        static constexpr size_t K_KEY_DATA_LENGTH_OFFSET = 93;
-        static constexpr uint8_t K_EAPOL_KEY_PACKET_TYPE = 3;
+        static constexpr size_t kEapolHeaderBytes = 4;
+        static constexpr size_t kEapolKeyFixedBytes = 95;
+        static constexpr size_t kMaxEapolBodyBytes = 2048;
+        static constexpr size_t kKeyNonceBytes = 32;
+        static constexpr size_t kKeyMicBytes = 16;
+        static constexpr size_t kKeyRscOffset = 61;
+        static constexpr size_t kKeyNonceOffset = 13;
+        static constexpr size_t kKeyMicOffset = 77;
+        static constexpr uint8_t kKeyDescriptorType = 2;
+        static constexpr uint8_t kKeyDescriptorVersion = 2;
+        static constexpr uint16_t kUnsupportedInfo = 0xe030U;
+        static constexpr uint32_t kBitsPerByte = 8;
+        static constexpr size_t kReplayCounterBytes = 8;
+        static constexpr size_t kKeyDataLengthOffset = 93;
+        static constexpr uint8_t kEapolKeyPacketType = 3;
         // Exact WPA2-PSK CCMP M1/M3 Key Information masks: RSN version 2,
         // pairwise, ACK and M3-only install/MIC/secure/encrypted bits.
-        static constexpr uint16_t K_PAIRWISE_1_INFO = 0x008aU;
-        static constexpr uint16_t K_PAIRWISE_3_INFO = 0x13caU;
-        static constexpr uint16_t K_CCMP_KEY_BYTES = 16;
+        static constexpr uint16_t kPairwise1Info = 0x008aU;
+        static constexpr uint16_t kPairwise3Info = 0x13caU;
+        static constexpr uint16_t kCcmpKeyBytes = 16;
 
-        static uint16_t read_big16(const uint8_t *const bytes)
+        static uint16_t readBig16(const uint8_t *const bytes)
         {
             return static_cast<uint16_t>(static_cast<uint16_t>(bytes[0])
-                                         << K_BITS_PER_BYTE) |
+                                         << kBitsPerByte) |
                    static_cast<uint16_t>(bytes[1]);
         }
 
-        static uint64_t read_big64(const uint8_t *const bytes)
+        static uint64_t readBig64(const uint8_t *const bytes)
         {
             uint64_t result = 0;
-            for (size_t i = 0; i < K_REPLAY_COUNTER_BYTES; ++i)
+            for (size_t i = 0; i < kReplayCounterBytes; ++i)
             {
-                result = (result << K_BITS_PER_BYTE) | bytes[i];
+                result = (result << kBitsPerByte) | bytes[i];
             }
             return result;
         }
 
-        static bool any_nonzero(const uint8_t *const bytes, size_t length)
+        static bool anyNonzero(const uint8_t *const bytes, size_t length)
         {
             uint8_t aggregate = 0;
             for (size_t i = 0; i < length; ++i)
@@ -56,31 +56,30 @@ namespace simpleath
             return aggregate != 0;
         }
 
-        static bool overlaps_storage(const void *const first_buffer,
-                                     size_t first_bytes,
-                                     const void *const second_buffer,
-                                     size_t second_bytes)
+        static bool overlapsStorage(const void *const firstBuffer,
+                                    size_t firstBytes,
+                                    const void *const secondBuffer,
+                                    size_t secondBytes)
         {
-            if (!first_buffer || !second_buffer || !first_bytes ||
-                !second_bytes)
+            if (!firstBuffer || !secondBuffer || !firstBytes || !secondBytes)
             {
                 return false;
             }
-            const auto first = reinterpret_cast<uintptr_t>(first_buffer);
-            const auto second = reinterpret_cast<uintptr_t>(second_buffer);
-            return first <= second ? second - first < first_bytes
-                                   : first - second < second_bytes;
+            const auto first = reinterpret_cast<uintptr_t>(firstBuffer);
+            const auto second = reinterpret_cast<uintptr_t>(secondBuffer);
+            return first <= second ? second - first < firstBytes
+                                   : first - second < secondBytes;
         }
 
-        static bool at_wire_offset(const uint8_t *const frame,
-                                   const uint8_t *const field, size_t offset)
+        static bool atWireOffset(const uint8_t *const frame,
+                                 const uint8_t *const field, size_t offset)
         {
             const auto origin = reinterpret_cast<uintptr_t>(frame);
             const auto location = reinterpret_cast<uintptr_t>(field);
             return location >= origin && location - origin == offset;
         }
 
-        static bool replay_metadata_matches_wire(const KeyFrame &frame)
+        static bool replayMetadataMatchesWire(const KeyFrame &frame)
         {
             // ReplayGuard accepts public, caller-built KeyFrame values. Keep
             // every borrowed subfield and the scalar replay/key fields tied
@@ -88,43 +87,40 @@ namespace simpleath
             // The M3 MIC bytes may already be zeroed for verification, so
             // never reparse the whole packet at this stage.
             if (frame.eapolBytes == nullptr || frame.nonce == nullptr ||
-                frame.eapolLength <
-                    K_EAPOL_HEADER_BYTES + K_EAPOL_KEY_FIXED_BYTES ||
-                frame.eapolLength >
-                    K_EAPOL_HEADER_BYTES + K_MAX_EAPOL_BODY_BYTES)
+                frame.eapolLength < kEapolHeaderBytes + kEapolKeyFixedBytes ||
+                frame.eapolLength > kEapolHeaderBytes + kMaxEapolBodyBytes)
                 return false;
-            if (!at_wire_offset(frame.eapolBytes, frame.nonce,
-                                K_EAPOL_HEADER_BYTES + K_KEY_NONCE_OFFSET) ||
-                !at_wire_offset(frame.eapolBytes, frame.keyRsc,
-                                K_EAPOL_HEADER_BYTES + K_KEY_RSC_OFFSET) ||
-                !at_wire_offset(frame.eapolBytes, frame.mic,
-                                K_EAPOL_HEADER_BYTES + K_KEY_MIC_OFFSET) ||
-                !at_wire_offset(frame.eapolBytes, frame.keyData,
-                                K_EAPOL_HEADER_BYTES + K_EAPOL_KEY_FIXED_BYTES))
+            if (!atWireOffset(frame.eapolBytes, frame.nonce,
+                              kEapolHeaderBytes + kKeyNonceOffset) ||
+                !atWireOffset(frame.eapolBytes, frame.keyRsc,
+                              kEapolHeaderBytes + kKeyRscOffset) ||
+                !atWireOffset(frame.eapolBytes, frame.mic,
+                              kEapolHeaderBytes + kKeyMicOffset) ||
+                !atWireOffset(frame.eapolBytes, frame.keyData,
+                              kEapolHeaderBytes + kEapolKeyFixedBytes))
                 return false;
             // A fabricated KeyFrame must not approve a mismatched fixed
             // EAPOL-Key body/key-data length that the parser would reject.
             // This also prevents an undeclared suffix from entering the public
             // replay transition as if it were part of a parsed key packet.
-            if (frame.eapolLength - K_EAPOL_HEADER_BYTES !=
-                K_EAPOL_KEY_FIXED_BYTES + frame.keyDataLength)
+            if (frame.eapolLength - kEapolHeaderBytes !=
+                kEapolKeyFixedBytes + frame.keyDataLength)
                 return false;
             const uint8_t *const bytes = frame.eapolBytes;
             if (bytes[0] < 1 || bytes[0] > 3 ||
-                bytes[1] != K_EAPOL_KEY_PACKET_TYPE ||
-                bytes[K_EAPOL_HEADER_BYTES] != K_KEY_DESCRIPTOR_TYPE ||
-                static_cast<size_t>(read_big16(bytes + 2)) +
-                        K_EAPOL_HEADER_BYTES !=
+                bytes[1] != kEapolKeyPacketType ||
+                bytes[kEapolHeaderBytes] != kKeyDescriptorType ||
+                static_cast<size_t>(readBig16(bytes + 2)) + kEapolHeaderBytes !=
                     frame.eapolLength)
                 return false;
-            return read_big16(bytes + K_EAPOL_HEADER_BYTES + 1) ==
+            return readBig16(bytes + kEapolHeaderBytes + 1) ==
                        frame.keyInformation &&
-                   read_big16(bytes + K_EAPOL_HEADER_BYTES + 3) ==
+                   readBig16(bytes + kEapolHeaderBytes + 3) ==
                        frame.keyLength &&
-                   read_big64(bytes + K_EAPOL_HEADER_BYTES + 5) ==
+                   readBig64(bytes + kEapolHeaderBytes + 5) ==
                        frame.replayCounter &&
-                   read_big16(bytes + K_EAPOL_HEADER_BYTES +
-                              K_KEY_DATA_LENGTH_OFFSET) == frame.keyDataLength;
+                   readBig16(bytes + kEapolHeaderBytes +
+                             kKeyDataLengthOffset) == frame.keyDataLength;
         }
 
         EapolResult parseEapolKey(const uint8_t *const frame, size_t length,
@@ -132,7 +128,7 @@ namespace simpleath
         {
             // A borrowed EAPOL-Key frame must not be overwritten with parsed
             // metadata: the MIC, nonce and replay counter still refer to it.
-            if (overlaps_storage(frame, length, &out, sizeof(out)))
+            if (overlapsStorage(frame, length, &out, sizeof(out)))
             {
                 return EapolResult::OverlappingBuffers;
             }
@@ -144,7 +140,7 @@ namespace simpleath
             {
                 return EapolResult::NullBuffer;
             }
-            if (length < K_EAPOL_HEADER_BYTES)
+            if (length < kEapolHeaderBytes)
             {
                 return EapolResult::TooShort;
             }
@@ -152,45 +148,45 @@ namespace simpleath
             {
                 return EapolResult::UnsupportedVersion;
             }
-            if (frame[1] != K_EAPOL_KEY_PACKET_TYPE)
+            if (frame[1] != kEapolKeyPacketType)
             {
                 return EapolResult::UnsupportedType;
             }
 
-            const size_t body_length = read_big16(frame + 2);
-            if (body_length > K_MAX_EAPOL_BODY_BYTES ||
-                body_length > length - K_EAPOL_HEADER_BYTES)
+            const size_t bodyLength = readBig16(frame + 2);
+            if (bodyLength > kMaxEapolBodyBytes ||
+                bodyLength > length - kEapolHeaderBytes)
             {
                 return EapolResult::BadLength;
             }
             // EAPOL-Key fixed portion = 95 bytes after the EAPOL header.
-            if (body_length < K_EAPOL_KEY_FIXED_BYTES)
+            if (bodyLength < kEapolKeyFixedBytes)
             {
                 return EapolResult::TooShort;
             }
-            const uint8_t *const body = frame + K_EAPOL_HEADER_BYTES;
-            if (body[0] != K_KEY_DESCRIPTOR_TYPE)
+            const uint8_t *const body = frame + kEapolHeaderBytes;
+            if (body[0] != kKeyDescriptorType)
             {
                 return EapolResult::UnsupportedCipher;
             }
-            const uint16_t info = read_big16(body + 1);
+            const uint16_t info = readBig16(body + 1);
             const auto version = static_cast<uint8_t>(info & 7U);
-            if (version != K_KEY_DESCRIPTOR_VERSION)
+            if (version != kKeyDescriptorVersion)
             {
                 // WPA2-PSK CCMP uses HMAC-SHA1-128 key descriptor version 2.
                 // TKIP and AES-CMAC descriptor semantics are not implemented
                 // here.
                 return EapolResult::UnsupportedCipher;
             }
-            const uint16_t key_length = read_big16(body + 3);
-            const uint64_t replay = read_big64(body + 5);
-            const uint8_t *const nonce = body + K_KEY_NONCE_OFFSET;
-            const uint8_t *const mic = body + K_KEY_MIC_OFFSET;
-            const uint16_t key_data_length =
-                read_big16(body + K_KEY_DATA_LENGTH_OFFSET);
-            if (key_data_length > body_length - K_EAPOL_KEY_FIXED_BYTES ||
-                body_length != static_cast<size_t>(K_EAPOL_KEY_FIXED_BYTES +
-                                                   key_data_length))
+            const uint16_t keyLength = readBig16(body + 3);
+            const uint64_t replay = readBig64(body + 5);
+            const uint8_t *const nonce = body + kKeyNonceOffset;
+            const uint8_t *const mic = body + kKeyMicOffset;
+            const uint16_t keyDataLength =
+                readBig16(body + kKeyDataLengthOffset);
+            if (keyDataLength > bodyLength - kEapolKeyFixedBytes ||
+                bodyLength !=
+                    static_cast<size_t>(kEapolKeyFixedBytes + keyDataLength))
             {
                 return EapolResult::BadLength;
             }
@@ -198,16 +194,16 @@ namespace simpleath
             const bool pairwise = (info & 0x0008U) != 0;
             const bool install = (info & 0x0040U) != 0;
             const bool ack = (info & 0x0080U) != 0;
-            const bool has_mic = (info & 0x0100U) != 0;
+            const bool hasMic = (info & 0x0100U) != 0;
             const bool secure = (info & 0x0200U) != 0;
             const bool error = (info & 0x0400U) != 0;
             const bool request = (info & 0x0800U) != 0;
-            const bool encrypted_data = (info & 0x1000U) != 0;
+            const bool encryptedData = (info & 0x1000U) != 0;
             // RSN does not use the legacy Key Index, SMK/PeerKey, or
             // reserved Key Information bits in this PSK-CCMP handshake.
             // An unset MIC flag also requires an all-zero MIC field.
-            if (error || request || (info & K_UNSUPPORTED_INFO) != 0 ||
-                has_mic != any_nonzero(mic, K_KEY_MIC_BYTES))
+            if (error || request || (info & kUnsupportedInfo) != 0 ||
+                hasMic != anyNonzero(mic, kKeyMicBytes))
             {
                 return EapolResult::InvalidKeyInformation;
             }
@@ -215,34 +211,32 @@ namespace simpleath
             KeyMessage message = KeyMessage::Unknown;
             if (pairwise)
             {
-                if (ack && !has_mic && !install && !secure && !encrypted_data &&
-                    any_nonzero(nonce, K_KEY_NONCE_BYTES))
+                if (ack && !hasMic && !install && !secure && !encryptedData &&
+                    anyNonzero(nonce, kKeyNonceBytes))
                 {
                     message = KeyMessage::Pairwise1;
                 }
-                else if (!ack && has_mic && !install && !secure &&
-                         !encrypted_data)
+                else if (!ack && hasMic && !install && !secure &&
+                         !encryptedData)
                 {
                     message = KeyMessage::Pairwise2;
                 }
-                else if (ack && has_mic && install && secure && encrypted_data)
+                else if (ack && hasMic && install && secure && encryptedData)
                 {
                     message = KeyMessage::Pairwise3;
                 }
-                else if (!ack && has_mic && !install && secure &&
-                         !encrypted_data)
+                else if (!ack && hasMic && !install && secure && !encryptedData)
                 {
                     message = KeyMessage::Pairwise4;
                 }
             }
             else
             {
-                if (ack && has_mic && !install && secure && encrypted_data)
+                if (ack && hasMic && !install && secure && encryptedData)
                 {
                     message = KeyMessage::Group1;
                 }
-                else if (!ack && has_mic && !install && secure &&
-                         !encrypted_data)
+                else if (!ack && hasMic && !install && secure && !encryptedData)
                 {
                     message = KeyMessage::Group2;
                 }
@@ -255,30 +249,30 @@ namespace simpleath
             // supplicant M2/M4 carry zero. All pairwise messages must agree
             // with this advertised role, not just their MIC/ACK flags.
             // M2 must also contain the supplicant's nonzero SNonce.
-            if (pairwise && (key_length != (ack ? K_CCMP_KEY_BYTES : 0u) ||
+            if (pairwise && (keyLength != (ack ? kCcmpKeyBytes : 0u) ||
                              (message == KeyMessage::Pairwise2 &&
-                              !any_nonzero(nonce, K_KEY_NONCE_BYTES))))
+                              !anyNonzero(nonce, kKeyNonceBytes))))
             {
                 return EapolResult::InvalidKeyInformation;
             }
 
             KeyFrame parsed {};
             parsed.eapolBytes = frame;
-            parsed.eapolLength = body_length + K_EAPOL_HEADER_BYTES;
+            parsed.eapolLength = bodyLength + kEapolHeaderBytes;
             parsed.nonce = nonce;
-            parsed.keyRsc = body + K_KEY_RSC_OFFSET;
+            parsed.keyRsc = body + kKeyRscOffset;
             parsed.mic = mic;
-            parsed.keyData = body + K_EAPOL_KEY_FIXED_BYTES;
-            parsed.keyDataLength = key_data_length;
+            parsed.keyData = body + kEapolKeyFixedBytes;
+            parsed.keyDataLength = keyDataLength;
             parsed.keyInformation = info;
-            parsed.keyLength = key_length;
+            parsed.keyLength = keyLength;
             parsed.replayCounter = replay;
             parsed.descriptorVersion = version;
             parsed.message = message;
-            parsed.hasMic = has_mic;
+            parsed.hasMic = hasMic;
             parsed.keyAck = ack;
             parsed.secure = secure;
-            parsed.encryptedData = encrypted_data;
+            parsed.encryptedData = encryptedData;
             parsed.installationRequested = install;
             out = parsed;
             return EapolResult::Ok;
@@ -304,11 +298,11 @@ namespace simpleath
         {
             // A caller may not borrow its nonce or frame metadata from the
             // replay guard: advancing it would corrupt the still-read input.
-            if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
-                overlaps_storage(this, sizeof(*this), frame.eapolBytes,
-                                 frame.eapolLength) ||
-                overlaps_storage(this, sizeof(*this), frame.nonce,
-                                 K_KEY_NONCE_BYTES))
+            if (overlapsStorage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlapsStorage(this, sizeof(*this), frame.eapolBytes,
+                                frame.eapolLength) ||
+                overlapsStorage(this, sizeof(*this), frame.nonce,
+                                kKeyNonceBytes))
             {
                 return EapolResult::OverlappingBuffers;
             }
@@ -316,18 +310,17 @@ namespace simpleath
             // particular, an all-zero authenticator nonce cannot become the
             // retained replay identity of a synthetically forged M1.
             if (frame.message != KeyMessage::Pairwise1 ||
-                frame.keyInformation != K_PAIRWISE_1_INFO ||
-                frame.descriptorVersion != K_KEY_DESCRIPTOR_VERSION ||
-                frame.keyLength != K_CCMP_KEY_BYTES || frame.hasMic ||
+                frame.keyInformation != kPairwise1Info ||
+                frame.descriptorVersion != kKeyDescriptorVersion ||
+                frame.keyLength != kCcmpKeyBytes || frame.hasMic ||
                 !frame.keyAck || frame.secure || frame.encryptedData ||
                 frame.installationRequested ||
-                !replay_metadata_matches_wire(frame) ||
+                !replayMetadataMatchesWire(frame) ||
                 // Unlike M3, M1 has no MIC. Do not trust an old parser result
                 // if an untrusted RX buffer now contains nonzero MIC bytes.
-                any_nonzero(frame.eapolBytes + K_EAPOL_HEADER_BYTES +
-                                K_KEY_MIC_OFFSET,
-                            K_KEY_MIC_BYTES) ||
-                !any_nonzero(frame.nonce, K_KEY_NONCE_BYTES))
+                anyNonzero(frame.eapolBytes + kEapolHeaderBytes + kKeyMicOffset,
+                           kKeyMicBytes) ||
+                !anyNonzero(frame.nonce, kKeyNonceBytes))
             {
                 return EapolResult::InvalidKeyInformation;
             }
@@ -345,13 +338,13 @@ namespace simpleath
         }
 
         EapolResult ReplayGuard::acceptVerifiedMessage3(const KeyFrame &frame,
-                                                        bool mic_verified)
+                                                        bool micVerified)
         {
-            if (overlaps_storage(this, sizeof(*this), &frame, sizeof(frame)) ||
-                overlaps_storage(this, sizeof(*this), frame.eapolBytes,
-                                 frame.eapolLength) ||
-                overlaps_storage(this, sizeof(*this), frame.nonce,
-                                 K_KEY_NONCE_BYTES))
+            if (overlapsStorage(this, sizeof(*this), &frame, sizeof(frame)) ||
+                overlapsStorage(this, sizeof(*this), frame.eapolBytes,
+                                frame.eapolLength) ||
+                overlapsStorage(this, sizeof(*this), frame.nonce,
+                                kKeyNonceBytes))
             {
                 return EapolResult::OverlappingBuffers;
             }
@@ -360,16 +353,16 @@ namespace simpleath
             {
                 return EapolResult::InvalidState;
             }
-            if (!mic_verified)
+            if (!micVerified)
             {
                 return EapolResult::MicNotVerified;
             }
             // A caller's MIC-verification assertion cannot turn an M1-style
             // frame into a verified M3 without the parser-required Key Info
             // flags. Reject it before advancing the replay counter or phase.
-            if (frame.keyInformation != K_PAIRWISE_3_INFO ||
-                frame.descriptorVersion != K_KEY_DESCRIPTOR_VERSION ||
-                frame.keyLength != K_CCMP_KEY_BYTES || !frame.hasMic ||
+            if (frame.keyInformation != kPairwise3Info ||
+                frame.descriptorVersion != kKeyDescriptorVersion ||
+                frame.keyLength != kCcmpKeyBytes || !frame.hasMic ||
                 !frame.keyAck || !frame.secure || !frame.encryptedData ||
                 !frame.installationRequested)
                 return EapolResult::InvalidKeyInformation;
@@ -378,7 +371,7 @@ namespace simpleath
             {
                 return EapolResult::ReplayDetected;
             }
-            if (!replay_metadata_matches_wire(frame))
+            if (!replayMetadataMatchesWire(frame))
                 return EapolResult::InvalidKeyInformation;
             uint8_t difference = 0;
             for (size_t i = 0; i < sizeof(initialAnonce_); ++i)
