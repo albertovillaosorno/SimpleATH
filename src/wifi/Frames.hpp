@@ -177,6 +177,9 @@ namespace simpleath
         Result makeAssociationRequest(const Mac &station, const Beacon &network,
                                       uint16_t sequence, uint8_t *output,
                                       size_t capacity, size_t &written);
+        // Rejected management responses revoke stale success status (0) by
+        // setting statusCode to UINT16_MAX, and associationId to zero.
+        // Overlapping output/input storage is instead rejected untouched.
         Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
                                            const Mac &station, const Mac &bssid,
                                            uint16_t &statusCode);

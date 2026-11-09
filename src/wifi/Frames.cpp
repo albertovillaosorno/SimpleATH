@@ -777,6 +777,9 @@ namespace simpleath
                 overlaps(&statusCode, sizeof(statusCode), &bssid,
                          sizeof(bssid)))
                 return Result::OverlappingBuffers;
+            // A rejected response must not leave a previous status=0 success
+            // available for a caller to interpret as authenticated.
+            statusCode = UINT16_MAX;
             // Caller-provided association identities are not trusted merely
             // because the incoming MAC header matches their bytes.
             if (!validStationMac(station) || !validStationMac(bssid) ||
@@ -835,6 +838,10 @@ namespace simpleath
                 overlaps(&associationId, sizeof(associationId), &bssid,
                          sizeof(bssid)))
                 return Result::OverlappingBuffers;
+            // Revoke a previous successful AID/status on any ordinary parse
+            // failure, while preserving all input on an alias rejection.
+            statusCode = UINT16_MAX;
+            associationId = 0;
             // Caller-provided association identities are not trusted merely
             // because the incoming MAC header matches their bytes.
             if (!validStationMac(station) || !validStationMac(bssid) ||

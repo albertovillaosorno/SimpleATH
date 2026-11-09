@@ -786,7 +786,7 @@ namespace
         response[30] = 0xdd;
         if (parseAuthenticationResponse(response, 31, station, ap, status) !=
                 Result::InvalidElement ||
-            status != 777)
+            status != 0xffffu)
             return false;
         // Vendor-specific IEs (OUI plus optional vendor bytes) are legal
         // suffixes and must not break otherwise valid infrastructure auth.
@@ -812,13 +812,13 @@ namespace
         response[30] = 1; // Non-vendor IE is not defined for Open System.
         if (parseAuthenticationResponse(response, 35, station, ap, status) !=
                 Result::InvalidElement ||
-            status != 777)
+            status != 0xffffu)
             return false;
         response[30] = 221;
         response[31] = 2; // Vendor IE must carry its three-byte OUI.
         return parseAuthenticationResponse(response, 34, station, ap, status) ==
                    Result::InvalidElement &&
-               status == 777;
+               status == 0xffffu;
     }
 
     bool rejectInvalidManagementRxIdentities()
@@ -834,14 +834,14 @@ namespace
         // physical unicast AP or station.
         if (parseAuthenticationResponse(auth, sizeof(auth), empty, empty,
                                         status) != Result::InvalidAddress ||
-            status != 777)
+            status != 0xffffu)
             return false;
         std::memcpy(auth + 4, kAp, 6);
         std::memcpy(auth + 10, kAp, 6);
         std::memcpy(auth + 16, kAp, 6);
         if (parseAuthenticationResponse(auth, sizeof(auth), ap, ap, status) !=
                 Result::InvalidAddress ||
-            status != 777)
+            status != 0xffffu)
             return false;
         std::memcpy(auth + 4, kStation, 6);
         if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
@@ -857,19 +857,58 @@ namespace
         if (parseAssociationResponse(association, sizeof(association), empty,
                                      empty, status,
                                      aid) != Result::InvalidAddress ||
-            status != 777 || aid != 888)
+            status != 0xffffu || aid != 0)
             return false;
         makeAssoc(association);
         std::memcpy(association + 4, kAp, 6);
         if (parseAssociationResponse(association, sizeof(association), ap, ap,
                                      status, aid) != Result::InvalidAddress ||
-            status != 777 || aid != 888)
+            status != 0xffffu || aid != 0)
             return false;
         makeAssoc(association);
         return parseAssociationResponse(association, sizeof(association),
                                         station, ap, status,
                                         aid) == Result::Ok &&
                status == 0 && aid == 1;
+    }
+
+    bool revokeRejectedManagementResponseStatus()
+    {
+        // Public parsers may be called repeatedly with the same outputs.
+        // A rejected later response must not leave an earlier successful
+        // association ID or status=0 available as apparent authorization.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t auth[30] {};
+        auth[0] = 0xb0;
+        std::memcpy(auth + 4, kStation, 6);
+        std::memcpy(auth + 10, kAp, 6);
+        std::memcpy(auth + 16, kAp, 6);
+        auth[26] = 2;
+        uint16_t status = 55;
+        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
+                                        status) != Result::Ok ||
+            status != 0)
+            return false;
+        auth[26] = 1; // Wrong transaction after accepted authentication.
+        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
+                                        status) != Result::UnsupportedFrame ||
+            status != 0xffffu)
+            return false;
+
+        uint8_t association[kAssocBytes] {};
+        makeAssoc(association);
+        uint16_t aid = 88;
+        if (parseAssociationResponse(association, sizeof(association), station,
+                                     ap, status, aid) != Result::Ok ||
+            status != 0 || aid != 1)
+            return false;
+        association[29] = 0; // Invalid AID after successful association.
+        if (parseAssociationResponse(association, sizeof(association), station,
+                                     ap, status, aid) != Result::InvalidFrame ||
+            status != 0xffffu || aid != 0)
+            return false;
+        return true;
     }
 
     bool rejectNonInfrastructureAssociation()
@@ -883,7 +922,7 @@ namespace
         frame[24] = 0; // No ESS capability bit.
         if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
                                      aid) != Result::InvalidFrame ||
-            status != 999 || aid != 999)
+            status != 0xffffu || aid != 0)
             return false;
         frame[24] = 3; // ESS and IBSS must not both be set.
         if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
@@ -960,6 +999,8 @@ int main()
         return 13;
     if (!rejectTrailingOpenAuthenticationBody())
         return 22;
+    if (!revokeRejectedManagementResponseStatus())
+        return 23;
     if (!rejectConflictingBssModes())
         return 14;
     if (!rejectForgedBssAssociationTx())
