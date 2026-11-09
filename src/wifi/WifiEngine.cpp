@@ -236,11 +236,24 @@ namespace simpleath
             if (state == StationState::AuthenticationFramePrepared &&
                 header.subtype == 11)
             {
-                // Station::onAuthenticationResponse consumes the pending
-                // authentication state. Provision the exact association TX
-                // body first so a small or absent buffer cannot strand the
-                // station in Authenticated with no retryable response path.
+                // First validate the AP response without changing station
+                // state. A rejection or malformed RX requires no association
+                // TX buffer; checking capacity first would mask the AP's
+                // refusal and leave a rejected candidate active indefinitely.
                 const Beacon &network = station_.candidate().beacon;
+                uint16_t statusCode = UINT16_MAX;
+                if (parseAuthenticationResponse(frame, length, stationAddress_,
+                                                network.bssid,
+                                                statusCode) != Result::Ok)
+                    return EngineResult::InvalidReceivedFrame;
+                if (statusCode != 0)
+                {
+                    abandonCandidate();
+                    return EngineResult::AccessPointRejected;
+                }
+                // Successful authentication needs a serialized association
+                // request. Reserve its exact capacity before consuming the
+                // state transition so the caller can retry a small buffer.
                 const size_t associationBytes =
                     associationRequestLength(network);
                 if (associationBytes == 0)

@@ -1043,6 +1043,74 @@ namespace
                independent.status().state == LinkState::ReconnectPending &&
                independent.status().reason == LinkLoss::Deauthentication;
     }
+
+    bool rejectAuthenticationWithoutTxBuffer()
+    {
+        // A rejected AP authentication does not need an association TX
+        // buffer. A missing buffer must never conceal the rejection and
+        // strand the candidate in AuthenticationFramePrepared.
+        static WifiEngine engine;
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const InputTrust trusted {true, true, true, false};
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        uint8_t tx[128] {};
+        EngineAction action {};
+        if (engine.startScan(true, true) != EngineResult::Ok ||
+            engine.acceptRx(advertisement, sizeof(advertisement), -40, 1000,
+                            trusted, tx, sizeof(tx),
+                            action) != EngineResult::Ok ||
+            engine.chooseNetwork(station,
+                                 reinterpret_cast<const uint8_t *>("Test"), 4,
+                                 6, true, false, nullptr) != EngineResult::Ok ||
+            engine.requestAuthentication(1, tx, sizeof(tx), action) !=
+                EngineResult::Ok)
+            return false;
+
+        uint8_t response[30] {};
+        authenticationResponse(response);
+        response[28] = 13; // AP rejected Open System authentication.
+        if (engine.acceptRx(response, sizeof(response), 0, 1010, trusted,
+                            nullptr, 0,
+                            action) != EngineResult::AccessPointRejected ||
+            engine.stationState() != StationState::Inactive ||
+            action.kind != ActionKind::None)
+            return false;
+
+        // A malformed response also must not request TX buffer capacity.
+        if (engine.startScan(true, true) != EngineResult::Ok ||
+            engine.acceptRx(advertisement, sizeof(advertisement), -40, 2000,
+                            trusted, tx, sizeof(tx),
+                            action) != EngineResult::Ok ||
+            engine.chooseNetwork(station,
+                                 reinterpret_cast<const uint8_t *>("Test"), 4,
+                                 6, true, false, nullptr) != EngineResult::Ok ||
+            engine.requestAuthentication(2, tx, sizeof(tx), action) !=
+                EngineResult::Ok)
+            return false;
+        authenticationResponse(response);
+        response[26] = 3; // Not transaction 2.
+        if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
+                            nullptr, 0,
+                            action) != EngineResult::InvalidReceivedFrame ||
+            engine.stationState() !=
+                StationState::AuthenticationFramePrepared ||
+            action.kind != ActionKind::None)
+            return false;
+        authenticationResponse(response);
+        if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
+                            nullptr, 0,
+                            action) != EngineResult::BufferTooSmall ||
+            engine.stationState() != StationState::AuthenticationFramePrepared)
+            return false;
+        // A valid retry still emits the association body after an output
+        // allocation is supplied, and never reports native Wi-Fi success.
+        return engine.acceptRx(response, sizeof(response), 0, 2010, trusted, tx,
+                               sizeof(tx), action) == EngineResult::Ok &&
+               action.kind == ActionKind::TransmitAssociation &&
+               engine.stationState() == StationState::AssociationFramePrepared;
+    }
+
 } // namespace
 
 int main()
@@ -1080,6 +1148,8 @@ int main()
         return 43;
     if (!rejectCryptoProviderContextAliases())
         return 22;
+    if (!rejectAuthenticationWithoutTxBuffer())
+        return 50;
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;
