@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565InitCatalog.hpp"
+#include "Ar9565Core.hpp"
 #include "generated/Ar9565InitTables.hpp"
+
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -8,6 +12,13 @@ namespace simpleath
     {
 
         using ini::TableView;
+        constexpr uint8_t kJapanChannel = 14;
+
+        bool isSupportedRevision(Revision revision)
+        {
+            return revision == Revision::V1_0 || revision == Revision::V1_0_1 ||
+                   revision == Revision::V1_1;
+        }
 
         // The generated inputs are immutable and are never written to the
         // device automatically. A future PCI/MMIO transport must validate
@@ -17,7 +28,9 @@ namespace simpleath
         {
             if (recipe.count >=
                 sizeof(recipe.phases) / sizeof(recipe.phases[0]))
+            {
                 return;
+            }
             recipe.phases[recipe.count++] = {phase, view.rows, view.count};
             recipe.registerWrites += view.count;
         }
@@ -25,9 +38,11 @@ namespace simpleath
         TableView rxGain(RxGainProfile profile, ChannelWidth width)
         {
             if (profile == RxGainProfile::WithoutExternalLna)
+            {
                 return width == ChannelWidth::Ht20
                            ? ini::kCommonWoXlnaRxGainTableHt20View
                            : ini::kCommonWoXlnaRxGainTableHt40View;
+            }
             return width == ChannelWidth::Ht20 ? ini::kRxGainHt20View
                                                : ini::kRxGainHt40View;
         }
@@ -35,12 +50,16 @@ namespace simpleath
         TableView txGain(TxGainProfile profile, ChannelWidth width)
         {
             if (profile == TxGainProfile::HighPower)
+            {
                 return width == ChannelWidth::Ht20
                            ? ini::kTxGainHighPowerHt20View
                            : ini::kTxGainHighPowerHt40View;
+            }
             if (profile == TxGainProfile::HighOb)
+            {
                 return width == ChannelWidth::Ht20 ? ini::kTxGainHighObHt20View
                                                    : ini::kTxGainHighObHt40View;
+            }
             return width == ChannelWidth::Ht20 ? ini::kTxGainLowObHt20View
                                                : ini::kTxGainLowObHt40View;
         }
@@ -59,7 +78,9 @@ namespace simpleath
             !requirements.txPowerLimitsVerified ||
             !requirements.radioKillUnblocked ||
             !requirements.coexistenceConfigurationVerified)
+        {
             return false;
+        }
 
         // Even when a future owner can legitimately mark the implementation
         // complete, a caller-mutated recipe is not an acceptable table list.
@@ -75,13 +96,17 @@ namespace simpleath
             !expected.implementationComplete ||
             !expected.regulatoryAuthorized || recipe.count != expected.count ||
             recipe.registerWrites != expected.registerWrites)
+        {
             return false;
+        }
         for (size_t i = 0; i < expected.count; ++i)
         {
             if (recipe.phases[i].phase != expected.phases[i].phase ||
                 recipe.phases[i].data != expected.phases[i].data ||
                 recipe.phases[i].count != expected.phases[i].count)
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -100,24 +125,32 @@ namespace simpleath
         // Do not expose a previous recipe's valid-looking table pointers or
         // flags when a new revision/channel request is rejected.
         out = {};
-        if (revision != Revision::V1_0 && revision != Revision::V1_0_1 &&
-            revision != Revision::V1_1)
+        if (!isSupportedRevision(revision))
+        {
             return Result::UnsupportedRevision;
+        }
         if ((width != ChannelWidth::Ht20 && width != ChannelWidth::Ht40) ||
             (tx != TxGainProfile::LowOb && tx != TxGainProfile::HighOb &&
              tx != TxGainProfile::HighPower) ||
             (rx != RxGainProfile::Standard &&
              rx != RxGainProfile::WithoutExternalLna))
+        {
             return Result::InvalidChannel;
+        }
 
         Channel expected {};
         if (mapChannel(requestedChannel.number, expected) != Result::Ok ||
             expected.centerMhz != requestedChannel.centerMhz ||
             expected.requiresJapanAuthorization !=
                 requestedChannel.requiresJapanAuthorization)
+        {
             return Result::InvalidChannel;
-        if (requestedChannel.number == 14 && width != ChannelWidth::Ht20)
+        }
+        if (requestedChannel.number == kJapanChannel &&
+            width != ChannelWidth::Ht20)
+        {
             return Result::InvalidChannel;
+        }
 
         RegisterRecipe recipe {};
         recipe.silicon = revision;
@@ -151,15 +184,19 @@ namespace simpleath
                ht20 ? ini::kBasebandPostambleHt20View
                     : ini::kBasebandPostambleHt40View);
         if (revision == Revision::V1_1)
+        {
             append(recipe, RegisterPhase::RadioPostamble,
                    ht20 ? ini::kRadioPostamble11Ht20View
                         : ini::kRadioPostamble11Ht40View);
+        }
         else
+        {
             append(recipe, RegisterPhase::RadioPostamble,
                    ht20 ? ini::kRadioPostamble10Ht20View
                         : ini::kRadioPostamble10Ht40View);
+        }
 
-        if (requestedChannel.number == 14)
+        if (requestedChannel.number == kJapanChannel)
         {
             append(recipe, RegisterPhase::Japan2484Txfir,
                    ini::kJapan2484TxfirHt20View);
