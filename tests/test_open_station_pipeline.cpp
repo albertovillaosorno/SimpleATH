@@ -963,6 +963,48 @@ namespace
                owner.state() == StationState::AssociationFramePrepared;
     }
 
+    bool rejectMalformedLinkLossIes()
+    {
+        // Deauth/disassoc may carry optional well-formed IEs. A truncated
+        // suffix must not tear down a running link just because the first
+        // 26 bytes contain a valid AP identity and nonzero reason code.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t frame[31] {};
+        addresses(frame, kStation);
+        frame[24] = 7;   // Valid, nonzero reason code.
+        frame[26] = 221; // Vendor-specific IE.
+        frame[27] = 3;
+        frame[28] = 0x12;
+        frame[29] = 0x34;
+        frame[30] = 0x56;
+        const uint8_t subtypes[] {0xc0, 0xa0};
+        for (uint8_t subtype : subtypes)
+        {
+            LinkMonitor monitor;
+            if (monitor.started(station, ap, 100, 1000, false, false) !=
+                LinkMonitorResult::Ok)
+                return false;
+            frame[0] = subtype;
+            if (monitor.observeManagement(frame, 27, 1500, true, false) !=
+                    LinkMonitorResult::InvalidFrame ||
+                monitor.status().state != LinkState::Associated ||
+                monitor.status().lastBeaconMs != 1000 ||
+                monitor.observeManagement(frame, 30, 1510, true, false) !=
+                    LinkMonitorResult::InvalidFrame ||
+                monitor.status().state != LinkState::Associated ||
+                monitor.status().lastBeaconMs != 1000)
+                return false;
+            // Optional complete IEs remain permitted, including on a
+            // correctly formed disassociation frame.
+            if (monitor.observeManagement(frame, sizeof(frame), 1520, true,
+                                          false) != LinkMonitorResult::Ok ||
+                monitor.status().state != LinkState::ReconnectPending)
+                return false;
+        }
+        return true;
+    }
+
     bool rejectUnexpectedProtectedLinkManagementRx()
     {
         // A Protected bit with a caller-supplied true MIC/PN assertion cannot
@@ -1116,6 +1158,8 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!rejectMalformedLinkLossIes())
+        return 51;
     if (!rejectUnexpectedProtectedLinkManagementRx())
         return 49;
     if (!rejectAliasedLinkManagementRx())

@@ -175,6 +175,21 @@ namespace simpleath
                     readLittle16(frame + header.headerLength);
                 if (reason == 0)
                     return LinkMonitorResult::InvalidFrame;
+                // A deauthentication/disassociation body begins with the
+                // two-octet reason code and may contain optional IEs. A
+                // truncated or overlong IE tail cannot authorize tearing
+                // down the selected link, even with a verified FCS.
+                Elements extensions(frame + header.headerLength + 2,
+                                    frameLength - header.headerLength - 2);
+                Element extension {};
+                for (;;)
+                {
+                    const CursorStatus next = extensions.next(extension);
+                    if (next == CursorStatus::End)
+                        break;
+                    if (next == CursorStatus::Truncated)
+                        return LinkMonitorResult::InvalidFrame;
+                }
                 lost(header.subtype == 12 ? LinkLoss::Deauthentication
                                           : LinkLoss::Disassociation,
                      reason, nowMs);

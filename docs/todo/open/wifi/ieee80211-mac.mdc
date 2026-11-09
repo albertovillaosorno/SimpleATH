@@ -73,6 +73,14 @@ Useful regressions: hidden SSID after BSSID/channel/security changes, truncated
 rates/RSN, failed auth/assoc retry, TX-buffer exhaustion before a state change,
 beacon timeout across suspend, and stale events from a previous connection.
 
+Portable link-loss admission now validates the complete optional IE suffix of
+FCS-verified deauthentication and disassociation frames before revoking the
+selected link. An otherwise credible AP reason code followed by a one-byte or
+overlong element cannot trigger reconnect; complete optional vendor IEs remain
+allowed. Synthetic C++14/C++17 sanitizer regressions reproduce the old
+link-loss acceptance and preserve correct valid-frame processing. This does not
+supply hardware management-frame integrity or a native reconnect pipeline.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
