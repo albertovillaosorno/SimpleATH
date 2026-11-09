@@ -129,11 +129,25 @@ namespace ath
             return 0;
         const auto offset = p.stubOffset + image.stubUsed;
         auto *const stub = image.memory + offset;
-        // Direct callers do not pass through relocateImage's metadata-alias
-        // checks. A forged stub reservation must not overwrite the payload
-        // descriptor or the LinkedImage state that owns this reservation.
+        // Direct callers do not pass through relocateImage's alias checks.
+        // Stub bytes must not corrupt owned descriptors, source templates or
+        // immutable tables consulted by later relocations and restores.
         if (overlapsStorage(stub, 16, image.payload, sizeof(*image.payload)) ||
-            overlapsStorage(stub, 16, &image, sizeof(image)))
+            overlapsStorage(stub, 16, &image, sizeof(image)) ||
+            overlapsStorage(stub, 16, p.bytes, p.size) ||
+            overlapsStorage(stub, 16, p.delta, p.deltaSize) ||
+            overlapsStorage(stub, 16, p.relocations,
+                            static_cast<size_t>(p.relocationCount) *
+                                sizeof(Relocation)) ||
+            overlapsStorage(stub, 16, p.symbolValues,
+                            static_cast<size_t>(p.symbolValueCount) *
+                                sizeof(uint32_t)) ||
+            overlapsStorage(stub, 16, p.symbols,
+                            static_cast<size_t>(p.symbolCount) *
+                                sizeof(Symbol)) ||
+            overlapsStorage(stub, 16, p.routes,
+                            static_cast<size_t>(p.routeCount) *
+                                sizeof(RoutePrefix)))
             return 0;
         const uint8_t jump[] = {0xFF, 0x25, 0, 0, 0, 0};
         memcpy(stub, jump, sizeof(jump));

@@ -252,6 +252,57 @@ int main()
             0)
         return 39;
 
+    // Even if Payload and LinkedImage live elsewhere, standalone stub
+    // allocation must preserve immutable relocation and symbol tables.
+    ath::Relocation stubRelocations[2] {};
+    ath::Payload tablePayload {};
+    tablePayload.size = 16;
+    tablePayload.mappedSize = sizeof(stubRelocations);
+    tablePayload.stubOffset = 16;
+    tablePayload.stubSize = 16;
+    tablePayload.relocations = stubRelocations;
+    tablePayload.relocationCount = 2;
+    auto *relocationStorage = reinterpret_cast<uint8_t *>(stubRelocations);
+    uint8_t originalTable[sizeof(stubRelocations)] {};
+    ath::LinkedImage tableImage {
+        &tablePayload, relocationStorage, 0x9000, 0, false, true};
+    if (ath::allocateStub(tableImage, 0x12345678) != 0 ||
+        tableImage.stubUsed != 0 ||
+        std::memcmp(originalTable, relocationStorage, sizeof(originalTable)) !=
+            0)
+        return 40;
+
+    uint32_t stubSymbolOffsets[8] {};
+    tablePayload.relocations = nullptr;
+    tablePayload.relocationCount = 0;
+    tablePayload.symbolValues = stubSymbolOffsets;
+    tablePayload.symbolValueCount = 8;
+    tablePayload.mappedSize = sizeof(stubSymbolOffsets);
+    tableImage.memory = reinterpret_cast<uint8_t *>(stubSymbolOffsets);
+    tableImage.address = 0xa000;
+    uint8_t originalSymbolOffsets[sizeof(stubSymbolOffsets)] {};
+    if (ath::allocateStub(tableImage, 0x12345678) != 0 ||
+        tableImage.stubUsed != 0 ||
+        std::memcmp(originalSymbolOffsets, stubSymbolOffsets,
+                    sizeof(originalSymbolOffsets)) != 0)
+        return 41;
+
+    // A stored byte template is also an immutable input to later restores.
+    uint8_t stubTemplate[32] {};
+    tablePayload.symbolValues = nullptr;
+    tablePayload.symbolValueCount = 0;
+    tablePayload.bytes = stubTemplate + 8;
+    tablePayload.bytesSize = sizeof(stubTemplate) - 8;
+    tablePayload.mappedSize = sizeof(stubTemplate);
+    tableImage.memory = stubTemplate;
+    tableImage.address = 0xb000;
+    uint8_t originalTemplate[sizeof(stubTemplate)] {};
+    if (ath::allocateStub(tableImage, 0x12345678) != 0 ||
+        tableImage.stubUsed != 0 ||
+        std::memcmp(originalTemplate, stubTemplate, sizeof(originalTemplate)) !=
+            0)
+        return 42;
+
     // Relocation metadata can itself live inside a caller-owned mapping.
     // Treat it as immutable input: writing the first relocated pointer must
     // never modify a still-live relocation record or return success.
