@@ -878,6 +878,41 @@ failures remain unresolved, including checks constrained by unavailable
 authentic macOS SDK/KDK headers on this Linux host. No kext build, CI,
 hardware access, packet transfer or native Tahoe ABI verification occurred.
 
+## Frozen uncached EDMA rate and descriptor checkpoint, 2026-11-09
+
+After the RTC callback-source checkpoint, three focused source-only EDMA
+commits were pushed to `main`: `79fdd59` names fixed 128-byte TX, 48-byte RX
+and 36-byte TX-completion descriptor layout limits and normalizes enum
+terminators without changing their ABI; `e4d8ad9` shares one exact AR9565
+legacy CCK/OFDM whitelist across RX status and TX/RTS/CTS admission, with an
+exhaustive 256-rate-code host regression; `89600ca` cleans up the new fixture's
+direct includes, const iteration and named test bounds. The EDMA codec and
+DMA ring fixtures each passed C++14 and C++17 `-Werror` AddressSanitizer and
+UndefinedBehaviorSanitizer runs. Clang-Format and diff checks also passed.
+These checks do not validate actual hardware, DMA or RF.
+
+A frozen, clean, origin-synchronized `main` at **`89600ca`** completed
+`python3 -B tools/validate.py --no-cache` with `scope=repository`,
+`validation_mode=macos`, `source_only=true`, `tests_requested=true`:
+**163 files, 416 checks, 0 cached, 416 executed, 365 passed, 51 failed,
+0 skipped**. Every failure was strict Clang-Tidy; the requested offline
+host tests, Clang-Format, Ruff and BasedPyright passed. The validator exited
+nonzero as required. The report had no input-snapshot drift and process stdout
+JSON matched `.cache/validate/report.json` byte-for-byte, SHA-256
+`ecdf0187fbcf401a195cb3975e9ee9ce5e5904cf35edd2858cea5d846a0d1c17`.
+The Linux host lacks authentic Apple SDK/KDK headers needed for some default
+macOS-mode translations; no skip or fake stub was counted as a pass.
+**P0 remains OPEN** until all 51 Clang-Tidy translation-unit checks pass.
+
+The later two EDMA commits (`e4d8ad9`, `89600ca`) contain canonical Git DCO
+trailers. The initial published header-only commit `79fdd59` has a malformed
+commit-message body with literal escaped newline characters enclosing its
+intended sign-off, so it must not be represented as DCO-compliant; existing
+pushed history was preserved rather than rewritten. This sign-off provenance
+issue requires follow-up under the repository's change-history policy.
+No kext build, CI, native Tahoe ABI test, device access or network operation
+was performed in this source-only continuation.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
