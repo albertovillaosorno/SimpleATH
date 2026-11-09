@@ -1005,6 +1005,27 @@ namespace
         return true;
     }
 
+    bool rejectNullLinkManagementRx()
+    {
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        LinkMonitor monitor;
+        if (monitor.started(station, ap, 100, 1000, false, false) !=
+            LinkMonitorResult::Ok)
+            return false;
+        if (monitor.observeManagement(nullptr, 26, 1500, true, false) !=
+                LinkMonitorResult::InvalidFrame ||
+            monitor.observeManagement(nullptr, 0, 1510, true, false) !=
+                LinkMonitorResult::InvalidFrame ||
+            monitor.observeManagement(nullptr, 26, 1520, false, false) !=
+                LinkMonitorResult::UnverifiedFrame)
+            return false;
+        return monitor.status().state == LinkState::Associated &&
+               monitor.status().lastBeaconMs == 1000 &&
+               monitor.status().acceptedBeacons == 0 &&
+               !monitor.reconnectDue(1600);
+    }
+
     bool rejectUnexpectedProtectedLinkManagementRx()
     {
         // A Protected bit with a caller-supplied true MIC/PN assertion cannot
@@ -1160,6 +1181,8 @@ int main()
     using namespace simpleath::ieee80211;
     if (!rejectMalformedLinkLossIes())
         return 51;
+    if (!rejectNullLinkManagementRx())
+        return 55;
     if (!rejectUnexpectedProtectedLinkManagementRx())
         return 49;
     if (!rejectAliasedLinkManagementRx())

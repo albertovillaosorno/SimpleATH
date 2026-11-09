@@ -26,7 +26,7 @@ namespace simpleath
             RejectedUnprotectedManagement,
             InvalidClock,
             NoStateChange,
-            InvalidArgument
+            InvalidArgument,
         };
 
         enum class LinkState : uint8_t
@@ -34,7 +34,7 @@ namespace simpleath
             Idle,
             Associated,
             ReconnectPending,
-            RadioUnavailable
+            RadioUnavailable,
         };
 
         enum class LinkLoss : uint8_t
@@ -44,7 +44,7 @@ namespace simpleath
             Deauthentication,
             Disassociation,
             RadioStopped,
-            DriverSuspend
+            DriverSuspend,
         };
 
         struct LinkSnapshot
@@ -103,13 +103,20 @@ namespace simpleath
                 }
 
             private:
+                LinkMonitorResult observeBeacon(const uint8_t *frame,
+                                                size_t frameLength,
+                                                uint64_t nowMs);
+                LinkMonitorResult
+                observeDisconnection(const Frame &header, const uint8_t *frame,
+                                     size_t frameLength, uint64_t nowMs,
+                                     bool protectedMicAndPnVerified);
                 void lost(LinkLoss reason, uint16_t code, uint64_t nowMs);
                 uint64_t beaconDeadlineMs() const;
                 static bool isBroadcastOrStation(const Mac &address,
                                                  const Mac &station);
 
                 LinkSnapshot status_;
-                uint16_t beaconIntervalTu_;
+                uint16_t beaconIntervalTu_ {0};
         };
 
     } // namespace ieee80211

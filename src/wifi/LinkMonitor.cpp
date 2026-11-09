@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "LinkMonitor.hpp"
+#include "Frames.hpp"
+
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -8,6 +12,16 @@ namespace simpleath
         namespace
         {
             constexpr uint8_t kMissedBeacons = 10;
+            constexpr uint32_t kBitsPerByte = 8;
+            constexpr uint64_t kMicrosPerBeaconTu = 1024;
+            constexpr uint64_t kMicrosPerMillisecond = 1000;
+            constexpr uint8_t kMaximumRetryExponent = 5;
+            constexpr uint8_t kMaximumRetryAttempts = 0xff;
+            constexpr uint8_t kBroadcastOctet = 0xff;
+            constexpr uint8_t kBeaconSubtype = 8;
+            constexpr uint8_t kProbeResponseSubtype = 5;
+            constexpr uint8_t kDeauthenticationSubtype = 12;
+            constexpr uint8_t kDisassociationSubtype = 10;
             constexpr uint64_t kMinimumTimeoutMs = 1200;
             constexpr uint64_t kMaximumTimeoutMs = 30000;
             constexpr uint64_t kBaseRetryMs = 500;
@@ -25,7 +39,7 @@ namespace simpleath
             {
                 return static_cast<uint16_t>(bytes[0]) |
                        static_cast<uint16_t>(static_cast<uint16_t>(bytes[1])
-                                             << 8u);
+                                             << kBitsPerByte);
             }
 
             uint64_t saturatingAdd(uint64_t left, uint64_t right)
@@ -35,7 +49,7 @@ namespace simpleath
             }
         } // namespace
 
-        LinkMonitor::LinkMonitor() : status_ {}, beaconIntervalTu_(0)
+        LinkMonitor::LinkMonitor() : status_ {}
         {
             status_.state = LinkState::Idle;
         }
@@ -58,14 +72,22 @@ namespace simpleath
             if (overlapsStorage(&station, sizeof(station), this,
                                 sizeof(*this)) ||
                 overlapsStorage(&bssid, sizeof(bssid), this, sizeof(*this)))
+            {
                 return LinkMonitorResult::InvalidArgument;
+            }
             if (status_.state == LinkState::Associated)
+            {
                 return LinkMonitorResult::AlreadyMonitoring;
+            }
             if (!validStationMac(station) || !validStationMac(bssid) ||
                 sameMac(station, bssid))
+            {
                 return LinkMonitorResult::InvalidMac;
+            }
             if (beaconIntervalTu == 0)
+            {
                 return LinkMonitorResult::InvalidBeaconInterval;
+            }
             status_ = {};
             status_.state = LinkState::Associated;
             status_.station = station;
@@ -81,8 +103,10 @@ namespace simpleath
                                                const Mac &station)
         {
             uint8_t combined = 0;
-            for (size_t i = 0; i < 6; ++i)
-                combined |= static_cast<uint8_t>(address.bytes[i] ^ 0xffu);
+            for (const uint8_t octet : address.bytes)
+            {
+                combined |= static_cast<uint8_t>(octet ^ kBroadcastOctet);
+            }
             return combined == 0 || sameMac(address, station);
         }
 
@@ -92,13 +116,18 @@ namespace simpleath
             // The interval is 16-bit and the multiplier is fixed, so no
             // overflow.
             const uint64_t microseconds =
-                static_cast<uint64_t>(beaconIntervalTu_) * 1024u *
+                static_cast<uint64_t>(beaconIntervalTu_) * kMicrosPerBeaconTu *
                 kMissedBeacons;
-            uint64_t ms = (microseconds + 999u) / 1000u;
+            uint64_t ms = (microseconds + kMicrosPerMillisecond - 1) /
+                          kMicrosPerMillisecond;
             if (ms < kMinimumTimeoutMs)
+            {
                 ms = kMinimumTimeoutMs;
+            }
             if (ms > kMaximumTimeoutMs)
+            {
                 ms = kMaximumTimeoutMs;
+            }
             return ms;
         }
 
@@ -113,87 +142,138 @@ namespace simpleath
             status_.networkInterfaceReady = false;
         }
 
+        LinkMonitorResult LinkMonitor::observeBeacon(const uint8_t *frame,
+                                                     size_t frameLength,
+                                                     uint64_t nowMs)
+        {
+            // Beacons/probe responses update liveness only after full
+            // parsing.
+            Beacon beacon {};
+            if (parseBeacon(frame, frameLength, beacon) != Result::Ok ||
+                !beacon.infrastructure || beacon.intervalTu == 0 ||
+                beacon.intervalTu != beaconIntervalTu_)
+            {
+                return LinkMonitorResult::InvalidFrame;
+            }
+            // A parsed foreign/IBSS/zero-interval advertisement must not
+            // keep a previously associated infrastructure link alive.
+            // A changed beacon cadence requires association renegotiation.
+            status_.lastBeaconMs = nowMs;
+            if (status_.acceptedBeacons != UINT32_MAX)
+            {
+                ++status_.acceptedBeacons;
+            }
+            return LinkMonitorResult::Ok;
+        }
+
+        LinkMonitorResult LinkMonitor::observeDisconnection(
+            const Frame &header, const uint8_t *frame, size_t frameLength,
+            uint64_t nowMs, bool protectedMicAndPnVerified)
+        {
+            if (frameLength < header.headerLength + 2)
+            {
+                return LinkMonitorResult::InvalidFrame;
+            }
+            // A Protected bit is meaningful for robust management only
+            // after PMF negotiation. An Open/non-PMF link must not trust
+            // a stale or forged caller assertion of MIC/PN verification.
+            if (header.protectedFrame && !status_.pmfNegotiated)
+            {
+                return LinkMonitorResult::InvalidFrame;
+            }
+            if (status_.pmfNegotiated &&
+                (!header.protectedFrame || !protectedMicAndPnVerified))
+            {
+                return LinkMonitorResult::RejectedUnprotectedManagement;
+            }
+            if (header.protectedFrame && !protectedMicAndPnVerified)
+            {
+                return LinkMonitorResult::UnverifiedFrame;
+            }
+            const uint16_t reason = readLittle16(frame + header.headerLength);
+            if (reason == 0)
+            {
+                return LinkMonitorResult::InvalidFrame;
+            }
+            // A deauthentication/disassociation body begins with the
+            // two-octet reason code and may contain optional IEs. A
+            // truncated or overlong IE tail cannot authorize tearing
+            // down the selected link, even with a verified FCS.
+            Elements extensions(frame + header.headerLength + 2,
+                                frameLength - header.headerLength - 2);
+            Element extension {};
+            for (;;)
+            {
+                const CursorStatus next = extensions.next(extension);
+                if (next == CursorStatus::End)
+                {
+                    break;
+                }
+                if (next == CursorStatus::Truncated)
+                {
+                    return LinkMonitorResult::InvalidFrame;
+                }
+            }
+            lost(header.subtype == kDeauthenticationSubtype
+                     ? LinkLoss::Deauthentication
+                     : LinkLoss::Disassociation,
+                 reason, nowMs);
+            return LinkMonitorResult::Ok;
+        }
+
         LinkMonitorResult
         LinkMonitor::observeManagement(const uint8_t *frame, size_t frameLength,
                                        uint64_t nowMs, bool fcsVerified,
                                        bool protectedMicAndPnVerified)
         {
             if (status_.state != LinkState::Associated)
+            {
                 return LinkMonitorResult::NotAssociated;
+            }
             // A management frame must not borrow this monitor's retained
             // state. Link loss or beacon reception would otherwise overwrite
             // that source storage while processing the same RX callback.
-            if (frame && frameLength &&
+            if (frame != nullptr && frameLength != 0 &&
                 overlapsStorage(frame, frameLength, this, sizeof(*this)))
+            {
                 return LinkMonitorResult::InvalidArgument;
+            }
             if (!fcsVerified)
+            {
                 return LinkMonitorResult::UnverifiedFrame;
+            }
             if (nowMs < status_.lastBeaconMs)
+            {
                 return LinkMonitorResult::InvalidClock;
+            }
 
+            if (frame == nullptr)
+            {
+                return LinkMonitorResult::InvalidFrame;
+            }
             Frame header {};
             if (parseFrame(frame, frameLength, header) != Result::Ok ||
                 header.type != FrameType::Management)
+            {
                 return LinkMonitorResult::InvalidFrame;
+            }
             if (!sameMac(header.source, status_.bssid) ||
                 !sameMac(header.bssid, status_.bssid) ||
                 !isBroadcastOrStation(header.destination, status_.station))
+            {
                 return LinkMonitorResult::ForeignAccessPoint;
-
-            if (header.subtype == 8 || header.subtype == 5)
-            {
-                // Beacons/probe responses update liveness only after full
-                // parsing.
-                Beacon beacon {};
-                if (parseBeacon(frame, frameLength, beacon) != Result::Ok ||
-                    !beacon.infrastructure || beacon.intervalTu == 0 ||
-                    beacon.intervalTu != beaconIntervalTu_)
-                    return LinkMonitorResult::InvalidFrame;
-                // A parsed foreign/IBSS/zero-interval advertisement must not
-                // keep a previously associated infrastructure link alive.
-                // A changed beacon cadence requires association renegotiation.
-                status_.lastBeaconMs = nowMs;
-                if (status_.acceptedBeacons != 0xffffffffu)
-                    ++status_.acceptedBeacons;
-                return LinkMonitorResult::Ok;
             }
-            if (header.subtype == 12 || header.subtype == 10)
+
+            if (header.subtype == kBeaconSubtype ||
+                header.subtype == kProbeResponseSubtype)
             {
-                if (frameLength < header.headerLength + 2)
-                    return LinkMonitorResult::InvalidFrame;
-                // A Protected bit is meaningful for robust management only
-                // after PMF negotiation. An Open/non-PMF link must not trust
-                // a stale or forged caller assertion of MIC/PN verification.
-                if (header.protectedFrame && !status_.pmfNegotiated)
-                    return LinkMonitorResult::InvalidFrame;
-                if (status_.pmfNegotiated &&
-                    (!header.protectedFrame || !protectedMicAndPnVerified))
-                    return LinkMonitorResult::RejectedUnprotectedManagement;
-                if (header.protectedFrame && !protectedMicAndPnVerified)
-                    return LinkMonitorResult::UnverifiedFrame;
-                const uint16_t reason =
-                    readLittle16(frame + header.headerLength);
-                if (reason == 0)
-                    return LinkMonitorResult::InvalidFrame;
-                // A deauthentication/disassociation body begins with the
-                // two-octet reason code and may contain optional IEs. A
-                // truncated or overlong IE tail cannot authorize tearing
-                // down the selected link, even with a verified FCS.
-                Elements extensions(frame + header.headerLength + 2,
-                                    frameLength - header.headerLength - 2);
-                Element extension {};
-                for (;;)
-                {
-                    const CursorStatus next = extensions.next(extension);
-                    if (next == CursorStatus::End)
-                        break;
-                    if (next == CursorStatus::Truncated)
-                        return LinkMonitorResult::InvalidFrame;
-                }
-                lost(header.subtype == 12 ? LinkLoss::Deauthentication
-                                          : LinkLoss::Disassociation,
-                     reason, nowMs);
-                return LinkMonitorResult::Ok;
+                return observeBeacon(frame, frameLength, nowMs);
+            }
+            if (header.subtype == kDeauthenticationSubtype ||
+                header.subtype == kDisassociationSubtype)
+            {
+                return observeDisconnection(header, frame, frameLength, nowMs,
+                                            protectedMicAndPnVerified);
             }
             return LinkMonitorResult::NoStateChange;
         }
@@ -201,11 +281,17 @@ namespace simpleath
         LinkMonitorResult LinkMonitor::observeTimeout(uint64_t nowMs)
         {
             if (status_.state != LinkState::Associated)
+            {
                 return LinkMonitorResult::NotAssociated;
+            }
             if (nowMs < status_.lastBeaconMs)
+            {
                 return LinkMonitorResult::InvalidClock;
+            }
             if (nowMs - status_.lastBeaconMs <= beaconDeadlineMs())
+            {
                 return LinkMonitorResult::NoStateChange;
+            }
             lost(LinkLoss::BeaconTimeout, 0, nowMs);
             return LinkMonitorResult::Ok;
         }
@@ -232,14 +318,22 @@ namespace simpleath
         bool LinkMonitor::acknowledgeReconnectAttempt(uint64_t nowMs)
         {
             if (!reconnectDue(nowMs))
+            {
                 return false;
-            if (status_.reconnectAttempts < 0xffu)
+            }
+            if (status_.reconnectAttempts < kMaximumRetryAttempts)
+            {
                 ++status_.reconnectAttempts;
+            }
             const uint8_t exponent =
-                status_.reconnectAttempts < 5 ? status_.reconnectAttempts : 5;
+                status_.reconnectAttempts < kMaximumRetryExponent
+                    ? status_.reconnectAttempts
+                    : kMaximumRetryExponent;
             uint64_t delay = kBaseRetryMs << exponent;
             if (delay > kMaximumRetryMs)
+            {
                 delay = kMaximumRetryMs;
+            }
             status_.nextReconnectAtMs = saturatingAdd(nowMs, delay);
             return true;
         }
