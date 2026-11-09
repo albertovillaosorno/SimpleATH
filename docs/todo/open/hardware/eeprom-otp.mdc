@@ -93,6 +93,17 @@ INI gain tables from this summary outside the discovery path. Synthetic
 with the guard under C++14/C++17 ASan+UBSan. This does not validate RF
 calibration or authorize transmission.
 
+A further direct-caller regression showed that a fabricated diagnostic summary
+could set `calibrationPierBinsPlausible=true` while contradicting its raw bin,
+pier-frequency or center-MHz fields. `selectBoardGainProfiles` now shares the
+structural pier geometry check with the raw summarizer, rather than trusting
+that mutable flag. The old C++17 host fixture exited 23; corrected C++14 and
+C++17 ASan/UBSan tests pass, including the valid 2484 MHz boundary. The
+frozen full `tools/validate.py` run checked 163 files: 416 checks, 365 passed,
+51 existing strict Clang-Tidy failures, zero skipped and no snapshot drift.
+This remains structural admission only, not NVM provenance, RF calibration or
+permission to transmit.
+
 The passive AR_EEPROM control register is 0x401c with its absent/corrupt flags;
 the AR9565 active EEPROM status/data register is 0x4084. They are distinct,
 legitimate registers. Reading either control/status value is not a full-image

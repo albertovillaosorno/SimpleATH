@@ -282,6 +282,39 @@ int main()
         tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
         return 21;
 
+    // This is a public diagnostic summary. A forged true plausibility flag
+    // cannot replace checking the actual three bin/pier records again.
+    invalid = accepted;
+    invalid.calibrationFrequencyBins2G[1] = 112;
+    invalid.calibrationPiers2G[1].frequencyBin = 112;
+    invalid.calibrationPiers2G[1].centerMhz = 2412;
+    tx = TxGainProfile::HighOb;
+    rx = RxGainProfile::WithoutExternalLna;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+            EepromResult::UnsupportedFormat ||
+        tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+        return 23;
+    invalid = accepted;
+    invalid.calibrationFrequencyBins2G[0] = 111;
+    invalid.calibrationPiers2G[0].frequencyBin = 111;
+    invalid.calibrationPiers2G[0].centerMhz = 2411;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::UnsupportedFormat)
+        return 24;
+    invalid = accepted;
+    invalid.calibrationPiers2G[1].frequencyBin = 113;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::UnsupportedFormat)
+        return 25;
+    invalid = accepted;
+    invalid.calibrationPiers2G[2].centerMhz = 2483;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+        EepromResult::UnsupportedFormat)
+        return 26;
+    if (selectBoardGainProfiles(accepted, tx, rx) != EepromResult::Ok ||
+        tx != TxGainProfile::LowOb || rx != RxGainProfile::Standard)
+        return 27;
+
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||
         board.eepromVersion != 0 || board.calibrationPierBinsPlausible ||

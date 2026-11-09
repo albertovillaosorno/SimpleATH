@@ -108,6 +108,26 @@ namespace simpleath
             return false;
         }
 
+        bool plausiblePierGeometry(const BoardDataSummary &board)
+        {
+            // The summary is public caller-owned data. The boolean cached by
+            // summarizeBoardData is only a diagnostic hint: a direct gain
+            // caller must verify the raw frequency bins and pier records.
+            for (size_t i = 0; i < 3; ++i)
+            {
+                const uint8_t bin = board.calibrationFrequencyBins2G[i];
+                const BoardCalibrationPier2G &pier =
+                    board.calibrationPiers2G[i];
+                if (bin < 112 || bin > 184 ||
+                    (i != 0 &&
+                     bin <= board.calibrationFrequencyBins2G[i - 1]) ||
+                    pier.frequencyBin != bin ||
+                    pier.centerMhz != static_cast<uint16_t>(2300u + bin))
+                    return false;
+            }
+            return true;
+        }
+
         // Unlike upstream's permissive restoration, reject truncated records
         // and propagate every bounds failure. Validate the ENTIRE delta before
         // applying.
@@ -400,7 +420,6 @@ namespace simpleath
         // six-byte op-loop calibration records at byte 141. The Linux source
         // uses these separately for correction/temperature/voltage and gates
         // noise floor on rxTempMeas; report them without applying TPC values.
-        bool ordered2gBins = true;
         for (size_t i = 0; i < 3; ++i)
         {
             const uint8_t bin = out.calibrationFrequencyBins2G[i];
@@ -409,11 +428,6 @@ namespace simpleath
             entry.frequencyBin = bin;
             // Legal 2.4 GHz channel center frequencies span 2412..2484 MHz.
             // This is a structural bin sanity check, not regulatory approval.
-            const bool plausible =
-                bin >= 112 && bin <= 184 &&
-                (i == 0 || bin > out.calibrationFrequencyBins2G[i - 1]);
-            if (!plausible)
-                ordered2gBins = false;
             entry.centerMhz = bin >= 112 && bin <= 184 ? 2300u + bin : 0;
             entry.referencePower = signedByte(pier[0]);
             entry.voltageMeasurement = pier[1];
@@ -423,7 +437,7 @@ namespace simpleath
             entry.noiseTemperatureMeasurement = pier[5];
             entry.noiseMeasurementsPresent = pier[5] != 0;
         }
-        out.calibrationPierBinsPlausible = ordered2gBins;
+        out.calibrationPierBinsPlausible = plausiblePierGeometry(out);
         // No calibration, regulatory authority, power limit, RF-kill GPIO
         // sample, antenna routing or coexistence programming follows from
         // parsing bytes.
@@ -456,7 +470,8 @@ namespace simpleath
         // A direct gain-map caller must not bypass discovery's structural
         // 2-GHz pier check. A raw summary is still only diagnostic and does
         // not make the board calibrated or regulatory-authorized.
-        if (!board.calibrationPierBinsPlausible)
+        if (!board.calibrationPierBinsPlausible ||
+            !plausiblePierGeometry(board))
             return EepromResult::UnsupportedFormat;
         // ar9003_hw.c mode0/mode2 both select AR9565 low-OB; mode1 is high-OB,
         // mode3 is high-power. The 1.1 header aliases these gains to 1.0
