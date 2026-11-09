@@ -39,6 +39,7 @@ SNAPSHOT_FAILURE_FRAGMENT = '"tool": "source-snapshot"'
 SOURCE_ONLY_FRAGMENT = '"source_only": true'
 TESTS_REQUESTED_FRAGMENT = '"tests_requested": true'
 FORBIDDEN_CHECK_OPTIONS = ("--no-tidy", "--no-tests", "--no-json")
+MACOS_MISSING_FIXTURE = "'IOKit/IOLib.h' file not found"
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
@@ -823,6 +824,71 @@ class ClangTidyDatabase(unittest.TestCase):
                 assert not validator.tidy_command_exists(root, file)
             _ = database.write_text("{", encoding="utf-8")
             assert not validator.tidy_command_exists(root, file)
+
+    @staticmethod
+    def test_unavailable_macos_headers_are_skipped_without_fake_stubs() -> None:
+        """Do not cache or count a missing Apple SDK parse as success."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            file = root / "src/SimpleATH.cpp"
+            _ = file.write_text("#include <IOKit/IOLib.h>\n", encoding="utf-8")
+            for config in validator.CONFIGS["clang-tidy"]:
+                _ = (root / config).write_text("fixture", encoding="utf-8")
+            prefix = "a: error:"
+            missing = validator.Process(
+                1,
+                "",
+                f"{prefix} {MACOS_MISSING_FIXTURE} [clang-diagnostic-error]",
+            )
+            with (
+                mock.patch.object(
+                    validator, "_command", return_value=[sys.executable]
+                ),
+                mock.patch.object(
+                    validator, "tidy_command_exists", return_value=True
+                ),
+                mock.patch.object(
+                    validator, "_version", return_value="fixture"
+                ),
+                mock.patch.object(
+                    validator, "run_process", return_value=missing
+                ),
+            ):
+                lint = validator.LintRun(root, validator.Options(), {})
+                first = lint.check(file, "clang-tidy")
+                second = lint.check(file, "clang-tidy")
+                assert first["status"] == EXPECTED_SKIP
+                assert second["status"] == EXPECTED_SKIP
+                assert not first["cached"]
+                assert not second["cached"]
+                assert validator.MACOS_SDK_REASON in first["diagnostics"]
+                assert lint.entries == {}
+            unexpected = validator.Process(
+                1,
+                "",
+                f"{prefix} 'local.h' file not found [clang-diagnostic-error]",
+            )
+            unexpected = validator.Process(
+                1, "", missing.stderr + "\n" + unexpected.stderr
+            )
+            with (
+                mock.patch.object(
+                    validator, "_command", return_value=[sys.executable]
+                ),
+                mock.patch.object(
+                    validator, "tidy_command_exists", return_value=True
+                ),
+                mock.patch.object(
+                    validator, "_version", return_value="fixture"
+                ),
+                mock.patch.object(
+                    validator, "run_process", return_value=unexpected
+                ),
+            ):
+                result = validator.LintRun(root, validator.Options(), {}).check(
+                    file, "clang-tidy"
+                )
+                assert result["status"] == EXPECTED_FAIL
 
     @staticmethod
     def test_unmatched_command_is_skipped_without_running_tidy() -> None:
