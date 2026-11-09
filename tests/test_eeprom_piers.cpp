@@ -257,6 +257,16 @@ int main()
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
         return 15;
+    // Gain selection may be called directly on a diagnostic summary. A
+    // malformed-pier board must not supply a seemingly usable gain profile.
+    invalid = accepted;
+    invalid.calibrationPierBinsPlausible = false;
+    tx = TxGainProfile::HighOb;
+    rx = RxGainProfile::WithoutExternalLna;
+    if (selectBoardGainProfiles(invalid, tx, rx) !=
+            EepromResult::UnsupportedFormat ||
+        tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+        return 21;
 
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||

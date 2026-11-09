@@ -85,6 +85,14 @@ D0 again after reconstruction, reporting `CaptureFailed` with
 and C++17 ASan+UBSan host runs passed. The owner must still serialize the
 whole transaction and invalidate leases on power transitions.
 
+Direct AR9565 gain selection now rejects a diagnostic board summary whose
+2-GHz pier bins failed the existing structural plausibility check, clearing
+both gain outputs to `Unknown`. Previously it could select apparently usable
+INI gain tables from this summary outside the discovery path. Synthetic
+`test_eeprom_piers` regression exits 21 against the prior source and passes
+with the guard under C++14/C++17 ASan+UBSan. This does not validate RF
+calibration or authorize transmission.
+
 The passive AR_EEPROM control register is 0x401c with its absent/corrupt flags;
 the AR9565 active EEPROM status/data register is 0x4084. They are distinct,
 legitimate registers. Reading either control/status value is not a full-image

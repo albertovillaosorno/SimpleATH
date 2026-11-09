@@ -174,8 +174,9 @@ namespace simpleath
                                     BoardDataSummary &out);
 
     // AR9565-specific ath9k EEPROM gain-index mapping. Requires the basic
-    // version, permanent unicast MAC, single-chain and 2 GHz board structure
-    // to reject zero/default-initialized summaries before choosing tables.
+    // version, permanent unicast MAC, single-chain, 2 GHz operation and
+    // plausible ordered calibration pier bins before choosing tables.
+    // A direct caller cannot bypass discovery's malformed-pier rejection.
     // This is not physical board provenance or calibration verification.
     // Unknown indexes are rejected instead of generic AR9300 tables.
     // Outputs become Unknown on ordinary failure and cannot be passed to
