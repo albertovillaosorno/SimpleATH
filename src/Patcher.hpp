@@ -69,7 +69,7 @@ class KernelPatcher
         }
 
         uintptr_t solveSymbol(size_t index, const char *name);
-        uintptr_t branchTarget(uintptr_t target, uintptr_t pc);
+        uintptr_t branchTarget(uintptr_t target, uintptr_t programCounter);
         bool routeMultipleLong(size_t, RouteRequest *routes, size_t count,
                                uintptr_t, size_t);
 
