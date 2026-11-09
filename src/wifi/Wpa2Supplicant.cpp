@@ -556,6 +556,7 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             }
             if (!verifiedMic ||
+                !constantTimeEqual(ptkSnapshot.bytes, ptk_, sizeof(ptk_)) ||
                 !constantTimeEqual(signedEapol, micInputSnapshot.bytes,
                                    parsed.eapolLength))
             {
@@ -604,6 +605,8 @@ namespace simpleath
             // Key installation must consume only the authenticated M3 image.
             const bool authenticatedInputUnchanged = constantTimeEqual(
                 signedEapol, micInputSnapshot.bytes, parsed.eapolLength);
+            const bool unwrapKeyUnchanged =
+                constantTimeEqual(ptkSnapshot.bytes, ptk_, sizeof(ptk_));
             // The ciphertext and nonce are not needed after unwrap; ensure
             // even a provider failure cannot leave the authenticated RX image
             // in kernel stack memory past this operation.
@@ -615,7 +618,8 @@ namespace simpleath
                 return Wpa2Result::InvalidState;
             }
             if (!unwrapped || !authenticatedInputUnchanged ||
-                decryptedLength == 0 || decryptedLength > sizeof(decrypted))
+                !unwrapKeyUnchanged || decryptedLength == 0 ||
+                decryptedLength > sizeof(decrypted))
             {
                 secureClear(decrypted, sizeof(decrypted));
                 return fail(Wpa2Result::GtkUnwrapFailure);
@@ -651,6 +655,7 @@ namespace simpleath
             // The public EAPOL-Key parser rejects MIC-present/zero frames.
             if (!signedResponse ||
                 !nonzero(calculatedMic, sizeof(calculatedMic)) ||
+                !constantTimeEqual(ptkSnapshot.bytes, ptk_, sizeof(ptk_)) ||
                 !constantTimeEqual(response, m4MicInput.bytes,
                                    sizeof(response)))
             {
