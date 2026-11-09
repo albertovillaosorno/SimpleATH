@@ -65,7 +65,7 @@ namespace simpleath
                 // Includes four radio-generated FCS bytes. Other packet
                 // types equal mapped DMA payload + 4; Beacon permits mapped
                 // payload rounded up by 0..3 initialized alignment bytes.
-                uint16_t onAirFrameLength; // 1..2346 MPDU incl FCS (no A-MPDU).
+                uint16_t onAirFrameLength; // 14..2346 incl FCS (no A-MPDU).
                 TxPacketType packetType;
                 TxCrypto crypto;
                 uint8_t keyCacheIndex; // 0xff when no key.
@@ -99,6 +99,9 @@ namespace simpleath
         // protected management (BIP/PMF) is not implemented by this encoder.
         // Beacon also requires noAck, no RTS/CTS, one attempt/rate series,
         // and legacy-only modulation. Normal data retains multirate retry.
+        // Enforces the minimum ACK/CTS MAC header plus generated FCS (14
+        // on-air bytes), even for a matching pointer length; only the MAC
+        // owner may select a supported control/data subtype.
         // Encodes ctl11..ctl23 (the actual AR9003 rate/power/security fields)
         // into an existing validated pointer descriptor. This does not make a
         // packet safe to send until the macOS PCI owner and DMA completion path

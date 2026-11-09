@@ -104,8 +104,12 @@ namespace simpleath
             // Only standalone, nonaggregated 802.11 MPDUs are represented by
             // this codec. A 12-bit hardware length field is not permission to
             // emit jumbo frames without a reviewed aggregation/fragment path.
+            // ACK and CTS have the shortest 802.11 MAC header (ten bytes).
+            // The radio generates a further four FCS bytes on air. A matching
+            // pointer/payload length cannot authorize a shorter frame.
+            constexpr uint16_t kMinimumMpduBytesIncludingFcs = 14U;
             constexpr uint16_t kMaximumMpduBytesIncludingFcs = 2346U;
-            if (request.onAirFrameLength == 0 ||
+            if (request.onAirFrameLength < kMinimumMpduBytesIncludingFcs ||
                 request.onAirFrameLength > kMaximumMpduBytesIncludingFcs)
             {
                 return TxControlError::FrameLengthInvalid;
@@ -119,8 +123,6 @@ namespace simpleath
             // carry 0..3 octets of mapped DMA tail padding. That padding
             // must be initialized by the future hardware owner.
             constexpr uint32_t kHardwareFcsBytes = 4U;
-            if (request.onAirFrameLength <= kHardwareFcsBytes)
-                return TxControlError::FrameLengthInvalid;
             uint32_t mappedPayloadBytes = 0;
             for (size_t slot = 0; slot < 4; ++slot)
                 mappedPayloadBytes += descriptor.word[3U + 2U * slot] >> 16U;

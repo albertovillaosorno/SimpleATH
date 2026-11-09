@@ -84,6 +84,38 @@ int main()
     policy.dmaMappingValid = true;
     policy.maximumTxPowerIndex[0] = 8;
 
+    // Even a correctly matched DMA payload cannot describe a completed
+    // 802.11 MPDU shorter than the ten-byte ACK/CTS header plus four FCS
+    // bytes. Preserve the 14-byte boundary for the downstream subtype gate.
+    TxPointerBlock shortPointer {};
+    shortPointer.queue = 9;
+    shortPointer.segmentCount = 1;
+    shortPointer.segment[0] = {0x6000ull, 1};
+    TxDescriptor shortDescriptor {};
+    TxControlRequest shortRequest = request;
+    const uint16_t tooShort[] {5u, 9u, 13u};
+    for (uint16_t onAir : tooShort)
+    {
+        shortPointer.segment[0].length = onAir - 4u;
+        if (encodeTxPointers(shortPointer, shortDescriptor) !=
+            DescriptorError::Ok)
+            return 69;
+        const TxDescriptor beforeShort = shortDescriptor;
+        shortRequest.onAirFrameLength = onAir;
+        if (encodeTxControls(shortRequest, policy, shortDescriptor) !=
+                TxControlError::FrameLengthInvalid ||
+            !same(shortDescriptor, beforeShort))
+            return 70;
+    }
+    shortPointer.segment[0].length = 10;
+    shortRequest.onAirFrameLength = 14;
+    if (encodeTxPointers(shortPointer, shortDescriptor) !=
+            DescriptorError::Ok ||
+        encodeTxControls(shortRequest, policy, shortDescriptor) !=
+            TxControlError::Ok ||
+        (shortDescriptor.word[11] & 0xfffu) != 14u)
+        return 71;
+
     const TxDescriptor beforeControl = descriptor;
     policy.boardCalibrationValidated = false;
     if (encodeTxControls(request, policy, descriptor) !=
