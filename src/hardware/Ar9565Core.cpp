@@ -171,13 +171,15 @@ namespace simpleath
             // the caller's borrowed EEPROM source. The public API supports
             // successful in-place decode, so reject only the invalid-source
             // overlap before writing failure cleanup into raw NVM evidence.
-            const uintptr_t source = reinterpret_cast<uintptr_t>(words);
-            const uintptr_t destination = reinterpret_cast<uintptr_t>(out);
+            const auto source = reinterpret_cast<uintptr_t>(words);
+            const auto destination = reinterpret_cast<uintptr_t>(out);
             const bool aliased = source <= destination
                                      ? destination - source < sizeof(candidate)
                                      : source - destination < sizeof(candidate);
             if (aliased)
+            {
                 return Result::InvalidMacAddress;
+            }
             for (size_t index = 0; index < sizeof(candidate); ++index)
             {
                 out[index] = 0;
@@ -209,9 +211,13 @@ namespace simpleath
                 break;
         }
         const InitPlan plan {
-            revision, source, source ? kCommonPlan : nullptr,
-            source ? (sizeof(kCommonPlan) / sizeof(kCommonPlan[0])) : 0U,
-            false};
+            revision,
+            source,
+            source != nullptr ? &kCommonPlan[0] : nullptr,
+            source != nullptr ? (sizeof(kCommonPlan) / sizeof(kCommonPlan[0]))
+                              : 0U,
+            false,
+        };
         return plan;
     }
 
@@ -249,7 +255,7 @@ namespace simpleath
         {
             return fail(Result::WrongState);
         }
-        if (!bus.read32 || !bus.context ||
+        if (bus.read32 == nullptr || bus.context == nullptr ||
             bus.barLengthBytes < kMinimumMappedBar ||
             overlapsStorage(&bus, sizeof(bus), this, sizeof(*this)) ||
             overlapsStorage(bus.context, 1, &bus, sizeof(bus)))
@@ -263,10 +269,10 @@ namespace simpleath
         return fail(Result::Ok);
     }
 
-    Result Device::readRegister(uint32_t offset, uint32_t &value)
+    Result Device::readRegister(uint32_t offset, uint32_t &value) const
     {
-        if (!bus_.read32 || !bus_.context || (offset & 3U) != 0 ||
-            offset > bus_.barLengthBytes ||
+        if (bus_.read32 == nullptr || bus_.context == nullptr ||
+            (offset & 3U) != 0 || offset > bus_.barLengthBytes ||
             bus_.barLengthBytes - offset < sizeof(uint32_t))
         {
             return Result::InvalidRegister;
@@ -293,7 +299,9 @@ namespace simpleath
         // publish its sample or write diagnostics into a replacement owner,
         // even when a detach/reattach cycle restores the same bus pointers.
         if (busEpoch_ != ownerEpoch)
+        {
             return Result::WrongState;
+        }
         if (result != Result::Ok)
         {
             return fail(result);
@@ -311,7 +319,9 @@ namespace simpleath
         uint32_t rtc = 0;
         result = readRegister(kRtcStatusRegister, rtc);
         if (busEpoch_ != ownerEpoch)
+        {
             return Result::WrongState;
+        }
         if (result != Result::Ok)
         {
             return fail(result);
@@ -325,17 +335,19 @@ namespace simpleath
         uint32_t eeprom = 0;
         result = readRegister(kEepromStatusRegister, eeprom);
         if (busEpoch_ != ownerEpoch)
+        {
             return Result::WrongState;
+        }
         if (result != Result::Ok)
         {
             return fail(result);
         }
         status_.eepromStatus = eeprom;
-        if (eeprom & kEepromAbsent)
+        if ((eeprom & kEepromAbsent) != 0U)
         {
             return fail(Result::EepromUnavailable);
         }
-        if (eeprom & kEepromCorrupt)
+        if ((eeprom & kEepromCorrupt) != 0U)
         {
             return fail(Result::EepromCorrupt);
         }

@@ -220,7 +220,7 @@ namespace simpleath
 
         private:
             Result fail(Result result);
-            Result readRegister(uint32_t offset, uint32_t &value);
+            Result readRegister(uint32_t offset, uint32_t &value) const;
             Status status_;
             RegisterBus bus_;
             // Detach invalidates even a callback that reattaches an identical
