@@ -935,6 +935,45 @@ namespace
                status == 1 && aid == 0;
     }
 
+    bool rejectUnserializableAssociationLengths()
+    {
+        uint8_t frame[kBeaconBytes] {};
+        makeBeacon(frame);
+        Beacon valid {};
+        if (parseBeacon(frame, sizeof(frame), valid) != Result::Ok ||
+            associationRequestLength(valid) == 0)
+            return false;
+
+        // The public size preflight is also used to rank joinable BSSes.
+        // A positive length must never authorize a management request that
+        // the actual serializer will reject for its advertised identity,
+        // network type, hidden SSID or privacy/security policy.
+        Beacon invalid = valid;
+        invalid.hiddenSsid = true;
+        if (associationRequestLength(invalid) != 0)
+            return false;
+        invalid = valid;
+        invalid.capabilities = 0x03; // Simultaneous ESS + IBSS.
+        if (associationRequestLength(invalid) != 0)
+            return false;
+        invalid = valid;
+        invalid.capabilities = 0x11; // Privacy without a valid RSNE.
+        if (associationRequestLength(invalid) != 0)
+            return false;
+        invalid = valid;
+        invalid.rsn.security = Security::Wpa2Personal;
+        if (associationRequestLength(invalid) != 0)
+            return false;
+        invalid = valid;
+        invalid.bssid.bytes[0] |= 1; // Group-addressed AP.
+        if (associationRequestLength(invalid) != 0)
+            return false;
+        invalid = valid;
+        for (size_t index = 0; index < invalid.ssidLength; ++index)
+            invalid.ssid[index] = 0;
+        return associationRequestLength(invalid) == 0;
+    }
+
     bool enforceAssociationAdmission()
     {
         uint8_t frame[kAssocBytes] {};
@@ -1017,5 +1056,7 @@ int main()
         return 20;
     if (!rejectInvalidAssociationTimingAndChannel())
         return 21;
+    if (!rejectUnserializableAssociationLengths())
+        return 24;
     return 0;
 }

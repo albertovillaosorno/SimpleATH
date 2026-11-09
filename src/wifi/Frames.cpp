@@ -147,13 +147,60 @@ namespace simpleath
                    network.channel <= 14u;
         }
 
+        // Both public preflight sizing and serialization must use exactly the
+        // same BSS admission checks. Otherwise a malformed source-built
+        // Beacon can be reported as joinable even though no association
+        // request can actually be sent for it.
+        static Result validateAssociationBeacon(const Beacon &network)
+        {
+            if (!validStationMac(network.bssid))
+                return Result::InvalidAddress;
+            if (!validAssociationCadenceAndChannel(network) ||
+                (network.capabilities & 0x0003u) != 0x0001u)
+                return Result::InvalidFrame;
+            if (network.ssidLength == 0 || network.ssidLength > 32 ||
+                !network.infrastructure || network.hiddenSsid)
+                return Result::InvalidSsid;
+            bool hasVisibleByte = false;
+            for (size_t i = 0; i < network.ssidLength; ++i)
+                hasVisibleByte |= network.ssid[i] != 0;
+            if (!hasVisibleByte)
+                return Result::InvalidSsid;
+
+            const bool secure = network.rsn.security == Security::Wpa2Personal;
+            if (network.rsn.security != Security::Open && !secure)
+                return Result::InvalidSecurity;
+            if (!secure)
+            {
+                return ((network.capabilities & 0x10u) != 0 ||
+                        network.rsn.present || network.rsnIeLength != 0)
+                           ? Result::InvalidSecurity
+                           : Result::Ok;
+            }
+            if ((network.capabilities & 0x10u) == 0 || !network.rsn.present ||
+                !network.rsn.valid || !network.rsn.pairwiseCcmp ||
+                !network.rsn.groupCcmp || !network.rsn.akmPsk ||
+                network.rsn.pmfRequired || network.rsnIeLength < 20 ||
+                network.rsnIeLength > sizeof(network.rsnIe) ||
+                network.rsnIe[0] != 48 ||
+                static_cast<size_t>(network.rsnIe[1]) + 2 !=
+                    network.rsnIeLength)
+                return Result::InvalidSecurity;
+            Rsn validated {};
+            if (parseRsn(network.rsnIe + 2, network.rsnIeLength - 2,
+                         validated) != Result::Ok ||
+                validated.security != Security::Wpa2Personal ||
+                validated.pmfRequired || !validated.groupCcmp ||
+                !validated.pairwiseCcmp || !validated.akmPsk)
+                return Result::InvalidSecurity;
+            return Result::Ok;
+        }
+
         size_t associationRequestLength(const Beacon &network)
         {
             uint8_t selected[12] {};
             size_t selectedCount = 0;
-            if (!validAssociationCadenceAndChannel(network) ||
-                network.ssidLength == 0 ||
-                network.ssidLength > sizeof(network.ssid) ||
+            if (validateAssociationBeacon(network) != Result::Ok ||
                 !selectAssociationRates(network, selected, selectedCount))
                 return 0;
             return 28u + 2u + network.ssidLength +
@@ -663,56 +710,12 @@ namespace simpleath
             written = 0;
             // Reject a forged station identity matching the destination AP
             // before creating a management frame on the caller's behalf.
-            if (!validStationMac(station) || !validStationMac(network.bssid) ||
-                sameMac(station, network.bssid))
+            if (!validStationMac(station) || sameMac(station, network.bssid))
                 return Result::InvalidAddress;
-            if (!validAssociationCadenceAndChannel(network))
-                return Result::InvalidFrame;
-            // Public callers can manufacture Beacon metadata without parsing
-            // it. The BSS must advertise ESS, not IBSS or contradictory modes.
-            if ((network.capabilities & 0x0003u) != 0x0001u)
-                return Result::InvalidFrame;
-            if (network.ssidLength == 0 || network.ssidLength > 32 ||
-                !network.infrastructure || network.hiddenSsid)
-                return Result::InvalidSsid;
-            // An all-zero fixed-length SSID is also hidden. Even a forged
-            // Beacon with its hidden flag cleared must not cause a silent
-            // association request for an unknown network name.
-            bool hasVisibleByte = false;
-            for (size_t i = 0; i < network.ssidLength; ++i)
-                hasVisibleByte |= network.ssid[i] != 0;
-            if (!hasVisibleByte)
-                return Result::InvalidSsid;
-
+            const Result admission = validateAssociationBeacon(network);
+            if (admission != Result::Ok)
+                return admission;
             const bool secure = network.rsn.security == Security::Wpa2Personal;
-            if (network.rsn.security != Security::Open && !secure)
-                return Result::InvalidSecurity;
-            // Public callers need not have used parseBeacon/Station::select.
-            // Do not silently downgrade a privacy BSS to Open, or advertise
-            // WPA2 based on forged suite flags rather than a validated RSNE.
-            if (!secure && ((network.capabilities & 0x10u) != 0 ||
-                            network.rsn.present || network.rsnIeLength != 0))
-                return Result::InvalidSecurity;
-            if (secure)
-            {
-                if ((network.capabilities & 0x10u) == 0 ||
-                    !network.rsn.present || !network.rsn.valid ||
-                    !network.rsn.pairwiseCcmp || !network.rsn.groupCcmp ||
-                    !network.rsn.akmPsk || network.rsn.pmfRequired ||
-                    network.rsnIeLength < 20 ||
-                    network.rsnIeLength > sizeof(network.rsnIe) ||
-                    network.rsnIe[0] != 48 ||
-                    static_cast<size_t>(network.rsnIe[1]) + 2 !=
-                        network.rsnIeLength)
-                    return Result::InvalidSecurity;
-                Rsn validated {};
-                if (parseRsn(network.rsnIe + 2, network.rsnIeLength - 2,
-                             validated) != Result::Ok ||
-                    validated.security != Security::Wpa2Personal ||
-                    validated.pmfRequired || !validated.groupCcmp ||
-                    !validated.pairwiseCcmp || !validated.akmPsk)
-                    return Result::InvalidSecurity;
-            }
             uint8_t selectedRates[12] {};
             size_t selectedCount = 0;
             if (!selectAssociationRates(network, selectedRates, selectedCount))
