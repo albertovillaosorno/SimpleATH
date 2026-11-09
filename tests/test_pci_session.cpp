@@ -25,6 +25,8 @@ namespace
             bool powerDropsDuringRollbackRead = false;
             bool powerDropsDuringRollbackVerification = false;
             bool powerDropsDuringMap = false;
+            bool busMasterAppearsDuringMap = false;
+            bool busMasterAppearsDuringInspection = false;
             bool powerDropsAfterMapOwnerCheck = false;
             bool mapPowerCheckReturned = false;
             bool powerDropsAfterFinalMmioCheck = false;
@@ -163,6 +165,8 @@ namespace
                     return false;
                 self.mapped = true;
                 *length = self.barLength;
+                if (self.busMasterAppearsDuringMap)
+                    self.command |= 4u;
                 if (self.powerDropsDuringMap)
                     self.powered = false;
                 return true;
@@ -194,6 +198,8 @@ namespace
                     case kEepromStatusRegister:
                         *value = self.eepromStatus;
                         self.finalEepromReadComplete = true;
+                        if (self.busMasterAppearsDuringInspection)
+                            self.command |= 4u;
                         break;
                     default:
                         return false;
@@ -564,6 +570,42 @@ int main()
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
             return 39;
+    }
+    {
+        // A BAR mapping callback can succeed while PCI command acquires
+        // bus-master enable. Its earlier readback cannot authorize a session
+        // after that drift, even if provider D0 remains confirmed.
+        FakePci fake {};
+        fake.busMasterAppearsDuringMap = true;
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) !=
+                PciSessionResult::CommandReadbackFailed ||
+            fake.command != 6u || fake.maps != 1 || fake.unmaps != 1 ||
+            fake.releases != 1 || fake.claimed || fake.mapped ||
+            session.status().readAccessReady ||
+            session.status().cleanupResult !=
+                PciSessionResult::DecodeRestoreFailed ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 40;
+    }
+    {
+        // Read-only MMIO callbacks must not turn a post-scan command change
+        // into an apparently valid inspected session with bus mastering on.
+        FakePci fake {};
+        fake.busMasterAppearsDuringInspection = true;
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::Ok ||
+            session.inspect() != PciSessionResult::CommandReadbackFailed ||
+            fake.command != 6u || fake.barReads != 3 || fake.releases != 1 ||
+            fake.unmaps != 1 || fake.claimed || fake.mapped ||
+            session.status().readAccessReady ||
+            session.status().coreInspectResult != Result::Ok ||
+            session.status().cleanupResult !=
+                PciSessionResult::DecodeRestoreFailed ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 41;
     }
     return 0;
 }

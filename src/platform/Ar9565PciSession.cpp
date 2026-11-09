@@ -134,6 +134,15 @@ namespace simpleath
             return failStart(PciSessionResult::NotInD0);
         if (status_.barLengthBytes < kMinimumInspectionBar)
             return failStart(PciSessionResult::InvalidBar);
+        // Mapping may complete after an unrelated PCI command change. The
+        // pre-map readback alone cannot authorize read-ready publication.
+        const bool commandReadOk = readConfig(0x04, command);
+        if (!backend_.inD0(backend_.context))
+            return failStart(PciSessionResult::NotInD0);
+        if (!commandReadOk || !(command & kMemoryDecode) ||
+            (command & kBusMaster) ||
+            commandBitsChanged(command, status_.originalCommand))
+            return failStart(PciSessionResult::CommandReadbackFailed);
 
         if (device_.matchPci(
                 static_cast<uint16_t>(id), static_cast<uint16_t>(id >> 16),
@@ -187,13 +196,22 @@ namespace simpleath
             unwind(ProviderAccess::Available);
             return status_.lastResult = PciSessionResult::CoreRejected;
         }
-        // A valid last MMIO sample can outlive the post-read power check as
-        // the core finishes parsing it. Revoke the apparently ready session
-        // if D0 disappeared before publishing successful inspection.
+        // Neither the last register sample nor its D0 check can certify
+        // command bits after inspection has finished. Refuse newly enabled
+        // bus mastering or unrelated changes before publishing success.
+        uint32_t command = 0;
+        const bool commandReadOk = readConfig(0x04, command);
         if (!backend_.inD0(backend_.context))
         {
             unwind(ProviderAccess::Unavailable);
             return status_.lastResult = PciSessionResult::NotInD0;
+        }
+        if (!commandReadOk || !(command & kMemoryDecode) ||
+            (command & kBusMaster) ||
+            commandBitsChanged(command, status_.originalCommand))
+        {
+            unwind(ProviderAccess::Available);
+            return status_.lastResult = PciSessionResult::CommandReadbackFailed;
         }
         return status_.lastResult = PciSessionResult::Ok;
     }

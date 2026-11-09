@@ -95,6 +95,14 @@ only its successful provider claim. That callback performs no driver MMIO or
 config access. Platform close implementation details remain the PCI family's
 responsibility. It tolerates an already-closed or inactive provider object.
 
+The portable session also re-reads the live PCI command after BAR mapping and
+again after core inspection. An unexpected bus-master or unrelated command-bit
+change rejects the session even if the mapping or MMIO reads succeeded. The
+failed rollback leaves the memory-decode obligation unresolved rather than
+writing a stale command word over another owner's changes. Offline host fakes
+reproduce both command-drift failures; these tests do not demonstrate real
+hardware command arbitration or Tahoe ABI correctness.
+
 After session.stop, clear releases the configure references. It refuses while
 a claim/map remains. Retaining the owner can otherwise form an ownership cycle;
 explicit clear is mandatory. Unexpected destruction logs incomplete teardown
