@@ -70,6 +70,16 @@ compiler/hardware fence around the load. There is no arbitrary register-read
 escape through the supplied callback, including EEPROM/OTP trigger addresses.
 The separate active NVM reader has no native capability connected to it yet.
 
+The portable session now performs another owner-in-D0 check after the
+entire read-only silicon inspection, before reporting success. In a synthetic
+regression, the last EEPROM register read and its immediate D0 check succeeded,
+but provider D0 vanished during subsequent core parsing. Previously inspection
+could still report success; it now returns `NotInD0`, revokes the core and BAR,
+and releases the claim without attempting a configuration rollback on a lost
+provider. An unresolved memory-decode obligation remains recorded, preventing
+unsafe reuse. This is an offline callback-boundary regression, not physical
+power-management or native kernel evidence.
+
 ## Teardown and remaining ABI work
 
 PciReadOnlySession must revoke its core access and restore any decode obligation

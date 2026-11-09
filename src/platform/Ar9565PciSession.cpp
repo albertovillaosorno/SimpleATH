@@ -182,6 +182,14 @@ namespace simpleath
             unwind(ProviderAccess::Available);
             return status_.lastResult = PciSessionResult::CoreRejected;
         }
+        // A valid last MMIO sample can outlive the post-read power check as
+        // the core finishes parsing it. Revoke the apparently ready session
+        // if D0 disappeared before publishing successful inspection.
+        if (!backend_.inD0(backend_.context))
+        {
+            unwind(ProviderAccess::Unavailable);
+            return status_.lastResult = PciSessionResult::NotInD0;
+        }
         return status_.lastResult = PciSessionResult::Ok;
     }
 

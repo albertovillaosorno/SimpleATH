@@ -25,6 +25,9 @@ namespace
             bool powerDropsDuringRollbackRead = false;
             bool powerDropsDuringRollbackVerification = false;
             bool powerDropsDuringMap = false;
+            bool powerDropsAfterFinalMmioCheck = false;
+            bool finalEepromReadComplete = false;
+            bool finalPowerCheckReturned = false;
             bool registerReadFails = false;
             uint32_t revokeAfterBarOffset = 0;
             uint32_t eepromStatus = 0;
@@ -60,7 +63,19 @@ namespace
 
             static bool inD0(void *context)
             {
-                return get(context).powered;
+                auto &self = get(context);
+                if (self.powerDropsAfterFinalMmioCheck &&
+                    self.finalEepromReadComplete &&
+                    !self.finalPowerCheckReturned)
+                {
+                    // The final MMIO post-read D0 gate gets a true response
+                    // before revocation. Parsing can then finish while D0 is
+                    // gone; the PCI session must recheck before publishing.
+                    self.finalPowerCheckReturned = true;
+                    self.powered = false;
+                    return true;
+                }
+                return self.powered;
             }
 
             static bool configRead(void *context, uint16_t offset,
@@ -166,6 +181,7 @@ namespace
                         break;
                     case kEepromStatusRegister:
                         *value = self.eepromStatus;
+                        self.finalEepromReadComplete = true;
                         break;
                     default:
                         return false;
@@ -500,6 +516,26 @@ int main()
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
             return 35;
+    }
+    {
+        // The final MMIO read can finish with a valid sample before the
+        // provider revokes D0 during post-read parsing. Successful core
+        // inspection alone cannot publish a still-ready PCI session.
+        FakePci fake {};
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::Ok)
+            return 36;
+        fake.powerDropsAfterFinalMmioCheck = true;
+        if (session.inspect() != PciSessionResult::NotInD0 || fake.powered ||
+            !fake.finalPowerCheckReturned || fake.barReads != 3 ||
+            session.status().coreInspectResult != Result::Ok ||
+            session.status().readAccessReady || fake.claimed || fake.mapped ||
+            fake.releases != 1 || fake.unmaps != 1 || fake.writes != 1 ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 37;
     }
     return 0;
 }
