@@ -25,6 +25,8 @@ namespace
             bool powerDropsDuringRollbackRead = false;
             bool powerDropsDuringRollbackVerification = false;
             bool powerDropsDuringMap = false;
+            bool powerDropsAfterMapOwnerCheck = false;
+            bool mapPowerCheckReturned = false;
             bool powerDropsAfterFinalMmioCheck = false;
             bool finalEepromReadComplete = false;
             bool finalPowerCheckReturned = false;
@@ -64,6 +66,16 @@ namespace
             static bool inD0(void *context)
             {
                 auto &self = get(context);
+                if (self.powerDropsAfterMapOwnerCheck && self.mapped &&
+                    !self.mapPowerCheckReturned)
+                {
+                    // The post-map D0 preflight returns true just before
+                    // software setup; a later publication check must see
+                    // that ownership disappeared during that setup.
+                    self.mapPowerCheckReturned = true;
+                    self.powered = false;
+                    return true;
+                }
                 if (self.powerDropsAfterFinalMmioCheck &&
                     self.finalEepromReadComplete &&
                     !self.finalPowerCheckReturned)
@@ -536,6 +548,22 @@ int main()
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
             return 37;
+    }
+    {
+        // A successful post-map D0 gate cannot authorize publication after
+        // software-only PCI/core setup if power disappears in the meantime.
+        FakePci fake {};
+        fake.powerDropsAfterMapOwnerCheck = true;
+        PciReadOnlySession session;
+        if (session.start(fake.backend()) != PciSessionResult::NotInD0 ||
+            fake.powered || !fake.mapPowerCheckReturned || fake.maps != 1 ||
+            fake.unmaps != 1 || fake.releases != 1 || fake.writes != 1 ||
+            fake.claimed || fake.mapped || session.status().readAccessReady ||
+            session.status().cleanupResult !=
+                PciSessionResult::ProviderUnavailable ||
+            !session.status().memoryDecodeChanged ||
+            session.start(fake.backend()) != PciSessionResult::WrongState)
+            return 39;
     }
     return 0;
 }

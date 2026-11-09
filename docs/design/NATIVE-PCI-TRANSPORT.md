@@ -80,6 +80,12 @@ provider. An unresolved memory-decode obligation remains recorded, preventing
 unsafe reuse. This is an offline callback-boundary regression, not physical
 power-management or native kernel evidence.
 
+The same late-D0 rule applies after `mapBar0`: software-only device matching
+and read-only core attachment must finish before one final D0 prepublication
+check. A synthetic post-map owner callback can return true while revoking D0;
+source now unwinds and reports `NotInD0` instead of publishing read access.
+The outstanding decode rollback is retained on the unavailable-provider path.
+
 ## Teardown and remaining ABI work
 
 PciReadOnlySession must revoke its core access and restore any decode obligation

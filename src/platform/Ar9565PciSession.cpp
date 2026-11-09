@@ -145,6 +145,11 @@ namespace simpleath
                                status_.barLengthBytes};
         if (device_.attachReadOnlyBus(bus) != Result::Ok)
             return failStart(PciSessionResult::CoreRejected);
+        // Core setup does not touch PCI, but D0 can vanish after the last
+        // post-map preflight. Never publish a ready session from stale power
+        // authorization after this software-only work.
+        if (!backend_.inD0(backend_.context))
+            return failStart(PciSessionResult::NotInD0);
         return status_.lastResult = PciSessionResult::Ok;
     }
 
