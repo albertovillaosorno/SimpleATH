@@ -10,13 +10,14 @@
 
 namespace simpleath
 {
+    constexpr size_t kPermanentMacBytes = 6;
 
     enum : uint16_t
     {
         kPciVendor = 0x168c,
         kPciDevice = 0x0036,
         kPciLegacySpoof = 0x0030,
-        kMacFamily = 0x02c0
+        kMacFamily = 0x02c0,
     };
 
     enum : uint32_t
@@ -28,7 +29,7 @@ namespace simpleath
         kRtcStatusMask = 0x0f,
         kRtcOn = 0x02,
         kEepromAbsent = 0x100,
-        kEepromCorrupt = 0x200
+        kEepromCorrupt = 0x200,
     };
 
     enum class Result : uint8_t
@@ -47,7 +48,7 @@ namespace simpleath
         InvalidChannel,
         WrongState,
         RadioNotImplemented,
-        NetworkingNotImplemented
+        NetworkingNotImplemented,
     };
 
     enum class Revision : uint8_t
@@ -55,7 +56,7 @@ namespace simpleath
         Unknown,
         V1_0,
         V1_0_1,
-        V1_1
+        V1_1,
     };
 
     enum class Stage : uint8_t
@@ -67,7 +68,7 @@ namespace simpleath
         EepromStatusValidated,
         AwaitingResetAndCalibration,
         RadioOperational,
-        NetworkRegistered
+        NetworkRegistered,
     };
 
     // The register I/O implementation MUST verify its BAR mapping and ensure
@@ -148,7 +149,7 @@ namespace simpleath
         ProgramBluetoothCoexistence,
         AllocateTxRxDma,
         InstallInterrupts,
-        RegisterNativeWirelessInterface
+        RegisterNativeWirelessInterface,
     };
 
     struct InitPlan
@@ -167,11 +168,12 @@ namespace simpleath
     bool isSupportedPci(uint16_t vendor, uint16_t device);
     // Out is cleared if the channel number is invalid; no regulatory approval.
     Result mapChannel(uint8_t ieeeChannel, Channel &out);
-    bool validatePermanentMac(const uint8_t mac[6]);
+    bool validatePermanentMac(const uint8_t mac[kPermanentMacBytes]);
     // Out is cleared on ordinary failure when nonnull, including null source
     // words. An invalid source overlapping out fails untouched to preserve
     // borrowed EEPROM bytes; a valid source may still be decoded in-place.
-    Result decodeEepromMac(const uint16_t words[3], uint8_t out[6]);
+    Result decodeEepromMac(const uint16_t words[3],
+                           uint8_t out[kPermanentMacBytes]);
     InitPlan planForRevision(Revision revision);
 
     class Device

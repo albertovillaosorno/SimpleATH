@@ -6,7 +6,7 @@
 
 namespace simpleath
 {
-    static constexpr InitStep K_COMMON_PLAN[] = {
+    static constexpr InitStep kCommonPlan[] = {
         InitStep::PowerOnReset,
         InitStep::WakeRtc,
         InitStep::ReadAndValidateEeprom,
@@ -28,7 +28,14 @@ namespace simpleath
         InitStep::InstallInterrupts,
         InitStep::RegisterNativeWirelessInterface,
     };
-    static constexpr uint32_t K_MINIMUM_MAPPED_BAR = 0x7048;
+    static constexpr uint32_t kMinimumMappedBar = 0x7048;
+    static constexpr uint32_t kInvalidRegisterWord = UINT32_MAX;
+    static constexpr uint32_t kType2SrevTag = 0xffU;
+    static constexpr uint8_t kMaxMacOctetValue = UINT8_MAX;
+    static constexpr uint8_t kLast2GChannel = 14;
+    static constexpr uint16_t kJapanChannelCenterMhz = 2484;
+    static constexpr uint16_t kChannelZeroBaseMhz = 2407;
+    static constexpr uint16_t kChannelSpacingMhz = 5;
 
     // A callback context must not point into its caller-owned descriptor:
     // invoking the provider could overwrite the function pointers we retain.
@@ -38,8 +45,11 @@ namespace simpleath
     static bool overlapsStorage(const void *first, size_t firstBytes,
                                 const void *second, size_t secondBytes)
     {
-        if (!first || !second || !firstBytes || !secondBytes)
+        if (first == nullptr || second == nullptr || firstBytes == 0 ||
+            secondBytes == 0)
+        {
             return false;
+        }
         const auto left = reinterpret_cast<uintptr_t>(first);
         const auto right = reinterpret_cast<uintptr_t>(second);
         return left <= right ? right - left < firstBytes
@@ -57,7 +67,8 @@ namespace simpleath
         out = {};
         // ath9k type-2 SREV is used by the AR9003 generation. The lower byte
         // is 0xff, and the version is encoded in bits 18..31, shifted by 12.
-        if (raw == 0xffffffffU || (raw & 0xffU) != 0xffU)
+        if (raw == kInvalidRegisterWord ||
+            (raw & kType2SrevTag) != kType2SrevTag)
         {
             return Result::UnsupportedSilicon;
         }
@@ -74,9 +85,18 @@ namespace simpleath
         Silicon result {};
         result.macFamily = kMacFamily;
         result.macRevision = static_cast<uint8_t>(revision);
-        result.revision = revision == 0   ? Revision::V1_0
-                          : revision == 1 ? Revision::V1_0_1
-                                          : Revision::V1_1;
+        if (revision == 0U)
+        {
+            result.revision = Revision::V1_0;
+        }
+        else if (revision == 1U)
+        {
+            result.revision = Revision::V1_0_1;
+        }
+        else
+        {
+            result.revision = Revision::V1_1;
+        }
         result.rawSrev = raw;
         result.usesPcie = true;
         out = result;
@@ -88,59 +108,62 @@ namespace simpleath
         // Do not leave the caller's previous authorized-looking channel on an
         // invalid request. This static mapping never grants radio permission.
         out = {};
-        if (number == 0 || number > 14)
+        if (number == 0 || number > kLast2GChannel)
         {
             return Result::InvalidChannel;
         }
         Channel result {};
         result.number = number;
         result.centerMhz =
-            number == 14 ? static_cast<uint16_t>(2484)
-                         : static_cast<uint16_t>(
-                               2407U + static_cast<uint16_t>(number) * 5U);
-        result.requiresJapanAuthorization = number == 14;
+            number == kLast2GChannel
+                ? kJapanChannelCenterMhz
+                : static_cast<uint16_t>(
+                      kChannelZeroBaseMhz +
+                      (static_cast<uint16_t>(number) * kChannelSpacingMhz));
+        result.requiresJapanAuthorization = number == kLast2GChannel;
         out = result;
         return Result::Ok;
     }
 
-    bool validatePermanentMac(const uint8_t mac[6])
+    bool validatePermanentMac(const uint8_t mac[kPermanentMacBytes])
     {
-        if (!mac || (mac[0] & 0x01U) != 0)
+        if (mac == nullptr || (mac[0] & 0x01U) != 0)
         {
             return false; // Multicast or broadcast cannot identify a station.
         }
         bool allZero = true;
         bool allOnes = true;
-        for (size_t index = 0; index < 6; ++index)
+        for (size_t index = 0; index < kPermanentMacBytes; ++index)
         {
             allZero = allZero && mac[index] == 0U;
-            allOnes = allOnes && mac[index] == 0xffU;
+            allOnes = allOnes && mac[index] == kMaxMacOctetValue;
         }
         return !allZero && !allOnes;
     }
 
-    Result decodeEepromMac(const uint16_t words[3], uint8_t out[6])
+    Result decodeEepromMac(const uint16_t words[3],
+                           uint8_t out[kPermanentMacBytes])
     {
-        if (!out)
+        if (out == nullptr)
         {
             return Result::InvalidMacAddress;
         }
         // Build the candidate before modifying out, so source words may
         // overlap the output on success. On failure, clear stale identity.
-        if (!words)
+        if (words == nullptr)
         {
-            for (size_t index = 0; index < 6; ++index)
+            for (size_t index = 0; index < kPermanentMacBytes; ++index)
             {
                 out[index] = 0;
             }
             return Result::InvalidMacAddress;
         }
-        uint8_t candidate[6] {};
+        uint8_t candidate[kPermanentMacBytes] {};
         for (size_t index = 0; index < 3; ++index)
         {
             candidate[index * 2] = static_cast<uint8_t>(words[index] >> 8U);
             candidate[index * 2 + 1] =
-                static_cast<uint8_t>(words[index] & 0xffU);
+                static_cast<uint8_t>(words[index] & kMaxMacOctetValue);
         }
         if (!validatePermanentMac(candidate))
         {
@@ -161,7 +184,7 @@ namespace simpleath
             }
             return Result::InvalidMacAddress;
         }
-        for (size_t index = 0; index < 6; ++index)
+        for (size_t index = 0; index < kPermanentMacBytes; ++index)
         {
             out[index] = candidate[index];
         }
@@ -186,8 +209,8 @@ namespace simpleath
                 break;
         }
         const InitPlan plan {
-            revision, source, source ? K_COMMON_PLAN : nullptr,
-            source ? (sizeof(K_COMMON_PLAN) / sizeof(K_COMMON_PLAN[0])) : 0U,
+            revision, source, source ? kCommonPlan : nullptr,
+            source ? (sizeof(kCommonPlan) / sizeof(kCommonPlan[0])) : 0U,
             false};
         return plan;
     }
@@ -227,7 +250,7 @@ namespace simpleath
             return fail(Result::WrongState);
         }
         if (!bus.read32 || !bus.context ||
-            bus.barLengthBytes < K_MINIMUM_MAPPED_BAR ||
+            bus.barLengthBytes < kMinimumMappedBar ||
             overlapsStorage(&bus, sizeof(bus), this, sizeof(*this)) ||
             overlapsStorage(bus.context, 1, &bus, sizeof(bus)))
         {
@@ -248,7 +271,8 @@ namespace simpleath
         {
             return Result::InvalidRegister;
         }
-        if (!bus_.read32(bus_.context, offset, &value) || value == 0xffffffffU)
+        if (!bus_.read32(bus_.context, offset, &value) ||
+            value == kInvalidRegisterWord)
         {
             return Result::RegisterReadFailed;
         }
