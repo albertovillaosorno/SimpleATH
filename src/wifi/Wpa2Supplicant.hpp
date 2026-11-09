@@ -30,7 +30,7 @@ namespace simpleath
             RsnMismatch,
             InvalidKeySequenceCounter,
             HardwareKeyInstallFailure,
-            BufferTooSmall
+            BufferTooSmall,
         };
 
         enum class Wpa2State : uint8_t
@@ -41,7 +41,7 @@ namespace simpleath
             HardwareKeysInstalled,
             Failed,
             ProcessingMessage1,
-            ProcessingMessage3
+            ProcessingMessage3,
         };
 
         // Callbacks run synchronously under the station's serialized workloop.

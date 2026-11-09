@@ -31,13 +31,13 @@ namespace simpleath
             UnverifiedDecryption,
             MalformedFrame,
             UnsupportedFrame,
-            InvalidSecurityState
+            InvalidSecurityState,
         };
 
         enum class LinkSecurity : uint8_t
         {
             Open,
-            Wpa2Ccmp
+            Wpa2Ccmp,
         };
 
         // A native macOS wireless interface must supply these values from the

@@ -21,7 +21,7 @@ namespace simpleath
             AssociatedOpen,
             WaitingForWpa2Keys,
             HardwareKeysInstalled,
-            Failed
+            Failed,
         };
 
         enum class StationResult : uint8_t
@@ -34,7 +34,7 @@ namespace simpleath
             FrameRejected,
             AssociationRejected,
             Wpa2CryptoNotImplemented,
-            NetworkInterfaceNotImplemented
+            NetworkInterfaceNotImplemented,
         };
 
         class Wpa2Supplicant;

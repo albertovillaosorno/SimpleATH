@@ -13,6 +13,8 @@ namespace simpleath
     namespace ieee80211
     {
 
+        constexpr size_t kEapolAnonceBytes = 32;
+
         enum class EapolResult : uint8_t
         {
             Ok,
@@ -27,7 +29,7 @@ namespace simpleath
             ReplayDetected,
             InvalidState,
             MicNotVerified,
-            OverlappingBuffers
+            OverlappingBuffers,
         };
 
         enum class KeyMessage : uint8_t
@@ -38,7 +40,7 @@ namespace simpleath
             Pairwise3,
             Pairwise4,
             Group1,
-            Group2
+            Group2,
         };
 
         struct KeyFrame
@@ -74,7 +76,7 @@ namespace simpleath
         {
             Empty,
             AwaitingMessage3,
-            Message3MicVerified
+            Message3MicVerified,
         };
 
         // This is only a replay guard. A verified MIC is necessary for message
@@ -104,7 +106,7 @@ namespace simpleath
             private:
                 HandshakePhase phase_;
                 uint64_t latestReplayCounter_;
-                uint8_t initialAnonce_[32];
+                uint8_t initialAnonce_[kEapolAnonceBytes];
         };
 
     } // namespace ieee80211
