@@ -819,6 +819,33 @@ candidate needs its own fresh, stable `--no-cache` scan after those edits
 are committed. Do not equate synthetic host coverage with verified native
 Tahoe ABI, macOS network-interface readiness or working RF.
 
+## Frozen uncached scan and focused native header cleanup, 2026-11-09
+
+At committed and pushed **main `0174434`**, with no source edits while the
+validator ran, `python3 -B tools/validate.py --no-cache` returned nonzero:
+`scope=repository`, `validation_mode=macos`, `source_only=true`,
+`tests_requested=true`, **163 files, 416 checks, 0 cached, 416 executed,
+365 passed, 51 failed, 0 skipped**. All failures are strict Clang-Tidy
+translation-unit checks. No input-snapshot drift was reported; the pre/post
+HEAD matched, and process JSON matched `.cache/validate/report.json`
+byte-for-byte, with SHA-256:
+`486a018d4402c5ca0c0f07da15beb481e8d12002334d2b6c17616f01041f0d22`.
+The remaining failures include Apple SDK/KDK-dependent parsing unavailable
+on the Linux host; zero skipped checks is not native Tahoe verification.
+**P0 remains OPEN**. Do not infer a working kext, RF path or device behavior.
+
+Two additional DCO-signed commits were validated and pushed in this slice:
+`daa4c41` bounds scan snapshot copies, derives native BSS buffer limits from
+existing 802.11 constants and clarifies ticket/guard initialization;
+`0174434` normalizes WPA2, station and data-path enum terminators and sizes
+the replay guard's ANonce from a named constant. The latter reduces repeated
+included-header Clang-Tidy diagnostics without weakening any lint rule.
+The scan-bridge fixture passed C++14 and C++17 `-Werror` ASan/UBSan runs;
+four portable fixtures (`wpa2_supplicant_alias`, `wpa2_adapter_entropy`,
+`open_station_pipeline`, `scan_bridge`) then passed in both C++14 and C++17
+with the same sanitizer settings. Formatting and diff checks were clean.
+A separate, uncommitted README author edit was deliberately not staged.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,
