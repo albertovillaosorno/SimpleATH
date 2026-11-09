@@ -11,7 +11,7 @@ namespace simpleath
     enum class NvmSource : uint8_t
     {
         Eeprom,
-        Otp
+        Otp,
     };
     enum class NvmResult : uint8_t
     {
@@ -28,7 +28,7 @@ namespace simpleath
         WordTimeout,
         CaptureTimeout,
         InvalidClock,
-        UnstableStatus
+        UnstableStatus,
     };
 
     // This is an ACTIVE NVM transaction capability, not the passive inspection
@@ -97,7 +97,7 @@ namespace simpleath
         NoValidImage,
         CaptureFailed,
         CorruptImage,
-        OwnerEpochRevoked
+        OwnerEpochRevoked,
     };
 
     // A recovered image and its structurally checked board summary, NOT RF

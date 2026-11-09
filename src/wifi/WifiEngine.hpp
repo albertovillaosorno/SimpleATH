@@ -31,7 +31,7 @@ namespace simpleath
             BufferTooSmall,
             InvalidReceivedFrame,
             NoAction,
-            AccessPointRejected
+            AccessPointRejected,
         };
 
         enum class ActionKind : uint8_t
@@ -46,7 +46,7 @@ namespace simpleath
             HardwareKeysInstalled,
             OpenAssociationEstablished,
             ReceivedPayload,
-            LinkLost
+            LinkLost,
         };
 
         // Borrowed RX payloads are valid only for the successful call.
@@ -154,7 +154,7 @@ namespace simpleath
                     return link_.status();
                 }
 
-                bool hasNativeWifiInterface() const
+                static bool hasNativeWifiInterface()
                 {
                     return false;
                 }

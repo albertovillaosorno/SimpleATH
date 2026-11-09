@@ -27,7 +27,7 @@ namespace simpleath
                 InvalidSsid,
                 BufferTooSmall,
                 BadWrappedLength,
-                KeyWrapIntegrityError
+                KeyWrapIntegrityError,
             };
 
             // PBKDF2-HMAC-SHA1, 4096 rounds, 32-byte PMK. This permits WPA2 PSK
