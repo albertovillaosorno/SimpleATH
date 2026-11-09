@@ -12,20 +12,20 @@ namespace simpleath
     enum class ChannelWidth : uint8_t
     {
         Ht20,
-        Ht40
+        Ht40,
     };
     enum class TxGainProfile : uint8_t
     {
-        LowOb,
-        HighOb,
-        HighPower,
-        Unknown = 0xff
+        LowOb = 0,
+        HighOb = 1,
+        HighPower = 2,
+        Unknown = 0xff,
     };
     enum class RxGainProfile : uint8_t
     {
-        Standard,
-        WithoutExternalLna,
-        Unknown = 0xff
+        Standard = 0,
+        WithoutExternalLna = 1,
+        Unknown = 0xff,
     };
 
     enum class RegisterPhase : uint8_t
@@ -40,8 +40,11 @@ namespace simpleath
         MacPostamble,
         BasebandPostamble,
         RadioPostamble,
-        Japan2484Txfir
+        Japan2484Txfir,
     };
+
+    // Each recipe contains the ordinary ten tables plus a channel-14 slot.
+    constexpr size_t kRegisterPhaseCapacity = 11;
 
     // Forward-declared generated type; avoids undefined strict-aliasing casts.
     namespace ini
@@ -65,7 +68,7 @@ namespace simpleath
             TxGainProfile txGain;
             RxGainProfile rxGain;
             Channel channel;
-            RegisterTable phases[11];
+            RegisterTable phases[kRegisterPhaseCapacity];
             size_t count;
             size_t registerWrites;
             bool regulatoryAuthorized;
@@ -90,7 +93,7 @@ namespace simpleath
     Result createInitRecipe(Revision revision, const Channel &channel,
                             ChannelWidth width, TxGainProfile tx,
                             RxGainProfile rx,
-                            const CalibrationAndRegulatory &preconditions,
+                            const CalibrationAndRegulatory &requirements,
                             RegisterRecipe &out);
 
     // Informational guard; also verifies the exact generated phase sequence,
@@ -103,7 +106,7 @@ namespace simpleath
     // "Prepared" never means TX permission.
     bool canBeginHardwareInitialization(
         const RegisterRecipe &recipe,
-        const CalibrationAndRegulatory &preconditions);
+        const CalibrationAndRegulatory &requirements);
 
 } // namespace simpleath
 #endif
