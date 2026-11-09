@@ -35,7 +35,7 @@ namespace ath
         TypedNew,
         TypedDelete,
         JoinPowerTree,
-        Count
+        Count,
     };
 
     struct NativeClientProfile
@@ -114,17 +114,50 @@ namespace ath
             const SkyClass *classes;
     };
 
+    namespace detail
+    {
+        inline bool rel32TargetMatches(const uint8_t *bytes,
+                                       uintptr_t nextAddress,
+                                       uintptr_t expectedTarget)
+        {
+            const uint32_t displacement =
+                static_cast<uint32_t>(bytes[0]) |
+                static_cast<uint32_t>(bytes[1]) << 8U |
+                static_cast<uint32_t>(bytes[2]) << 16U |
+                static_cast<uint32_t>(bytes[3]) << 24U;
+            // Decode signed rel32 without relying on out-of-range signed casts.
+            const int64_t delta =
+                displacement > INT32_MAX
+                    ? static_cast<int64_t>(displacement) -
+                          (static_cast<int64_t>(UINT32_MAX) + 1)
+                    : static_cast<int64_t>(displacement);
+            if (delta < 0)
+            {
+                const auto backward = static_cast<uintptr_t>(-delta);
+                return backward <= nextAddress &&
+                       nextAddress - backward == expectedTarget;
+            }
+            const auto forward = static_cast<uintptr_t>(delta);
+            return forward <= UINTPTR_MAX - nextAddress &&
+                   nextAddress + forward == expectedTarget;
+        }
+    } // namespace detail
+
     inline uintptr_t findNativeLink(const uint8_t *text, size_t size,
                                     uintptr_t address,
                                     const NativeLinkPattern &pattern,
                                     const uintptr_t *imports,
                                     size_t importCount)
     {
-        if (!text || !imports || !pattern.bytes || !pattern.mask ||
-            !pattern.size || pattern.size > size || !pattern.references ||
-            !pattern.referenceCount || size > UINTPTR_MAX - address)
+        if (text == nullptr || imports == nullptr || pattern.bytes == nullptr ||
+            pattern.mask == nullptr || pattern.size == 0 ||
+            pattern.size > size || pattern.references == nullptr ||
+            pattern.referenceCount == 0 || size > UINTPTR_MAX - address)
+        {
             return 0;
+        }
         uintptr_t result = 0;
+        bool found = false;
         for (size_t offset = 0; offset <= size - pattern.size; ++offset)
         {
             bool matches = true;
@@ -138,45 +171,23 @@ namespace ath
                 }
             }
             if (!matches)
+            {
                 continue;
+            }
             for (uint32_t i = 0; i < pattern.referenceCount; ++i)
             {
                 const auto &reference = pattern.references[i];
                 if (reference.target >= importCount ||
                     reference.offset > pattern.size ||
-                    pattern.size - reference.offset < 4)
+                    pattern.size - reference.offset < sizeof(int32_t))
+                {
                     return 0;
-                const auto bytes = text + offset + reference.offset;
-                const auto displacement = static_cast<int32_t>(
-                    uint32_t(bytes[0]) | uint32_t(bytes[1]) << 8 |
-                    uint32_t(bytes[2]) << 16 | uint32_t(bytes[3]) << 24);
-                // rel32 addresses are signed offsets from the next byte.
-                // Reject arithmetic wrap instead of accepting a fabricated
-                // import address on the opposite edge of the address space.
-                const uintptr_t next = address + offset + reference.offset + 4;
-                const int64_t signedDelta = displacement;
-                uintptr_t target = 0;
-                if (signedDelta < 0)
-                {
-                    const auto backward = static_cast<uintptr_t>(-signedDelta);
-                    if (backward > next)
-                    {
-                        matches = false;
-                        break;
-                    }
-                    target = next - backward;
                 }
-                else
-                {
-                    const auto forward = static_cast<uintptr_t>(signedDelta);
-                    if (forward > UINTPTR_MAX - next)
-                    {
-                        matches = false;
-                        break;
-                    }
-                    target = next + forward;
-                }
-                if (target != imports[reference.target])
+                const uintptr_t next =
+                    address + offset + reference.offset + sizeof(int32_t);
+                if (!detail::rel32TargetMatches(
+                        text + offset + reference.offset, next,
+                        imports[reference.target]))
                 {
                     matches = false;
                     break;
@@ -184,8 +195,12 @@ namespace ath
             }
             if (matches)
             {
-                if (result)
+                // A valid match at virtual address zero must still count.
+                if (found)
+                {
                     return 0;
+                }
+                found = true;
                 result = address + offset;
             }
         }
@@ -199,8 +214,12 @@ namespace ath
     inline const NativeSystemProfile *nativeSystemForKernel(uint32_t kernel)
     {
         for (uint32_t i = 0; i < nativeSystemCount; ++i)
+        {
             if (nativeSystems[i].kernel == kernel)
+            {
                 return &nativeSystems[i];
+            }
+        }
         return nullptr;
     }
 

@@ -59,6 +59,18 @@ namespace
         if (ath::findNativeLink(text, sizeof(text), UINTPTR_MAX - 5, pattern,
                                 wrappedEnd, 1) != 0)
             return false;
+
+        // The first valid match at base zero must not conceal a duplicate.
+        uint8_t duplicate[16] = {0x91, 0x92, 0x93, 0x94, 0xf8, 0, 0, 0,
+                                 0x91, 0x92, 0x93, 0x94, 0xf0, 0, 0, 0};
+        const uintptr_t duplicateImport[] = {0x100};
+        if (ath::findNativeLink(duplicate, sizeof(duplicate), 0, pattern,
+                                duplicateImport, 1) != 0)
+            return false;
+        duplicate[0] = 0;
+        if (ath::findNativeLink(duplicate, sizeof(duplicate), 0, pattern,
+                                duplicateImport, 1) != 8)
+            return false;
         return true;
     }
 } // namespace
