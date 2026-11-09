@@ -35,6 +35,49 @@ int main()
             PowerResult::InvalidChannel ||
         halfDbm != 0)
         return 2;
+    // ath9k uses the lower of 1L_5L / 5S for *both* 5.5-Mbps
+    // preambles, and the lower of 11L / 11S for *both* 11-Mbps
+    // preambles. A public rate selector must not return a higher raw
+    // per-preamble EEPROM target than the PHY actually permits.
+    candidate.cck[1] = 17;
+    candidate.cck[2] = 19;
+    candidate.cck[3] = 27;
+    const uint8_t cck55Rates[] {0x19, 0x1d};
+    const uint8_t cck11Rates[] {0x18, 0x1c};
+    for (uint8_t rate : cck55Rates)
+        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != 17)
+            return 24;
+    for (uint8_t rate : cck11Rates)
+        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != 19)
+            return 25;
+    // Reverse the asymmetric target pairs to test the other minimum
+    // direction, while 1/2-Mbps rates still use the original group.
+    candidate.cck[0] = 15;
+    candidate.cck[1] = 29;
+    candidate.cck[2] = 26;
+    candidate.cck[3] = 12;
+    for (uint8_t rate : cck55Rates)
+        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != 15)
+            return 26;
+    for (uint8_t rate : cck11Rates)
+        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != 12)
+            return 27;
+    const uint8_t cck12Rates[] {0x1b, 0x1a, 0x1e};
+    for (uint8_t rate : cck12Rates)
+        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != 15)
+            return 28;
+    candidate.cck[0] = 25;
+
     candidate.ht20[0] = 31;
     halfDbm = 0xff;
     if (candidatePowerForRate(candidate, 0x80, false, halfDbm) !=

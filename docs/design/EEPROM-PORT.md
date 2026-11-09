@@ -117,6 +117,16 @@ The 1.1 header aliases these gain arrays to the 1.0 arrays; its radio postamble
 remains distinct in the generated catalog. Selecting a gain profile does not
 apply calibration or program per-rate transmit-power limits.
 
+The public `candidatePowerForRate` selector follows the AR9003 PHY's
+conservative CCK target grouping: 1/2 Mbps use the 1L_5L entry, both 5.5
+Mbps preambles use `min(1L_5L, 5S)`, and both 11 Mbps preambles use
+`min(11L, 11S)`. Previously, the long/short 5.5 and 11 Mbps codes could
+select different raw entries, including one above the PHY's common cap.
+Synthetic C++14/C++17 host regressions cover both asymmetric directions;
+this remains a half-dBm target calculation, not hardware TX authorization.
+Reference: Linux `ar9003_phy.c`, `ar9003_hw_init_txpower_cck`:
+https://github.com/torvalds/linux/tree/v6.12/drivers/net/wireless/ath/ath9k
+
 ## Licensing and reference integrity
 
 `tools/generate_ar9300_templates.py` reads the packed field definitions and

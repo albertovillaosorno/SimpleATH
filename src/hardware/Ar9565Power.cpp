@@ -392,20 +392,21 @@ namespace simpleath
             return PowerResult::UnsupportedRate;
         switch (rateCode)
         {
-            case 0x1b:
-            case 0x1a:
-            case 0x19:
-            case 0x1e:
+            case 0x1b: // 1 Mbps, long preamble.
+            case 0x1a: // 2 Mbps, long preamble.
+            case 0x1e: // 2 Mbps, short preamble.
                 selected = candidate.cck[0];
                 break;
-            case 0x1d:
-                selected = candidate.cck[1];
+            case 0x19: // 5.5 Mbps, long preamble.
+            case 0x1d: // 5.5 Mbps, short preamble.
+                // ath9k ar9003_hw_init_txpower_cck applies the lower
+                // 1L_5L/5S target to both 5.5-Mbps preambles.
+                selected = minimum(candidate.cck[0], candidate.cck[1]);
                 break;
-            case 0x18:
-                selected = candidate.cck[2];
-                break;
-            case 0x1c:
-                selected = candidate.cck[3];
+            case 0x18: // 11 Mbps, long preamble.
+            case 0x1c: // 11 Mbps, short preamble.
+                // The PHY also uses the lower 11L/11S target for both.
+                selected = minimum(candidate.cck[2], candidate.cck[3]);
                 break;
             default:
                 if (candidate.legacyOnlyChannel14)
