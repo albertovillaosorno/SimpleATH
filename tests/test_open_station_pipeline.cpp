@@ -776,11 +776,12 @@ namespace
                                 sizeof(providerContext), &length) ||
             length != 123 || providerContext.calls != 0x1234u)
             return false;
-        // Disjoint outputs are still passed to a real configured provider.
-        // This host callback only counts invocations, not random bytes.
+        // Disjoint outputs still reach the configured provider. This fake
+        // only counts invocations: it supplies no entropy, so the adapter
+        // must not accept or publish a nonce from the no-op callback.
         uint8_t independentNonce[32] {};
-        return callbacks.generateNonce(callbacks.context, independentNonce) &&
-               providerContext.calls == 0x1235u;
+        return !callbacks.generateNonce(callbacks.context, independentNonce) &&
+               providerContext.calls == 0x1235u && independentNonce[0] == 0;
     }
 
     bool rejectForgedVisibleZeroName()

@@ -673,6 +673,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_wpa2_adapter_entropy.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_wpa2_adapter_entropy.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_wpa2_public_alias.cpp",
     "arguments": [
       "clang++",

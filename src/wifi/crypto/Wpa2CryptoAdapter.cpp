@@ -82,8 +82,25 @@ namespace simpleath
                     overlaps(adapter, sizeof(*adapter), outNonce, 32) ||
                     overlaps(adapter->hardware_.context, 1, outNonce, 32))
                     return false;
-                return adapter->hardware_.secureRandom(
-                    adapter->hardware_.context, outNonce, 32);
+                // A provider may fail after filling only part of the nonce.
+                // Never publish a partial result into a reusable caller
+                // buffer, or report success for a no-op provider that leaves
+                // its zero-initialized scratch space unchanged.
+                uint8_t generated[32] {};
+                const bool providerSucceeded = adapter->hardware_.secureRandom(
+                    adapter->hardware_.context, generated, sizeof(generated));
+                uint8_t any = 0;
+                for (uint8_t byte : generated)
+                    any |= byte;
+                const bool valid =
+                    providerSucceeded && any != 0 && adapter->configured_;
+                if (valid)
+                    for (size_t i = 0; i < sizeof(generated); ++i)
+                        outNonce[i] = generated[i];
+                volatile uint8_t *secret = generated;
+                for (size_t i = 0; i < sizeof(generated); ++i)
+                    secret[i] = 0;
+                return valid;
             }
 
             bool Adapter::ptk(void *context, const uint8_t pmk[32],

@@ -20,7 +20,8 @@ namespace simpleath
                     void *context;
                     // MUST be backed by a kernel cryptographic random
                     // generator; never device timestamps, predictable counters
-                    // or boot time.
+                    // or boot time. A false result must not publish partial
+                    // output; the adapter zeroizes its private scratch first.
                     bool (*secureRandom)(void *context, uint8_t *data,
                                          size_t length);
                     // MUST program the device's true CCMP keycache using
