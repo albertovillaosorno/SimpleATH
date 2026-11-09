@@ -216,11 +216,11 @@ namespace simpleath
 
     // Internal byte-range capture is used for exact four-byte origin probes;
     // public captureAr9565Nvm retains its ascending-zero address semantics.
-    static NvmResult captureRange(const NvmReadBackend &backend,
-                                  const Identity &physicalIdentity,
+    static NvmResult captureRange(const NvmReadBackend &borrowedBackend,
+                                  const Identity &borrowedIdentity,
                                   NvmSource source, size_t firstByte,
                                   uint8_t *destination, size_t byteCount,
-                                  NvmReadStatus &status)
+                                  NvmReadStatus &reportedStatus)
     {
         // The output could alias the caller's backend callbacks or identity.
         // Reject such a contract breach BEFORE clearing either output or
@@ -230,21 +230,53 @@ namespace simpleath
         // pointer must at least not point into either writable output: clearing
         // that storage would corrupt callback state before the first call.
         // The caller still guarantees disjointness of the complete allocation.
-        if (overlaps(destination, byteCount, &backend, sizeof(backend)) ||
-            overlaps(destination, byteCount, &physicalIdentity,
-                     sizeof(physicalIdentity)) ||
-            overlaps(destination, byteCount, &status, sizeof(status)) ||
-            overlaps(destination, byteCount, backend.context, 1) ||
-            overlaps(&status, sizeof(status), &backend, sizeof(backend)) ||
-            overlaps(&status, sizeof(status), &physicalIdentity,
-                     sizeof(physicalIdentity)) ||
-            overlaps(&status, sizeof(status), backend.context, 1) ||
+        if (overlaps(destination, byteCount, &borrowedBackend,
+                     sizeof(borrowedBackend)) ||
+            overlaps(destination, byteCount, &borrowedIdentity,
+                     sizeof(borrowedIdentity)) ||
+            overlaps(destination, byteCount, &reportedStatus,
+                     sizeof(reportedStatus)) ||
+            overlaps(destination, byteCount, borrowedBackend.context, 1) ||
+            overlaps(&reportedStatus, sizeof(reportedStatus), &borrowedBackend,
+                     sizeof(borrowedBackend)) ||
+            overlaps(&reportedStatus, sizeof(reportedStatus), &borrowedIdentity,
+                     sizeof(borrowedIdentity)) ||
+            overlaps(&reportedStatus, sizeof(reportedStatus),
+                     borrowedBackend.context, 1) ||
             // A callback owns mutable context but cannot borrow its own
             // function table or the verified physical identity as that state.
-            overlaps(backend.context, 1, &backend, sizeof(backend)) ||
-            overlaps(backend.context, 1, &physicalIdentity,
-                     sizeof(physicalIdentity)))
+            overlaps(borrowedBackend.context, 1, &borrowedBackend,
+                     sizeof(borrowedBackend)) ||
+            overlaps(borrowedBackend.context, 1, &borrowedIdentity,
+                     sizeof(borrowedIdentity)))
             return NvmResult::InvalidArgument;
+        // Preserve callback routing and progress independently of pointers a
+        // callback might have retained to the caller-owned input/outputs.
+        const NvmReadBackend backend = borrowedBackend;
+        const Identity physicalIdentity = borrowedIdentity;
+
+        struct ReportOnExit
+        {
+                explicit ReportOnExit(NvmReadStatus &destination)
+                    : output(destination), local {}
+                {
+                }
+
+                ReportOnExit(const ReportOnExit &) = delete;
+                ReportOnExit &operator=(const ReportOnExit &) = delete;
+                ReportOnExit(ReportOnExit &&) = delete;
+                ReportOnExit &operator=(ReportOnExit &&) = delete;
+
+                ~ReportOnExit()
+                {
+                    output = local;
+                }
+
+                NvmReadStatus &output;
+                NvmReadStatus local;
+        } report(reportedStatus);
+
+        NvmReadStatus &status = report.local;
         status = {};
         status.source = source;
         const size_t maximum = source == NvmSource::Eeprom ? 4096 : 1024;
@@ -387,6 +419,10 @@ namespace simpleath
                                      storageBytes, scratch, scratchBytes, board,
                                      status))
             return NvmDiscoveryResult::InvalidArgument;
+        // Use one immutable owner/identity snapshot across both the header
+        // probe and the selected full reconstruction capture.
+        const NvmReadBackend stableBackend = backend;
+        const Identity stableIdentity = physicalIdentity;
         board = {};
         board.txGain = TxGainProfile::Unknown;
         board.rxGain = RxGainProfile::Unknown;
@@ -421,7 +457,7 @@ namespace simpleath
             // NONE of the later read/restore/board errors permits fallback.
             uint8_t header[4] {};
             const NvmResult probeResult =
-                captureRange(backend, physicalIdentity, candidate.source,
+                captureRange(stableBackend, stableIdentity, candidate.source,
                              length - sizeof(header), header, sizeof(header),
                              status.lastCapture);
             if (probeResult == NvmResult::StorageAbsent)
@@ -442,9 +478,9 @@ namespace simpleath
             const uint32_t probedSrev = status.lastCapture.silicon.rawSrev;
             // A second bounded capture gathers the entire chosen storage
             // chain. StorageAbsent here is a fatal mid-transaction fault.
-            const NvmResult captureResult =
-                captureAr9565Nvm(backend, physicalIdentity, candidate.source,
-                                 storage, length, status.lastCapture);
+            const NvmResult captureResult = captureAr9565Nvm(
+                stableBackend, stableIdentity, candidate.source, storage,
+                length, status.lastCapture);
             if (captureResult != NvmResult::Ok)
             {
                 outcome = NvmDiscoveryResult::CaptureFailed;
@@ -536,7 +572,7 @@ namespace simpleath
             // active capture callback. The owner may lose D0 while parsing;
             // do not publish a snapshot using only the capture's earlier
             // ownership checks. A revocable lease also checks its epoch.
-            if (!backend.ownerInD0(backend.context))
+            if (!stableBackend.ownerInD0(stableBackend.context))
             {
                 status.lastCapture.result = NvmResult::SessionUnavailable;
                 status.lastCapture.captureComplete = false;

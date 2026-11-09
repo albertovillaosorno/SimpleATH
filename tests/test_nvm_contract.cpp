@@ -23,6 +23,8 @@ namespace
             bool revokeDuringFirstBudgetClock = false;
             bool revokeAfterFinalPayloadCheck = false;
             uint32_t finalPayloadOwnerChecks = 0;
+            simpleath::NvmReadStatus *poisonStatus = nullptr;
+            simpleath::NvmReadBackend *poisonBackend = nullptr;
             bool backwards = false;
             bool d0 = true;
     };
@@ -50,6 +52,11 @@ namespace
         return false;
     }
 
+    bool failingRead(void *, uint32_t, uint32_t *)
+    {
+        return false;
+    }
+
     bool read(void *context, uint32_t offset, uint32_t *value)
     {
         auto &fake = *static_cast<FakeNvm *>(context);
@@ -72,6 +79,10 @@ namespace
             case 0x4084: // Ready sample followed by payload/status re-read.
                 *value = ++fake.statusReads == 1 ? fake.firstStatus
                                                  : fake.finalStatus;
+                if (fake.statusReads == 2 && fake.poisonStatus)
+                    fake.poisonStatus->bytesAcquired = 2;
+                if (fake.statusReads == 1 && fake.poisonBackend)
+                    fake.poisonBackend->read32 = failingRead;
                 break;
             default:
                 return false;
@@ -255,5 +266,33 @@ int main()
             bytes, sizeof(bytes), status) != NvmResult::InvalidArgument ||
         status.result != NvmResult::Ok || bytes[0] != 0xa5 || bytes[1] != 0xa5)
         return 10;
+    // Callback retaining separate status pointer cannot redirect copied bytes
+    // outside the declared output length or forge the acquired byte count.
+    fake = {};
+    fake.poisonStatus = &status;
+    simpleath::NvmReadBackend safeBackend {&fake, owned, read,
+                                           clock, delay, 0x16000};
+    uint8_t guarded[4] {0xff, 0xff, 0xa5, 0x5a};
+    if (simpleath::captureAr9565Nvm(safeBackend, identity,
+                                    simpleath::NvmSource::Eeprom, guarded, 2,
+                                    status) != NvmResult::Ok ||
+        !status.captureComplete || status.bytesAcquired != 2 ||
+        guarded[0] != 0x12 || guarded[1] != 0x34 || guarded[2] != 0xa5 ||
+        guarded[3] != 0x5a)
+        return 12;
+
+    // A callback's separately retained pointer to the input table cannot
+    // silently redirect the next MMIO read to a different function.
+    fake = {};
+    fake.poisonBackend = &safeBackend;
+    safeBackend = {&fake, owned, read, clock, delay, 0x16000};
+    uint8_t words[2] {};
+    if (simpleath::captureAr9565Nvm(safeBackend, identity,
+                                    simpleath::NvmSource::Eeprom, words,
+                                    sizeof(words), status) != NvmResult::Ok ||
+        !status.captureComplete || status.bytesAcquired != 2 ||
+        words[0] != 0x12 || words[1] != 0x34 ||
+        safeBackend.read32 != failingRead)
+        return 13;
     return 0;
 }

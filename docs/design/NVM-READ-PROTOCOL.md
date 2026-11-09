@@ -94,6 +94,16 @@ Owner permission to edit source does not authorize invoking this capability.
   active operation completes. The future native
   owner must ALSO revoke hardware callbacks and drain the operation before
   releasing BAR mappings; the source-only epoch is not native ownership.
+- Snapshot the borrowed owner callbacks and verified physical identity
+  before any callback, and keep capture progress in private status until the
+  result is ready for publication. A callback retaining a separate pointer
+  into the caller's status cannot forge `bytesAcquired` and redirect writes
+  past the declared output length; changing the caller's function table
+  mid-capture cannot redirect subsequent reads. Discovery retains the same
+  owner/identity snapshot across both origin probe and full capture.
+  Synthetic red/green tests cover both retained-pointer mutations under
+  C++14/C++17 sanitizers. A callback directly writing caller-owned memory
+  remains outside this contract and is not made safe by these snapshots.
 - Reject overlapping destination, status, backend and identity storage
   before initializing diagnostics or clearing capture bytes. Reject a
   backend context pointer that points into either writable output, too;
