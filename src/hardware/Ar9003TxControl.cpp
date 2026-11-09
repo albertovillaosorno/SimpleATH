@@ -22,6 +22,7 @@
 // a99f8fb18052510161232331e5fc98757619713e6f2ad69d1897f77597c0188b mac.h:
 // 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
 #include "Ar9003TxControl.hpp"
+#include "Ar9003Descriptors.hpp"
 
 #include <cstddef>
 #include <cstdint>
