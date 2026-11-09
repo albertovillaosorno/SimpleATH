@@ -38,8 +38,10 @@ CheckOptions:
   readability-identifier-naming.EnumConstantCase: CamelCase
   readability-identifier-naming.EnumConstantIgnoredRegexp: '^(k[A-Z][A-Za-z0-9]*|[A-Z][A-Z0-9_]*)$'
   readability-identifier-naming.ScopedEnumConstantCase: CamelCase
+  readability-identifier-naming.ScopedEnumConstantIgnoredRegexp: '^V[0-9]+(_[0-9]+)+$'
   readability-identifier-naming.FunctionCase: camelBack
   readability-identifier-naming.GlobalFunctionCase: camelBack
+  readability-identifier-naming.GlobalFunctionIgnoredRegexp: '^(kext_alloc|kext_free|kext_get_vm_map|PE_get_kc_slide)$'
   readability-identifier-naming.ConstexprFunctionCase: camelBack
   readability-identifier-naming.MethodCase: camelBack
   readability-identifier-naming.ClassMethodCase: camelBack
@@ -58,15 +60,17 @@ CheckOptions:
   readability-identifier-naming.MemberCase: camelBack
   readability-identifier-naming.ClassMemberCase: camelBack
   readability-identifier-naming.PrivateMemberCase: camelBack
+  readability-identifier-naming.PrivateMemberIgnoredRegexp: '^[a-z][A-Za-z0-9]*_$'
   readability-identifier-naming.ProtectedMemberCase: camelBack
   readability-identifier-naming.PublicMemberCase: camelBack
   readability-identifier-naming.GlobalVariableCase: camelBack
+  readability-identifier-naming.GlobalVariableIgnoredRegexp: '^(vm_kernel_slide|version_major)$'
   readability-identifier-naming.GlobalPointerCase: camelBack
   readability-identifier-naming.GlobalConstantCase: camelBack
   readability-identifier-naming.GlobalConstantIgnoredRegexp: '^K_[A-Z0-9_]+$'
   readability-identifier-naming.GlobalConstantPointerCase: camelBack
   readability-identifier-naming.GlobalConstexprVariableCase: camelBack
-  readability-identifier-naming.GlobalConstexprVariableIgnoredRegexp: '^K_[A-Z0-9_]+$'
+  readability-identifier-naming.GlobalConstexprVariableIgnoredRegexp: '^(K_[A-Z0-9_]+|KernelID)$'
   readability-identifier-naming.StaticConstantCase: camelBack
   readability-identifier-naming.StaticConstantIgnoredRegexp: '^K_[A-Z0-9_]+$'
   readability-identifier-naming.ClassConstantCase: camelBack
