@@ -304,6 +304,42 @@ class NativeFragmentCacheValidation(unittest.TestCase):
             _ = fragment.write_text("after", encoding="utf-8")
             assert _lint_fingerprint(root, owner, "clang-tidy") != initial
 
+    @staticmethod
+    def test_transitive_unknown_extension_include_invalidates_tidy() -> None:
+        """An unusual fragment may itself include another unusual fragment."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            owner = root / "src/owner.cpp"
+            first = root / "src/outer.tbl"
+            inner = root / "src/inner.tbl"
+            _ = owner.write_text('#include "outer.tbl"\n', encoding="utf-8")
+            _ = first.write_text('#include "inner.tbl"\n', encoding="utf-8")
+            _ = inner.write_text("old", encoding="utf-8")
+            original = _lint_fingerprint(root, owner, "clang-tidy")
+            _ = inner.write_text("updated", encoding="utf-8")
+            changed = _lint_fingerprint(root, owner, "clang-tidy")
+            assert changed != original
+            inner.unlink()
+            assert _lint_fingerprint(root, owner, "clang-tidy") != changed
+
+    @staticmethod
+    def test_macro_include_inside_unknown_fragment_fails_open_cache() -> None:
+        """A nested macro include must hash possible unusual targets."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            owner = root / "src/owner.cpp"
+            first = root / "src/outer.tbl"
+            fragment = root / "src/inner.tbl"
+            _ = owner.write_text('#include "outer.tbl"\n', encoding="utf-8")
+            _ = first.write_text(
+                '#define FRAGMENT "inner.tbl"\n#include FRAGMENT\n',
+                encoding="utf-8",
+            )
+            _ = fragment.write_text("old", encoding="utf-8")
+            original = _lint_fingerprint(root, owner, "clang-tidy")
+            _ = fragment.write_text("updated", encoding="utf-8")
+            assert _lint_fingerprint(root, owner, "clang-tidy") != original
+
 
 class CacheValidation(unittest.TestCase):
     """Reject malformed cache values while retaining actual failure results."""

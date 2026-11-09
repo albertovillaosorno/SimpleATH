@@ -519,40 +519,84 @@ def tool_version(executable: str, root: Path) -> str:
     )
 
 
+def _native_literal_names(data: bytes, suffixes: frozenset[str]) -> set[str]:
+    """Discover unusual literal include targets in one native input.
+
+    Returns:
+        Include names that are not already included in shared native inputs.
+
+    """
+    return {
+        name
+        for match in NATIVE_LITERAL_INCLUDE.finditer(data)
+        if (name := match.group(1).decode("utf-8", errors="surrogateescape"))
+        and Path(name).suffix.lower() not in suffixes
+    }
+
+
+def _matches_native_include(root: Path, path: Path, names: set[str]) -> bool:
+    """Match an in-tree support file against requested include spellings.
+
+    Returns:
+        True if its repository-relative path can satisfy an include name.
+
+    """
+    relative = path.relative_to(root).as_posix()
+    return any(
+        relative == name or relative.endswith("/" + name) for name in names
+    )
+
+
+def _expand_native_fragments(
+    root: Path, assets: list[Path], names: set[str], *, suffixes: frozenset[str]
+) -> list[Path] | None:
+    """Compute the transitive nonstandard include closure.
+
+    Returns:
+        Reachable fragments, or None when an unresolved macro is encountered.
+
+    """
+    selected: set[Path] = set()
+    while matches := [
+        p
+        for p in assets
+        if p not in selected and _matches_native_include(root, p, names)
+    ]:
+        for path in matches:
+            selected.add(path)
+            contents = path.read_bytes()
+            if NATIVE_MACRO_INCLUDE.search(contents):
+                return None
+            names.update(_native_literal_names(contents, suffixes))
+    return sorted(selected)
+
+
 def _native_extra_dependencies(
     root: Path, native_inputs: list[bytes], suffixes: frozenset[str]
 ) -> list[Path]:
-    """Include nonstandard native fragments without hashing unrelated assets.
+    """Track transitive unusual fragments without hashing unrelated assets.
 
     Returns:
         Included support files, or all support files for a macro include.
 
     """
-    # C/C++ includes can name extensionless and nonstandard data fragments.
-    # Literal in-tree targets are precise; macro targets cannot be resolved.
-    literals = {
-        name
-        for data in native_inputs
-        for match in NATIVE_LITERAL_INCLUDE.finditer(data)
-        if (name := match.group(1).decode("utf-8", errors="surrogateescape"))
-        and Path(name).suffix.lower() not in suffixes
-    }
+    literals: set[str] = set()
+    for data in native_inputs:
+        literals.update(_native_literal_names(data, suffixes))
     macro = any(NATIVE_MACRO_INCLUDE.search(data) for data in native_inputs)
     if not literals and not macro:
         return []
-    return sorted(
-        path
-        for path in _support_inputs(root)
-        if path.suffix.lower() not in suffixes
-        and (
-            macro
-            or any(
-                (relative := path.relative_to(root).as_posix()) == name
-                or relative.endswith("/" + name)
-                for name in literals
-            )
-        )
+    assets = sorted(
+        p for p in _support_inputs(root) if p.suffix.lower() not in suffixes
     )
+    # A reached fragment can contain more unusual includes; a nested macro
+    # forces the same full support-input fallback as a top-level macro.
+    reachable = (
+        None
+        if macro
+        else _expand_native_fragments(root, assets, literals, suffixes=suffixes)
+    )
+    return assets if reachable is None else reachable
 
 
 def _native_shared_dependencies(
