@@ -7,33 +7,33 @@ namespace simpleath
 {
     namespace dma
     {
-        static constexpr uint64_t K_DEVICE_MAX_ADDRESS = 0xffffffffULL;
-        static constexpr uint32_t K_GENERATION_MAX = 0xffffffffU;
+        static constexpr uint64_t kDeviceMaxAddress = 0xffffffffULL;
+        static constexpr uint32_t kGenerationMax = 0xffffffffU;
 
         // Do not let a caller-owned output token overwrite live ring metadata.
         // Compare address distances to avoid pointer-end overflow.
-        static bool overlaps_storage(const void *first, size_t first_bytes,
-                                     const void *second, size_t second_bytes)
+        static bool overlapsStorage(const void *first, size_t firstBytes,
+                                    const void *second, size_t secondBytes)
         {
             const auto left = reinterpret_cast<uintptr_t>(first);
             const auto right = reinterpret_cast<uintptr_t>(second);
-            return first_bytes && second_bytes &&
-                   (left >= right ? left - right < second_bytes
-                                  : right - left < first_bytes);
+            return firstBytes != 0 && secondBytes != 0 &&
+                   (left >= right ? left - right < secondBytes
+                                  : right - left < firstBytes);
         }
 
-        Error validateMapping(const Mapping &mapping, size_t required_bytes)
+        Error validateMapping(const Mapping &mapping, size_t requiredBytes)
         {
             if (mapping.cpuAddress == nullptr || mapping.length == 0 ||
-                required_bytes == 0)
+                requiredBytes == 0)
             {
                 return Error::MissingBuffer;
             }
             // Caller-built DMA mappings cannot point into their own trusted
             // descriptor metadata. Reject even a partial overlap before an
             // owner can hand that span to the IOMMU or hardware.
-            if (overlaps_storage(mapping.cpuAddress, mapping.length, &mapping,
-                                 sizeof(mapping)))
+            if (overlapsStorage(mapping.cpuAddress, mapping.length, &mapping,
+                                sizeof(mapping)))
             {
                 return Error::AliasedMetadata;
             }
@@ -54,27 +54,27 @@ namespace simpleath
                 return Error::NotSynchronized;
             }
             if (mapping.deviceBusAddress == 0 ||
-                mapping.deviceBusAddress > K_DEVICE_MAX_ADDRESS)
+                mapping.deviceBusAddress > kDeviceMaxAddress)
             {
                 return Error::AddressTooHigh;
             }
-            if (required_bytes > mapping.length)
+            if (requiredBytes > mapping.length)
             {
                 return Error::InsufficientLength;
             }
             // An IOMMU flag does not make a CPU pointer span valid. Reject
             // mappings whose full retained host allocation wraps uintptr_t,
             // before any future caller can add offsets to that pointer.
-            const uintptr_t host_start =
+            const auto hostStart =
                 reinterpret_cast<uintptr_t>(mapping.cpuAddress);
-            if (mapping.length - 1U > UINTPTR_MAX - host_start)
+            if (mapping.length - 1U > UINTPTR_MAX - hostStart)
             {
                 return Error::AddressOverflow;
             }
             // The IOVA describes the entire retained mapping, not just the
             // minimum descriptor prefix. No mapped byte may exceed 32 bits.
             if (mapping.length - 1U >
-                K_DEVICE_MAX_ADDRESS - mapping.deviceBusAddress)
+                kDeviceMaxAddress - mapping.deviceBusAddress)
             {
                 return Error::AddressOverflow;
             }
@@ -82,18 +82,18 @@ namespace simpleath
         }
 
         Error validateDescriptorRing(const Mapping &mapping,
-                                     size_t descriptor_bytes, size_t count,
+                                     size_t descriptorBytes, size_t count,
                                      size_t alignment)
         {
-            if (descriptor_bytes == 0 || count == 0 ||
+            if (descriptorBytes == 0 || count == 0 ||
                 count > TxRing::kMaximumSlots || alignment == 0 ||
                 (alignment & (alignment - 1U)) != 0 ||
-                descriptor_bytes >
-                    static_cast<size_t>(K_DEVICE_MAX_ADDRESS) / count)
+                descriptorBytes >
+                    static_cast<size_t>(kDeviceMaxAddress) / count)
             {
                 return Error::InvalidCount;
             }
-            const size_t required = descriptor_bytes * count;
+            const size_t required = descriptorBytes * count;
             const Error result = validateMapping(mapping, required);
             if (result != Error::Ok)
             {
@@ -101,7 +101,7 @@ namespace simpleath
             }
             // The first descriptor being aligned is not enough: each later
             // descriptor must also begin on the requested bus/CPU boundary.
-            if (count > 1 && descriptor_bytes % alignment != 0)
+            if (count > 1 && descriptorBytes % alignment != 0)
             {
                 return Error::InvalidAlignment;
             }
@@ -119,9 +119,9 @@ namespace simpleath
         {
         }
 
-        Error TxRing::initialize(size_t number_of_slots)
+        Error TxRing::initialize(size_t numberOfSlots)
         {
-            if (number_of_slots == 0 || number_of_slots > kMaximumSlots)
+            if (numberOfSlots == 0 || numberOfSlots > kMaximumSlots)
             {
                 return Error::InvalidCount;
             }
@@ -129,7 +129,7 @@ namespace simpleath
             {
                 return Error::UnexpectedState;
             }
-            capacity_ = number_of_slots;
+            capacity_ = numberOfSlots;
             for (RingSlot &slot : slots_)
             {
                 slot = {};
@@ -143,8 +143,10 @@ namespace simpleath
         {
             // A forged output alias inside this ring must not wipe ownership
             // metadata when token is cleared or populated.
-            if (overlaps_storage(&token, sizeof(token), this, sizeof(*this)))
+            if (overlapsStorage(&token, sizeof(token), this, sizeof(*this)))
+            {
                 return Error::UnexpectedState;
+            }
             // A failed reservation must not destroy a previously minted
             // active token when the caller reuses its output storage. New
             // ownership is written only after a free slot is secured.
@@ -155,7 +157,7 @@ namespace simpleath
             // Never wrap a token and accidentally match an old completion.
             // Recreate the ring owner after complete DMA/callback teardown if
             // exhausted.
-            if (generation_ == K_GENERATION_MAX)
+            if (generation_ == kGenerationMax)
             {
                 return Error::GenerationExhausted;
             }
@@ -179,7 +181,7 @@ namespace simpleath
         }
 
         Error TxRing::descriptorPrepared(const TxSlotToken &token,
-                                         bool dma_mapped, bool complete)
+                                         bool dmaMapped, bool complete)
         {
             if (token.index >= capacity_)
             {
@@ -190,7 +192,7 @@ namespace simpleath
             {
                 return Error::UnexpectedState;
             }
-            if (!dma_mapped || !complete)
+            if (!dmaMapped || !complete)
             {
                 return Error::NotReadyToTransmit;
             }
@@ -201,8 +203,8 @@ namespace simpleath
         }
 
         Error TxRing::handedToHardware(const TxSlotToken &token,
-                                       bool radio_calibrated,
-                                       bool channel_allowed, bool keys_ready)
+                                       bool radioCalibrated,
+                                       bool channelAllowed, bool keysReady)
         {
             if (token.index >= capacity_)
             {
@@ -214,7 +216,7 @@ namespace simpleath
                 return Error::UnexpectedState;
             }
             if (!slot.dmaMapped || !slot.descriptorCompleted ||
-                !radio_calibrated || !channel_allowed || !keys_ready)
+                !radioCalibrated || !channelAllowed || !keysReady)
             {
                 return Error::NotReadyToTransmit;
             }

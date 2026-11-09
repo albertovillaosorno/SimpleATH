@@ -30,29 +30,30 @@ namespace simpleath
 {
     namespace edma
     {
-        static constexpr uint32_t K_INFO_VENDOR = 0x168c0000U;
-        static constexpr uint8_t K_MAXIMUM_QCU = 9U;
+        static constexpr uint8_t kHtMcs0 = 0x80U;
+        static constexpr uint8_t kHtMcs7 = 0x87U;
+        static constexpr uint32_t kInfoVendor = 0x168c0000U;
+        static constexpr uint8_t kMaximumQcu = 9U;
 
-        static bool overlaps_storage(const void *const first,
-                                     size_t first_bytes,
-                                     const void *const second,
-                                     size_t second_bytes)
+        static bool overlapsStorage(const void *const first, size_t firstBytes,
+                                    const void *const second,
+                                    size_t secondBytes)
         {
             const auto left = reinterpret_cast<uintptr_t>(first);
             const auto right = reinterpret_cast<uintptr_t>(second);
-            return first_bytes != 0 && second_bytes != 0 &&
-                   (left >= right ? left - right < second_bytes
-                                  : right - left < first_bytes);
+            return firstBytes != 0 && secondBytes != 0 &&
+                   (left >= right ? left - right < secondBytes
+                                  : right - left < firstBytes);
         }
 
-        static bool packet_type_valid(TxPacketType type)
+        static bool packetTypeValid(TxPacketType type)
         {
             return type == TxPacketType::Normal ||
                    type == TxPacketType::Beacon ||
                    type == TxPacketType::ProbeResponse;
         }
 
-        static bool legacy_rate_valid(uint8_t code)
+        static bool legacyRateValid(uint8_t code)
         {
             switch (code)
             {
@@ -77,10 +78,10 @@ namespace simpleath
             }
         }
 
-        static bool ht_rate_valid(uint8_t code)
+        static bool htRateValid(uint8_t code)
         {
             // AR9565 is 1x1: only MCS0..7 is representable.
-            return code >= 0x80U && code <= 0x87U;
+            return code >= kHtMcs0 && code <= kHtMcs7;
         }
 
         TxControlError encodeTxControls(const TxControlRequest &request,
@@ -88,10 +89,10 @@ namespace simpleath
                                         TxDescriptor &descriptor)
         {
             // Control encoding must not overwrite its request or policy.
-            if (overlaps_storage(&request, sizeof(request), &descriptor,
-                                 sizeof(descriptor)) ||
-                overlaps_storage(&policy, sizeof(policy), &descriptor,
-                                 sizeof(descriptor)))
+            if (overlapsStorage(&request, sizeof(request), &descriptor,
+                                sizeof(descriptor)) ||
+                overlapsStorage(&policy, sizeof(policy), &descriptor,
+                                sizeof(descriptor)))
             {
                 return TxControlError::OverlappingBuffers;
             }
@@ -125,7 +126,9 @@ namespace simpleath
             constexpr uint32_t kHardwareFcsBytes = 4U;
             uint32_t mappedPayloadBytes = 0;
             for (size_t slot = 0; slot < 4; ++slot)
+            {
                 mappedPayloadBytes += descriptor.word[3U + 2U * slot] >> 16U;
+            }
             const uint32_t payloadBytes =
                 static_cast<uint32_t>(request.onAirFrameLength) -
                 kHardwareFcsBytes;
@@ -134,7 +137,9 @@ namespace simpleath
                     ? (payloadBytes + 3U) & ~3U
                     : payloadBytes;
             if (mappedPayloadBytes != expectedMappedBytes)
+            {
                 return TxControlError::FrameLengthInvalid;
+            }
 
             if (!policy.siliconIdentified ||
                 !policy.boardCalibrationValidated ||
@@ -148,10 +153,10 @@ namespace simpleath
             {
                 return TxControlError::RadioNotReady;
             }
-            if (!packet_type_valid(request.packetType) ||
+            if (!packetTypeValid(request.packetType) ||
                 (request.rts && request.cts) ||
                 ((request.rts || request.cts)
-                     ? !legacy_rate_valid(request.rtsCtsRateCode)
+                     ? !legacyRateValid(request.rtsCtsRateCode)
                      : request.rtsCtsRateCode != 0))
             {
                 return TxControlError::UnsupportedControl;
@@ -175,8 +180,10 @@ namespace simpleath
             // the caller marked the radio and policy fields as ready.
             if (request.packetType == TxPacketType::Beacon &&
                 (!request.noAck || request.rts || request.cts ||
-                 request.rate[0].attempts != 1 || request.rate[1].attempts ||
-                 request.rate[2].attempts || request.rate[3].attempts))
+                 request.rate[0].attempts != 1 ||
+                 request.rate[1].attempts != 0 ||
+                 request.rate[2].attempts != 0 ||
+                 request.rate[3].attempts != 0))
             {
                 // Broadcast Beacon has no ACK-driven retransmission: exactly
                 // one attempt with one legacy rate, as in ath9k beacon.c.
@@ -234,13 +241,15 @@ namespace simpleath
                 {
                     return TxControlError::InvalidChain;
                 }
-                const bool htRate = ht_rate_valid(series.rateCode);
+                const bool htRate = htRateValid(series.rateCode);
                 // Both Beacon and Probe Response are emitted before the
                 // recipient's HT capabilities are negotiated. Management TX
                 // must use a legacy PHY rate that a scanning STA can decode.
                 if (request.packetType != TxPacketType::Normal && htRate)
+                {
                     return TxControlError::UnsupportedControl;
-                if (!htRate && !legacy_rate_valid(series.rateCode))
+                }
+                if (!htRate && !legacyRateValid(series.rateCode))
                 {
                     return TxControlError::InvalidRate;
                 }
@@ -333,7 +342,7 @@ namespace simpleath
                                            TxCompletion &out)
         {
             // A DMA status ring cannot be zeroed by a forged output alias.
-            if (overlaps_storage(&raw, sizeof(raw), &out, sizeof(out)))
+            if (overlapsStorage(&raw, sizeof(raw), &out, sizeof(out)))
             {
                 return DescriptorError::OverlappingBuffers;
             }
@@ -348,14 +357,14 @@ namespace simpleath
                 return DescriptorError::Incomplete;
             }
             const uint32_t info = raw.word[0];
-            if ((info & 0xffff0000U) != K_INFO_VENDOR || (info & 0x8000U) == 0)
+            if ((info & 0xffff0000U) != kInfoVendor || (info & 0x8000U) == 0)
             {
                 return DescriptorError::InvalidVendor;
             }
 
             TxCompletion complete {};
             complete.queue = static_cast<uint8_t>((info >> 8U) & 0x0fU);
-            if (complete.queue > K_MAXIMUM_QCU)
+            if (complete.queue > kMaximumQcu)
             {
                 return DescriptorError::CorruptStatus;
             }
@@ -384,7 +393,9 @@ namespace simpleath
                 (complete.excessiveRetries || complete.fifoUnderrun ||
                  complete.filtered || complete.configError ||
                  complete.expired || complete.txOpportunityExceeded))
+            {
                 return DescriptorError::CorruptStatus;
+            }
             out = complete;
             return DescriptorError::Ok;
         }

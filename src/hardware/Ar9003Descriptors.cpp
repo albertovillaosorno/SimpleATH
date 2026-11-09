@@ -33,68 +33,69 @@ namespace simpleath
 {
     namespace edma
     {
-        static constexpr uint32_t K_VENDOR = 0x168c0000U;
-        static constexpr uint32_t K_TX_DESCRIPTOR_BITS = 0xc000U;
-        static constexpr uint32_t K_TX_DESCRIPTOR_DWORDS =
+        static constexpr uint8_t kHtMcs0 = 0x80U;
+        static constexpr uint8_t kHtMcs7 = 0x87U;
+        static constexpr uint32_t kVendor = 0x168c0000U;
+        static constexpr uint32_t kTxDescriptorBits = 0xc000U;
+        static constexpr uint32_t kTxDescriptorDwords =
             0x18U; // AR9565; other AR9003 = 0x17.
-        static constexpr uint32_t K_BUFFER_LENGTH_MASK = 0x0fffU;
-        static constexpr uint32_t K_VALID_QUEUE_MAX = 9U;
-        static constexpr uint32_t K_TX_INFO_INDEX = 0U;
-        static constexpr uint32_t K_LINK_INDEX = 1U;
-        static constexpr uint32_t K_CHECKSUM_INDEX = 10U;
-        static constexpr uint32_t K_SEGMENT_COUNT = 4U;
-        static constexpr uint32_t K_SEGMENT_ADDRESS_INDEX = 2U;
-        static constexpr uint32_t K_SEGMENT_LENGTH_INDEX = 3U;
-        static constexpr uint32_t K_SEGMENT_STRIDE = 2U;
-        static constexpr uint32_t K_LOW_HALF_MASK = 0xffffU;
-        static constexpr uint32_t K_HIGH_HALF_MASK = 0xffff0000U;
-        static constexpr uint32_t K_RESERVED_TYPE_MASK = 0x3000U;
-        static constexpr uint32_t K_INFO_LENGTH_MASK = 0xffU;
-        static constexpr uint32_t K_QUEUE_SHIFT = 8U;
-        static constexpr uint32_t K_QUEUE_MASK = 0x0fU;
-        static constexpr uint32_t K_BUS_ALIGNMENT_MASK = 3U;
-        static constexpr uint32_t K_LENGTH_SHIFT = 16U;
-        static constexpr uint64_t K_MAX_BUS_ADDRESS = 0xffffffffULL;
+        static constexpr uint32_t kBufferLengthMask = 0x0fffU;
+        static constexpr uint32_t kValidQueueMax = 9U;
+        static constexpr uint32_t kTxInfoIndex = 0U;
+        static constexpr uint32_t kLinkIndex = 1U;
+        static constexpr uint32_t kChecksumIndex = 10U;
+        static constexpr uint32_t kSegmentCount = 4U;
+        static constexpr uint32_t kSegmentAddressIndex = 2U;
+        static constexpr uint32_t kSegmentLengthIndex = 3U;
+        static constexpr uint32_t kSegmentStride = 2U;
+        static constexpr uint32_t kLowHalfMask = 0xffffU;
+        static constexpr uint32_t kHighHalfMask = 0xffff0000U;
+        static constexpr uint32_t kReservedTypeMask = 0x3000U;
+        static constexpr uint32_t kInfoLengthMask = 0xffU;
+        static constexpr uint32_t kQueueShift = 8U;
+        static constexpr uint32_t kQueueMask = 0x0fU;
+        static constexpr uint32_t kBusAlignmentMask = 3U;
+        static constexpr uint32_t kLengthShift = 16U;
+        static constexpr uint64_t kMaxBusAddress = 0xffffffffULL;
         // AR9003 RX status word positions and versioned silicon bit fields.
-        static constexpr uint32_t K_RX_INFO_WORD = 0U;
-        static constexpr uint32_t K_RX_RATE_WORD = 1U;
-        static constexpr uint32_t K_RX_LENGTH_WORD = 2U;
-        static constexpr uint32_t K_RX_TIMESTAMP_WORD = 3U;
-        static constexpr uint32_t K_RX_HT_WORD = 4U;
-        static constexpr uint32_t K_RX_RSSI_WORD = 5U;
-        static constexpr uint32_t K_RX_FLAGS_WORD = 11U;
-        static constexpr uint32_t K_RX_LENGTH_MASK = 0x0fffU;
+        static constexpr uint32_t kRxInfoWord = 0U;
+        static constexpr uint32_t kRxRateWord = 1U;
+        static constexpr uint32_t kRxLengthWord = 2U;
+        static constexpr uint32_t kRxTimestampWord = 3U;
+        static constexpr uint32_t kRxHtWord = 4U;
+        static constexpr uint32_t kRxRssiWord = 5U;
+        static constexpr uint32_t kRxFlagsWord = 11U;
+        static constexpr uint32_t kRxLengthMask = 0x0fffU;
         // Shortest permitted received 802.11 control MPDU is an ACK/CTS:
         // 10 MAC octets plus 4 received FCS octets. Longer data/management
         // headers are checked by their separate downstream MAC parser.
-        static constexpr uint32_t K_RX_MIN_MPDU_BYTES = 14U;
-        static constexpr uint32_t K_RX_MAX_SINGLE_MPDU_BYTES = 2346U;
-        static constexpr uint32_t K_RX_MORE_FRAGMENTS = 0x1000U;
-        static constexpr uint32_t K_RX_HT40 = 0x2U;
-        static constexpr uint32_t K_RX_BYTE_SHIFT = 24U;
-        static constexpr uint32_t K_RX_COMPLETE = 0x1U;
-        static constexpr uint32_t K_RX_FRAME_VALID = 0x2U;
-        static constexpr uint32_t K_RX_CRC_ERROR = 0x4U;
-        static constexpr uint32_t K_RX_DECRYPT_ERROR = 0x8U;
-        static constexpr uint32_t K_RX_PHY_ERROR = 0x10U;
-        static constexpr uint32_t K_RX_MIC_ERROR = 0x20U;
-        static constexpr uint32_t K_RX_AGGREGATION_CONTINUES = 0x00010000U;
-        static constexpr uint32_t K_RX_AGGREGATED = 0x00020000U;
-        static constexpr uint32_t K_RX_AGGREGATION_FIRST = 0x20000000U;
-        static constexpr uint32_t K_RX_KEY_MISS = 0x80000000U;
+        static constexpr uint32_t kRxMinMpduBytes = 14U;
+        static constexpr uint32_t kRxMaxSingleMpduBytes = 2346U;
+        static constexpr uint32_t kRxMoreFragments = 0x1000U;
+        static constexpr uint32_t kRxHt40 = 0x2U;
+        static constexpr uint32_t kRxByteShift = 24U;
+        static constexpr uint32_t kRxComplete = 0x1U;
+        static constexpr uint32_t kRxFrameValid = 0x2U;
+        static constexpr uint32_t kRxCrcError = 0x4U;
+        static constexpr uint32_t kRxDecryptError = 0x8U;
+        static constexpr uint32_t kRxPhyError = 0x10U;
+        static constexpr uint32_t kRxMicError = 0x20U;
+        static constexpr uint32_t kRxAggregationContinues = 0x00010000U;
+        static constexpr uint32_t kRxAggregated = 0x00020000U;
+        static constexpr uint32_t kRxAggregationFirst = 0x20000000U;
+        static constexpr uint32_t kRxKeyMiss = 0x80000000U;
 
         // Reject caller-forged overlapping input/output storage before
         // any write; raw status can belong to a DMA-visible ring.
-        static bool overlaps_storage(const void *const first,
-                                     size_t first_bytes,
-                                     const void *const second,
-                                     size_t second_bytes)
+        static bool overlapsStorage(const void *const first, size_t firstBytes,
+                                    const void *const second,
+                                    size_t secondBytes)
         {
             const auto left = reinterpret_cast<uintptr_t>(first);
             const auto right = reinterpret_cast<uintptr_t>(second);
-            return first_bytes != 0 && second_bytes != 0 &&
-                   (left >= right ? left - right < second_bytes
-                                  : right - left < first_bytes);
+            return firstBytes != 0 && secondBytes != 0 &&
+                   (left >= right ? left - right < secondBytes
+                                  : right - left < firstBytes);
         }
 
         // The AR9565 is 1x1 802.11n on 2.4 GHz. A synthetically completed
@@ -102,8 +103,10 @@ namespace simpleath
         // the legacy CCK/OFDM or single-stream HT MCS0..7 hardware contract.
         static bool supportedRxRate(uint8_t code)
         {
-            if (code >= 0x80U && code <= 0x87U)
+            if (code >= kHtMcs0 && code <= kHtMcs7)
+            {
                 return true;
+            }
             switch (code)
             {
                 case 0x1b:
@@ -131,29 +134,30 @@ namespace simpleath
         {
             // Sum exactly the AR9003 pointer fields, with unsigned 32-bit wrap.
             // Same layout as ar9003_mac.c, but independent implementation.
-            uint32_t sum = descriptor.word[K_TX_INFO_INDEX] +
-                           descriptor.word[K_LINK_INDEX];
-            for (size_t slot = 0; slot < K_SEGMENT_COUNT; ++slot)
+            uint32_t sum =
+                descriptor.word[kTxInfoIndex] + descriptor.word[kLinkIndex];
+            for (size_t slot = 0; slot < kSegmentCount; ++slot)
             {
-                sum += descriptor.word[K_SEGMENT_ADDRESS_INDEX +
-                                       (slot * K_SEGMENT_STRIDE)];
-                sum += descriptor.word[K_SEGMENT_LENGTH_INDEX +
-                                       (slot * K_SEGMENT_STRIDE)];
+                sum +=
+                    descriptor
+                        .word[kSegmentAddressIndex + (slot * kSegmentStride)];
+                sum += descriptor
+                           .word[kSegmentLengthIndex + (slot * kSegmentStride)];
             }
             const uint32_t folded =
-                (sum & K_LOW_HALF_MASK) + (sum >> K_LENGTH_SHIFT);
-            return static_cast<uint16_t>(folded & K_LOW_HALF_MASK);
+                (sum & kLowHalfMask) + (sum >> kLengthShift);
+            return static_cast<uint16_t>(folded & kLowHalfMask);
         }
 
         bool validTxPointerDescriptor(const TxDescriptor &descriptor)
         {
-            const uint32_t info = descriptor.word[K_TX_INFO_INDEX];
-            if ((info & K_HIGH_HALF_MASK) != K_VENDOR ||
-                (info & K_TX_DESCRIPTOR_BITS) != K_TX_DESCRIPTOR_BITS ||
-                (info & K_RESERVED_TYPE_MASK) != 0 ||
-                (info & K_INFO_LENGTH_MASK) != K_TX_DESCRIPTOR_DWORDS ||
-                ((info >> K_QUEUE_SHIFT) & K_QUEUE_MASK) > K_VALID_QUEUE_MAX ||
-                (descriptor.word[K_LINK_INDEX] & K_BUS_ALIGNMENT_MASK) != 0)
+            const uint32_t info = descriptor.word[kTxInfoIndex];
+            if ((info & kHighHalfMask) != kVendor ||
+                (info & kTxDescriptorBits) != kTxDescriptorBits ||
+                (info & kReservedTypeMask) != 0 ||
+                (info & kInfoLengthMask) != kTxDescriptorDwords ||
+                ((info >> kQueueShift) & kQueueMask) > kValidQueueMax ||
+                (descriptor.word[kLinkIndex] & kBusAlignmentMask) != 0)
             {
                 return false;
             }
@@ -161,91 +165,87 @@ namespace simpleath
             // The pointer codec only emits contiguous, nonempty segments.
             // A matching checksum is not evidence that a caller-constructed
             // descriptor contains even one mapped payload segment.
-            bool found_segment = false;
-            bool found_gap = false;
-            for (size_t index = 0; index < K_SEGMENT_COUNT; ++index)
+            bool foundSegment = false;
+            bool foundGap = false;
+            for (size_t index = 0; index < kSegmentCount; ++index)
             {
                 const uint32_t address =
-                    descriptor.word[K_SEGMENT_ADDRESS_INDEX +
-                                    (index * K_SEGMENT_STRIDE)];
+                    descriptor
+                        .word[kSegmentAddressIndex + (index * kSegmentStride)];
                 const uint32_t encoded =
-                    descriptor.word[K_SEGMENT_LENGTH_INDEX +
-                                    (index * K_SEGMENT_STRIDE)];
+                    descriptor
+                        .word[kSegmentLengthIndex + (index * kSegmentStride)];
                 if (address == 0 && encoded == 0)
                 {
-                    found_gap = true;
+                    foundGap = true;
                     continue;
                 }
-                const uint32_t length = encoded >> K_LENGTH_SHIFT;
-                if (found_gap || address == 0 || length == 0 ||
-                    length > K_BUFFER_LENGTH_MASK ||
-                    encoded != (length << K_LENGTH_SHIFT) ||
+                const uint32_t length = encoded >> kLengthShift;
+                if (foundGap || address == 0 || length == 0 ||
+                    length > kBufferLengthMask ||
+                    encoded != (length << kLengthShift) ||
                     length - 1U >
-                        static_cast<uint32_t>(K_MAX_BUS_ADDRESS) - address)
+                        static_cast<uint32_t>(kMaxBusAddress) - address)
                 {
                     return false;
                 }
-                found_segment = true;
+                foundSegment = true;
             }
-            return found_segment &&
-                   (descriptor.word[K_CHECKSUM_INDEX] & K_LOW_HALF_MASK) ==
+            return foundSegment &&
+                   (descriptor.word[kChecksumIndex] & kLowHalfMask) ==
                        txPointerChecksum(descriptor);
         }
 
         DescriptorError encodeTxPointers(const TxPointerBlock &input,
                                          TxDescriptor &out)
         {
-            if (overlaps_storage(&input, sizeof(input), &out, sizeof(out)))
+            if (overlapsStorage(&input, sizeof(input), &out, sizeof(out)))
             {
                 return DescriptorError::OverlappingBuffers;
             }
-            if (input.queue > K_VALID_QUEUE_MAX)
+            if (input.queue > kValidQueueMax)
             {
                 return DescriptorError::InvalidQueue;
             }
-            if (input.segmentCount == 0 || input.segmentCount > K_SEGMENT_COUNT)
+            if (input.segmentCount == 0 || input.segmentCount > kSegmentCount)
             {
                 return DescriptorError::InvalidSegmentCount;
             }
             if (input.nextDescriptorBusAddress != 0 &&
-                (input.nextDescriptorBusAddress & K_BUS_ALIGNMENT_MASK) != 0)
+                (input.nextDescriptorBusAddress & kBusAlignmentMask) != 0)
             {
                 return DescriptorError::InvalidLink;
             }
 
             TxDescriptor staged {};
-            staged.word[K_TX_INFO_INDEX] =
-                K_VENDOR | K_TX_DESCRIPTOR_BITS |
-                (static_cast<uint32_t>(input.queue) << K_QUEUE_SHIFT) |
-                K_TX_DESCRIPTOR_DWORDS;
-            staged.word[K_LINK_INDEX] = input.nextDescriptorBusAddress;
+            staged.word[kTxInfoIndex] =
+                kVendor | kTxDescriptorBits |
+                (static_cast<uint32_t>(input.queue) << kQueueShift) |
+                kTxDescriptorDwords;
+            staged.word[kLinkIndex] = input.nextDescriptorBusAddress;
 
             for (uint8_t index = 0; index < input.segmentCount; ++index)
             {
                 const Segment &segment = input.segment[index];
                 if (segment.busAddress == 0 ||
-                    segment.busAddress > K_MAX_BUS_ADDRESS)
+                    segment.busAddress > kMaxBusAddress)
                 {
                     return DescriptorError::InvalidAddress;
                 }
-                if (segment.length == 0 ||
-                    segment.length > K_BUFFER_LENGTH_MASK)
+                if (segment.length == 0 || segment.length > kBufferLengthMask)
                 {
                     return DescriptorError::InvalidLength;
                 }
-                if (segment.length - 1U >
-                    K_MAX_BUS_ADDRESS - segment.busAddress)
+                if (segment.length - 1U > kMaxBusAddress - segment.busAddress)
                 {
                     return DescriptorError::InvalidAddress;
                 }
-                staged.word[K_SEGMENT_ADDRESS_INDEX +
-                            (index * K_SEGMENT_STRIDE)] =
+                staged.word[kSegmentAddressIndex + (index * kSegmentStride)] =
                     static_cast<uint32_t>(segment.busAddress);
-                staged
-                    .word[K_SEGMENT_LENGTH_INDEX + (index * K_SEGMENT_STRIDE)] =
-                    static_cast<uint32_t>(segment.length) << K_LENGTH_SHIFT;
+                staged.word[kSegmentLengthIndex + (index * kSegmentStride)] =
+                    static_cast<uint32_t>(segment.length) << kLengthShift;
             }
-            staged.word[K_CHECKSUM_INDEX] = txPointerChecksum(staged);
+            staged.word[kChecksumIndex] = txPointerChecksum(staged);
             // Caller must serialize this copy; it is not an atomic DMA
             // publication.
             out = staged;
@@ -256,7 +256,7 @@ namespace simpleath
                                             uint32_t nextDescriptorBusAddress)
         {
             if (nextDescriptorBusAddress != 0 &&
-                (nextDescriptorBusAddress & K_BUS_ALIGNMENT_MASK) != 0)
+                (nextDescriptorBusAddress & kBusAlignmentMask) != 0)
             {
                 return DescriptorError::InvalidLink;
             }
@@ -268,9 +268,9 @@ namespace simpleath
                 return DescriptorError::InvalidDescriptor;
             }
             // Link updates do not require rewriting rate/power control words.
-            descriptor.word[K_LINK_INDEX] = nextDescriptorBusAddress;
-            descriptor.word[K_CHECKSUM_INDEX] =
-                (descriptor.word[K_CHECKSUM_INDEX] & K_HIGH_HALF_MASK) |
+            descriptor.word[kLinkIndex] = nextDescriptorBusAddress;
+            descriptor.word[kChecksumIndex] =
+                (descriptor.word[kChecksumIndex] & kHighHalfMask) |
                 txPointerChecksum(descriptor);
             return DescriptorError::Ok;
         }
@@ -279,52 +279,50 @@ namespace simpleath
         {
             // Never clear an output that aliases a DMA-visible status ring.
             // That contract failure leaves both input and output untouched.
-            if (overlaps_storage(&raw, sizeof(raw), &out, sizeof(out)))
+            if (overlapsStorage(&raw, sizeof(raw), &out, sizeof(out)))
             {
                 return DescriptorError::OverlappingBuffers;
             }
             // A caller must never reuse a prior completed payload/status after
             // this read fails; diagnostic bits remain in the raw words.
             out = {};
-            const uint32_t info = raw.word[K_RX_INFO_WORD];
-            const uint32_t flags = raw.word[K_RX_FLAGS_WORD];
-            if ((info & K_HIGH_HALF_MASK) != K_VENDOR)
+            const uint32_t info = raw.word[kRxInfoWord];
+            const uint32_t flags = raw.word[kRxFlagsWord];
+            if ((info & kHighHalfMask) != kVendor)
             {
                 return DescriptorError::InvalidVendor;
             }
-            if ((info & K_TX_DESCRIPTOR_BITS) != 0)
+            if ((info & kTxDescriptorBits) != 0)
             {
                 return DescriptorError::CorruptStatus;
             }
-            if ((flags & K_RX_COMPLETE) == 0)
+            if ((flags & kRxComplete) == 0)
             {
                 return DescriptorError::Incomplete;
             }
 
             RxStatus status {};
             status.completed = true;
-            status.frameLength = static_cast<uint16_t>(
-                raw.word[K_RX_LENGTH_WORD] & K_RX_LENGTH_MASK);
+            status.frameLength =
+                static_cast<uint16_t>(raw.word[kRxLengthWord] & kRxLengthMask);
             status.moreFragments =
-                (raw.word[K_RX_LENGTH_WORD] & K_RX_MORE_FRAGMENTS) != 0;
-            status.timestamp = raw.word[K_RX_TIMESTAMP_WORD];
-            status.ht40 = (raw.word[K_RX_HT_WORD] & K_RX_HT40) != 0;
+                (raw.word[kRxLengthWord] & kRxMoreFragments) != 0;
+            status.timestamp = raw.word[kRxTimestampWord];
+            status.ht40 = (raw.word[kRxHtWord] & kRxHt40) != 0;
             status.combinedRssi = static_cast<int8_t>(
-                (raw.word[K_RX_RSSI_WORD] >> K_RX_BYTE_SHIFT) &
-                K_INFO_LENGTH_MASK);
+                (raw.word[kRxRssiWord] >> kRxByteShift) & kInfoLengthMask);
             status.rateCode = static_cast<uint8_t>(
-                (raw.word[K_RX_RATE_WORD] >> K_RX_BYTE_SHIFT) &
-                K_INFO_LENGTH_MASK);
-            status.crcError = (flags & K_RX_CRC_ERROR) != 0;
-            status.decryptError = (flags & K_RX_DECRYPT_ERROR) != 0;
-            status.phyError = (flags & K_RX_PHY_ERROR) != 0;
-            status.micError = (flags & K_RX_MIC_ERROR) != 0;
+                (raw.word[kRxRateWord] >> kRxByteShift) & kInfoLengthMask);
+            status.crcError = (flags & kRxCrcError) != 0;
+            status.decryptError = (flags & kRxDecryptError) != 0;
+            status.phyError = (flags & kRxPhyError) != 0;
+            status.micError = (flags & kRxMicError) != 0;
             status.aggregationContinues =
-                (flags & K_RX_AGGREGATION_CONTINUES) != 0;
-            status.aggregated = (flags & K_RX_AGGREGATED) != 0;
-            status.aggregationFirst = (flags & K_RX_AGGREGATION_FIRST) != 0;
-            status.keyMiss = (flags & K_RX_KEY_MISS) != 0;
-            status.frameValid = (flags & K_RX_FRAME_VALID) != 0 &&
+                (flags & kRxAggregationContinues) != 0;
+            status.aggregated = (flags & kRxAggregated) != 0;
+            status.aggregationFirst = (flags & kRxAggregationFirst) != 0;
+            status.keyMiss = (flags & kRxKeyMiss) != 0;
+            status.frameValid = (flags & kRxFrameValid) != 0 &&
                                 !status.crcError && !status.decryptError &&
                                 !status.phyError && !status.micError &&
                                 !status.keyMiss;
@@ -334,11 +332,10 @@ namespace simpleath
             // authorize an aggregate's first, middle or last member for
             // native delivery without that independently reviewed pipeline.
             // The 12-bit length field cannot authorize jumbo MPDUs either.
-            if (!status.frameValid ||
-                status.frameLength < K_RX_MIN_MPDU_BYTES ||
-                status.frameLength > K_RX_MAX_SINGLE_MPDU_BYTES ||
+            if (!status.frameValid || status.frameLength < kRxMinMpduBytes ||
+                status.frameLength > kRxMaxSingleMpduBytes ||
                 !supportedRxRate(status.rateCode) ||
-                (status.ht40 && status.rateCode < 0x80U) ||
+                (status.ht40 && status.rateCode < kHtMcs0) ||
                 status.moreFragments || status.aggregated ||
                 status.aggregationContinues || status.aggregationFirst)
             {
