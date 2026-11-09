@@ -657,6 +657,10 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
             digest.update(b"absent\0")
             continue
         digest.update(b"present\0")
+        # Source scripts and host fixtures may be executed or inspected by
+        # offline tests. A chmod can change test behavior without changing
+        # bytes, so mode changes must invalidate completed-run identity.
+        digest.update((path.stat().st_mode & 0o7777).to_bytes(2, "big"))
         # Binary host fixtures may be substantially larger than source
         # files. A bounded read avoids loading entire dumps into RAM.
         with path.open("rb") as source:
@@ -1079,6 +1083,13 @@ def _run_identity(
         "TMPDIR",
         "TMP",
         "TEMP",
+        # Locale, timezone and hash randomization can change standalone
+        # Python/native host-test outcomes even for identical source bytes.
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TZ",
+        "PYTHONHASHSEED",
     )
     environment = {name: os.environ.get(name) for name in environment_names}
     request: dict[str, object] = {

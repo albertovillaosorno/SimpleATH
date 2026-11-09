@@ -870,6 +870,26 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             assert validator.input_snapshot(root, [source]) == first
 
     @staticmethod
+    def test_snapshot_tracks_input_permission_changes() -> None:
+        """Host fixtures and scripts can behave differently after chmod."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/driver.py"
+            fixture = root / "tests/fixture.sh"
+            _ = source.write_text("print('ok')", encoding="utf-8")
+            _ = fixture.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            source.chmod(0o600)
+            fixture.chmod(0o600)
+            baseline = validator.input_snapshot(root, [source])
+            fixture.chmod(0o700)
+            changed_fixture = validator.input_snapshot(root, [source])
+            assert changed_fixture != baseline
+            fixture.chmod(0o600)
+            assert validator.input_snapshot(root, [source]) == baseline
+            source.chmod(0o700)
+            assert validator.input_snapshot(root, [source]) != baseline
+
+    @staticmethod
     def test_snapshot_tracks_source_support_assets() -> None:
         """ABI JSON inputs and native ledgers invalidate completed reports."""
         with tempfile.TemporaryDirectory() as directory:
@@ -1400,8 +1420,10 @@ class FullRepositoryRun(unittest.TestCase):
             assert locked
 
 
-def _assert_host_temp_rechecks(name: str, root: Path, tests: mock.Mock) -> None:
-    """Emulate a waiter whose host temp environment differs from its peer."""
+def _assert_host_environment_rechecks(
+    name: str, root: Path, tests: mock.Mock
+) -> None:
+    """Emulate a waiter whose host test environment differs from its peer."""
     first = str(root / "scratch-first")
     second = str(root / "scratch-second")
 
@@ -1432,11 +1454,11 @@ def _assert_host_temp_rechecks(name: str, root: Path, tests: mock.Mock) -> None:
 
 
 class CompletedRunEnvironment(unittest.TestCase):
-    """Never share an offline host report across distinct scratch roots."""
+    """Never share a completed host report across distinct environments."""
 
     @staticmethod
-    def test_host_temp_directory_changes_completed_run_identity() -> None:
-        """TMPDIR, TMP and TEMP all affect native and Python temp storage."""
+    def test_host_environment_changes_completed_run_identity() -> None:
+        """Scratch, locale, time zone and hash seed affect host behavior."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
             source = root / "src/driver.py"
@@ -1470,8 +1492,17 @@ class CompletedRunEnvironment(unittest.TestCase):
                 mock.patch.object(sys, "argv", ["validate.py"]),
                 redirect_stdout(io.StringIO()),
             ):
-                for name in ("TMPDIR", "TMP", "TEMP"):
-                    _assert_host_temp_rechecks(name, root, tests)
+                for name in (
+                    "TMPDIR",
+                    "TMP",
+                    "TEMP",
+                    "LANG",
+                    "LC_ALL",
+                    "LC_CTYPE",
+                    "TZ",
+                    "PYTHONHASHSEED",
+                ):
+                    _assert_host_environment_rechecks(name, root, tests)
 
 
 def _corrupt_completed_check_count(root: Path) -> None:
