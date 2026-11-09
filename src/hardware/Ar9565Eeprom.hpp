@@ -26,7 +26,7 @@ namespace simpleath
         WrongImageSize,
         UnsupportedFormat,
         InvalidBoardIdentity,
-        UnsupportedGainConfiguration
+        UnsupportedGainConfiguration,
     };
 
     struct EepromBlockInfo
@@ -145,7 +145,7 @@ namespace simpleath
     {
             uint8_t eepromVersion;
             uint8_t templateVersion;
-            uint8_t mac[6];
+            uint8_t mac[kPermanentMacBytes];
             uint16_t regulatoryDomains[2];
             uint8_t txChainMask;
             uint8_t rxChainMask;
