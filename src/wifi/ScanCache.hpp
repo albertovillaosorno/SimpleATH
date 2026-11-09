@@ -23,7 +23,7 @@ namespace simpleath
             public:
                 enum : size_t
                 {
-                    kCapacity = 48
+                    kCapacity = 48,
                 };
 
                 ScanCache();

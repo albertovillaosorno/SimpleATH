@@ -4,7 +4,11 @@
 #ifndef SIMPLEATH_WIFI_LEGACY_SCAN_BRIDGE_HPP
 #define SIMPLEATH_WIFI_LEGACY_SCAN_BRIDGE_HPP
 
+#include "Frames.hpp"
 #include "ScanCache.hpp"
+
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {
@@ -18,20 +22,20 @@ namespace simpleath
             ScanInProgress,
             InvalidState,
             InvalidArgument,
-            EventPending
+            EventPending,
         };
 
         struct NativeBssSnapshot
         {
                 Mac bssid;
-                uint8_t ssid[32];
+                uint8_t ssid[kMaxSsidBytes];
                 uint8_t ssidLength;
                 uint8_t channel;
                 uint16_t capabilities;
                 uint16_t beaconIntervalTu;
-                uint8_t rates[32];
+                uint8_t rates[kMaxAdvertisedRates];
                 uint8_t rateCount;
-                uint8_t rsnInformationElement[257];
+                uint8_t rsnInformationElement[kMaxRsnIeBytes];
                 uint16_t rsnIeLength;
                 int8_t rssiDbm;
                 bool signalMeasured;
@@ -121,9 +125,9 @@ namespace simpleath
                 }
 
             private:
-                NativeBssSnapshot completed_[ScanCache::kCapacity];
-                ScanBridgeStatus state_;
-                uint64_t lastGeneration_;
+                NativeBssSnapshot completed_[ScanCache::kCapacity] {};
+                ScanBridgeStatus state_ {};
+                uint64_t lastGeneration_ {0};
         };
 
     } // namespace ieee80211
