@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Station.hpp"
+#include "Frames.hpp"
 #include "Wpa2Supplicant.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -11,8 +14,11 @@ namespace simpleath
             bool overlapsStorage(const void *first, size_t firstBytes,
                                  const void *second, size_t secondBytes)
             {
-                if (!first || !second || !firstBytes || !secondBytes)
+                if (first == nullptr || second == nullptr || firstBytes == 0 ||
+                    secondBytes == 0)
+                {
                     return false;
+                }
                 const auto left = reinterpret_cast<uintptr_t>(first);
                 const auto right = reinterpret_cast<uintptr_t>(second);
                 return left <= right ? right - left < firstBytes
@@ -24,16 +30,20 @@ namespace simpleath
             {
                 // The association parser already validated this 24-byte
                 // management header and six-byte fixed response body.
-                constexpr size_t kRatesOffset = 24u + 6u;
+                constexpr size_t kRatesOffset = 24U + 6U;
                 if (length < kRatesOffset)
+                {
                     return false;
+                }
                 Elements cursor(frame + kRatesOffset, length - kRatesOffset);
                 Element element {};
                 bool sharedRate = false;
                 while (cursor.next(element) == CursorStatus::Element)
                 {
                     if (element.id != 1 && element.id != 50)
+                    {
                         continue;
+                    }
                     for (size_t i = 0; i < element.length; ++i)
                     {
                         // A raw BSS may contain optional PHY rates omitted
@@ -47,14 +57,18 @@ namespace simpleath
                         // after our association request. Duplicate beacon
                         // rates may carry either bit, so accept a required
                         // response rate only when it was originally basic.
-                        if ((element.data[i] & 0x80u) != 0)
+                        if ((element.data[i] & 0x80U) != 0)
                         {
                             bool selectedBasic = false;
                             for (size_t j = 0; j < selected.rateCount; ++j)
+                            {
                                 selectedBasic |=
                                     selected.rates[j] == element.data[i];
+                            }
                             if (!supported || !selectedBasic)
+                            {
                                 return false;
+                            }
                         }
                         sharedRate |= supported;
                     }
@@ -81,9 +95,13 @@ namespace simpleath
                                              bool countryChannelAllowed)
         {
             if (!radioInitialized)
+            {
                 return StationResult::HardwareNotReady;
+            }
             if (!countryChannelAllowed)
+            {
                 return StationResult::RegulatoryNotReady;
+            }
             reset();
             state_ = StationState::Scanning;
             return StationResult::Ok;
@@ -92,35 +110,49 @@ namespace simpleath
         StationResult Station::select(const Mac &station, const Bss &candidate)
         {
             if (state_ != StationState::Scanning)
+            {
                 return StationResult::InvalidState;
+            }
             const Beacon &beacon = candidate.beacon;
             if (!validStationMac(station) || !candidate.occupied ||
                 !validStationMac(beacon.bssid) ||
                 sameMac(station, beacon.bssid) || !beacon.infrastructure ||
                 // The public BSS snapshot flag is not proof of ESS mode.
                 // IBSS and contradictory capabilities must not reach auth.
-                (beacon.capabilities & 0x0003u) != 0x0001u ||
+                (beacon.capabilities & 0x0003U) != 0x0001U ||
                 beacon.hiddenSsid || beacon.ssidLength == 0 ||
                 beacon.ssidLength > sizeof(beacon.ssid) ||
                 beacon.channel == 0 || beacon.channel > 14 ||
                 beacon.intervalTu == 0 || beacon.rateCount == 0 ||
                 beacon.rateCount > sizeof(beacon.rates))
+            {
                 return StationResult::UnsupportedNetwork;
+            }
             // The hidden flag is snapshot metadata, not proof of a visible
             // name. Reject a forged all-zero fixed-length SSID before
             // advancing into authentication; the serializer also refuses it.
             bool hasVisibleSsidByte = false;
             for (size_t i = 0; i < beacon.ssidLength; ++i)
+            {
                 hasVisibleSsidByte |= beacon.ssid[i] != 0;
+            }
             if (!hasVisibleSsidByte)
+            {
                 return StationResult::UnsupportedNetwork;
+            }
             for (size_t i = 0; i < beacon.rateCount; ++i)
-                if ((beacon.rates[i] & 0x7fu) == 0)
+            {
+                if ((beacon.rates[i] & 0x7fU) == 0)
+                {
                     return StationResult::UnsupportedNetwork;
+                }
+            }
             // Never start authentication with an AP that requires an unknown
             // local basic rate, or has no common legacy rate to negotiate.
             if (associationRequestLength(beacon) == 0)
+            {
                 return StationResult::UnsupportedNetwork;
+            }
 
             // Station::select is public, not only called through ScanCache.
             // Refuse a forged BSS snapshot that disagrees with its own
@@ -128,13 +160,15 @@ namespace simpleath
             const Security security = beacon.rsn.security;
             if (security == Security::Open)
             {
-                if ((beacon.capabilities & 0x10u) != 0 || beacon.rsn.present ||
+                if ((beacon.capabilities & 0x10U) != 0 || beacon.rsn.present ||
                     beacon.rsnIeLength != 0)
+                {
                     return StationResult::UnsupportedNetwork;
+                }
             }
             else if (security == Security::Wpa2Personal)
             {
-                if ((beacon.capabilities & 0x10u) == 0 || !beacon.rsn.present ||
+                if ((beacon.capabilities & 0x10U) == 0 || !beacon.rsn.present ||
                     !beacon.rsn.valid || !beacon.rsn.pairwiseCcmp ||
                     !beacon.rsn.groupCcmp || !beacon.rsn.akmPsk ||
                     beacon.rsn.pmfRequired || beacon.rsnIeLength < 20 ||
@@ -142,17 +176,23 @@ namespace simpleath
                     beacon.rsnIe[0] != 48 ||
                     static_cast<size_t>(beacon.rsnIe[1]) + 2 !=
                         beacon.rsnIeLength)
+                {
                     return StationResult::UnsupportedNetwork;
+                }
                 Rsn validated {};
                 if (parseRsn(beacon.rsnIe + 2, beacon.rsnIeLength - 2,
                              validated) != Result::Ok ||
                     validated.security != Security::Wpa2Personal ||
                     validated.pmfRequired || !validated.groupCcmp ||
                     !validated.pairwiseCcmp || !validated.akmPsk)
+                {
                     return StationResult::UnsupportedNetwork;
+                }
             }
             else
+            {
                 return StationResult::UnsupportedNetwork;
+            }
             chosen_ = candidate;
             stationMac_ = station;
             associationId_ = 0;
@@ -168,15 +208,21 @@ namespace simpleath
             if (overlapsStorage(out, capacity, &written, sizeof(written)) ||
                 overlapsStorage(out, capacity, this, sizeof(*this)) ||
                 overlapsStorage(&written, sizeof(written), this, sizeof(*this)))
+            {
                 return Result::OverlappingBuffers;
+            }
             written = 0;
             if (state_ != StationState::CandidateSelected)
+            {
                 return Result::UnsupportedFrame;
+            }
             const Result result =
                 makeOpenAuthenticationRequest(stationMac_, chosen_.beacon.bssid,
                                               sequence, out, capacity, written);
             if (result == Result::Ok)
+            {
                 state_ = StationState::AuthenticationFramePrepared;
+            }
             return result;
         }
 
@@ -184,12 +230,16 @@ namespace simpleath
                                                         size_t length)
         {
             if (state_ != StationState::AuthenticationFramePrepared)
+            {
                 return StationResult::InvalidState;
+            }
             uint16_t code = 0;
             const Result result = parseAuthenticationResponse(
                 bytes, length, stationMac_, chosen_.beacon.bssid, code);
             if (result != Result::Ok)
+            {
                 return StationResult::FrameRejected;
+            }
             if (code != 0)
             {
                 state_ = StationState::Failed;
@@ -205,14 +255,20 @@ namespace simpleath
             if (overlapsStorage(out, capacity, &written, sizeof(written)) ||
                 overlapsStorage(out, capacity, this, sizeof(*this)) ||
                 overlapsStorage(&written, sizeof(written), this, sizeof(*this)))
+            {
                 return Result::OverlappingBuffers;
+            }
             written = 0;
             if (state_ != StationState::Authenticated)
+            {
                 return Result::UnsupportedFrame;
+            }
             const Result result = makeAssociationRequest(
                 stationMac_, chosen_.beacon, sequence, out, capacity, written);
             if (result == Result::Ok)
+            {
                 state_ = StationState::AssociationFramePrepared;
+            }
             return result;
         }
 
@@ -220,13 +276,17 @@ namespace simpleath
                                                      size_t length)
         {
             if (state_ != StationState::AssociationFramePrepared)
+            {
                 return StationResult::InvalidState;
+            }
             uint16_t status = 0;
             uint16_t aid = 0;
             const Result parsed = parseAssociationResponse(
                 bytes, length, stationMac_, chosen_.beacon.bssid, status, aid);
             if (parsed != Result::Ok)
+            {
                 return StationResult::FrameRejected;
+            }
             if (status != 0)
             {
                 state_ = StationState::Failed;
@@ -237,13 +297,17 @@ namespace simpleath
             // using a response that advertises the opposite protection bit.
             // parseAssociationResponse already proved the 24-byte header and
             // six-byte fixed response body are present.
-            if (((bytes[24] ^ chosen_.beacon.capabilities) & 0x10u) != 0)
+            if (((bytes[24] ^ chosen_.beacon.capabilities) & 0x10U) != 0)
+            {
                 return StationResult::FrameRejected;
+            }
             // An AP can change its advertised Supported Rates after the
             // scan. A response with no shared selected-BSS rate is not a
             // viable negotiated association; leave this state retryable.
             if (!responseSharesSelectedRate(bytes, length, chosen_.beacon))
+            {
                 return StationResult::FrameRejected;
+            }
             associationId_ = aid;
             if (chosen_.beacon.rsn.security == Security::Wpa2Personal)
             {
@@ -258,9 +322,13 @@ namespace simpleath
         Station::recordInstalledWpa2Keys(const Wpa2Supplicant &supplicant)
         {
             if (state_ != StationState::WaitingForWpa2Keys)
+            {
                 return StationResult::InvalidState;
+            }
             if (!supplicant.keysInstalledFor(stationMac_, chosen_.beacon.bssid))
+            {
                 return StationResult::Wpa2CryptoNotImplemented;
+            }
             // Real packet delivery and macOS 802.11 interface registration are
             // separate steps; do not report a usable network yet.
             state_ = StationState::HardwareKeysInstalled;
