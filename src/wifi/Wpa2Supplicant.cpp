@@ -600,6 +600,10 @@ namespace simpleath
                 crypto_.context, ptkSnapshot.bytes + 16u, parsed.keyData,
                 parsed.keyDataLength, decrypted, sizeof(decrypted),
                 &decryptedLength);
+            // Reject a backend that changes const input after MIC verification.
+            // Key installation must consume only the authenticated M3 image.
+            const bool authenticatedInputUnchanged = constantTimeEqual(
+                signedEapol, micInputSnapshot.bytes, parsed.eapolLength);
             // The ciphertext and nonce are not needed after unwrap; ensure
             // even a provider failure cannot leave the authenticated RX image
             // in kernel stack memory past this operation.
@@ -610,8 +614,8 @@ namespace simpleath
                 secureClear(authenticatedRsc, sizeof(authenticatedRsc));
                 return Wpa2Result::InvalidState;
             }
-            if (!unwrapped || decryptedLength == 0 ||
-                decryptedLength > sizeof(decrypted))
+            if (!unwrapped || !authenticatedInputUnchanged ||
+                decryptedLength == 0 || decryptedLength > sizeof(decrypted))
             {
                 secureClear(decrypted, sizeof(decrypted));
                 return fail(Wpa2Result::GtkUnwrapFailure);

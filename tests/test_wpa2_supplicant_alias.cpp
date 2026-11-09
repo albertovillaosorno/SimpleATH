@@ -93,6 +93,7 @@ namespace
             bool pairwiseSuccess = true;
             bool groupSuccess = true;
             bool alteredRsn = false;
+            bool mutateWrappedData = false;
             Wpa2Supplicant *owner = nullptr;
             bool revokeOnNonce = false;
             bool revokeOnPtk = false;
@@ -162,8 +163,9 @@ namespace
         return true;
     }
 
-    bool handshakeUnwrap(void *context, const uint8_t kek[16], const uint8_t *,
-                         size_t, uint8_t *out, size_t capacity, size_t *written)
+    bool handshakeUnwrap(void *context, const uint8_t kek[16],
+                         const uint8_t *wrapped, size_t wrappedBytes,
+                         uint8_t *out, size_t capacity, size_t *written)
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.unwrapCalls;
@@ -183,6 +185,8 @@ namespace
         out[46] = 0xdd; // AES-wrap padding marker followed by zero.
         out[47] = 0;
         *written = 48;
+        if (state.mutateWrappedData && wrappedBytes != 0)
+            const_cast<uint8_t *>(wrapped)[0] ^= 1U;
         return true;
     }
 
@@ -501,7 +505,8 @@ namespace
         InvalidRsc,
         InvalidReplay,
         InvalidMic,
-        ChangedRsn
+        ChangedRsn,
+        MutatedWrappedData,
     };
 
     bool exerciseM3(HandshakeCase scenario)
@@ -510,6 +515,7 @@ namespace
         state.pairwiseSuccess = scenario != HandshakeCase::PairwiseFailure;
         state.groupSuccess = scenario != HandshakeCase::GroupFailure;
         state.alteredRsn = scenario == HandshakeCase::ChangedRsn;
+        state.mutateWrappedData = scenario == HandshakeCase::MutatedWrappedData;
         Wpa2Supplicant supplicant;
         uint8_t pmk[32] {};
         pmk[0] = 1;
@@ -585,6 +591,8 @@ namespace
             expected = Wpa2Result::MicMismatch;
         if (scenario == HandshakeCase::ChangedRsn)
             expected = Wpa2Result::RsnMismatch;
+        if (scenario == HandshakeCase::MutatedWrappedData)
+            expected = Wpa2Result::GtkUnwrapFailure;
         if (result != expected || m4Written != 0 || m4[0] != 0xa5 ||
             supplicant.keysInstalled() ||
             supplicant.state() != Wpa2State::Failed)
@@ -1147,7 +1155,7 @@ int main()
         HandshakeCase::Success,       HandshakeCase::PairwiseFailure,
         HandshakeCase::GroupFailure,  HandshakeCase::InvalidRsc,
         HandshakeCase::InvalidReplay, HandshakeCase::InvalidMic,
-        HandshakeCase::ChangedRsn};
+        HandshakeCase::ChangedRsn,    HandshakeCase::MutatedWrappedData};
     for (const auto scenario : scenarios)
         if (!exerciseM3(scenario))
             return 15 + static_cast<int>(scenario);
