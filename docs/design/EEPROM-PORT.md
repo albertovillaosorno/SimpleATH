@@ -18,6 +18,18 @@ return value. A caller must discard the complete restore chain on any error.
 This is deliberately stricter than upstream's default-image fallback and
 ignored delta failures.
 
+Reference-template lookup is a synchronous external callback after initial
+checksum and delta validation. A broken provider can retain a separate pointer
+to the borrowed frame and rewrite its skip/count fields even though its
+context allocation does not alias the frame. The parser now rechecks the
+original compression header, every delta bound and the original/final payload
+checksum after lookup and **before** copying any template or delta bytes.
+Synthetic red/green host regressions mutate the validated count, payload and
+reference header during the callback; failures leave the prior image intact.
+These extra gates prevent stale validation from becoming an out-of-bounds
+copy; they do not make arbitrary concurrent mutation or dishonest template
+contents safe, nor prove physical EEPROM provenance.
+
 The 1088-byte reconstructed image retains **all** board/calibration/target-power
 and CTL bytes, including the unused 5 GHz area of the shared AR9300 format.
 It does not claim that those bytes are valid calibration. The source now

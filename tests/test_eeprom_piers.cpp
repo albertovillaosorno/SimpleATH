@@ -19,6 +19,26 @@ namespace
         return static_cast<BorrowedTemplateReturn *>(context)->base;
     }
 
+    struct PostValidationMutation
+    {
+            uint8_t *frame;
+            unsigned calls = 0;
+            unsigned changedByte = 5;
+            uint8_t changedValue = 0xff;
+    };
+
+    const uint8_t *lateMutatingTemplateLookup(void *context, uint8_t reference,
+                                              size_t *length)
+    {
+        auto &mutation = *static_cast<PostValidationMutation *>(context);
+        ++mutation.calls;
+        // Broken provider rewrites the separately borrowed frame, even
+        // though its own callback context does not alias the frame.
+        mutation.frame[mutation.changedByte] = mutation.changedValue;
+        return simpleath::pinnedEepromTemplates().find(nullptr, reference,
+                                                       length);
+    }
+
     const uint8_t *mutatingTemplateLookup(void *context, uint8_t reference,
                                           size_t *length)
     {
@@ -226,6 +246,38 @@ int main()
         unsafeBaseImage.bytes[0] != 0x7e || unsafeBaseImage.restored ||
         aliasedFrame[6] != 0x22)
         return 20;
+
+    // A template lookup can mutate a frame through a separately retained
+    // pointer after its checksum/delta bounds have already been checked.
+    // Make the actual backing allocation large enough so that the old
+    // post-validation overread is detected as a wrong result, not UB.
+    static uint8_t lateFrame[300] {0x62, 0, 0x30, 1, 0, 1, 0x22, 0x23, 0};
+    static EepromImage lateImage {};
+    EepromBlockInfo lateInfo {};
+    PostValidationMutation mutation {lateFrame};
+    EepromTemplates mutableProvider {&mutation, lateMutatingTemplateLookup};
+    lateImage.bytes[0] = 0x7e;
+    if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
+            EepromResult::InvalidDelta ||
+        mutation.calls != 1 || lateImage.bytes[0] != 0x7e ||
+        lateImage.restored || lateImage.appliedBlocks)
+        return 28;
+    // A same-length mutation is delta-safe, but invalidates the previously
+    // verified additive checksum. Refuse it before loading a template.
+    lateFrame[5] = 1;
+    mutation.changedByte = 6;
+    mutation.changedValue = 0x21;
+    if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
+            EepromResult::BadChecksum ||
+        mutation.calls != 2 || lateImage.bytes[0] != 0x7e || lateImage.restored)
+        return 29;
+    lateFrame[6] = 0x22;
+    mutation.changedByte = 0;
+    mutation.changedValue = 0x63; // Rebind checked template reference.
+    if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
+            EepromResult::InvalidDelta ||
+        mutation.calls != 3 || lateImage.bytes[0] != 0x7e || lateImage.restored)
+        return 30;
 
     // An empty or tampered diagnostic summary must never choose apparently
     // supported zero-index gain tables. Reject without retaining old gains.

@@ -205,6 +205,7 @@ namespace simpleath
         info.major = frame[2] & 0x0fu;
         info.minor = frame[3];
         const size_t length = info.payloadBytes;
+        const uint32_t validatedHeader = le32(frame);
         if (frameBytes != length + 6)
             return EepromResult::TruncatedBlock;
         // Callers must start from a discarded/zero-initialized image. A
@@ -255,6 +256,20 @@ namespace simpleath
             {
                 return EepromResult::MissingBaseImage;
             }
+            // The external dictionary provider has just run after our first
+            // checksum and delta-bounds pass. It may violate its borrowed
+            // frame's const contract using a separate retained pointer.
+            // Revalidate BEFORE applying its return value, so a rewritten
+            // skip/count cannot overrun the image or read past the frame.
+            if (le32(frame) != validatedHeader || !validDelta(payload, length))
+                return EepromResult::InvalidDelta;
+            uint16_t checkedChecksum = 0;
+            for (size_t i = 0; i < length; ++i)
+                checkedChecksum =
+                    static_cast<uint16_t>(checkedChecksum + payload[i]);
+            if (checkedChecksum != checksum ||
+                checkedChecksum != le16(frame + 4 + length))
+                return EepromResult::BadChecksum;
             if (base)
                 copyBytes(image.bytes, base, sizeof(image.bytes));
             size_t cursor = 0, spot = 0;
