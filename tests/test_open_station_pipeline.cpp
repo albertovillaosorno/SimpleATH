@@ -1231,6 +1231,18 @@ int main()
     if (engine.startScan(true, true) != EngineResult::Ok ||
         engine.hasNativeWifiInterface())
         return 1;
+    // Default construction must fail closed even without `{}` value-init.
+    // A caller that forgets to populate trust cannot assert RF or DMA proof.
+    InputTrust defaultTrust;
+    if (defaultTrust.radioReady || defaultTrust.channelAuthorized ||
+        defaultTrust.dmaAndFcsVerified ||
+        defaultTrust.ccmpMicAndReplayVerified ||
+        defaultTrust.rxFrameIncludesFcs)
+        return 55;
+    if (engine.acceptRx(probe, sizeof(probe), -42, 1000, defaultTrust, tx,
+                        sizeof(tx), action) != EngineResult::InvalidInput ||
+        action.kind != ActionKind::None)
+        return 56;
     if (engine.acceptRx(probe, sizeof(probe), -42, 1000, unverifiedFrame, tx,
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)

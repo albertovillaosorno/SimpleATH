@@ -71,10 +71,10 @@ namespace simpleath
                 // The real PCI/EDMA owner must verify all of these BEFORE
                 // calling into this layer, using its live DMA ownership, queue
                 // and cryptographic state.
-                bool radioReady;
-                bool channelAuthorized;
-                bool dmaAndFcsVerified;
-                bool ccmpMicAndReplayVerified;
+                bool radioReady = false;
+                bool channelAuthorized = false;
+                bool dmaAndFcsVerified = false;
+                bool ccmpMicAndReplayVerified = false;
                 // Verified RX buffer may retain its four-byte trailing FCS.
                 // This describes byte layout, not FCS validation itself.
                 // TX callers leave false; historical stripped RX is default.
