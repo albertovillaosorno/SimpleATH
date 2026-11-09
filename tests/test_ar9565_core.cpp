@@ -46,6 +46,28 @@ namespace
         return true;
     }
 
+    bool rejectSelfReferentialBusDescriptor()
+    {
+        Device owner;
+        if (owner.matchPci(kPciVendor, kPciDevice, 0, 0) != Result::Ok)
+            return false;
+        // A callback may not borrow the temporary descriptor itself: the
+        // provider could alter its function table during the first read.
+        RegisterBus descriptor {nullptr, syntheticRead32, nullptr, 0x7048};
+        descriptor.context = &descriptor;
+        if (owner.attachReadOnlyBus(descriptor) != Result::BusNotReady ||
+            owner.status().stage != Stage::PciMatched ||
+            owner.inspect() != Result::WrongState)
+            return false;
+        // Rejecting bad contexts must not poison a subsequently valid one.
+        RevokingRead valid {};
+        valid.owner = &owner;
+        valid.bus = {&valid, syntheticRead32, nullptr, 0x7048};
+        return owner.attachReadOnlyBus(valid.bus) == Result::Ok &&
+               owner.inspect() == Result::Ok &&
+               owner.status().stage == Stage::AwaitingResetAndCalibration;
+    }
+
     bool rejectReentrantBusRevocation()
     {
         const uint32_t stages[] {kRevisionRegister, kRtcStatusRegister,
@@ -162,5 +184,7 @@ int main()
             return 14;
     if (!rejectReentrantBusRevocation())
         return 10;
+    if (!rejectSelfReferentialBusDescriptor())
+        return 15;
     return 0;
 }

@@ -186,7 +186,9 @@ namespace simpleath
                             uint16_t subsystemVendor, uint16_t subsystemDevice);
 
             // Hardware transport registration itself never enables PCI
-            // decoding.
+            // decoding. The supplied descriptor must not alias this Device;
+            // its callback context must not point inside that descriptor.
+            // An enclosing session may use its own base as callback context.
             Result attachReadOnlyBus(const RegisterBus &bus);
 
             // Checks mapped SREV, RTC and EEPROM status. Never writes to

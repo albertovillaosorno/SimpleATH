@@ -30,6 +30,22 @@ namespace simpleath
     };
     static constexpr uint32_t K_MINIMUM_MAPPED_BAR = 0x7048;
 
+    // A callback context must not point into its caller-owned descriptor:
+    // invoking the provider could overwrite the function pointers we retain.
+    // An enclosing PCI session may legitimately start with its Device member,
+    // so the callback context itself is not required to avoid the Device.
+    // Compare distances without overflowing at address-space boundaries.
+    static bool overlapsStorage(const void *first, size_t firstBytes,
+                                const void *second, size_t secondBytes)
+    {
+        if (!first || !second || !firstBytes || !secondBytes)
+            return false;
+        const auto left = reinterpret_cast<uintptr_t>(first);
+        const auto right = reinterpret_cast<uintptr_t>(second);
+        return left <= right ? right - left < firstBytes
+                             : left - right < secondBytes;
+    }
+
     bool isSupportedPci(uint16_t vendor, uint16_t device)
     {
         // Never identify a real AR9300 as AR9565 simply because it has 0030.
@@ -211,7 +227,9 @@ namespace simpleath
             return fail(Result::WrongState);
         }
         if (!bus.read32 || !bus.context ||
-            bus.barLengthBytes < K_MINIMUM_MAPPED_BAR)
+            bus.barLengthBytes < K_MINIMUM_MAPPED_BAR ||
+            overlapsStorage(&bus, sizeof(bus), this, sizeof(*this)) ||
+            overlapsStorage(bus.context, 1, &bus, sizeof(bus)))
         {
             return fail(Result::BusNotReady);
         }
