@@ -127,6 +127,11 @@ int main()
     image.bytes[7] = 0x55;
     image.bytes[32] = 0x11;
     image.bytes[33] = 0x22; // 2 GHz, with HT target lookup disabled.
+    // A reconstructed AR9565 board has three structurally ordered 2G
+    // calibration piers even when this test only evaluates target limits.
+    image.bytes[138] = 112;
+    image.bytes[139] = 137;
+    image.bytes[140] = 162;
     image.bytes[195] = image.bytes[197] = 112;
     image.bytes[196] = image.bytes[198] = 137;
     image.bytes[199] = 162;
@@ -207,5 +212,22 @@ int main()
             PowerResult::Ok ||
         output.cck[0] != 24 || output.ofdm[0] != 24)
         return 19;
+
+    // The board summary can be decoded with corrupted calibration-pier bins,
+    // but discovery would refuse to publish it as a selected board. The
+    // direct power candidate API must also reject that inconsistent geometry
+    // rather than return seemingly usable half-dBm limits.
+    image.bytes[140] = 137; // Duplicate of the second calibration pier.
+    output.cck[0] = 31;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::InvalidBoard ||
+        output.controlMhz || output.cck[0] || output.ofdm[0] ||
+        output.conductedCeilingHalfDbm)
+        return 20;
+    image.bytes[140] = 162;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::Ok ||
+        output.cck[0] != 24 || output.ofdm[0] != 24)
+        return 21;
     return 0;
 }

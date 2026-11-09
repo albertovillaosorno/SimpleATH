@@ -8,7 +8,12 @@ validate board calibration, or establish a legal measured transmit power.
 ## Calculations implemented
 
 The input must be a reconstructed version-2 little-endian image passing the
-existing structural board summary (MAC, single-chain mask and 2 GHz support).
+existing structural board summary (MAC, single-chain mask and 2 GHz support),
+with three in-band strictly increasing 2 GHz calibration-pier bins. The direct
+power calculator now rejects malformed pier geometry as `InvalidBoard` even if
+the independent CTL and target curves are valid; it cannot bypass discovery's
+board rejection and publish seemingly usable limits. Synthetic tests corrupt a
+single pier bin and check that previously populated output is cleared.
 This is not proof that the image came from the Dell or contains usable factory
 calibration. No template alone can satisfy physical-board verification.
 

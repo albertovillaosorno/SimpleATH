@@ -234,7 +234,12 @@ namespace simpleath
             return PowerResult::InvalidArgument;
         out = {};
         BoardDataSummary board {};
-        if (summarizeBoardData(image, board) != EepromResult::Ok)
+        if (summarizeBoardData(image, board) != EepromResult::Ok ||
+            !board.calibrationPierBinsPlausible)
+            // Discovery and direct gain selection reject malformed 2G
+            // calibration-pier geometry. A direct power calculation must not
+            // bypass that structural board check and publish usable-looking
+            // per-rate limits from a board discovery would have discarded.
             return PowerResult::InvalidBoard;
         if ((ceilings.ctlGroup & 0x0fu) || ceilings.ctlGroup == 0xf0)
             return PowerResult::InvalidCtlGroup;
