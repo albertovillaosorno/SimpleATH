@@ -81,6 +81,8 @@ namespace simpleath
                     static void remove(void *context);
                     KeyHardware hardware_;
                     bool configured_;
+                    // Revokes in-flight provider results on clear/reconfigure.
+                    uint64_t generation_;
             };
 
         } // namespace crypto

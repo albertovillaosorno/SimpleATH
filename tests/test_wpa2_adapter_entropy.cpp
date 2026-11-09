@@ -19,6 +19,9 @@ namespace
     {
             RandomCase behavior = RandomCase::PartialFailure;
             unsigned calls = 0;
+            Adapter *adapter = nullptr;
+            bool replaceDuringRandom = false;
+            bool replacementConfigured = false;
 
             static bool random(void *context, uint8_t *out, size_t length)
             {
@@ -38,6 +41,18 @@ namespace
                     return true; // Contract-violating provider; no fresh nonce.
                 for (size_t i = 0; i < length; ++i)
                     out[i] = static_cast<uint8_t>(i + 1);
+                if (self.replaceDuringRandom)
+                {
+                    // Reentrant hardware teardown/reconfiguration must not
+                    // publish an in-flight nonce from the retired provider,
+                    // even if the replacement reuses the same callback table.
+                    self.replaceDuringRandom = false;
+                    self.adapter->clear();
+                    const KeyHardware replacement {&self, random, pairwise,
+                                                   group, remove};
+                    self.replacementConfigured =
+                        self.adapter->configure(replacement);
+                }
                 return true;
             }
 
@@ -62,6 +77,7 @@ int main()
 {
     Provider provider {};
     Adapter adapter;
+    provider.adapter = &adapter;
     const KeyHardware hardware {&provider, Provider::random, Provider::pairwise,
                                 Provider::group, Provider::remove};
     if (!adapter.configure(hardware))
@@ -87,6 +103,18 @@ int main()
     for (size_t i = 0; i < sizeof(nonce); ++i)
         if (nonce[i] != static_cast<uint8_t>(i + 1))
             return 5;
+    std::memset(nonce, 0xa5, sizeof(nonce));
+    provider.replaceDuringRandom = true;
+    if (callbacks.generateNonce(callbacks.context, nonce) ||
+        !provider.replacementConfigured || provider.calls != 4 ||
+        std::memcmp(nonce, original, sizeof(nonce)) != 0)
+        return 6;
+    if (!callbacks.generateNonce(callbacks.context, nonce) ||
+        provider.calls != 5)
+        return 7;
+    for (size_t i = 0; i < sizeof(nonce); ++i)
+        if (nonce[i] != static_cast<uint8_t>(i + 1))
+            return 8;
     adapter.clear();
     return 0;
 }

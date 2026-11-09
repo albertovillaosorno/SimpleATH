@@ -27,7 +27,8 @@ namespace simpleath
                 }
             } // namespace
 
-            Adapter::Adapter() : hardware_ {}, configured_(false)
+            Adapter::Adapter()
+                : hardware_ {}, configured_(false), generation_(0)
             {
             }
 
@@ -45,6 +46,7 @@ namespace simpleath
                     return false;
                 hardware_ = hw;
                 configured_ = true;
+                ++generation_;
                 return true;
             }
 
@@ -55,6 +57,7 @@ namespace simpleath
                 // wipes this context.
                 hardware_ = {};
                 configured_ = false;
+                ++generation_;
             }
 
             Wpa2Crypto Adapter::callbacks()
@@ -86,14 +89,16 @@ namespace simpleath
                 // Never publish a partial result into a reusable caller
                 // buffer, or report success for a no-op provider that leaves
                 // its zero-initialized scratch space unchanged.
+                const uint64_t generation = adapter->generation_;
                 uint8_t generated[32] {};
                 const bool providerSucceeded = adapter->hardware_.secureRandom(
                     adapter->hardware_.context, generated, sizeof(generated));
                 uint8_t any = 0;
                 for (uint8_t byte : generated)
                     any |= byte;
-                const bool valid =
-                    providerSucceeded && any != 0 && adapter->configured_;
+                const bool valid = providerSucceeded && any != 0 &&
+                                   adapter->configured_ &&
+                                   adapter->generation_ == generation;
                 if (valid)
                     for (size_t i = 0; i < sizeof(generated); ++i)
                         outNonce[i] = generated[i];
