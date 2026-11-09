@@ -565,8 +565,8 @@ int main()
     // leaking a false success to the future TX completion handler.
     tx.word[0] = 0x168c8000u | (9u << 8u);
     tx.word[8] = (24u << 1u) | 1u;
-    const uint32_t terminalFailureBits[] = {0x00000002u, 0x00000008u,
-                                            0x00040000u, 0x00080000u};
+    const uint32_t terminalFailureBits[] = {
+        0x00000002u, 0x00000004u, 0x00000008u, 0x00040000u, 0x00080000u};
     for (uint32_t terminal : terminalFailureBits)
     {
         tx.word[3] = terminal | 1u; // AR_FrmXmitOK and a terminal failure.
@@ -574,7 +574,7 @@ int main()
         if (decodeTxCompletion(tx, completed) !=
                 DescriptorError::CorruptStatus ||
             completed.frameTransmitOk || completed.excessiveRetries ||
-            completed.sequenceNumber)
+            completed.fifoUnderrun || completed.sequenceNumber)
             return 58;
     }
     tx.word[3] = 1u;
@@ -592,5 +592,12 @@ int main()
         completed.frameTransmitOk || !completed.excessiveRetries ||
         completed.sequenceNumber != 24u)
         return 60;
+    // A completed failure may legitimately carry the FIFO diagnostic bit,
+    // but it must not be reported as successful transmission.
+    tx.word[3] = 0x00000004u;
+    if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
+        completed.frameTransmitOk || !completed.fifoUnderrun ||
+        completed.sequenceNumber != 24u)
+        return 71;
     return 0;
 }

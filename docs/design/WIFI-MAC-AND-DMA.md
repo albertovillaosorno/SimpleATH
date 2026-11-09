@@ -45,6 +45,10 @@ for the **next separately authorized build**.
   STBC, unknown rate codes or MCS8+, HT-only flags on legacy rates and
   invalid/stale RTS/CTS rates, regardless of caller-set policy flags. These
   descriptor checks do not verify the physical board or permit RF output.
+  TX completion parsing also rejects simultaneous transmit-success and FIFO
+  underrun (as well as retry, filter, configuration, expiry and TXOP faults),
+  rather than granting a contradictory positive completion. A lone underrun
+  on a failed completion remains a diagnostic, not transmission success.
   The TX control encoder also rejects a claimed on-air MPDU below 14 bytes,
   even when the mapped DMA length matches it. The smallest ACK/CTS frame has
   a ten-byte MAC header plus a radio-generated four-byte FCS. Exactly 14
