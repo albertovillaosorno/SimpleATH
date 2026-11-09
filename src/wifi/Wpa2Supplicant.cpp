@@ -444,6 +444,8 @@ namespace simpleath
             copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
             ScopedSecret<16> kckSnapshot {};
             copyBytes(kckSnapshot.bytes, ptk_, sizeof(kckSnapshot.bytes));
+            ScopedSecret<kMessage2Length> m2MicInput {};
+            copyBytes(m2MicInput.bytes, response, sizeof(response));
             uint8_t calculatedMic[16] {};
             const bool signedMessage2 =
                 crypto_.micSha1(crypto_.context, kckSnapshot.bytes, response,
@@ -457,7 +459,9 @@ namespace simpleath
             // A provider that returns success without producing a MIC cannot
             // advance the handshake with an unparseable plaintext M2.
             if (!signedMessage2 ||
-                !nonzero(calculatedMic, sizeof(calculatedMic)))
+                !nonzero(calculatedMic, sizeof(calculatedMic)) ||
+                !constantTimeEqual(response, m2MicInput.bytes,
+                                   sizeof(response)))
             {
                 secureClear(response, sizeof(response));
                 secureClear(calculatedMic, sizeof(calculatedMic));
@@ -534,6 +538,12 @@ namespace simpleath
             copyBytes(ptkSnapshot.bytes, ptk_, sizeof(ptk_));
             const Mac apSnapshot = ap_;
             state_ = Wpa2State::ProcessingMessage3;
+            // Even a callback that violates its const input contract must
+            // not change the RSC, replay fields or GTK ciphertext AFTER
+            // calculating a matching MIC. Replay/unwrap still borrow this
+            // same stack image after the synchronous provider returns.
+            ScopedSecret<kMaximumEapolHandshakeBytes> micInputSnapshot {};
+            copyBytes(micInputSnapshot.bytes, signedEapol, parsed.eapolLength);
             uint8_t expectedMic[16] {};
             const bool verifiedMic =
                 crypto_.micSha1(crypto_.context, ptkSnapshot.bytes, signedEapol,
@@ -545,8 +555,12 @@ namespace simpleath
                 secureClear(expectedMic, sizeof(expectedMic));
                 return Wpa2Result::InvalidState;
             }
-            if (!verifiedMic)
+            if (!verifiedMic ||
+                !constantTimeEqual(signedEapol, micInputSnapshot.bytes,
+                                   parsed.eapolLength))
             {
+                // A successful provider must not authenticate bytes and
+                // then substitute different replay or key-install inputs.
                 secureClear(signedEapol, sizeof(signedEapol));
                 secureClear(receivedMic, sizeof(receivedMic));
                 secureClear(expectedMic, sizeof(expectedMic));
@@ -616,6 +630,8 @@ namespace simpleath
             uint8_t response[kMessage4Length] {};
             populateEapolKey(response, sizeof(response), eapolVersion_, 0x030au,
                              parsed.replayCounter, nullptr);
+            ScopedSecret<kMessage4Length> m4MicInput {};
+            copyBytes(m4MicInput.bytes, response, sizeof(response));
             uint8_t calculatedMic[16] {};
             const bool signedResponse =
                 crypto_.micSha1(crypto_.context, ptkSnapshot.bytes, response,
@@ -630,7 +646,9 @@ namespace simpleath
             // Do not install keys until M4 is a valid, MIC-bearing response.
             // The public EAPOL-Key parser rejects MIC-present/zero frames.
             if (!signedResponse ||
-                !nonzero(calculatedMic, sizeof(calculatedMic)))
+                !nonzero(calculatedMic, sizeof(calculatedMic)) ||
+                !constantTimeEqual(response, m4MicInput.bytes,
+                                   sizeof(response)))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));

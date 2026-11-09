@@ -98,6 +98,8 @@ namespace
             bool revokeOnPtk = false;
             unsigned revokeMicCall = 0;
             unsigned zeroMicCall = 0;
+            unsigned mutateMicInputOnCall = 0;
+            size_t mutateMicInputOffset = 0;
             bool revokeOnUnwrap = false;
             bool revokeOnPairwise = false;
             bool revokeOnGroup = false;
@@ -142,8 +144,8 @@ namespace
         return true;
     }
 
-    bool handshakeMic(void *context, const uint8_t kck[16], const uint8_t *,
-                      size_t, uint8_t out[16])
+    bool handshakeMic(void *context, const uint8_t kck[16],
+                      const uint8_t *eapol, size_t eapolBytes, uint8_t out[16])
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.micCalls;
@@ -152,6 +154,11 @@ namespace
         state.observedKck = kck[0];
         for (size_t index = 0; index < 16; ++index)
             out[index] = state.zeroMicCall == state.micCalls ? 0 : 0x55;
+        // Deliberately violate the input-const contract after producing a
+        // matching MIC. The supplicant must not use the altered RSC/KDE.
+        if (state.mutateMicInputOnCall == state.micCalls &&
+            state.mutateMicInputOffset < eapolBytes)
+            const_cast<uint8_t *>(eapol)[state.mutateMicInputOffset] ^= 1u;
         return true;
     }
 
@@ -349,6 +356,90 @@ namespace
             return false;
         supplicant.reset();
         return callbacks.rollbackCalls == 1;
+    }
+
+    bool rejectMutatedOutgoingMicInput(unsigned call)
+    {
+        // The MIC callback is given a const M2/M4 image. Even if a broken
+        // provider overwrites it after producing the digest, neither an
+        // unauthenticated TX response nor installed keys may be published.
+        HandshakeCallbacks callbacks {};
+        callbacks.mutateMicInputOnCall = call;
+        callbacks.mutateMicInputOffset = call == 1 ? 99u : 16u;
+        Wpa2Supplicant supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+            return false;
+        uint8_t m1[99] {};
+        makeM1(m1);
+        uint8_t m2[121] {};
+        std::memset(m2, 0xa5, sizeof(m2));
+        size_t written = 17;
+        const Wpa2Result m2Result =
+            supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written);
+        if (call == 1)
+            return m2Result == Wpa2Result::MicCalculationFailure &&
+                   written == 0 && m2[0] == 0xa5 && callbacks.micCalls == 1 &&
+                   callbacks.unwrapCalls == 0 && callbacks.pairwiseCalls == 0 &&
+                   callbacks.groupCalls == 0 &&
+                   supplicant.state() == Wpa2State::Failed;
+        if (m2Result != Wpa2Result::Ok || written != sizeof(m2))
+            return false;
+        uint8_t m3[155] {};
+        makeM3(m3);
+        uint8_t m4[99] {};
+        std::memset(m4, 0xa5, sizeof(m4));
+        written = 17;
+        const Wpa2Result m4Result =
+            supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
+        return m4Result == Wpa2Result::MicCalculationFailure && written == 0 &&
+               m4[0] == 0xa5 && callbacks.micCalls == 3 &&
+               callbacks.unwrapCalls == 1 && callbacks.pairwiseCalls == 0 &&
+               callbacks.groupCalls == 0 && callbacks.rollbackCalls == 0 &&
+               supplicant.state() == Wpa2State::Failed &&
+               !supplicant.keysInstalled();
+    }
+
+    bool rejectMutatedSignedMessage3(size_t offset)
+    {
+        // A misbehaving MIC provider can cast away const on the borrowed M3
+        // snapshot after signing it. That must not authorize a changed GTK
+        // ciphertext or GTK receive packet number.
+        HandshakeCallbacks callbacks {};
+        callbacks.mutateMicInputOnCall = 2; // Verify incoming M3.
+        callbacks.mutateMicInputOffset = offset;
+        Wpa2Supplicant supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+            return false;
+        uint8_t m1[99] {};
+        makeM1(m1);
+        uint8_t m2[121] {};
+        size_t written = 0;
+        if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
+                Wpa2Result::Ok ||
+            written != sizeof(m2))
+            return false;
+        uint8_t m3[155] {};
+        makeM3(m3);
+        uint8_t original[sizeof(m3)] {};
+        std::memcpy(original, m3, sizeof(m3));
+        uint8_t m4[99] {};
+        std::memset(m4, 0xa5, sizeof(m4));
+        written = 17;
+        const Wpa2Result result =
+            supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
+        return result == Wpa2Result::MicCalculationFailure && written == 0 &&
+               m4[0] == 0xa5 && std::memcmp(m3, original, sizeof(m3)) == 0 &&
+               callbacks.micCalls == 2 && callbacks.unwrapCalls == 0 &&
+               callbacks.pairwiseCalls == 0 && callbacks.groupCalls == 0 &&
+               callbacks.rollbackCalls == 0 &&
+               supplicant.state() == Wpa2State::Failed &&
+               !supplicant.keysInstalled();
     }
 
     bool rejectZeroMicCallback(unsigned zeroMicCall)
@@ -939,6 +1030,10 @@ int main()
 {
     if (!rejectZeroMicCallback(1) || !rejectZeroMicCallback(3))
         return 48;
+    if (!rejectMutatedSignedMessage3(65) || !rejectMutatedSignedMessage3(99))
+        return 49;
+    if (!rejectMutatedOutgoingMicInput(1) || !rejectMutatedOutgoingMicInput(3))
+        return 50;
     if (!rejectTrailingHandshakeBytes())
         return 46;
     if (!rejectMalformedMessage2())

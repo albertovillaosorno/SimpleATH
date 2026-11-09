@@ -32,6 +32,15 @@ claim that the device has a usable WPA2 association.
   scalar replay fields. A forged detached field is rejected before M1/M3
   state publication; synthetic red/green tests cover all three pointers for
   each message. This is no substitute for MIC verification or CCMP PN checks.
+- The supplicant now binds each M2/M3/M4 MIC result to the exact call-local
+  EAPOL bytes handed to the synchronous crypto provider. An incorrectly
+  implemented provider that writes through a borrowed const input after
+  producing a MIC cannot substitute the M3 GTK ciphertext, GTK receive RSC,
+  or outgoing M2/M4 bytes. The handshake fails before key installation or
+  response publication, and the snapshot is wiped when its scope ends.
+  Synthetic C++14/C++17 red/green tests modify M3 RSC and ciphertext and
+  outgoing M2/M4 fields via deliberately contract-violating callbacks.
+  This is not proof that a malicious or buggy provider computes a valid MIC.
 
 These are new AGPL-3.0-only C++ sources built from published specifications
 (FIPS 180-4, RFC 2104, RFC 2898, FIPS 197, RFC 3394, IEEE 802.11).
