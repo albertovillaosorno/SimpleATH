@@ -10,6 +10,7 @@ namespace simpleath
 {
     constexpr size_t kLeLegacyAdvertisingBytes = 31U;
     constexpr size_t kLeAddressBytes = 6U;
+    constexpr size_t kAirDropContactHashBytes = 8U;
 
     enum class LeScanPhase : uint8_t
     {
@@ -47,6 +48,38 @@ namespace simpleath
             uint8_t addressType {};
             int8_t rssi {};
     };
+
+    // Apple Continuity manufacturer data (company 0x004c), AirDrop TLV
+    // type 5 with an 18-byte payload. This is a copied, untrusted BLE hint,
+    // NOT a contact match, peer authentication, permission to wake AWDL, or
+    // OS Bluetooth host integration. The truncated contact hashes are
+    // privacy-sensitive: callers must keep this ephemeral and scrub it.
+    struct LeAirDropHint
+    {
+            UsbBytes<uint8_t, kLeAddressBytes> address {};
+            UsbBytes<uint8_t, 3U> rotatingTag {};
+            UsbBytes<uint8_t, kAirDropContactHashBytes> contactHashes {};
+            uint8_t addressType {};
+            uint8_t version {};
+            int8_t rssi {};
+    };
+
+    enum class LeAirDropStatus : uint8_t
+    {
+        Found,
+        Absent,
+        InvalidArgument,
+        Malformed,
+        UnsupportedVersion,
+        OverlappingBuffers,
+    };
+
+    // Parse all AD/Apple TLVs before publishing a snapshot. Versions 1 and 3
+    // have distinct reserved/tag semantics. Unknown Continuity TLV types are
+    // skipped by their length; multiple AirDrop TLVs are ambiguous and fail.
+    // Nonoverlapping ordinary failures clear out. This never starts a scan.
+    LeAirDropStatus parseLeAirDropHint(const LeLegacyAdvertisement &advert,
+                                       LeAirDropHint &out);
 
     struct LeDiscoveryOwner
     {

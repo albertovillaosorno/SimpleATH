@@ -1083,10 +1083,208 @@ namespace
         }
         return 0;
     }
+
+    // Apple company ID 0x004c, AirDrop Continuity type 5 and a version-3
+    // 18-byte payload. This is synthetic over-the-air data, not an OS host
+    // contact match or AirDrop receive authorization.
+    constexpr size_t kAirDropAdBytes = 27U;
+    constexpr size_t kAirDropPayloadStart = 9U;
+    constexpr size_t kAirDropVersionByte = kAirDropPayloadStart + 8U;
+    constexpr size_t kAirDropSuffixByte = kAirDropPayloadStart + 17U;
+    constexpr size_t kAirDropTagStart = kAirDropPayloadStart + 1U;
+    constexpr uint8_t kAppleAirDropType = 0x05U;
+    constexpr uint8_t kAppleCompanyLowByte = 0x4cU;
+    constexpr uint8_t kAirDropVersionThree = 3U;
+    constexpr uint8_t kAirDropVersionOne = 1U;
+    constexpr uint8_t kAirDropRotatingPrefix = 0x40U;
+    constexpr uint8_t kAirDropTagA = 0xa1U;
+    constexpr uint8_t kAirDropTagB = 0xb2U;
+    constexpr uint8_t kAirDropTagC = 0xc3U;
+    constexpr uint8_t kAirDropHashFirst = 0x10U;
+    constexpr uint8_t kAirDropManufacturerLength = 23U;
+    constexpr size_t kAirDropLegacyPrefixBytes = 8U;
+    constexpr size_t kAppleCompanyOffset = 5U;
+    constexpr size_t kAppleContinuityTypeOffset = 7U;
+    constexpr size_t kAppleContinuityLengthOffset = 8U;
+    constexpr size_t kManufacturerLengthOffset = 3U;
+    constexpr uint8_t kAirDropHashLast = 0x17U;
+    constexpr uint8_t kOtherContinuityType = 0x09U;
+    constexpr uint8_t kOverlongContinuityBytes = 19U;
+    constexpr uint8_t kOverlongManufacturerBytes = 30U;
+
+    LeLegacyAdvertisement syntheticAirDrop()
+    {
+        LeLegacyAdvertisement advert {};
+        advert.eventType = 0U;
+        advert.addressType = 1U;
+        advert.rssi = kRssi;
+        advert.address.at(0U) = kFirstAddress;
+        advert.dataBytes = kAirDropAdBytes;
+        const std::array<uint8_t, kAirDropAdBytes> bytes {
+            2U,           1U,
+            6U,           kAirDropManufacturerLength,
+            0xffU,        kAppleCompanyLowByte,
+            0U,           kAppleAirDropType,
+            18U,          kAirDropRotatingPrefix,
+            kAirDropTagA, kAirDropTagB,
+            kAirDropTagC, 0U,
+            0U,           0U,
+            0U,           kAirDropVersionThree,
+            0x10U,        0x11U,
+            0x12U,        0x13U,
+            0x14U,        0x15U,
+            0x16U,        0x17U,
+            0U,
+        };
+        for (size_t index = 0U; index < bytes.size(); ++index)
+        {
+            advert.data.at(index) = bytes.at(index);
+        }
+        return advert;
+    }
+
+    bool validAppleAirDropHints()
+    {
+        auto advert = syntheticAirDrop();
+        LeAirDropHint hint {};
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Found ||
+            hint.version != kAirDropVersionThree ||
+            hint.address.at(0U) != kFirstAddress ||
+            hint.addressType != advert.addressType || hint.rssi != kRssi ||
+            hint.rotatingTag.at(0U) != kAirDropTagA ||
+            hint.rotatingTag.at(1U) != kAirDropTagB ||
+            hint.rotatingTag.at(2U) != kAirDropTagC ||
+            hint.contactHashes.at(0U) != kAirDropHashFirst ||
+            hint.contactHashes.at(kAirDropContactHashBytes - 1U) !=
+                kAirDropHashLast)
+        {
+            return false;
+        }
+        // The legacy version has all eight prefix bytes zero and no tag.
+        for (size_t index = 0U; index < kAirDropLegacyPrefixBytes; ++index)
+        {
+            advert.data.at(kAirDropPayloadStart + index) = 0U;
+        }
+        advert.data.at(kAirDropVersionByte) = kAirDropVersionOne;
+        return parseLeAirDropHint(advert, hint) == LeAirDropStatus::Found &&
+               hint.version == kAirDropVersionOne &&
+               hint.rotatingTag.at(0U) == 0U && hint.rotatingTag.at(1U) == 0U &&
+               hint.contactHashes.at(0U) == kAirDropHashFirst;
+    }
+
+    bool skipUnknownAppleContinuityMessages()
+    {
+        auto advert = syntheticAirDrop();
+        constexpr size_t kFlagsAdBytes = 3U;
+        constexpr size_t kManufacturerAdBytes = kAirDropAdBytes - kFlagsAdBytes;
+        constexpr uint8_t kExpandedManufacturerBytes =
+            kAirDropManufacturerLength + 2U;
+        constexpr uint8_t kOtherContinuityType = 0x09U;
+        for (size_t index = 0U; index < kManufacturerAdBytes; ++index)
+        {
+            advert.data.at(index) = advert.data.at(index + kFlagsAdBytes);
+        }
+        advert.data.at(0U) = kExpandedManufacturerBytes;
+        advert.data.at(kManufacturerAdBytes) = kOtherContinuityType;
+        advert.data.at(kManufacturerAdBytes + 1U) = 0U;
+        advert.dataBytes = kManufacturerAdBytes + 2U;
+        LeAirDropHint hint {};
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Found ||
+            hint.version != kAirDropVersionThree)
+        {
+            return false;
+        }
+        // A second AirDrop TLV with an invalid empty body is still a
+        // duplicate, never an invitation to merge conflicting identities.
+        advert.data.at(kManufacturerAdBytes) = kAppleAirDropType;
+        hint.version = kAirDropVersionThree;
+        return parseLeAirDropHint(advert, hint) == LeAirDropStatus::Malformed &&
+               hint.version == 0U;
+    }
+
+    bool rejectUntrustedAppleAirDropHints()
+    {
+        auto advert = syntheticAirDrop();
+        LeAirDropHint hint {};
+        hint.version = kAirDropVersionThree;
+        advert.data.at(kAppleCompanyOffset) = 0x00U; // Wrong company.
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Absent ||
+            hint.version != 0U)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kAppleContinuityTypeOffset) =
+            kOtherContinuityType; // Another Apple Continuity message.
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Absent)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kAirDropVersionByte) = 2U;
+        if (parseLeAirDropHint(advert, hint) !=
+            LeAirDropStatus::UnsupportedVersion)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kAirDropSuffixByte) = 1U;
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Malformed)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kAirDropTagStart) = 0U;
+        advert.data.at(kAirDropPayloadStart) = 0U;
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Malformed)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kAppleContinuityLengthOffset) =
+            kOverlongContinuityBytes; // Advertised TLV overruns AD.
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Malformed)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.data.at(kManufacturerLengthOffset) =
+            kOverlongManufacturerBytes; // AD length exceeds copied bytes.
+        if (parseLeAirDropHint(advert, hint) != LeAirDropStatus::Malformed)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.dataBytes = kLeLegacyAdvertisingBytes + 1U;
+        if (parseLeAirDropHint(advert, hint) !=
+            LeAirDropStatus::InvalidArgument)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.addressType = 2U;
+        if (parseLeAirDropHint(advert, hint) !=
+            LeAirDropStatus::InvalidArgument)
+        {
+            return false;
+        }
+        advert = syntheticAirDrop();
+        advert.dataBytes = kLeLegacyAdvertisingBytes;
+        advert.data.at(kAirDropAdBytes) = 4U; // Malformed trailing AD.
+        hint.version = kAirDropVersionThree;
+        return parseLeAirDropHint(advert, hint) == LeAirDropStatus::Malformed &&
+               hint.version == 0U && hint.contactHashes.at(0U) == 0U;
+    }
 } // namespace
 
 int main()
 {
+    if (!validAppleAirDropHints() || !skipUnknownAppleContinuityMessages() ||
+        !rejectUntrustedAppleAirDropHints())
+    {
+        constexpr int kAirDropHintFailure = 28;
+        return kAirDropHintFailure;
+    }
     if (const int revoked = permitDetachment())
     {
         return revoked;

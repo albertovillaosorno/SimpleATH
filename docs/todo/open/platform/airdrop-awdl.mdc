@@ -388,3 +388,31 @@ This is not full Apple election or loop prevention. It never elects the
 local device, authenticates a master, verifies a multi-hop tree, slaves an
 RF clock, schedules a channel dwell, notifies the native AirDrop stack or
 transmits a packet. Those P0 production paths remain open.
+
+## Source progress — 2026-11-10: bounded BLE AirDrop ingress hints
+
+The normal target's `LeDiscovery` now exports `parseLeAirDropHint` to inspect
+an **already copied, validated** legacy Bluetooth HCI advertising report.
+It recognizes Apple manufacturer-specific AD (type `0xff`, company `0x004c`)
+and the 18-byte AirDrop Continuity type-5 payload. It decodes the documented
+version-1 all-zero prefix or version-3 rotating-tag prefix, four truncated
+contact-hash fields, advertiser address metadata and RSSI into a bounded
+value snapshot. Unknown valid Continuity TLVs are skipped; unsupported
+versions, bad reserved fields, duplicates, malformed lengths and trailing
+AD data are rejected without publishing a partial hint.
+
+The 2020 privacy study and community packet specification independently
+identify these wire fields:
+
+- https://github.com/furiousMAC/continuity/blob/master/messages/airdrop.md
+- https://github.com/t4t5/owly/blob/main/docs/SPEC.md
+
+A synthetic HCI-adjacent fixture exercises both versions, copied fields,
+unknown TLVs, duplicate type-5 fields, corrupted reserved/version/length
+values and fail-closed outputs. Focused strict Clang-Tidy, Clang-Format and
+C++14/C++17 ASan+UBSan offline tests pass. Contact-hash fragments are
+**privacy-sensitive** and must only be used transiently by an authenticated
+native host policy; a decoded advertisement neither establishes a contact
+match nor a verified AirDrop peer. No controller scan, macOS Bluetooth
+handoff, RF channel change, native AWDL interface or transfer is activated
+by the new parser. This P0 task remains open.

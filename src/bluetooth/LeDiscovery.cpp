@@ -30,6 +30,134 @@ namespace simpleath
         constexpr size_t kAdvertisingHeaderBytes = 2U;
         constexpr size_t kReportHeaderBytes = 9U;
         constexpr unsigned kBitsPerByte = 8U;
+        constexpr uint8_t kManufacturerAdType = 0xffU;
+        constexpr uint8_t kAppleCompanyLow = 0x4cU;
+        constexpr uint8_t kAppleCompanyHigh = 0x00U;
+        constexpr uint8_t kAirDropTlvType = 0x05U;
+        constexpr uint8_t kAirDropLegacyVersion = 1U;
+        constexpr uint8_t kAirDropRotatingVersion = 3U;
+        constexpr uint8_t kAirDropRotatingMarker = 0x40U;
+        constexpr size_t kManufacturerPrefixBytes = 3U;
+        constexpr size_t kAirDropPayloadBytes = 18U;
+        constexpr size_t kAirDropVersionOffset = 8U;
+        constexpr size_t kAirDropHashesOffset = 9U;
+        constexpr size_t kAirDropTrailingReservedOffset = 17U;
+        constexpr size_t kAirDropPrefixBytes = 8U;
+        constexpr size_t kAirDropRotatingTagOffset = 1U;
+        constexpr size_t kAirDropRotatingTagBytes = 3U;
+        constexpr size_t kAirDropTrailingPrefixOffset = 4U;
+
+        bool overlaps(const void *first, size_t firstBytes, const void *second,
+                      size_t secondBytes)
+        {
+            if (first == nullptr || second == nullptr || firstBytes == 0U ||
+                secondBytes == 0U)
+            {
+                return false;
+            }
+            uintptr_t a = 0U;
+            uintptr_t b = 0U;
+            static_assert(sizeof(a) == sizeof(first), "pointer width");
+            __builtin_memcpy(&a, static_cast<const void *>(&first), sizeof(a));
+            __builtin_memcpy(&b, static_cast<const void *>(&second), sizeof(b));
+            return a <= b ? b - a < firstBytes : a - b < secondBytes;
+        }
+
+        bool allZero(const uint8_t *bytes, size_t length)
+        {
+            for (size_t index = 0U; index < length; ++index)
+            {
+                if (*usbByteOffset(bytes, index) != 0U)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Decode a complete 18-byte Apple AirDrop TLV into temporary,
+        // untrusted data. Fail before copying the private contact hashes.
+        LeAirDropStatus decodeAirDrop(const uint8_t *payload, size_t bytes,
+                                      LeAirDropHint &candidate)
+        {
+            if (bytes != kAirDropPayloadBytes)
+            {
+                return LeAirDropStatus::Malformed;
+            }
+            const uint8_t version =
+                *usbByteOffset(payload, kAirDropVersionOffset);
+            if (version != kAirDropLegacyVersion &&
+                version != kAirDropRotatingVersion)
+            {
+                return LeAirDropStatus::UnsupportedVersion;
+            }
+            const bool validPrefix =
+                version == kAirDropLegacyVersion
+                    ? allZero(payload, kAirDropPrefixBytes)
+                    : *payload == kAirDropRotatingMarker &&
+                          allZero(usbByteOffset(payload,
+                                                kAirDropTrailingPrefixOffset),
+                                  kAirDropVersionOffset -
+                                      kAirDropTrailingPrefixOffset);
+            if (!validPrefix ||
+                *usbByteOffset(payload, kAirDropTrailingReservedOffset) != 0U)
+            {
+                return LeAirDropStatus::Malformed;
+            }
+            candidate.version = version;
+            if (version == kAirDropRotatingVersion)
+            {
+                for (size_t index = 0U; index < kAirDropRotatingTagBytes;
+                     ++index)
+                {
+                    candidate.rotatingTag.at(index) = *usbByteOffset(
+                        payload, kAirDropRotatingTagOffset + index);
+                }
+            }
+            for (size_t index = 0U; index < kAirDropContactHashBytes; ++index)
+            {
+                candidate.contactHashes.at(index) =
+                    *usbByteOffset(payload, kAirDropHashesOffset + index);
+            }
+            return LeAirDropStatus::Found;
+        }
+
+        LeAirDropStatus parseAppleTlvs(const uint8_t *data, size_t start,
+                                       size_t end, LeAirDropHint &candidate,
+                                       bool &found)
+        {
+            size_t offset = start;
+            while (offset < end)
+            {
+                if (end - offset < 2U)
+                {
+                    return LeAirDropStatus::Malformed;
+                }
+                const uint8_t type = *usbByteOffset(data, offset);
+                const size_t payloadBytes = *usbByteOffset(data, offset + 1U);
+                offset += 2U;
+                if (payloadBytes > end - offset)
+                {
+                    return LeAirDropStatus::Malformed;
+                }
+                if (type == kAirDropTlvType)
+                {
+                    if (found)
+                    {
+                        return LeAirDropStatus::Malformed;
+                    }
+                    const LeAirDropStatus decoded = decodeAirDrop(
+                        usbByteOffset(data, offset), payloadBytes, candidate);
+                    if (decoded != LeAirDropStatus::Found)
+                    {
+                        return decoded;
+                    }
+                    found = true;
+                }
+                offset += payloadBytes;
+            }
+            return LeAirDropStatus::Absent;
+        }
 
         bool authorized(const LeDiscoveryState &state,
                         const UsbHciState &transport,
@@ -392,6 +520,66 @@ namespace simpleath
         }
 
     } // namespace
+
+    LeAirDropStatus parseLeAirDropHint(const LeLegacyAdvertisement &advert,
+                                       LeAirDropHint &out)
+    {
+        if (overlaps(&advert, sizeof(advert), &out, sizeof(out)))
+        {
+            return LeAirDropStatus::OverlappingBuffers;
+        }
+        out = {};
+        if (advert.dataBytes > kLeLegacyAdvertisingBytes ||
+            advert.addressType > 1U || advert.eventType > 4U)
+        {
+            return LeAirDropStatus::InvalidArgument;
+        }
+        const uint8_t *const data = advert.data.data();
+        LeAirDropHint candidate {};
+        bool found = false;
+        size_t offset = 0U;
+        while (offset < advert.dataBytes)
+        {
+            const size_t length = *usbByteOffset(data, offset);
+            if (length == 0U)
+            {
+                if (!allZero(usbByteOffset(data, offset),
+                             advert.dataBytes - offset))
+                {
+                    return LeAirDropStatus::Malformed;
+                }
+                break;
+            }
+            if (length > advert.dataBytes - offset - 1U)
+            {
+                return LeAirDropStatus::Malformed;
+            }
+            const size_t end = offset + length + 1U;
+            if (length >= kManufacturerPrefixBytes &&
+                *usbByteOffset(data, offset + 1U) == kManufacturerAdType &&
+                *usbByteOffset(data, offset + 2U) == kAppleCompanyLow &&
+                *usbByteOffset(data, offset + 3U) == kAppleCompanyHigh)
+            {
+                const LeAirDropStatus status =
+                    parseAppleTlvs(data, offset + 1U + kManufacturerPrefixBytes,
+                                   end, candidate, found);
+                if (status != LeAirDropStatus::Absent)
+                {
+                    return status;
+                }
+            }
+            offset = end;
+        }
+        if (!found)
+        {
+            return LeAirDropStatus::Absent;
+        }
+        candidate.address = advert.address;
+        candidate.addressType = advert.addressType;
+        candidate.rssi = advert.rssi;
+        out = candidate;
+        return LeAirDropStatus::Found;
+    }
 
     LeDiscoveryResult beginLePassiveScan(LeDiscoveryState &state,
                                          UsbHciState &transport,
