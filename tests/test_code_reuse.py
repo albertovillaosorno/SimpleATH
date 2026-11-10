@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 from typing import cast
 import unittest
 from unittest import mock
-import urllib.request
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -78,8 +77,8 @@ class ReferenceAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with mock.patch.object(
-                urllib.request,
-                "urlopen",
+                ref_download,
+                "_open_pinned_https",
                 return_value=io.BytesIO(archive),
             ) as network:
                 records = ref_download.download(repository, root)
@@ -93,8 +92,8 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             _ = ledger.write_text(json.dumps(row) + "\n")
             reviewed = ledger.read_bytes()
             with mock.patch.object(
-                urllib.request,
-                "urlopen",
+                ref_download,
+                "_open_pinned_https",
                 side_effect=AssertionError("offline means no network"),
             ):
                 cached = ref_download.download(repository, root, offline=True)
@@ -120,6 +119,43 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             with expect_exception(ValueError, "Unsafe"):
                 _ = ref_download.extract_sources(archive, checkout)
             assert not ((root / "outside.txt").exists())
+
+    @staticmethod
+    def test_https_endpoint_requires_pinned_hosts() -> None:
+        """Reject schemes, authorities, ports and redirected host tricks."""
+        valid_url = "https://codeload.github.com/example/repo/tar.gz/pin"
+        assert ref_download.source_https_endpoint(valid_url) == (
+            "codeload.github.com",
+            "/example/repo/tar.gz/pin",
+        )
+        invalid_urls = (
+            "http://codeload.github.com/example/repo",
+            "https://untrusted.example.com/example/repo",
+            "https://codeload.github.com:8443/example/repo",
+            "https://user@codeload.github.com/example/repo",
+            "https://codeload.github.com/example/repo#fragment",
+        )
+        for url in invalid_urls:
+            with expect_exception(ValueError):
+                _ = ref_download.source_https_endpoint(url)
+
+    @staticmethod
+    def test_archive_symlink_cannot_escape_checkout() -> None:
+        """Reject tar symlinks pointing outside the extraction root."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "escape.tar.gz"
+            with tarfile.open(archive, "w:gz") as bundle:
+                entry = tarfile.TarInfo("fixture/escape")
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = "../../outside.txt"
+                bundle.addfile(entry)
+            checkout = root / "tree"
+            checkout.mkdir()
+            with expect_exception(ValueError, "Unsafe upstream symlink"):
+                _ = ref_download.extract_sources(archive, checkout)
+            assert not (checkout / "escape").exists()
+            assert not (root / "outside.txt").exists()
 
     @staticmethod
     def test_missing_offline_cache_is_an_error() -> None:
@@ -164,15 +200,15 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             )
             before = ledger.read_bytes()
             with mock.patch.object(
-                urllib.request,
-                "urlopen",
+                ref_download,
+                "_open_pinned_https",
                 return_value=io.BytesIO(payload),
             ):
                 assert ref_download.download_linux(root) == 1
             assert (root / linux_source).read_bytes() == payload
             with mock.patch.object(
-                urllib.request,
-                "urlopen",
+                ref_download,
+                "_open_pinned_https",
                 side_effect=AssertionError("offline"),
             ):
                 assert ref_download.download_linux(root, offline=True) == 1
@@ -199,8 +235,8 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             _ = (root / "ledger.jsonl").write_text(json.dumps(row) + "\n")
             with (
                 mock.patch.object(
-                    urllib.request,
-                    "urlopen",
+                    ref_download,
+                    "_open_pinned_https",
                     return_value=io.BytesIO(b"incorrect"),
                 ),
                 expect_exception(ValueError, "hash mismatch"),
@@ -255,8 +291,8 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             metadata.parent.mkdir()
             _ = metadata.write_bytes(GIT_METADATA)
             with mock.patch.object(
-                urllib.request,
-                "urlopen",
+                ref_download,
+                "_open_pinned_https",
                 return_value=io.BytesIO(archive.getvalue()),
             ):
                 records = ref_download.download(repository, root)
