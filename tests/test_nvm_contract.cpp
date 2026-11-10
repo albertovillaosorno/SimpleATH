@@ -3,16 +3,47 @@
 // All registers, time and ownership are synthetic callbacks; no device I/O.
 #include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565NvmReader.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
 namespace
 {
+    constexpr uint32_t kNvmGoodWord = 0x3412U;
+    constexpr uint32_t kNvmLowByte = 0x12U;
+    constexpr uint32_t kNvmHighByte = 0x34U;
+    constexpr uint32_t kReadEepromTrigger = 0x2000U;
+    constexpr uint32_t kReadEepromStatus = 0x4084U;
+    constexpr uint32_t kNativeBarBytes = 0x16000U;
+    constexpr uint32_t kRevisionShift = 12U;
+    constexpr uint32_t kRevisionMask = 0xffU;
+    constexpr uint32_t kNvmBusy = 0x10000U;
+    constexpr uint32_t kNvmUnstableStatus = 0x20000U;
+    constexpr uint32_t kNvmProtected = 0x40000U;
+    constexpr uint32_t kNvmAbsent = 0x80000U;
+    constexpr uint32_t kNvmInvalidStatus = 0xffffffffU;
+    constexpr uint64_t kRollbackTimestamp = 99U;
+    constexpr uint64_t kForwardTimestamp = 100U;
+    constexpr uint8_t kFillByte = 0xaaU;
+    constexpr uint8_t kSentinel = 0xa5U;
+    constexpr uint8_t kTrailingByte = 0x5aU;
+    constexpr uint8_t kGuardByte = 0xffU;
+    constexpr size_t kWordBytes = 2U;
+    constexpr int kRevokeAtStartFailed = 5;
+    constexpr int kRevokeAfterTriggerFailed = 6;
+    constexpr int kRevokeDuringWaitFailed = 7;
+    constexpr int kRevokeDuringBudgetFailed = 8;
+    constexpr int kBackendAliasFailed = 9;
+    constexpr int kIdentityAliasFailed = 10;
+    constexpr int kRevokeAtPublicationFailed = 11;
+    constexpr int kPoisonedStatusFailed = 12;
+    constexpr int kPoisonedBackendFailed = 13;
+
     struct FakeNvm
     {
             uint32_t statusReads = 0;
             uint32_t registerReads = 0;
-            uint32_t finalStatus = 0x3412;
+            uint32_t finalStatus = kNvmGoodWord;
             uint32_t firstStatus = 0;
             uint32_t clockReads = 0;
             uint32_t ownerChecks = 0;
@@ -72,17 +103,19 @@ namespace
         switch (offset)
         {
             case simpleath::kRevisionRegister:
-                *value = (static_cast<uint32_t>(simpleath::kMacFamily) << 12) |
-                         0xffU;
+                *value = (static_cast<uint32_t>(simpleath::kMacFamily)
+                          << kRevisionShift) |
+                         kRevisionMask;
                 break;
             case simpleath::kRtcStatusRegister:
                 *value = simpleath::kRtcOn;
                 break;
-            case 0x2000: // EEPROM trigger window.
+            case kReadEepromTrigger: // EEPROM trigger window.
                 *value = 0;
                 fake.triggerSeen = true;
                 break;
-            case 0x4084: // Ready sample followed by payload/status re-read.
+            case kReadEepromStatus: // Ready sample followed by payload/status
+                                    // re-read.
                 *value = ++fake.statusReads == 1 ? fake.firstStatus
                                                  : fake.finalStatus;
                 if (fake.statusReads == 2 && (fake.poisonStatus != nullptr))
@@ -130,7 +163,8 @@ namespace
             fake.revokeDuringWaitTimestamp = false;
             fake.d0 = false;
         }
-        return fake.backwards && fake.clockReads > 1 ? 99 : 100;
+        return fake.backwards && fake.clockReads > 1 ? kRollbackTimestamp
+                                                     : kForwardTimestamp;
     }
 
     void delay(void *context, uint32_t /*unused*/)
@@ -142,75 +176,109 @@ namespace
         }
     }
 
-    simpleath::NvmResult capture(FakeNvm &fake, uint8_t (&bytes)[2],
+    simpleath::NvmResult capture(FakeNvm &fake,
+                                 std::array<uint8_t, kWordBytes> &bytes,
                                  simpleath::NvmReadStatus &status)
     {
         const simpleath::NvmReadBackend backend {
-            &fake, owned, read, clock, delay, 0x16000,
+            &fake, owned, read, clock, delay, kNativeBarBytes,
         };
         const simpleath::Identity identity {
             simpleath::kPciVendor, simpleath::kPciDevice, 0, 0, false,
         };
         return simpleath::captureAr9565Nvm(backend, identity,
-                                           simpleath::NvmSource::Eeprom, bytes,
-                                           sizeof(bytes), status);
+                                           simpleath::NvmSource::Eeprom,
+                                           bytes.data(), bytes.size(), status);
     }
+
+    bool rejectFinalFaults(FakeNvm &fake,
+                           std::array<uint8_t, kWordBytes> &bytes,
+                           simpleath::NvmReadStatus &status)
+    {
+        using simpleath::NvmResult;
+        constexpr std::array<uint32_t, 5U> faults {
+            kNvmAbsent,         kNvmProtected,     kNvmBusy,
+            kNvmUnstableStatus, kNvmInvalidStatus,
+        };
+        constexpr std::array<NvmResult, 5U> expected {
+            NvmResult::StorageAbsent,      NvmResult::ProtectedAccess,
+            NvmResult::UnstableStatus,     NvmResult::UnstableStatus,
+            NvmResult::RegisterReadFailed,
+        };
+        for (size_t i = 0; i < faults.size(); ++i)
+        {
+            fake = {};
+            fake.finalStatus = faults.at(i);
+            bytes.fill(kFillByte);
+            if (capture(fake, bytes, status) != expected.at(i) ||
+                status.captureComplete || fake.statusReads != 2 ||
+                (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool rejectEarlyFaults(FakeNvm &fake,
+                           std::array<uint8_t, kWordBytes> &bytes,
+                           simpleath::NvmReadStatus &status)
+    {
+        using simpleath::NvmResult;
+        // Protected or absent access at the FIRST status sample is terminal:
+        // neither fault may be polled until a timeout or read as payload.
+        constexpr std::array<uint32_t, 2U> earlyFaults {
+            kNvmProtected,
+            kNvmAbsent,
+        };
+        constexpr std::array<NvmResult, 2U> earlyExpected {
+            NvmResult::ProtectedAccess,
+            NvmResult::StorageAbsent,
+        };
+        for (size_t i = 0; i < earlyFaults.size(); ++i)
+        {
+            fake = {};
+            fake.firstStatus = earlyFaults.at(i);
+            bytes.fill(kFillByte);
+            if (capture(fake, bytes, status) != earlyExpected.at(i) ||
+                fake.statusReads != 1 || status.polls != 1 ||
+                status.captureComplete || (bytes.at(0U) != 0U) ||
+                (bytes.at(1U) != 0U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
 } // namespace
 
 int main()
 {
     using simpleath::NvmResult;
     FakeNvm fake {};
-    uint8_t bytes[2] {0xaa, 0xaa};
+    std::array<uint8_t, kWordBytes> bytes {kFillByte, kFillByte};
     simpleath::NvmReadStatus status {};
     if (capture(fake, bytes, status) != NvmResult::Ok ||
-        !status.captureComplete || status.bytesAcquired != sizeof(bytes) ||
-        fake.statusReads != 2 || bytes[0] != 0x12 || bytes[1] != 0x34)
+        !status.captureComplete || status.bytesAcquired != bytes.size() ||
+        fake.statusReads != 2 || bytes.at(0U) != kNvmLowByte ||
+        bytes.at(1U) != kNvmHighByte)
     {
         return 1;
     }
-    const uint32_t faults[] = {0x80000, 0x40000, 0x10000, 0x20000, 0xffffffffU};
-    const NvmResult expected[] = {
-        NvmResult::StorageAbsent,      NvmResult::ProtectedAccess,
-        NvmResult::UnstableStatus,     NvmResult::UnstableStatus,
-        NvmResult::RegisterReadFailed,
-    };
-    for (size_t i = 0; i < sizeof(faults) / sizeof(faults[0]); ++i)
+    if (!rejectFinalFaults(fake, bytes, status))
     {
-        fake = {};
-        fake.finalStatus = faults[i];
-        bytes[0] = bytes[1] = 0xaa;
-        if (capture(fake, bytes, status) != expected[i] ||
-            status.captureComplete || fake.statusReads != 2 ||
-            (bytes[0] != 0U) || (bytes[1] != 0U))
-        {
-            return 2;
-        }
+        return 2;
     }
-    // Protected or absent access at the FIRST status sample is terminal:
-    // neither fault may be polled until a timeout or read as payload.
-    const uint32_t earlyFaults[] = {0x40000, 0x80000};
-    const NvmResult earlyExpected[] = {
-        NvmResult::ProtectedAccess,
-        NvmResult::StorageAbsent,
-    };
-    for (size_t i = 0; i < sizeof(earlyFaults) / sizeof(earlyFaults[0]); ++i)
+    if (!rejectEarlyFaults(fake, bytes, status))
     {
-        fake = {};
-        fake.firstStatus = earlyFaults[i];
-        bytes[0] = bytes[1] = 0xaa;
-        if (capture(fake, bytes, status) != earlyExpected[i] ||
-            fake.statusReads != 1 || status.polls != 1 ||
-            status.captureComplete || (bytes[0] != 0U) || (bytes[1] != 0U))
-        {
-            return 3;
-        }
+        return 3;
     }
     fake = {};
     fake.backwards = true;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::InvalidClock ||
-        status.captureComplete || (bytes[0] != 0U) || (bytes[1] != 0U))
+        status.captureComplete || (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
     {
         return 4;
     }
@@ -218,68 +286,68 @@ int main()
     // Even a monotonic timer callback can require the owner's live context.
     fake = {};
     fake.d0 = false;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
         fake.ownerChecks != 1 || fake.clockReads != 0 ||
-        fake.registerReads != 0 || status.captureComplete || (bytes[0] != 0U) ||
-        (bytes[1] != 0U))
+        fake.registerReads != 0 || status.captureComplete ||
+        (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
     {
-        return 5;
+        return kRevokeAtStartFailed;
     }
 
     // The post-trigger timestamp can revoke its owner after the read's last
     // successful D0 preflight. The next timer call checks ownership anew.
     fake = {};
     fake.revokeAfterTriggerTimestamp = true;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
         !fake.triggerSeen || fake.clocksAfterRevocation != 0 ||
-        fake.statusReads != 0 || status.captureComplete || (bytes[0] != 0U) ||
-        (bytes[1] != 0U))
+        fake.statusReads != 0 || status.captureComplete ||
+        (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
     {
-        return 6;
+        return kRevokeAfterTriggerFailed;
     }
 
     // The clock may revoke the owner during the busy-status timestamp. Do not
     // invoke even a bounded delay callback with that invalidated context.
     fake = {};
-    fake.firstStatus = 0x10000;
+    fake.firstStatus = kNvmBusy;
     fake.revokeDuringWaitTimestamp = true;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
         fake.statusReads != 1 || fake.clocksAfterFirstStatus != 2 ||
         fake.delaysAfterRevocation != 0 || status.captureComplete ||
-        (bytes[0] != 0U) || (bytes[1] != 0U))
+        (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
     {
-        return 7;
+        return kRevokeDuringWaitFailed;
     }
 
     // A monotonic time callback can revoke D0 during the first read budget.
     // It is not safe to read even the silicon revision register afterward.
     fake = {};
     fake.revokeDuringFirstBudgetClock = true;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
         fake.clockReads != 2 || fake.registerReads != 0 ||
         fake.readsAfterRevocation != 0 || status.captureComplete ||
-        (bytes[0] != 0U) || (bytes[1] != 0U))
+        (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U))
     {
-        return 8;
+        return kRevokeDuringBudgetFailed;
     }
     // The last payload read may finish its post-clock D0 check and copy its
     // bytes while the provider loses power. A direct caller must not receive
     // captureComplete or retained data without a fresh publication gate.
     fake = {};
     fake.revokeAfterFinalPayloadCheck = true;
-    bytes[0] = bytes[1] = 0xaa;
+    bytes.fill(kFillByte);
     if (capture(fake, bytes, status) != NvmResult::SessionUnavailable ||
         fake.d0 || fake.finalPayloadOwnerChecks != 3 ||
         (fake.readsAfterRevocation != 0U) ||
         (fake.clocksAfterRevocation != 0U) || status.captureComplete ||
-        (bytes[0] != 0U) || (bytes[1] != 0U) ||
-        status.bytesAcquired != sizeof(bytes))
+        (bytes.at(0U) != 0U) || (bytes.at(1U) != 0U) ||
+        status.bytesAcquired != bytes.size())
     {
-        return 11;
+        return kRevokeAtPublicationFailed;
     }
 
     // Opaque callback state must not be borrowed from the callback table or
@@ -290,59 +358,66 @@ int main()
         simpleath::kPciVendor, simpleath::kPciDevice, 0, 0, false,
     };
     simpleath::NvmReadBackend aliasedBackend {
-        nullptr, neverOwned, read, clock, delay, 0x16000,
+        nullptr, neverOwned, read, clock, delay, kNativeBarBytes,
     };
     aliasedBackend.context = &aliasedBackend;
-    bytes[0] = bytes[1] = 0xa5;
+    bytes.fill(kSentinel);
     status.result = NvmResult::Ok;
     if (simpleath::captureAr9565Nvm(
-            aliasedBackend, identity, simpleath::NvmSource::Eeprom, bytes,
-            sizeof(bytes), status) != NvmResult::InvalidArgument ||
-        status.result != NvmResult::Ok || bytes[0] != 0xa5 || bytes[1] != 0xa5)
+            aliasedBackend, identity, simpleath::NvmSource::Eeprom,
+            bytes.data(), bytes.size(), status) != NvmResult::InvalidArgument ||
+        status.result != NvmResult::Ok || bytes.at(0U) != kSentinel ||
+        bytes.at(1U) != kSentinel)
     {
-        return 9;
+        return kBackendAliasFailed;
     }
     simpleath::Identity mutableIdentity = identity;
     aliasedBackend.context = &mutableIdentity;
     if (simpleath::captureAr9565Nvm(
             aliasedBackend, mutableIdentity, simpleath::NvmSource::Eeprom,
-            bytes, sizeof(bytes), status) != NvmResult::InvalidArgument ||
-        status.result != NvmResult::Ok || bytes[0] != 0xa5 || bytes[1] != 0xa5)
+            bytes.data(), bytes.size(), status) != NvmResult::InvalidArgument ||
+        status.result != NvmResult::Ok || bytes.at(0U) != kSentinel ||
+        bytes.at(1U) != kSentinel)
     {
-        return 10;
+        return kIdentityAliasFailed;
     }
     // Callback retaining separate status pointer cannot redirect copied bytes
     // outside the declared output length or forge the acquired byte count.
     fake = {};
     fake.poisonStatus = &status;
     simpleath::NvmReadBackend safeBackend {
-        &fake, owned, read, clock, delay, 0x16000,
+        &fake, owned, read, clock, delay, kNativeBarBytes,
     };
-    uint8_t guarded[4] {0xff, 0xff, 0xa5, 0x5a};
-    if (simpleath::captureAr9565Nvm(safeBackend, identity,
-                                    simpleath::NvmSource::Eeprom, guarded, 2,
-                                    status) != NvmResult::Ok ||
+    std::array<uint8_t, 4U> guarded {
+        kGuardByte,
+        kGuardByte,
+        kSentinel,
+        kTrailingByte,
+    };
+    if (simpleath::captureAr9565Nvm(
+            safeBackend, identity, simpleath::NvmSource::Eeprom, guarded.data(),
+            kWordBytes, status) != NvmResult::Ok ||
         !status.captureComplete || status.bytesAcquired != 2 ||
-        guarded[0] != 0x12 || guarded[1] != 0x34 || guarded[2] != 0xa5 ||
-        guarded[3] != 0x5a)
+        guarded.at(0U) != kNvmLowByte || guarded.at(1U) != kNvmHighByte ||
+        guarded.at(2U) != kSentinel || guarded.at(3U) != kTrailingByte)
     {
-        return 12;
+        return kPoisonedStatusFailed;
     }
 
     // A callback's separately retained pointer to the input table cannot
     // silently redirect the next MMIO read to a different function.
     fake = {};
     fake.poisonBackend = &safeBackend;
-    safeBackend = {&fake, owned, read, clock, delay, 0x16000};
-    uint8_t words[2] {};
+    safeBackend = {&fake, owned, read, clock, delay, kNativeBarBytes};
+    std::array<uint8_t, kWordBytes> words {};
     if (simpleath::captureAr9565Nvm(safeBackend, identity,
-                                    simpleath::NvmSource::Eeprom, words,
-                                    sizeof(words), status) != NvmResult::Ok ||
+                                    simpleath::NvmSource::Eeprom, words.data(),
+                                    words.size(), status) != NvmResult::Ok ||
         !status.captureComplete || status.bytesAcquired != 2 ||
-        words[0] != 0x12 || words[1] != 0x34 ||
+        words.at(0U) != kNvmLowByte || words.at(1U) != kNvmHighByte ||
         safeBackend.read32 != failingRead)
     {
-        return 13;
+        return kPoisonedBackendFailed;
     }
     return 0;
 }
