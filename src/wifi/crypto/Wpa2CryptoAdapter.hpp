@@ -88,10 +88,10 @@ namespace simpleath
                                       const uint8_t key[kAesKeyBytes],
                                       const uint8_t keyRsc[kWpa2KeyRscBytes]);
                     static void remove(void *context);
-                    KeyHardware hardware_;
-                    bool configured_;
+                    KeyHardware hardware_ {};
+                    bool configured_ {false};
                     // Revokes in-flight provider results on clear/reconfigure.
-                    uint64_t generation_;
+                    uint64_t generation_ {0};
             };
 
         } // namespace crypto
