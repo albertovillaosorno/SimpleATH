@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "hardware/Ar9003Descriptors.hpp"
@@ -16,6 +16,7 @@
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
 #include "wifi/Frames.hpp"
+#include "wifi/LegacyScanBridge.hpp"
 #include "wifi/LinkMonitor.hpp"
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
@@ -26,6 +27,7 @@
 #include <IOKit/IOLocks.h>
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
+#include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/pwr_mgt/IOPM.h>
 #include <cstddef>
@@ -69,11 +71,18 @@ namespace
     constexpr uint8_t kSequenceFragmentBits = 4;
     constexpr uint8_t kByteBits = 8;
     constexpr uint64_t kMicrosPerMillisecond = 1000;
+    constexpr uint16_t kNativePassiveDwellMs = 120;
 
     struct NativeTransmitRequest
     {
             const uint8_t *bytes;
             size_t length;
+    };
+
+    struct NativeScanResultRequest
+    {
+            uint64_t generation;
+            simpleath::ieee80211::NativeBssSnapshot *result;
     };
 
     struct NativeSubscribeRequest
@@ -140,6 +149,15 @@ class SimpleATH final : public IOService
             if (added != kIOReturnSuccess)
                 return failStart(provider, "CommandGate", added);
             gateAttached_ = true;
+            scanTimer_ = IOTimerEventSource::timerEventSource(
+                kIOTimerEventSourceOptionsPriorityWorkLoop, this,
+                scanTimerFired);
+            if (!scanTimer_)
+                return failStart(provider, "ScanTimer", kIOReturnNoMemory);
+            const IOReturn timerAdded = loop_->addEventSource(scanTimer_);
+            if (timerAdded != kIOReturnSuccess)
+                return failStart(provider, "ScanTimer", timerAdded);
+            scanTimerAttached_ = true;
             access_.owner = this;
             const simpleath::NativePciPowerGate power {&access_, poweredGate};
             if (!backend_.configure(this, pci_, power))
@@ -330,6 +348,8 @@ class SimpleATH final : public IOService
                     // observation. Do not invent live RSSI/noise/country.
                 }
             }
+            out.scanning = self.scanBridge_.status().radioScanRunning &&
+                           self.scanEpoch_ == self.epoch_;
             out.powered = self.powered_;
             out.radioAvailable =
                 liveRfKill && self.radioOperational_ &&
@@ -389,28 +409,299 @@ class SimpleATH final : public IOService
                        : kIOReturnUnsupported;
         }
 
-        static IOReturn ownerBeginScan(void *, uint64_t *generation)
+        // The platform scan contract uses bridge generations, not the
+        // separate WifiEngine dwell generation. Only a real, calibrated,
+        // verified on-channel receiver can enter this path: NVM acquisition,
+        // a registry property, or a queued DMA map is not a tuning proof.
+        static IOReturn ownerBeginScanAction(OSObject *object, void *argument,
+                                             void *unused1, void *unused2,
+                                             void *unused3)
         {
-            if (!generation)
-                return kIOReturnBadArgument;
-            *generation = 0;
-            // No authorized dwell itinerary or tuned RF receiver exists yet.
-            return kIOReturnNotReady;
+            (void)unused1;
+            (void)unused2;
+            (void)unused3;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            auto &generation = *static_cast<uint64_t *>(argument);
+            generation = 0;
+            if (self.scanTimer_ == nullptr || !self.powered_ ||
+                self.stopping_ || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.verifiedReceiveChannel_ == 0 ||
+                self.board_.view(self.epoch_) == nullptr ||
+                self.queues_.epoch() != self.epoch_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running)
+            {
+                return kIOReturnNotReady;
+            }
+            if (self.scanBridge_.status().radioScanRunning ||
+                self.scanSerial_ == UINT32_MAX)
+            {
+                return kIOReturnBusy;
+            }
+            simpleath::ieee80211::ScanBridgeTicket ticket {};
+            const uint32_t serial = self.scanSerial_ + 1U;
+            if (self.scanBridge_.beginScan(serial, ticket) !=
+                simpleath::ieee80211::ScanBridgeResult::Ok)
+            {
+                return kIOReturnBusy;
+            }
+            self.scanSerial_ = serial;
+            // Until real channel hopping/OS regulatory selection is joined to
+            // RF reset, limit this scan to the physically confirmed channel.
+            // Never enumerate guessed country channels or send probe frames.
+            const simpleath::ieee80211::ScanChannelDwell dwell {
+                self.verifiedReceiveChannel_,
+                kNativePassiveDwellMs,
+            };
+            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            uint64_t engineGeneration = 0;
+            const simpleath::ieee80211::ScanScheduleRequest schedule {
+                &dwell, 1U, now, true, true,
+            };
+            const auto started =
+                self.engine_.beginChannelScan(schedule, engineGeneration);
+            simpleath::ieee80211::ScanProgress first {};
+            const bool tuned =
+                started == simpleath::ieee80211::EngineResult::Ok &&
+                self.engine_.pollChannelScan(now, first) ==
+                    simpleath::ieee80211::EngineResult::Ok &&
+                first.kind ==
+                    simpleath::ieee80211::ScanProgressKind::TuneRequired &&
+                first.channel == self.verifiedReceiveChannel_ &&
+                self.engine_.acknowledgeChannelTune(
+                    {engineGeneration, first.channel, now, true}) ==
+                    simpleath::ieee80211::EngineResult::Ok;
+            if (!tuned || self.scanTimer_->setTimeoutMS(
+                              kNativePassiveDwellMs) != kIOReturnSuccess)
+            {
+                // A failed timer or incomplete engine transition cannot
+                // publish a completion, let alone an unobserved BSS.
+                if (started == simpleath::ieee80211::EngineResult::Ok)
+                {
+                    (void)self.engine_.cancelChannelScan(engineGeneration);
+                }
+                (void)self.scanBridge_.completeScan(self.engine_.scan(), ticket,
+                                                    false);
+                (void)self.scanBridge_.acknowledgeCompletion(ticket);
+                return kIOReturnNotReady;
+            }
+            self.scanEpoch_ = self.epoch_;
+            self.scanEngineGeneration_ = engineGeneration;
+            self.scanTicket_ = ticket;
+            generation = ticket.generation;
+            return kIOReturnSuccess;
         }
 
-        static IOReturn ownerCancelScan(void *, uint64_t)
+        static IOReturn ownerBeginScan(void *context, uint64_t *generation)
         {
-            return kIOReturnNotReady;
+            if (context == nullptr || generation == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            *generation = 0;
+            const auto &self = *static_cast<SimpleATH *>(context);
+            return self.gate_ == nullptr
+                       ? kIOReturnNotReady
+                       : self.gate_->runAction(ownerBeginScanAction,
+                                               generation);
+        }
+
+        static IOReturn ownerCancelScanAction(OSObject *object, void *argument,
+                                              void *unused1, void *unused2,
+                                              void *unused3)
+        {
+            (void)unused1;
+            (void)unused2;
+            (void)unused3;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const uint64_t expected = *static_cast<const uint64_t *>(argument);
+            if (self.scanEpoch_ != self.epoch_ ||
+                self.scanEngineGeneration_ == 0 ||
+                self.scanTicket_.generation != expected ||
+                !self.scanBridge_.status().radioScanRunning)
+            {
+                return kIOReturnBadArgument;
+            }
+            if (self.engine_.cancelChannelScan(self.scanEngineGeneration_) !=
+                simpleath::ieee80211::EngineResult::Ok)
+            {
+                return kIOReturnNotReady;
+            }
+            self.scanTimer_->cancelTimeout();
+            self.scanEngineGeneration_ = 0;
+            self.scanEpoch_ = 0;
+            const auto cancelled = self.scanTicket_;
+            self.scanTicket_ = {};
+            // Keep the previous genuinely completed snapshot readable while
+            // invalidating the newly cancelled in-flight generation.
+            (void)self.scanBridge_.completeScan(self.engine_.scan(), cancelled,
+                                                false);
+            self.notifyWirelessScanFinished();
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerCancelScan(void *context, uint64_t generation)
+        {
+            if (context == nullptr || generation == 0)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            return self.gate_ == nullptr
+                       ? kIOReturnNotReady
+                       : self.gate_->runAction(ownerCancelScanAction,
+                                               &generation);
+        }
+
+        static IOReturn ownerNextBssAction(OSObject *object, void *argument,
+                                           void *unused1, void *unused2,
+                                           void *unused3)
+        {
+            (void)unused1;
+            (void)unused2;
+            (void)unused3;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto &request =
+                *static_cast<const NativeScanResultRequest *>(argument);
+            if (!self.powered_ || self.stopping_)
+            {
+                return kIOReturnNotReady;
+            }
+            const auto ticket =
+                request.generation == self.completedScanTicket_.generation
+                    ? self.completedScanTicket_
+                    : self.scanTicket_;
+            if (ticket.generation != request.generation || ticket.serial == 0)
+            {
+                return kIOReturnNotReady;
+            }
+            const auto result = self.scanBridge_.next(ticket, *request.result);
+            if (result == simpleath::ieee80211::ScanBridgeResult::Ok)
+            {
+                return kIOReturnSuccess;
+            }
+            if (result == simpleath::ieee80211::ScanBridgeResult::NoResult)
+            {
+                // A cancelled/failed scan must not be disguised as a
+                // successful, empty result set. The previous successful
+                // snapshot remains enumerable during a newer scan.
+                const auto &status = self.scanBridge_.status();
+                return status.completeSnapshotAvailable &&
+                               status.completedGeneration == request.generation
+                           ? kIOReturnNotFound
+                           : kIOReturnNotReady;
+            }
+            return result == simpleath::ieee80211::ScanBridgeResult::
+                                 ScanInProgress
+                       ? kIOReturnBusy
+                       : kIOReturnNotReady;
         }
 
         static IOReturn
-        ownerNextBss(void *, uint64_t,
+        ownerNextBss(void *context, uint64_t generation,
                      simpleath::ieee80211::NativeBssSnapshot *out)
         {
-            if (!out)
+            if (context == nullptr || out == nullptr || generation == 0)
+            {
                 return kIOReturnBadArgument;
+            }
             *out = {};
-            return kIOReturnNotReady;
+            const auto &self = *static_cast<SimpleATH *>(context);
+            NativeScanResultRequest request {generation, out};
+            return self.gate_ == nullptr
+                       ? kIOReturnNotReady
+                       : self.gate_->runAction(ownerNextBssAction, &request);
+        }
+
+        static void scanTimerFired(OSObject *owner, IOTimerEventSource *unused)
+        {
+            (void)unused;
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(owner);
+            if (self.loop_ == nullptr || !self.loop_->inGate() ||
+                self.scanEpoch_ != self.epoch_ ||
+                self.scanEngineGeneration_ == 0 || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running)
+            {
+                self.scanEngineGeneration_ = 0;
+                self.scanEpoch_ = 0;
+                self.scanTicket_ = {};
+                self.scanBridge_.clear();
+                return;
+            }
+            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            simpleath::ieee80211::ScanProgress progress {};
+            const auto polled = self.engine_.pollChannelScan(now, progress);
+            if (polled != simpleath::ieee80211::EngineResult::Ok)
+            {
+                (void)self.engine_.cancelChannelScan(
+                    self.scanEngineGeneration_);
+                (void)self.scanBridge_.completeScan(self.engine_.scan(),
+                                                    self.scanTicket_, false);
+                self.scanEngineGeneration_ = 0;
+                self.scanEpoch_ = 0;
+                self.notifyWirelessScanFinished();
+                return;
+            }
+            if (progress.kind ==
+                simpleath::ieee80211::ScanProgressKind::Dwelling)
+            {
+                const uint64_t remaining = progress.deadlineMs - now;
+                // A workloop timer can run early. Preserve the entire
+                // required passive dwell instead of claiming instant RX.
+                if (remaining > 0 && remaining <= kNativePassiveDwellMs &&
+                    self.scanTimer_->setTimeoutMS(
+                        static_cast<uint32_t>(remaining)) == kIOReturnSuccess)
+                {
+                    return;
+                }
+            }
+            const bool completed =
+                progress.kind ==
+                simpleath::ieee80211::ScanProgressKind::Complete;
+            if (self.scanBridge_.completeScan(self.engine_.scan(),
+                                              self.scanTicket_, completed) ==
+                simpleath::ieee80211::ScanBridgeResult::Ok)
+            {
+                self.completedScanTicket_ = self.scanTicket_;
+            }
+            if (!completed)
+            {
+                (void)self.engine_.cancelChannelScan(
+                    self.scanEngineGeneration_);
+            }
+            self.scanEngineGeneration_ = 0;
+            self.scanEpoch_ = 0;
+            self.notifyWirelessScanFinished();
+        }
+
+        void notifyWirelessScanFinished()
+        {
+            if (observerLock_ == nullptr)
+            {
+                return;
+            }
+            IOLockLock(observerLock_);
+            if (wirelessObserver_ != nullptr && wirelessNotify_ != nullptr)
+            {
+                wirelessNotify_(wirelessObserver_,
+                                simpleath::tahoe::WirelessEvent::ScanFinished,
+                                epoch_);
+            }
+            IOLockUnlock(observerLock_);
+            // The callback contract enqueues its own event before returning;
+            // the bridge's pending ticket can now admit a new scan. A child
+            // that failed to receive it must request a fresh scan.
+            simpleath::ieee80211::ScanBridgeCompletion done {};
+            if (scanBridge_.completion(done) ==
+                simpleath::ieee80211::ScanBridgeResult::Ok)
+            {
+                scanBridge_.acknowledgeCompletion(done.ticket);
+            }
         }
 
         static IOReturn ownerConnectAction(OSObject *object, void *argument,
@@ -2125,6 +2416,16 @@ class SimpleATH final : public IOService
                                   simpleath::ProviderAccess::Available);
                 queuesAdopted_ = false;
             }
+            if (scanTimer_ != nullptr)
+            {
+                scanTimer_->cancelTimeout();
+            }
+            scanBridge_.clear();
+            scanTicket_ = {};
+            completedScanTicket_ = {};
+            scanEpoch_ = 0;
+            scanEngineGeneration_ = 0;
+            verifiedReceiveChannel_ = 0;
             radioOperational_ = false;
             channelAuthorized_ = false;
             engine_.radioStopped(nowMicros(nullptr) / 1000, true);
@@ -2230,6 +2531,17 @@ class SimpleATH final : public IOService
 
         void cleanup()
         {
+            if (scanTimer_ != nullptr)
+            {
+                scanTimer_->cancelTimeout();
+                if (scanTimerAttached_ && loop_ != nullptr)
+                {
+                    loop_->removeEventSource(scanTimer_);
+                }
+                scanTimer_->release();
+                scanTimer_ = nullptr;
+                scanTimerAttached_ = false;
+            }
             backend_.clear();
             if (lifecycle_)
             {
@@ -2278,6 +2590,17 @@ class SimpleATH final : public IOService
         bool controlledPortAuthorized_ {false};
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
+        simpleath::ieee80211::LegacyScanBridge scanBridge_;
+        simpleath::ieee80211::ScanBridgeTicket scanTicket_ {};
+        simpleath::ieee80211::ScanBridgeTicket completedScanTicket_ {};
+        IOTimerEventSource *scanTimer_ {nullptr};
+        uint64_t scanEpoch_ {0};
+        uint64_t scanEngineGeneration_ {0};
+        uint32_t scanSerial_ {0};
+        // Only a successful, physically authorized RF tune can set this;
+        // the current board-acquisition-only boot intentionally cannot.
+        uint8_t verifiedReceiveChannel_ {0};
+        bool scanTimerAttached_ {false};
         uint8_t managementReply_[4096] {};
         uint8_t ethernetRx_[kNativeEthernetCapacity] {};
         uint8_t ethernetTx_[kNativeTxMpduCapacity] {};
