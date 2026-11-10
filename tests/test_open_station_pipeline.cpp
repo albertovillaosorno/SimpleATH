@@ -1021,6 +1021,79 @@ namespace
 
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
 
+    // Regression against independently generated OpenSSL AES-CCM group
+    // ciphertext/MIC (same vector as standalone test_ccmp.cpp). Exercise
+    // both CCMP and native-bound LLC/MSDU admission, not just decryption.
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+    bool protectedGtkMulticastReceive()
+    {
+        constexpr uint64_t kEpoch = 995U;
+        const uint8_t key[16] {
+            0U, 1U, 2U,  3U,  4U,  5U,  6U,  7U,
+            8U, 9U, 10U, 11U, 12U, 13U, 14U, 15U,
+        };
+        const uint8_t wire[] {
+            0x08U, 0x42U, 0x00U, 0x00U, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU,
+            0xffU, 0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U, 0x02U, 0x33U,
+            0x44U, 0x55U, 0x66U, 0x77U, 0x00U, 0x00U, 0x01U, 0x00U, 0x00U,
+            0x60U, 0x00U, 0x00U, 0x00U, 0x00U, 0x61U, 0xd6U, 0xd3U, 0x3dU,
+            0x81U, 0xdfU, 0x62U, 0x96U, 0x66U, 0x08U, 0x65U, 0x56U, 0x6eU,
+            0xe5U, 0x95U, 0xf7U, 0xc6U, 0xd1U, 0xfbU, 0x3bU, 0x1dU, 0xc5U,
+            0x47U, 0x1eU, 0x46U, 0xc0U, 0x3cU,
+        };
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+        crypto::CcmpSession group {};
+        crypto::CcmpSession pairwise {};
+        if (group.install(key, kAp, 1U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok ||
+            pairwise.install(key, kAp, 0U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok)
+        {
+            return false;
+        }
+        uint8_t scratch[128] {};
+        Msdu parsed {};
+        if (inspectProtectedStationRx(link, wire, sizeof(wire), false, true,
+                                      pairwise, kEpoch, scratch,
+                                      sizeof(scratch), parsed) !=
+                DataPathResult::UnverifiedDecryption ||
+            pairwise.receiveFloor() != 0U || parsed.payload != nullptr)
+        {
+            return false;
+        }
+        if (inspectProtectedStationRx(link, wire, sizeof(wire), false, true,
+                                      group, kEpoch, scratch, sizeof(scratch),
+                                      parsed) != DataPathResult::Ok ||
+            parsed.etherType != 0x0800U ||
+            parsed.payloadLength != sizeof("hello world") - 1U ||
+            !parsed.protectedFrame || parsed.destination.bytes[0U] != 0xffU ||
+            std::memcmp(parsed.payload, "hello world",
+                        sizeof("hello world") - 1U) != 0 ||
+            group.receiveFloor() != 1U)
+        {
+            return false;
+        }
+        if (inspectProtectedStationRx(link, wire, sizeof(wire), false, true,
+                                      group, kEpoch, scratch, sizeof(scratch),
+                                      parsed) !=
+                DataPathResult::UnverifiedDecryption ||
+            parsed.payload != nullptr || group.receiveFloor() != 1U)
+        {
+            return false;
+        }
+        std::memset(scratch, 0, sizeof(scratch));
+        return true;
+    }
+
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+
     // The native owner must have already verified CCMP MIC/PN and stripped
     // ExtIV/MIC; the fixture feeds the resulting plaintext MPDU with its
     // protected-frame bit preserved. This does not prove hardware RX.
@@ -1937,6 +2010,10 @@ int main()
     if (!protectedGroup1Decrypt())
     {
         return 60;
+    }
+    if (!protectedGtkMulticastReceive())
+    {
+        return 61;
     }
     if (!protectedGroup1RxAdmission())
     {
