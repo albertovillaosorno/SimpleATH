@@ -20,7 +20,7 @@ namespace simpleath
     // refuse access after revocation. PCI bus mastering must already be off.
     // delayMicros runs on the same retained, sleepable operation context.
     // Success only quiesces MAC engines; it grants no RF/TX permission.
-    MacStopResult quiesceAr9565Mac(const RegisterBus &bus,
+    MacStopResult quiesceAr9565Mac(const RegisterBus &supplied,
                                    void (*delayMicros)(void *context,
                                                        uint32_t microseconds));
 } // namespace simpleath
