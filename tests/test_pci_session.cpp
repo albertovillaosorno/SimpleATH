@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic PCI callback contract only: no IOKit, PCI hardware or kext build.
 #include "hardware/Ar9565Core.hpp"

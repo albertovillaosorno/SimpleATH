@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Independent USB function owner for the QCA9565-family AR3012 bootstrap.
 #ifndef SIMPLEATH_USB_BLUETOOTH_SERVICE_HPP
 #define SIMPLEATH_USB_BLUETOOTH_SERVICE_HPP

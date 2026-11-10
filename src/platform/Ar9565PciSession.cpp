@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #include "Ar9565PciSession.hpp"
 #include "hardware/Ar9565Core.hpp"
 #include <cstddef>

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // All registers, time and ownership are synthetic callbacks; no device I/O.
 #include "hardware/Ar9565Core.hpp"

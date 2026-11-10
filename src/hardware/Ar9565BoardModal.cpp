@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Hardware layout/algorithm: Linux ath9k ar9003_eeprom.c
 // ar9003_hw_ant_ctrl_apply(), ar9003_hw_atten_apply() and ar9003_phy.h.
 /*

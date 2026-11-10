@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // AR9003 channel PHY/MAC mode based on Linux ath9k v6.12 ar9003_phy.c,
 // hw.c and ar9003_phy.h/reg.h, Atheros/Qualcomm ISC-licensed reference.
 /*

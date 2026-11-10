@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Register sequence and hardware algorithm provenance (ath9k):
 /*
  * Copyright (c) 2010-2011 Atheros Communications Inc.

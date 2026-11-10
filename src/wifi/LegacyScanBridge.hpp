@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Platform-neutral snapshot of completed radio scan results for a future
 // native IO80211FamilyLegacy adapter. No Apple private ABI is linked here.
 #ifndef SIMPLEATH_WIFI_LEGACY_SCAN_BRIDGE_HPP

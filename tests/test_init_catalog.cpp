@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Source table catalog contract only: no MMIO, PHY or radio initialization.
 #include "bluetooth/UsbBytes.hpp"

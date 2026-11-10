@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic RF grant/lease protocol; no hardware, kernel or RF IO.
 #include "hardware/Ar9565Channel.hpp"
 #include "hardware/Ar9565RfBus.hpp"

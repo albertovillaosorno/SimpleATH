@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Derived from permissive ath9k PCI EEPROM and AR9003 OTP read protocols.
 /*
  * Copyright (c) 2008-2011 Atheros Communications Inc.

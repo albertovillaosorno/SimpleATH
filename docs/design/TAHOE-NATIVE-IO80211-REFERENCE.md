@@ -166,7 +166,7 @@ native adapter has been enabled or compiled.
   active release and call it functional; match the correct stack precisely.
 - The external repository contains files licensed GPL-2.0 OR BSD-3-Clause.
   We only inspect it as a reference: no third-party source is copied or
-  redistributed, so SimpleATH remains new AGPL-3.0-only code.
+  redistributed, so SimpleATH remains new GPL-2.0-only code.
 - Wi-Fi menu integration is a separate macOS integration milestone from
   PCI access, calibrated AR9565 RF, DMA, 802.11 security and real traffic.
 

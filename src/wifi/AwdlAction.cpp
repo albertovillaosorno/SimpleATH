@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // AWDL action-frame syntax described independently by Stute et al. (2018).
 // No third-party implementation code is incorporated here.
 #include "AwdlAction.hpp"

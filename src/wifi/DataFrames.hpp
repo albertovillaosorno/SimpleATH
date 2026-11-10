@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Safe extraction of RFC 1042 LLC/SNAP payload from 802.11 data frames.
 // This decoder does not perform encryption, decryption, or packet delivery.
 #ifndef SIMPLEATH_WIFI_DATA_FRAMES_HPP

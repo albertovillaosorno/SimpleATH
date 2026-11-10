@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Hardware register provenance: Linux v6.12 ath9k reg_mci.h,
 // ar9003_mci.c ar9003_mci_stop_bt() and ar9003_mci_2g5g_switch().
 /*

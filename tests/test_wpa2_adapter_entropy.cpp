@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic provider only: test nonce publication, never actual entropy.
 #include "wifi/Frames.hpp"
 #include "wifi/Wpa2Supplicant.hpp"

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Rijndael S-box and inverse, calculated from GF(2^8) and affine transform.
 // Source-generation formulas are specified in FIPS 197; no third-party
 // implementation or lookup-table source has been copied.

@@ -7,6 +7,9 @@ macOS Tahoe on Dell Inspiron 5567.
 **Development priority:** production implementation and integration first; correction follows real, reproducible failures. Runtime verification is reported separately.
 Read TODO.md, README.md and relevant docs/design/ records before editing.
 Source code, comments, documents and commits are written in English.
+The owner relicensed SimpleATH-authored source to GPL-2.0-only on 2026-11-10.
+Preserve every third-party license/copyright; notices do not relicense upstream
+code. Compatible GPL-2.0 source may be adapted with its original attribution.
 
 ## Absolute rule: source-only work and no hardware prerequisites
 

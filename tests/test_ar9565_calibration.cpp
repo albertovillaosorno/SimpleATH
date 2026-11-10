@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Offline AR9565 RX AGC calibration, never a real hardware operation.
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Channel.hpp"

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic USB callbacks only. No firmware distribution or physical device.
 #include "bluetooth/Ath3kUsb.hpp"
 #include "bluetooth/UsbHci.hpp"

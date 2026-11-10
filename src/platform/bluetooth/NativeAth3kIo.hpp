@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_NATIVE_ATH3K_IO_HPP
 #define SIMPLEATH_NATIVE_ATH3K_IO_HPP
 

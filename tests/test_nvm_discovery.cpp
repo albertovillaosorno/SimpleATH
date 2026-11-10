@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Offline 168c:0036 fake MMIO only: no PCI access or kext build.
 #include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565Eeprom.hpp"

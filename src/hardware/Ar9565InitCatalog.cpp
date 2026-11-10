@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #include "Ar9565InitCatalog.hpp"
 #include "Ar9565Core.hpp"
 #include "generated/Ar9565InitTables.hpp"

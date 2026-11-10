@@ -317,7 +317,7 @@ Wi-Fi or AirPort on the target machine.
 
 ## License and attribution
 
-New authored SimpleATH source is AGPL-3.0-only. Referenced Linux
+New authored SimpleATH source is GPL-2.0-only. Referenced Linux
 ath9k source and imported tables retain their original permissive
 file-specific license notices; historical SimpleBCM reference
 material retains its original attribution. See

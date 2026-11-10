@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Connection loss, beacon miss and bounded reconnection scheduling.
 // This is a software state machine: it cannot move the radio to a channel,
 // connect to a new BSSID, or authorize unverified 802.11 management frames.

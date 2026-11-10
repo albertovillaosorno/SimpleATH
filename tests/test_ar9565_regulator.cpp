@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic EEPROM + PMU MMIO model. No real RF/hardware/device.
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Eeprom.hpp"

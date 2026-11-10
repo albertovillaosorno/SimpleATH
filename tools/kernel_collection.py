@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: GPL-2.0-only
 # Copyright © 2026 laobamac. All rights reserved.
 """Bounded offline x86_64 Mach-O kernel-collection metadata reader."""
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #include "LeAdvertising.hpp"
 #include "UsbBytes.hpp"
 #include "UsbHci.hpp"

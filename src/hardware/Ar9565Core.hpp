@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // SimpleATH native AR9565 hardware core.
 // MacKernelSDK-independent algorithms. The PCI/MMIO transport is supplied
 // separately; no code from Linux ath9k is linked into this implementation.

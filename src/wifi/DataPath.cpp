@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #include "DataPath.hpp"
 #include "Eapol.hpp"
 #include "crypto/Ccmp.hpp"

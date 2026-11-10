@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Host-only CCMP-128 frame tests; no RF, kernel crypto or installed keys.
 // Known AES-CCM ciphertext/MIC independently checked against OpenSSL EVP.
 #include "wifi/crypto/Ccmp.hpp"

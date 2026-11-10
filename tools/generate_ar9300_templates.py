@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: GPL-2.0-only
 """Generate C++ source arrays from pinned permissive ath9k EEPROM templates.
 
 This restricted initializer reader does not compile/execute C, create binary

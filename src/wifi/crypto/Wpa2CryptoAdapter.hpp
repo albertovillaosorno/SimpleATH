@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Bridges portable WPA2 primitives to the existing EAPOL supplicant.
 // A real macOS backend MUST provide CSPRNG and AR9565 CCMP keycache operations.
 // No dummy entropy, fabricated keys or software-only "installed" result.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic ring ownership regression: no PCI, DMA or hardware access.
 #include "hardware/Ar9003Dma.hpp"
 #include <cstddef>

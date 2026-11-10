@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // HCI LE legacy non-connectable advertising on an exclusively owned USB HCI
 // session. This does not register a macOS Bluetooth host, AirDrop or AWDL.
 #ifndef SIMPLEATH_LE_ADVERTISING_HPP

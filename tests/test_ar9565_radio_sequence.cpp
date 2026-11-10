@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Full synthetic RX-only RF epoch: no native IOKit, PCI, radio, or USB.
 #include "hardware/Ar9565BoardModal.hpp"
 #include "hardware/Ar9565Calibration.hpp"

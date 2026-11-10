@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic packed EEPROM image; never sourced from hardware or RF.
 #include "hardware/Ar9565Eeprom.hpp"

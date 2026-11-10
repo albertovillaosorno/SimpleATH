@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Software association state machine. No transport or WPA2 crypto installed.
 #ifndef SIMPLEATH_WIFI_STATION_HPP
 #define SIMPLEATH_WIFI_STATION_HPP

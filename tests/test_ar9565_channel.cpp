@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic MMIO and epoch tests; does not touch a PCI device or radio.
 #include "hardware/Ar9565Channel.hpp"
 #include "hardware/Ar9565Core.hpp"

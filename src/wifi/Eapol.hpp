@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // WPA2 EAPOL-Key framing and replay screening. This is NOT a key engine:
 // MIC validation, PTK derivation, AES key unwrap and hardware key installation
 // require a separate reviewed crypto provider and real driver integration.

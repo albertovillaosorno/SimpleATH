@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic AR9565 MCI register model; not a real Bluetooth or PCI device.
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Coexistence.hpp"

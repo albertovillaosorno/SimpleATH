@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // New bounded parser adapted from the permissively licensed Linux ath9k
 // ar9003_eeprom.c/.h. Preserve their upstream permission and copyright:
 // Local reference SHA-256:

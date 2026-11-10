@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic AWDL action-frame syntax regression; no radio, OS or AirDrop.
 #include "bluetooth/UsbBytes.hpp"
 #include "wifi/AwdlAction.hpp"

@@ -52,7 +52,7 @@ coexistence remains a separate required integration.
 
 The generated Linux-derived arrays retain the original Atheros/Qualcomm
 permissive copyright notice in the generated file. The new C++ control code
-is AGPL-3.0-only. The unmodified Linux references retain their own notices.
+is GPL-2.0-only. The unmodified Linux references retain their own notices.
 
 ## V1 boot versus V1 kext injection
 

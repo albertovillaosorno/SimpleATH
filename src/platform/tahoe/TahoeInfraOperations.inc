@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Intel Tahoe 25G332 IO80211InfraProtocol virtual operation order.
 // Define SIMPLEATH_INFRA_OPERATION(name, byteOffset) before including.
 SIMPLEATH_INFRA_OPERATION(getCHANNEL, 0x0ea8)
