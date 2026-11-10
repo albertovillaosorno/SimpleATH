@@ -2,6 +2,7 @@
 #include "NativeAth3kIo.hpp"
 #include "bluetooth/Ath3kUsb.hpp"
 #include <IOKit/IOLib.h>
+#include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOTypes.h>
 #include <IOKit/usb/AppleUSBDefinitions.h>
@@ -268,14 +269,41 @@ bool SimpleATHUsbBluetooth::start(IOService *provider)
     if (status.result != simpleath::Ath3kBootResult::AwaitReenumeration)
     {
         revoke();
-        (void)requestReenumeration(device, this, identity);
+        // Failure after a partial write leaves device state ambiguous.
+        // Even with start() failing, a retained old USB device may still
+        // need a reset before an independent HCI owner can attach.
+        if (device != nullptr)
+        {
+            const bool resetQueued =
+                requestReenumeration(device, this, identity);
+            setProperty("SimpleATHBluetoothResetQueued", resetQueued);
+            if (!resetQueued)
+            {
+                setProperty("SimpleATHBluetoothResetError",
+                            static_cast<uint32_t>(kIOReturnNoResources),
+                            kRegistryPropertyBits);
+            }
+        }
+        return false;
+    }
+    // A completed switch command is not a completed re-enumeration. A
+    // missing/stale provider or unallocatable reset worker must not leave
+    // an apparently live bootstrap service holding the old USB identity.
+    const bool deviceRetained = device != nullptr;
+    const bool resetQueued = requestReenumeration(device, this, identity);
+    setProperty("SimpleATHBluetoothResetQueued", resetQueued);
+    if (!resetQueued)
+    {
+        setProperty("SimpleATHBluetoothResetError",
+                    static_cast<uint32_t>(deviceRetained
+                                              ? kIOReturnNoResources
+                                              : kIOReturnNotAttached),
+                    kRegistryPropertyBits);
+        revoke();
         return false;
     }
     setProperty("SimpleATHBluetoothAwaitReenumeration", true);
     registerService();
-    // The kernel scheduler (rather than this USB port callback) now owns
-    // the retained device. Reset failure is never reported as HCI ready.
-    (void)requestReenumeration(device, this, identity);
     return true;
 }
 
