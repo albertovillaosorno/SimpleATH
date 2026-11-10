@@ -10,7 +10,8 @@
 #include "Payload.hpp"
 #include <cstddef>
 #include <cstdint>
-#include <sys/systm.h>
+#include <libkern/copyio.h>
+#include <string.h>
 
 uintptr_t KernelPatcher::branchTarget(uintptr_t target,
                                       uintptr_t programCounter)
@@ -67,14 +68,14 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
         return false;
     }
     const auto &payload = *image.payload;
-    if ((payload.size == 0u) || payload.size > payload.mappedSize ||
+    if ((payload.size == 0U) || payload.size > payload.mappedSize ||
         payload.stubOffset < payload.size ||
         payload.stubOffset > payload.mappedSize ||
         payload.stubSize > payload.mappedSize - payload.stubOffset ||
-        image.stubUsed > payload.stubSize || (image.address == 0u) ||
+        image.stubUsed > payload.stubSize || (image.address == 0U) ||
         image.address > UINTPTR_MAX - payload.mappedSize ||
         address != image.address || size != payload.mappedSize ||
-        ((payload.routeCount != 0u) && (payload.routes == nullptr)))
+        ((payload.routeCount != 0U) && (payload.routes == nullptr)))
     {
         return false;
     }
@@ -83,13 +84,13 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
     uint32_t used = image.stubUsed;
     for (size_t i = 0; i < count; ++i)
     {
-        if ((routes[i].name == nullptr) || (routes[i].target == 0u) ||
+        if ((routes[i].name == nullptr) || (routes[i].target == 0U) ||
             (routes[i].original == nullptr))
         {
             return false;
         }
         const uintptr_t location = ath::findSymbol(image, routes[i].name);
-        if ((location == 0u) || location < image.address)
+        if ((location == 0U) || location < image.address)
         {
             return false;
         }
@@ -149,12 +150,12 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
         uint8_t *const stub = image.memory + route.stubOffset;
         memcpy(stub, reinterpret_cast<const void *>(route.address),
                route.prefix);
-        memcpy(stub + route.prefix, jump, sizeof(jump));
+        memcpy(stub + route.prefix, &jump[0], sizeof(jump));
         const uintptr_t continuation = route.address + route.prefix;
         memcpy(stub + route.prefix + sizeof(jump), &continuation,
                sizeof(continuation));
         *routes[i].original = image.address + route.stubOffset;
-        memcpy(reinterpret_cast<void *>(route.address), jump, sizeof(jump));
+        memcpy(reinterpret_cast<void *>(route.address), &jump[0], sizeof(jump));
         memcpy(reinterpret_cast<void *>(route.address + sizeof(jump)),
                &routes[i].target, sizeof(uintptr_t));
     }
