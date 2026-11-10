@@ -71,8 +71,15 @@ in separate source modules. The ath9k OFDM/short-GI timing stage is also
 implemented with canonical HT20/HT40 center math and per-register readback
 (commit `810d661`). Regulator, board modal, coexistence and OFDM timing are
 now listed in the normal Xcode target, but those latter three stages are
-**not yet executed** by the native controller. Actual ordered RF INI, PLL,
-synthesizer, BT-safe antenna allocation, calibration and country/channel
+**not yet executed** by the native controller.
+Commit `fcc10ee` makes the portable radio sequence consume the same immutable
+EEPROM snapshot for its board-modal stage as for
+preflight, even if earlier MMIO callbacks modify caller-owned EEPROM bytes.
+Synthetic C++14/C++17 sanitizer fixtures, direct strict Clang-Tidy and
+formatting passed. This is a source-only TOCTOU correction, **not** evidence
+that the native PCI owner executes the full RF sequence.
+Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
+calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.
 
 Implement the actual ordered radio executor after A2/A3 contracts exist:
