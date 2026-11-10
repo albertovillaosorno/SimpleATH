@@ -413,6 +413,8 @@ class SimpleATH final : public IOService
                            simpleath::tahoe::kWirelessMacBytes) == 0)
                 {
                     self.nativeGroupRx_[key.keyId].revoke();
+                    self.nativeGroupKeyRevokedMask_ |=
+                        static_cast<uint8_t>(1U << key.keyId);
                     self.controlledPortAuthorized_ = false;
                     return kIOReturnSuccess;
                 }
@@ -428,6 +430,8 @@ class SimpleATH final : public IOService
             if (!key.pairwise)
             {
                 if (key.keyId >= simpleath::kCcmpGroupSlots ||
+                    (self.nativeGroupKeyRevokedMask_ &
+                     static_cast<uint8_t>(1U << key.keyId)) != 0U ||
                     !self.nativePairwiseTx_.installed() ||
                     !self.nativePairwiseRx_.installed() ||
                     self.nativeGroupRx_[key.keyId].installed())
@@ -1392,6 +1396,7 @@ class SimpleATH final : public IOService
             for (auto &group : nativeGroupRx_)
                 group.revoke();
             nativePairwiseKeyRevoked_ = false;
+            nativeGroupKeyRevokedMask_ = 0;
             if (queuesAdopted_)
             {
                 queues_.stopGated(access ==
@@ -1543,6 +1548,9 @@ class SimpleATH final : public IOService
         simpleath::ieee80211::crypto::CcmpSession
             nativeGroupRx_[simpleath::kCcmpGroupSlots] {};
         bool nativePairwiseKeyRevoked_ {false};
+        // GTK slot removal must not permit replay-floor rollback under the
+        // same association/physical epoch; a fresh epoch resets this latch.
+        uint8_t nativeGroupKeyRevokedMask_ {0};
         // Acquired only from independently validated native RF/TPC setup.
         // Source-only EEPROM power candidates must never populate these.
         simpleath::edma::TxSafetyPolicy txSafety_ {};
