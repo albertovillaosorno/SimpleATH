@@ -558,6 +558,124 @@ namespace
                state.faulted && state.aclWindow.availableCredits == 1U;
     }
 
+    bool testCommandCredits()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> kLocalName {0x14U, 0x0cU, 0U};
+        constexpr std::array<uint8_t, 3U> kOther {0x15U, 0x0cU, 0U};
+        constexpr std::array<uint8_t, 6U> kWrongOpcode {
+            0x0eU, 4U, 2U, 0x15U, 0x0cU, 0U,
+        };
+        constexpr std::array<uint8_t, 6U> kCompleteTwoCredits {
+            0x0eU, 4U, 2U, 0x14U, 0x0cU, 0U,
+        };
+        constexpr std::array<uint8_t, 6U> kStatusOneCredit {
+            0x0fU, 4U, 0U, 1U, 0x15U, 0x0cU,
+        };
+        constexpr std::array<uint8_t, 6U> kCompleteZeroCredits {
+            0x0eU, 4U, 0U, 0x14U, 0x0cU, 0U,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 1U || state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                              kLocalName.size()) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 0U || !state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kOther.data(),
+                              kOther.size()) != UsbHciStatus::NoCommandCredits)
+        {
+            return false;
+        }
+        // A response for an unsent opcode must not mint command credits.
+        if (receiveUsbHciEvent(state, host(fake), kWrongOpcode.data(),
+                               kWrongOpcode.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || state.commandWindow.credits != 0U)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                              kLocalName.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kCompleteTwoCredits.data(),
+                               kCompleteTwoCredits.size()) !=
+                UsbHciStatus::Ok ||
+            state.commandWindow.credits != 2U || state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kOther.data(),
+                              kOther.size()) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 1U ||
+            sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                              kLocalName.size()) !=
+                UsbHciStatus::NoCommandCredits ||
+            receiveUsbHciEvent(state, host(fake), kStatusOneCredit.data(),
+                               kStatusOneCredit.size()) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 1U || state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                              kLocalName.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kCompleteZeroCredits.data(),
+                               kCompleteZeroCredits.size()) !=
+                UsbHciStatus::Ok ||
+            state.commandWindow.credits != 0U || state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kOther.data(),
+                              kOther.size()) != UsbHciStatus::NoCommandCredits)
+        {
+            return false;
+        }
+        // A completed command must not be counted twice.
+        if (receiveUsbHciEvent(state, host(fake), kCompleteTwoCredits.data(),
+                               kCompleteTwoCredits.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || state.commandWindow.credits != 0U)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        // A new physical USB epoch starts with the one HCI-defined initial
+        // command credit, never the prior epoch's reported allowance.
+        constexpr std::array<uint8_t, 6U> kReadBufferAccepted {
+            0x0fU, 4U, 0U, 1U, 0x05U, 0x10U,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 1U || state.commandWindow.pending ||
+            sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                              kReadBufferSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kReadBufferAccepted.data(),
+                               kReadBufferAccepted.size()) !=
+                UsbHciStatus::Ok ||
+            !state.aclWindow.readBufferPending ||
+            sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                              kLocalName.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kBufferSizeResponse.data(),
+                               kBufferSizeResponse.size()) !=
+                UsbHciStatus::Ok ||
+            !state.aclWindow.configured || state.commandWindow.credits != 1U)
+        {
+            return false;
+        }
+        // A failed HCI Reset command blocks recovery of stale credit
+        // ownership, even if Command Status advertises spare slots.
+        constexpr std::array<uint8_t, 3U> kReset {0x03U, 0x0cU, 0U};
+        constexpr std::array<uint8_t, 6U> kRejectedReset {
+            0x0fU, 4U, 0x0cU, 1U, 0x03U, 0x0cU,
+        };
+        return sendUsbHciCommand(state, host(fake), kReset.data(),
+                                 kReset.size()) == UsbHciStatus::Ok &&
+               sendUsbHciCommand(state, host(fake), kLocalName.data(),
+                                 kLocalName.size()) ==
+                   UsbHciStatus::FlowControlUnavailable &&
+               receiveUsbHciEvent(state, host(fake), kRejectedReset.data(),
+                                  kRejectedReset.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted;
+    }
+
     bool testControllerFaults()
     {
         UsbFake fake = newFake();
@@ -639,8 +757,10 @@ namespace
         {
             return false;
         }
+        // Ordinary vendor events may be split/coalesced but must never
+        // modify the controller's command credit ledger.
         constexpr std::array<uint8_t, 7U> kEvents {
-            0x0eU, 0x01U, 0x00U, 0x0fU, 0x02U, 0x01U, 0x00U,
+            0xffU, 0x01U, 0x00U, 0xffU, 0x02U, 0x01U, 0x00U,
         };
         if (receiveUsbHciEvent(state, host(fake), kEvents.data(), 1U) !=
                 UsbHciStatus::Ok ||
@@ -726,6 +846,11 @@ int main()
     {
         return 4;
     }
-    constexpr int kControllerFaultTestFailure = 5;
-    return testControllerFaults() ? 0 : kControllerFaultTestFailure;
+    if (!testControllerFaults())
+    {
+        constexpr int kControllerFaultTestFailure = 5;
+        return kControllerFaultTestFailure;
+    }
+    constexpr int kCommandCreditTestFailure = 6;
+    return testCommandCredits() ? 0 : kCommandCreditTestFailure;
 }

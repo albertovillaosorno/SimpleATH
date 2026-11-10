@@ -30,6 +30,7 @@ namespace simpleath
         FrameTooLarge,
         FlowControlUnavailable,
         NoControllerCredits,
+        NoCommandCredits,
         TooManyConnections,
         CallbackFailed,
         TransferFailed,
@@ -84,11 +85,24 @@ namespace simpleath
             bool configured {};
     };
 
+    // A dedicated HCI host owns command serialization. The USB controller
+    // initially permits one command; Command Complete/Status replaces that
+    // budget with Num_HCI_Command_Packets (not a cumulative credit grant).
+    // This adapter allows one pending command at a time, even if a controller
+    // reports a larger window, to avoid ambiguous opcode completions.
+    struct UsbHciCommandWindow
+    {
+            uint16_t pendingOpcode {};
+            uint8_t credits {1U};
+            bool pending {};
+    };
+
     struct UsbHciState
     {
             UsbHciStream events {};
             UsbHciStream acl {};
             UsbHciAclWindow aclWindow {};
+            UsbHciCommandWindow commandWindow {};
             UsbHciEndpoints endpoints {};
             uint64_t epoch {};
             bool attached {};
@@ -106,6 +120,9 @@ namespace simpleath
 
     // Host-issued HCI commands use USB class control transfer (0x20, req 0)
     // at interface 0. The native callback supplies that exact USB setup.
+    // No new command can overtake a pending Command Complete/Status, exceed
+    // Num_HCI_Command_Packets, or bypass a pending controller Reset/ACL pool
+    // negotiation. The USB owner must serialize send/event/lifecycle calls.
     UsbHciStatus sendUsbHciCommand(UsbHciState &state,
                                    const UsbHciHostCallbacks &host,
                                    const uint8_t *command, size_t bytes);

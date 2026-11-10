@@ -26,6 +26,8 @@ namespace simpleath
         constexpr size_t kControllerFaultBytes = 3U;
         constexpr size_t kReadBufferCompleteBytes = 13U;
         constexpr size_t kCommandStatusBytes = 6U;
+        constexpr size_t kCommandCreditOffset = 2U;
+        constexpr size_t kStatusCreditOffset = 3U;
         constexpr size_t kResetCompleteBytes = 6U;
         constexpr size_t kCommandCompletePrefixBytes = 5U;
         constexpr size_t kResponseStatusOffset = 5U;
@@ -161,6 +163,62 @@ namespace simpleath
             return UsbHciStatus::Ok;
         }
 
+        // A command response belongs to this exclusive HCI host. Do not
+        // accept a mismatched or unsolicited response as a source of credits.
+        // Num_HCI_Command_Packets is an absolute window, not an increment.
+        UsbHciStatus accountCommandCredits(UsbHciState &state,
+                                           const uint8_t *packet, size_t bytes)
+        {
+            const uint8_t eventCode = *usbByteOffset(packet, 0U);
+            const bool complete = eventCode == kHciCommandComplete;
+            const bool status = eventCode == kHciCommandStatus;
+            if (!complete && !status)
+            {
+                return UsbHciStatus::Ok;
+            }
+            if (bytes < (complete ? kCommandCompletePrefixBytes
+                                  : kCommandStatusBytes) ||
+                (status && bytes != kCommandStatusBytes))
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            const uint16_t opcode = little16(packet, complete ? 3U : 4U);
+            UsbHciCommandWindow &commands = state.commandWindow;
+            // A successful preliminary Command Status may precede a CC
+            // for Reset or Read Buffer Size, with the ACL gate still pending.
+            const bool awaitingSpecialComplete =
+                complete && !commands.pending &&
+                ((opcode == kHciReset && state.aclWindow.resetPending) ||
+                 (opcode == kHciReadBufferSize &&
+                  state.aclWindow.readBufferPending));
+            if ((!commands.pending && !awaitingSpecialComplete) ||
+                (commands.pending && opcode != commands.pendingOpcode))
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            commands.credits = *usbByteOffset(
+                packet, complete ? kCommandCreditOffset : kStatusCreditOffset);
+            commands.pending = false;
+            commands.pendingOpcode = 0U;
+            return UsbHciStatus::Ok;
+        }
+
+        UsbHciStatus controllerHardwareFault(const uint8_t *packet,
+                                             size_t bytes)
+        {
+            const uint8_t eventCode = *usbByteOffset(packet, 0U);
+            if (eventCode != kHciHardwareError &&
+                eventCode != kHciDataBufferOverflow)
+            {
+                return UsbHciStatus::Ok;
+            }
+            // Hardware and data-buffer integrity faults invalidate both
+            // command and ACL state until a physical USB owner reset.
+            return bytes == kControllerFaultBytes
+                       ? UsbHciStatus::Faulted
+                       : UsbHciStatus::MalformedPacket;
+        }
+
         UsbHciStatus accountControllerEvent(UsbHciState &state,
                                             const uint8_t *packet, size_t bytes)
         {
@@ -169,16 +227,17 @@ namespace simpleath
             {
                 return UsbHciStatus::MalformedPacket;
             }
-            const uint8_t eventCode = *usbByteOffset(packet, 0U);
-            if (eventCode == kHciHardwareError ||
-                eventCode == kHciDataBufferOverflow)
+            const UsbHciStatus hardwareFault =
+                controllerHardwareFault(packet, bytes);
+            if (hardwareFault != UsbHciStatus::Ok)
             {
-                // The controller has lost hardware or packet-buffer
-                // integrity. No old ACL credits/handles remain trustworthy;
-                // the native owner must detach/reset before further traffic.
-                return bytes == kControllerFaultBytes
-                           ? UsbHciStatus::Faulted
-                           : UsbHciStatus::MalformedPacket;
+                return hardwareFault;
+            }
+            const UsbHciStatus commandResult =
+                accountCommandCredits(state, packet, bytes);
+            if (commandResult != UsbHciStatus::Ok)
+            {
+                return commandResult;
             }
             UsbHciAclWindow &window = state.aclWindow;
             if (window.resetPending &&
@@ -394,13 +453,25 @@ namespace simpleath
             return UsbHciStatus::MalformedPacket;
         }
         const uint16_t opcode = little16(command, 0U);
-        if ((opcode == kHciReadBufferSize &&
+        if ((state.aclWindow.resetPending ||
+             state.aclWindow.readBufferPending) ||
+            (opcode == kHciReadBufferSize &&
              (state.aclWindow.configured || state.aclWindow.readBufferPending ||
               state.aclWindow.resetPending)) ||
             (opcode == kHciReset && state.aclWindow.resetPending))
         {
             return UsbHciStatus::FlowControlUnavailable;
         }
+        UsbHciCommandWindow &commands = state.commandWindow;
+        if (commands.pending || commands.credits == 0U)
+        {
+            return UsbHciStatus::NoCommandCredits;
+        }
+        // Account before invoking the USB callback, which may deliver a
+        // synchronous Command Complete/Status and re-enter the HCI owner.
+        --commands.credits;
+        commands.pending = true;
+        commands.pendingOpcode = opcode;
         // Record the outstanding request before the USB callback; a host
         // adapter may synchronously deliver the command-complete event.
         if (opcode == kHciReadBufferSize)
