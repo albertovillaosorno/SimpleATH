@@ -63,7 +63,22 @@ ignore = [
 
 [lint.per-file-ignores]
 # Pytest assertions are executable test semantics, not production assertions.
-"tests/**/*.py" = ["assert"]
+# Test fixtures prioritize observable behavior over docstring, message and
+# numeric-literal cosmetics. Syntax, type, security and correctness rules stay.
+"tests/**/*.py" = [
+  "assert",
+  "D",
+  "EM",
+  "PLR2004",
+  "SLF001", # Unit tests deliberately reach private implementation seams.
+  "PLR0913",
+  "PLR0914",
+  "PLR0915",
+  "C901",
+]
+# Tool scripts still run production checks; relax only cosmetic explanations
+# and named-constant/exception-string ceremony, not correctness checks.
+"tools/**/*.py" = ["D", "EM", "PLR2004"]
 # jig-ignore-next-line: indivisible reviewed identifier
 # Function-oriented test directories intentionally mirror hyphenated research IDs.
 "tests/function/**/*.py" = ["implicit-namespace-package"]

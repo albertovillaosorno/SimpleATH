@@ -70,6 +70,11 @@ jobs:
         # never the separate source CI job and never a kext link.
         run: python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi
 
+      - name: Reject unavailable Apple80211 private SDK headers
+        # The SDK omits these declarations; local fixed ABI values are
+        # required and compiled with freestanding Clang in this regression.
+        run: python3 -B -m unittest -q tests.test_tahoe_apple80211_sdk_headers
+
       - name: Build unsigned x86_64 kernel extension
         run: |
           sdk="${{ steps.native_headers.outputs.sdk }}"

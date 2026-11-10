@@ -411,6 +411,24 @@ def _tools(file: Path, options: Options) -> list[str]:
     )
 
 
+def _tidy_config(root: Path, file: Path) -> Path:
+    """Select a scoped test/tool Tidy policy, retaining strict src rules.
+
+    Returns:
+        Repository-owned policy path, never an external linked config.
+
+    Raises:
+        ValueError: If a scoped policy is a symbolic link.
+
+    """
+    relative = file.relative_to(root).parts
+    scoped = root / relative[0] / ".clang-tidy" if relative else root
+    if scoped.is_symlink():
+        message = f"Linked Clang-Tidy policy: {scoped}"
+        raise ValueError(message)
+    return scoped if scoped.is_file() else root / ".clang-tidy"
+
+
 def _command(tool: str, file: Path, root: Path) -> list[str] | None:
     executable = shutil.which(EXECUTABLE[tool])
     if executable is None:
@@ -423,7 +441,7 @@ def _command(tool: str, file: Path, root: Path) -> list[str] | None:
             "--ferror-limit=1",
         ],
         "clang-tidy": [
-            f"--config-file={root / ".clang-tidy"}",
+            f"--config-file={_tidy_config(root, file)}",
             "-p",
             str(root),
             "--quiet",
@@ -654,6 +672,21 @@ def _dependencies(root: Path, tool: str) -> bytes:
     return digest.digest()
 
 
+def _rule_digest(root: Path, file: Path, tool: str) -> bytes:
+    """Hash the root policy and selected scoped Clang-Tidy rules.
+
+    Returns:
+        Exact rule content digest for this source and tool.
+
+    """
+    digest = hashlib.sha256()
+    for config in CONFIGS[tool]:
+        digest.update((root / config).read_bytes())
+    if tool == CLANG_TIDY_TOOL:
+        digest.update(_tidy_config(root, file).read_bytes())
+    return digest.digest()
+
+
 def _signature(
     command: list[str],
     file: Path,
@@ -673,8 +706,7 @@ def _signature(
                 (name, os.environ.get(name)) for name in environment_names
             ]).encode()
         )
-    for config in CONFIGS[tool]:
-        digest.update((root / config).read_bytes())
+    digest.update(_rule_digest(root, file, tool))
     if tool in {"basedpyright", "clang-tidy"}:
         if dependencies is None:
             message = f"Missing {tool} source dependency fingerprint"
