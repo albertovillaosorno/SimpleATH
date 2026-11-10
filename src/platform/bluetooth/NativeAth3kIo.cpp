@@ -580,7 +580,12 @@ namespace simpleath
         {
             native.aclOut->release();
         }
+        // Preserve the stream generation across native close/reset. A USB
+        // callback may tear down and reopen the same storage before an old
+        // HCI call returns, even if the physical owner reuses its epoch.
+        const uint64_t detachedGeneration = native.stream.generation;
         native = {};
+        native.stream.generation = detachedGeneration;
     }
 
     UsbHciStatus sendNativeUsbHciCommand(NativeUsbHciIo &native,

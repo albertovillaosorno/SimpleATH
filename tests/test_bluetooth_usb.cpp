@@ -1599,9 +1599,12 @@ namespace
             uint64_t epoch {kEpoch};
             EpochRaceEvent trigger {EpochRaceEvent::None};
             bool reattach {true};
+            bool reuseEpoch {};
             bool failCallback {};
             bool successorAttached {};
             bool permitReplaced {};
+            size_t permitCalls {};
+            size_t permitReplaceAfter {};
             size_t commandCalls {};
     };
 
@@ -1612,8 +1615,11 @@ namespace
     {
         auto &race = *static_cast<EpochRace *>(context);
         const bool granted = race.epoch == epoch;
+        ++race.permitCalls;
         if (granted && race.trigger == EpochRaceEvent::Permit &&
-            !race.permitReplaced)
+            !race.permitReplaced &&
+            (race.permitReplaceAfter == 0U ||
+             race.permitCalls == race.permitReplaceAfter))
         {
             // The old lease was valid at check time, but the owner is
             // replaced before the caller may consume this stale approval.
@@ -1626,7 +1632,10 @@ namespace
     void replaceRaceSession(EpochRace &race)
     {
         detachUsbHci(race.state);
-        ++race.epoch;
+        if (!race.reuseEpoch)
+        {
+            ++race.epoch;
+        }
         if (race.reattach)
         {
             constexpr UsbHciEndpoints endpoints {
@@ -1695,7 +1704,7 @@ namespace
     }
 
     bool checkStaleEpochCallback(EpochRaceEvent trigger, bool reattach,
-                                 bool failCallback)
+                                 bool failCallback, bool reuseEpoch)
     {
         constexpr UsbHciEndpoints endpoints {
             kEventInEndpoint,
@@ -1727,6 +1736,7 @@ namespace
         }
         race.trigger = trigger;
         race.reattach = reattach;
+        race.reuseEpoch = reuseEpoch;
         race.failCallback = failCallback;
         UsbHciStatus result = UsbHciStatus::Faulted;
         switch (trigger)
@@ -1766,46 +1776,156 @@ namespace
         };
         for (const bool reattach : {false, true})
         {
-            EpochRace race {};
-            if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
-                UsbHciStatus::Ok)
+            for (const bool reuseEpoch : {false, true})
             {
-                return false;
-            }
-            const UsbHciHostCallbacks stale = raceHost(race);
-            race.reattach = reattach;
-            race.trigger = EpochRaceEvent::Permit;
-            if (sendUsbHciCommand(race.state, stale, kReadBufferSize.data(),
-                                  kReadBufferSize.size()) !=
-                    UsbHciStatus::OwnershipLost ||
-                !race.permitReplaced || race.commandCalls != 0U ||
-                race.successorAttached != reattach ||
-                race.state.attached != reattach || race.state.faulted ||
-                (reattach && (race.state.epoch != race.epoch ||
-                              race.state.commandWindow.pending ||
-                              race.state.commandWindow.credits != 1U)))
-            {
-                return false;
+                EpochRace race {};
+                race.reuseEpoch = reuseEpoch;
+                if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
+                    UsbHciStatus::Ok)
+                {
+                    return false;
+                }
+                const UsbHciHostCallbacks stale = raceHost(race);
+                race.reattach = reattach;
+                race.trigger = EpochRaceEvent::Permit;
+                if (sendUsbHciCommand(race.state, stale, kReadBufferSize.data(),
+                                      kReadBufferSize.size()) !=
+                        UsbHciStatus::OwnershipLost ||
+                    !race.permitReplaced || race.commandCalls != 0U ||
+                    race.successorAttached != reattach ||
+                    race.state.attached != reattach || race.state.faulted ||
+                    (reattach && (race.state.epoch != race.epoch ||
+                                  race.state.commandWindow.pending ||
+                                  race.state.commandWindow.credits != 1U)))
+                {
+                    return false;
+                }
             }
         }
         // An initial attach also uses a lease grant. Do not revive an old
         // epoch after an inline detach or overwrite a reattached successor.
         for (const bool reattach : {false, true})
         {
+            for (const bool reuseEpoch : {false, true})
+            {
+                EpochRace race {};
+                race.reuseEpoch = reuseEpoch;
+                race.trigger = EpochRaceEvent::Permit;
+                race.reattach = reattach;
+                const UsbHciHostCallbacks stale = raceHost(race);
+                if (attachUsbHci(race.state, endpoints, stale) !=
+                        UsbHciStatus::OwnershipLost ||
+                    !race.permitReplaced ||
+                    race.successorAttached != reattach ||
+                    race.state.attached != reattach || race.state.faulted ||
+                    (reattach && race.state.epoch != race.epoch))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool testSameEpochPermitReplacementDuringHciOperation()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> event {0xffU, 1U, 0U};
+        constexpr std::array<uint8_t, 5U> acl {
+            2U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        constexpr size_t kAfterDeliveredEvent = 5U;
+        // Ingress performs a separate lease check for each USB byte.
+        // Its second check must not fault an already-attached successor.
+        constexpr std::array<size_t, 2U> permitOffsets {
+            2U,
+            kAfterDeliveredEvent,
+        };
+        for (const size_t permitOffset : permitOffsets)
+        {
             EpochRace race {};
+            if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
+                UsbHciStatus::Ok)
+            {
+                return false;
+            }
+            const uint64_t originalGeneration = race.state.generation;
             race.trigger = EpochRaceEvent::Permit;
-            race.reattach = reattach;
-            const UsbHciHostCallbacks stale = raceHost(race);
-            if (attachUsbHci(race.state, endpoints, stale) !=
+            race.reuseEpoch = true;
+            race.permitReplaceAfter = race.permitCalls + permitOffset;
+            if (receiveUsbHciEvent(race.state, raceHost(race), event.data(),
+                                   event.size()) !=
                     UsbHciStatus::OwnershipLost ||
-                !race.permitReplaced || race.successorAttached != reattach ||
-                race.state.attached != reattach || race.state.faulted ||
-                (reattach && race.state.epoch != race.epoch))
+                !race.permitReplaced || !race.successorAttached ||
+                !race.state.attached || race.state.faulted ||
+                race.state.epoch != kEpoch ||
+                race.state.generation == originalGeneration ||
+                race.state.events.used != 0U || race.state.events.delivering)
             {
                 return false;
             }
         }
-        return true;
+        // The post-USB-transfer permit check can also be reentrant.
+        // Keep an ACKed command or ACL packet from affecting its successor.
+        for (const bool aclTransfer : {false, true})
+        {
+            EpochRace race {};
+            if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
+                UsbHciStatus::Ok)
+            {
+                return false;
+            }
+            if (aclTransfer &&
+                (sendUsbHciCommand(
+                     race.state, raceHost(race), kReadBufferSize.data(),
+                     kReadBufferSize.size()) != UsbHciStatus::Ok ||
+                 receiveUsbHciEvent(
+                     race.state, raceHost(race), kBufferSizeResponse.data(),
+                     kBufferSizeResponse.size()) != UsbHciStatus::Ok ||
+                 receiveUsbHciEvent(
+                     race.state, raceHost(race), kClassicConnected.data(),
+                     kClassicConnected.size()) != UsbHciStatus::Ok))
+            {
+                return false;
+            }
+            race.trigger = EpochRaceEvent::Permit;
+            race.reuseEpoch = true;
+            race.permitReplaceAfter = race.permitCalls + 2U;
+            const UsbHciStatus result =
+                aclTransfer ? sendUsbHciAcl(race.state, raceHost(race),
+                                            acl.data(), acl.size())
+                            : sendUsbHciCommand(race.state, raceHost(race),
+                                                kReadBufferSize.data(),
+                                                kReadBufferSize.size());
+            if (result != UsbHciStatus::OwnershipLost || !race.permitReplaced ||
+                !race.successorAttached || !race.state.attached ||
+                race.state.faulted || race.state.epoch != kEpoch ||
+                race.state.commandWindow.pending ||
+                race.state.commandWindow.credits != 1U)
+            {
+                return false;
+            }
+        }
+        // Never wrap a local generation and accidentally revive a previous
+        // authorization, even if the caller supplies an otherwise valid USB
+        // owner epoch.
+        EpochRace exhausted {};
+        exhausted.state.generation = UINT64_MAX;
+        if (attachUsbHci(exhausted.state, endpoints, raceHost(exhausted)) !=
+                UsbHciStatus::Faulted ||
+            exhausted.state.attached ||
+            exhausted.state.generation != UINT64_MAX)
+        {
+            return false;
+        }
+        detachUsbHci(exhausted.state);
+        return exhausted.state.generation == UINT64_MAX &&
+               attachUsbHci(exhausted.state, endpoints, raceHost(exhausted)) ==
+                   UsbHciStatus::Faulted;
     }
 
     bool testNestedHciDeliveryCannotOverwriteBorrowedPacket()
@@ -1871,10 +1991,13 @@ namespace
             {
                 for (const bool failCallback : {false, true})
                 {
-                    if (!checkStaleEpochCallback(trigger, reattach,
-                                                 failCallback))
+                    for (const bool reuseEpoch : {false, true})
                     {
-                        return false;
+                        if (!checkStaleEpochCallback(trigger, reattach,
+                                                     failCallback, reuseEpoch))
+                        {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1978,6 +2101,11 @@ int main()
     {
         constexpr int kReentrantPermitFailure = 25;
         return kReentrantPermitFailure;
+    }
+    if (!testSameEpochPermitReplacementDuringHciOperation())
+    {
+        constexpr int kSameEpochPermitReplacementFailure = 28;
+        return kSameEpochPermitReplacementFailure;
     }
     if (!testNestedHciDeliveryCannotOverwriteBorrowedPacket())
     {

@@ -81,6 +81,7 @@ namespace simpleath
             {
                 return UsbHciStatus::Faulted;
             }
+            const uint64_t generation = state.generation;
             if (!validCallbacks(host) || host.ownerEpoch != state.epoch ||
                 !host.permit(host.context, host.ownerEpoch))
             {
@@ -90,7 +91,7 @@ namespace simpleath
             // the permit callback. Its stale true result is not permission
             // to send/ingest packets through a replacement session.
             if (!state.attached || state.epoch != host.ownerEpoch ||
-                state.faulted)
+                state.generation != generation || state.faulted)
             {
                 return UsbHciStatus::OwnershipLost;
             }
@@ -100,9 +101,21 @@ namespace simpleath
         // A transport callback may synchronously complete an owner teardown
         // and attach a fresh USB instance before its old stack frame returns.
         // Do not fault or reset the successor while unwinding stale work.
-        bool replacedSession(const UsbHciState &state, uint64_t epoch)
+        bool replacedSession(const UsbHciState &state, uint64_t epoch,
+                             uint64_t generation)
         {
-            return !state.attached || state.epoch != epoch;
+            return !state.attached || state.epoch != epoch ||
+                   state.generation != generation;
+        }
+
+        UsbHciStatus rejectReplacedOwner(UsbHciState &state, uint64_t epoch,
+                                         uint64_t generation)
+        {
+            if (!replacedSession(state, epoch, generation))
+            {
+                state.faulted = true;
+            }
+            return UsbHciStatus::OwnershipLost;
         }
 
         uint16_t little16(const uint8_t *bytes, size_t offset)
@@ -625,10 +638,11 @@ namespace simpleath
                 }
             }
             const uint64_t deliveryEpoch = state.epoch;
+            const uint64_t deliveryGeneration = state.generation;
             stream.delivering = true;
             const bool delivered = host.deliver(
                 host.context, kind, stream.packet.data(), stream.used);
-            if (replacedSession(state, deliveryEpoch))
+            if (replacedSession(state, deliveryEpoch, deliveryGeneration))
             {
                 // A callback may have detached and replaced this stream.
                 // Never clear the successor's delivery guard or fault state.
@@ -650,7 +664,11 @@ namespace simpleath
             stream.expected = 0U;
             if (authorize(state, host) != UsbHciStatus::Ok)
             {
-                state.faulted = true;
+                // Even the final permit callback can replace the stream.
+                if (!replacedSession(state, deliveryEpoch, deliveryGeneration))
+                {
+                    state.faulted = true;
+                }
                 return UsbHciStatus::OwnershipLost;
             }
             return UsbHciStatus::Ok;
@@ -679,6 +697,8 @@ namespace simpleath
             {
                 return permission;
             }
+            const uint64_t ingressEpoch = state.epoch;
+            const uint64_t ingressGeneration = state.generation;
             if (stream.delivering)
             {
                 // host.deliver still borrows stream.packet: an inline USB
@@ -701,8 +721,8 @@ namespace simpleath
             {
                 if (authorize(state, host) != UsbHciStatus::Ok)
                 {
-                    state.faulted = true;
-                    return UsbHciStatus::OwnershipLost;
+                    return rejectReplacedOwner(state, ingressEpoch,
+                                               ingressGeneration);
                 }
                 if (stream.used >= maxBytes)
                 {
@@ -750,13 +770,15 @@ namespace simpleath
         {
             return UsbHciStatus::InvalidEndpoint;
         }
-        if (state.attached)
+        if (state.attached || state.generation == UINT64_MAX)
         {
             return UsbHciStatus::Faulted;
         }
+        const uint64_t priorGeneration = state.generation;
         if (!host.permit(host.context, host.ownerEpoch) || state.attached ||
-            state.epoch != 0U || !host.permit(host.context, host.ownerEpoch) ||
-            state.attached || state.epoch != 0U)
+            state.generation != priorGeneration || state.epoch != 0U ||
+            !host.permit(host.context, host.ownerEpoch) || state.attached ||
+            state.epoch != 0U || state.generation != priorGeneration)
         {
             // One grant may be stale if the callback detached or attached
             // another owner inline. Confirm the still-live lease, and never
@@ -765,6 +787,7 @@ namespace simpleath
         }
         state = {};
         state.epoch = host.ownerEpoch;
+        state.generation = priorGeneration + 1U;
         state.endpoints = endpoints;
         state.attached = true;
         return UsbHciStatus::Ok;
@@ -772,7 +795,10 @@ namespace simpleath
 
     void detachUsbHci(UsbHciState &state)
     {
+        const uint64_t nextGeneration =
+            state.generation == UINT64_MAX ? UINT64_MAX : state.generation + 1U;
         state = {};
+        state.generation = nextGeneration;
     }
 
     UsbHciStatus classifyUsbHciRead(bool ownerCurrent, bool completed,
@@ -856,8 +882,9 @@ namespace simpleath
             state.aclWindow.resetPending = true;
         }
         const uint64_t commandEpoch = state.epoch;
+        const uint64_t commandGeneration = state.generation;
         const bool sent = host.commandControlOut(host.context, command, bytes);
-        if (replacedSession(state, commandEpoch))
+        if (replacedSession(state, commandEpoch, commandGeneration))
         {
             return UsbHciStatus::OwnershipLost;
         }
@@ -868,7 +895,10 @@ namespace simpleath
         }
         if (authorize(state, host) != UsbHciStatus::Ok)
         {
-            state.faulted = true;
+            if (!replacedSession(state, commandEpoch, commandGeneration))
+            {
+                state.faulted = true;
+            }
             return UsbHciStatus::OwnershipLost;
         }
         return UsbHciStatus::Ok;
@@ -931,10 +961,11 @@ namespace simpleath
         --pool.availableCredits;
         size_t transferred = 0U;
         const uint64_t aclEpoch = state.epoch;
+        const uint64_t aclGeneration = state.generation;
         const bool sent =
             host.aclBulkOut(host.context, state.endpoints.aclBulkOut, packet,
                             bytes, &transferred);
-        if (replacedSession(state, aclEpoch))
+        if (replacedSession(state, aclEpoch, aclGeneration))
         {
             return UsbHciStatus::OwnershipLost;
         }
@@ -945,7 +976,10 @@ namespace simpleath
         }
         if (authorize(state, host) != UsbHciStatus::Ok)
         {
-            state.faulted = true;
+            if (!replacedSession(state, aclEpoch, aclGeneration))
+            {
+                state.faulted = true;
+            }
             return UsbHciStatus::OwnershipLost;
         }
         return UsbHciStatus::Ok;

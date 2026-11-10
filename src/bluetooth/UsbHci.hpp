@@ -127,6 +127,10 @@ namespace simpleath
             UsbHciCommandWindow commandWindow {};
             UsbHciEndpoints endpoints {};
             uint64_t epoch {};
+            // Monotonic local session identity survives detach/reattach,
+            // even when a native owner mistakenly reuses its USB epoch.
+            // Saturation denies further attaches rather than aliasing a lease.
+            uint64_t generation {};
             bool attached {};
             bool faulted {};
     };
