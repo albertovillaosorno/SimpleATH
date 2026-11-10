@@ -24,6 +24,12 @@ It’s just for fun—we’ll see if it works or not.
 I used some "**G**arbage & **P**oop **L**overs" license—I absolutely loathe it.
 I preferred having access to Linux source code to use for this project.
 
+GitHub Actions on standard hosted runners (including `macos-26-intel`) is
+free while this repository is public. Larger runners cost money, and
+artifact storage has separate billing limits; I use standard runners and
+one-day artifact retention. See the official GitHub billing details:
+https://docs.github.com/en/actions/concepts/billing-and-usage
+
 ## Development protocol
 
 SimpleATH uses ten coordinating agents with a **direct-to-main,
@@ -134,6 +140,19 @@ After moving or cloning the repository, refresh those paths with:
 
     python3 -B tools/generate_compile_commands.py
 
+To use the pinned open-source kernel compatibility headers for static
+analysis on Fedora (without compiling a kext), run:
+
+    python3 -B tools/bootstrap_sdk.py
+    python3 -B tools/generate_compile_commands.py
+    python3 -B tools/validate.py --linux --no-cache
+
+The SDK stays in the ignored `.research/MacKernelSDK` directory. On Linux,
+the generator sets an x86_64 Darwin parse target and detects an available
+LLVM libc++ header configuration. Genuine missing declarations remain
+Clang-Tidy failures; `--linux` does not convert them to passes. The user-space
+CoreWLAN probe still needs Apple frameworks and is not fabricated on Fedora.
+
 This generator only inventories source paths and writes JSON; it never invokes
 a compiler, builds a kext or fabricates missing headers. On a Linux host
 without Apple's SDK/KDK, platform-specific source still has unresolved
@@ -189,8 +208,8 @@ The runner uses the project's Python 3.14 tool environment.
 The GitHub Actions workflows are **tag-only** and do not run on ordinary
 `main` pushes, pull requests or manual workflow dispatch:
 
-- `ci`: run the complete macOS-mode source validator and offline host tests
-  on the latest supported Intel Tahoe runner. **No kext is built.**
+- `ci` or `ci-*`: run the complete macOS-mode validator and offline host tests
+  on the standard Intel Tahoe runner. **No kext is built.**
 - `build-v*`: invoke that same validator on the exact tag commit first. Only
   a fully successful validation starts the separate x86_64 Xcode kext build.
   Failure or skipped validation checks prevent the build entirely.
@@ -203,7 +222,7 @@ KDK, and a successful static check cannot establish native ABI correctness.
 The default macOS validator **never** uses `--linux` or treats missing Apple
 headers as successes. Build artifacts are unsigned and are not installed.
 
-This setup does **not** itself authorize or create either tag, run a CI job,
+This setup does **not** itself authorize or create any tag, run a CI job,
 compile the kext locally, or begin physical testing. Release-build tags and
 all EFI/OpenCore/USB/SSD or PCI/RF work require separate explicit owner
 approval. A successful build does not prove the driver provides working

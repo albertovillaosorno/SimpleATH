@@ -3,12 +3,40 @@
 """Synthetic source-only compilation database generation regressions."""
 
 from pathlib import Path
+import shutil
+import sys
 from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest import mock
 
 from tools import generate_compile_commands as generator
 
 EXPECTED_FILE_ENTRY = b'"file": "src/portable.cpp"'
+
+
+def _fixture(root: Path) -> tuple[Path, Path, Path, Path]:
+    """Create fake, local SDK metadata without downloading dependencies.
+
+    Returns:
+        SDK header root, libc++ include roots and a fake compiler path.
+
+    """
+    sdk = root / ".research/MacKernelSDK/Headers"
+    library = root / "compiler/include/c++/v1"
+    config = root / "compiler/include/x86_64-linux/c++/v1"
+    compiler = root / "compiler/bin/clang++"
+    for path in (
+        sdk / "IOKit/IOLib.h",
+        library / "placeholder",
+        config / "__config_site",
+        compiler,
+        root / "src/SimpleATH.cpp",
+        root / "src/platform/probe/main.mm",
+        root / "tests/test_fixture.cpp",
+    ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _ = path.write_text("", encoding="utf-8")
+    return sdk, library, config, compiler
 
 
 class SourceOnlyCompileCommandsTests(TestCase):
@@ -55,6 +83,42 @@ class SourceOnlyCompileCommandsTests(TestCase):
                     "-fsyntax-only",
                     command["file"],
                 ]
+
+    @staticmethod
+    def test_installed_macos_kernel_sdk_enables_real_darwin_parse_flags() -> (
+        None
+    ):
+        """Keep optional SDK headers out of portable tests and probe tools."""
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sdk, library, config, compiler = _fixture(root)
+            with (
+                mock.patch.object(sys, "platform", "linux"),
+                mock.patch.object(shutil, "which", return_value=str(compiler)),
+            ):
+                commands = {
+                    entry["file"]: entry["arguments"]
+                    for entry in generator.source_commands(root)
+                }
+            expected_flags = [
+                "-target",
+                generator.DARWIN_TARGET,
+                "-isystem",
+                str(library),
+                "-isystem",
+                str(config),
+                "-isystem",
+                str(sdk),
+            ]
+            assert commands["src/SimpleATH.cpp"][4:-4] == expected_flags
+            assert commands["src/platform/probe/main.mm"][4:-4] == []
+            assert commands["tests/test_fixture.cpp"][4:-4] == []
+            with mock.patch.object(sys, "platform", "darwin"):
+                macos = {
+                    entry["file"]: entry["arguments"]
+                    for entry in generator.source_commands(root)
+                }
+            assert macos["src/SimpleATH.cpp"][4:-4] == ["-isystem", str(sdk)]
 
     @staticmethod
     def test_regeneration_stays_below_root_and_is_deterministic() -> None:

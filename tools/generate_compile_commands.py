@@ -3,14 +3,44 @@
 """Write host-only Clang-Tidy parse commands without compiling a kext.
 
 These commands are source-analysis fixtures, not captured Xcode build actions.
-Apple kernel headers and private Tahoe ABI are not supplied by this script.
+An installed, pinned MacKernelSDK supplies optional kernel parse headers;
+private Tahoe ABI is not verified by this source-only database.
 """
 
 import json
 from pathlib import Path
+import shutil
+import sys
 from typing import TypedDict
 
 OBJCXX_SUFFIX = ".mm"
+CXX_LANGUAGE = "c++"
+DARWIN_TARGET = "x86_64-apple-macosx14.0"
+
+
+def _kernel_parse_flags(root: Path) -> list[str]:
+    """Use authentic installed kernel headers, never synthetic API stubs.
+
+    Returns:
+        Optional native C++ parse flags for the repository's target macOS ABI.
+
+    """
+    headers = root / ".research/MacKernelSDK/Headers"
+    if not (headers / "IOKit/IOLib.h").is_file():
+        return []
+    flags: list[str] = []
+    if sys.platform.startswith("linux"):
+        flags.extend(("-target", DARWIN_TARGET))
+        compiler = shutil.which("clang++")
+        if compiler is not None:
+            toolchain = Path(compiler).resolve().parent.parent / "include"
+            library = toolchain / "c++/v1"
+            sites = sorted(toolchain.glob("*/c++/v1/__config_site"))
+            if library.is_dir() and len(sites) == 1:
+                flags.extend(("-isystem", str(library)))
+                flags.extend(("-isystem", str(sites[0].parent)))
+    flags.extend(("-isystem", str(headers)))
+    return flags
 
 
 class CompileCommand(TypedDict):
@@ -38,12 +68,15 @@ def source_commands(root: Path) -> list[CompileCommand]:
                 if path.is_file() and not path.is_symlink()
             )
     result: list[CompileCommand] = []
+    kernel_flags = _kernel_parse_flags(root)
     for path in sorted(found):
         relative = path.relative_to(root).as_posix()
         standard = (
             "c++17" if relative.startswith(("tests/", "tools/")) else "c++14"
         )
-        language = "objective-c++" if path.suffix == OBJCXX_SUFFIX else "c++"
+        language = (
+            "objective-c++" if path.suffix == OBJCXX_SUFFIX else CXX_LANGUAGE
+        )
         result.append({
             "directory": str(root),
             "file": relative,
@@ -52,6 +85,11 @@ def source_commands(root: Path) -> list[CompileCommand]:
                 f"-std={standard}",
                 "-I",
                 "src",
+                *(
+                    kernel_flags
+                    if relative.startswith("src/") and language == CXX_LANGUAGE
+                    else ()
+                ),
                 "-x",
                 language,
                 "-fsyntax-only",

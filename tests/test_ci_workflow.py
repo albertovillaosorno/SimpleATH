@@ -11,6 +11,11 @@ WORKFLOWS = ROOT / ".github/workflows"
 CI = WORKFLOWS / "ci.yml"
 BUILD = WORKFLOWS / "build.yml"
 CI_TAG = "- 'ci'"
+CI_PREFIX_TAG = "- 'ci-*'"
+CI_TRIGGER_PATTERN = (
+    r"(?m)^on:\n  push:\n    tags:\n"
+    r"      - 'ci'\n      - 'ci-\*'\n  workflow_call:"
+)
 BUILD_TAG = "- 'build-v*'"
 REQUIRED_VALIDATOR = "python3 -B tools/validate.py --no-cache"
 REUSABLE_CI = "uses: ./.github/workflows/ci.yml"
@@ -54,7 +59,7 @@ class TagGatedCI(unittest.TestCase):
         ci = CI.read_text(encoding="utf-8")
         build = BUILD.read_text(encoding="utf-8")
         assert re.search(
-            r"(?m)^on:\n  push:\n    tags:\n      - 'ci'\n  workflow_call:",
+            CI_TRIGGER_PATTERN,
             ci,
         )
         assert re.search(
@@ -65,9 +70,11 @@ class TagGatedCI(unittest.TestCase):
             for event in FORBIDDEN_EVENTS:
                 assert event not in content
         assert CI_TAG in ci
+        assert CI_PREFIX_TAG in ci
         assert BUILD_TAG in build
         assert BUILD_TAG not in ci
         assert CI_TAG not in build
+        assert CI_PREFIX_TAG not in build
 
     @staticmethod
     def test_ci_has_mandatory_full_macos_validation_without_build() -> None:

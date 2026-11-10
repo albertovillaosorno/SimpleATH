@@ -1,10 +1,11 @@
 name: SimpleATH Tahoe Intel source validation
 
-# The ci tag runs validation only; release builds call this same gate.
+# CI tags run validation only; release builds call this same gate.
 on:
   push:
     tags:
       - 'ci'
+      - 'ci-*'
   workflow_call:
 
 permissions:
@@ -69,3 +70,4 @@ jobs:
           name: SimpleATH-macOS-validation-${{ github.run_id }}
           path: .cache/validate/report.json
           if-no-files-found: warn
+          retention-days: 1

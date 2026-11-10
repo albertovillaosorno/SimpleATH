@@ -78,3 +78,4 @@ jobs:
             build/Products/Release/SimpleATH.kext/**
             build-xcode.log
           if-no-files-found: warn
+          retention-days: 1
