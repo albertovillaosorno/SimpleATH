@@ -63,6 +63,14 @@ namespace simpleath
                 bool networkInterfaceReady;
         };
 
+        struct LinkStartConfig
+        {
+                uint16_t beaconIntervalTu;
+                uint64_t nowMs;
+                bool pmfNegotiated;
+                bool interfaceReady;
+        };
+
         class LinkMonitor
         {
             public:
@@ -76,9 +84,7 @@ namespace simpleath
                 // are rejected without resetting current reconnect state.
                 // This class never claims native operations have occurred.
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
-                                          uint16_t beaconIntervalTu,
-                                          uint64_t nowMs, bool pmfNegotiated,
-                                          bool interfaceReady);
+                                          const LinkStartConfig &config);
                 // A liveness refresh requires infrastructure beacon/probe
                 // metadata matching the associated beacon interval.
                 LinkMonitorResult

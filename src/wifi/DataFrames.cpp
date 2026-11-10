@@ -46,6 +46,21 @@ namespace simpleath
                                    : first - second < secondBytes;
         }
 
+        static const uint8_t *pointerAt(const uint8_t *base, size_t offset)
+        {
+            static_assert(sizeof(uintptr_t) == sizeof(base),
+                          "host pointer must fit a uintptr_t");
+            uintptr_t address = 0;
+            __builtin_memcpy(static_cast<void *>(&address),
+                             static_cast<const void *>(&base), sizeof(base));
+            address += offset;
+            const uint8_t *result = nullptr;
+            __builtin_memcpy(static_cast<void *>(&result),
+                             static_cast<const void *>(&address),
+                             sizeof(result));
+            return result;
+        }
+
         static Result validateSnap(const uint8_t *llc, uint16_t &etherType)
         {
             // The caller verified the complete fixed LLC/SNAP header span;
@@ -145,7 +160,7 @@ namespace simpleath
                 {
                     return Result::Truncated;
                 }
-                if ((frame[qosOffset] & kAmsduPresent) != 0)
+                if ((*pointerAt(frame, qosOffset) & kAmsduPresent) != 0)
                 {
                     return Result::UnsupportedFrame;
                 }
@@ -162,7 +177,7 @@ namespace simpleath
             {
                 return Result::Truncated;
             }
-            const uint8_t *const llc = frame + header.headerLength;
+            const uint8_t *const llc = pointerAt(frame, header.headerLength);
             uint16_t etherType = 0;
             const Result snapResult = validateSnap(llc, etherType);
             if (snapResult != Result::Ok)
@@ -176,7 +191,7 @@ namespace simpleath
             data.destination = header.destination;
             data.source = header.source;
             data.etherType = etherType;
-            data.payload = llc + kLlcSnapBytes;
+            data.payload = pointerAt(llc, kLlcSnapBytes);
             data.payloadLength =
                 frameBytes - header.headerLength - kLlcSnapBytes;
             data.protectedFrame = header.protectedFrame;

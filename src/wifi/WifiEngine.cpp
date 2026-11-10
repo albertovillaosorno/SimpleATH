@@ -547,8 +547,12 @@ namespace simpleath
             }
             const Bss &candidate = station_.candidate();
             if (link_.started(stationAddress_, candidate.beacon.bssid,
-                              candidate.beacon.intervalTu, nowMs, false,
-                              false) != LinkMonitorResult::Ok)
+                              LinkStartConfig {
+                                  candidate.beacon.intervalTu,
+                                  nowMs,
+                                  false,
+                                  false,
+                              }) != LinkMonitorResult::Ok)
             {
                 return EngineResult::InvalidState;
             }

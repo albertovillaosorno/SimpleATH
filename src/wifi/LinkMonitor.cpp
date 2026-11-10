@@ -52,6 +52,17 @@ namespace simpleath
                            : firstAddress - secondAddress < secondBytes;
             }
 
+            const uint8_t *pointerAt(const uint8_t *base, size_t offset)
+            {
+                uintptr_t address = pointerAddress(base);
+                address += offset;
+                const uint8_t *result = nullptr;
+                __builtin_memcpy(static_cast<void *>(&result),
+                                 static_cast<const void *>(&address),
+                                 sizeof(result));
+                return result;
+            }
+
             uint16_t readLittle16(const uint8_t *bytes)
             {
                 uint8_t octets[2] {};
@@ -80,10 +91,9 @@ namespace simpleath
             beaconIntervalTu_ = 0;
         }
 
-        LinkMonitorResult
-        LinkMonitor::started(const Mac &station, const Mac &bssid,
-                             uint16_t beaconIntervalTu, uint64_t nowMs,
-                             bool pmfNegotiated, bool interfaceReady)
+        LinkMonitorResult LinkMonitor::started(const Mac &station,
+                                               const Mac &bssid,
+                                               const LinkStartConfig &config)
         {
             // A reconnect may borrow the prior snapshot by reference. Its
             // fields are destroyed by status_ = {}, so reject those aliases
@@ -103,7 +113,7 @@ namespace simpleath
             {
                 return LinkMonitorResult::InvalidMac;
             }
-            if (beaconIntervalTu == 0)
+            if (config.beaconIntervalTu == 0)
             {
                 return LinkMonitorResult::InvalidBeaconInterval;
             }
@@ -111,10 +121,10 @@ namespace simpleath
             status_.state = LinkState::Associated;
             status_.station = station;
             status_.bssid = bssid;
-            status_.lastBeaconMs = nowMs;
-            status_.pmfNegotiated = pmfNegotiated;
-            status_.networkInterfaceReady = interfaceReady;
-            beaconIntervalTu_ = beaconIntervalTu;
+            status_.lastBeaconMs = config.nowMs;
+            status_.pmfNegotiated = config.pmfNegotiated;
+            status_.networkInterfaceReady = config.interfaceReady;
+            beaconIntervalTu_ = config.beaconIntervalTu;
             return LinkMonitorResult::Ok;
         }
 
@@ -213,7 +223,8 @@ namespace simpleath
             {
                 return LinkMonitorResult::UnverifiedFrame;
             }
-            const uint16_t reason = readLittle16(frame + header.headerLength);
+            const uint8_t *const body = pointerAt(frame, header.headerLength);
+            const uint16_t reason = readLittle16(body);
             if (reason == 0)
             {
                 return LinkMonitorResult::InvalidFrame;
@@ -222,7 +233,7 @@ namespace simpleath
             // two-octet reason code and may contain optional IEs. A
             // truncated or overlong IE tail cannot authorize tearing
             // down the selected link, even with a verified FCS.
-            Elements extensions(frame + header.headerLength + 2,
+            Elements extensions(pointerAt(body, 2),
                                 frameLength - header.headerLength - 2);
             Element extension {};
             for (;;)

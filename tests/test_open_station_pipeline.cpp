@@ -1134,8 +1134,13 @@ namespace
         for (uint8_t subtype : subtypes)
         {
             LinkMonitor monitor;
-            if (monitor.started(station, ap, 100, 1000, false, false) !=
-                LinkMonitorResult::Ok)
+            if (monitor.started(station, ap,
+                                LinkStartConfig {
+                                    100,
+                                    1000,
+                                    false,
+                                    false,
+                                }) != LinkMonitorResult::Ok)
             {
                 return false;
             }
@@ -1168,8 +1173,13 @@ namespace
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         LinkMonitor monitor;
-        if (monitor.started(station, ap, 100, 1000, false, false) !=
-            LinkMonitorResult::Ok)
+        if (monitor.started(station, ap,
+                            LinkStartConfig {
+                                100,
+                                1000,
+                                false,
+                                false,
+                            }) != LinkMonitorResult::Ok)
         {
             return false;
         }
@@ -1203,8 +1213,13 @@ namespace
         for (uint8_t subtype : subtypes)
         {
             LinkMonitor open;
-            if (open.started(station, ap, 100, 1000, false, false) !=
-                LinkMonitorResult::Ok)
+            if (open.started(station, ap,
+                             LinkStartConfig {
+                                 100,
+                                 1000,
+                                 false,
+                                 false,
+                             }) != LinkMonitorResult::Ok)
             {
                 return false;
             }
@@ -1220,8 +1235,13 @@ namespace
         // A genuinely PMF-negotiated session still honors a verified robust
         // management frame from its associated AP.
         LinkMonitor pmf;
-        if (pmf.started(station, ap, 100, 1000, true, false) !=
-            LinkMonitorResult::Ok)
+        if (pmf.started(station, ap,
+                        LinkStartConfig {
+                            100,
+                            1000,
+                            true,
+                            false,
+                        }) != LinkMonitorResult::Ok)
         {
             return false;
         }
@@ -1239,8 +1259,13 @@ namespace
         LinkMonitor monitor;
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        if (monitor.started(station, ap, 100, 1000, false, false) !=
-            LinkMonitorResult::Ok)
+        if (monitor.started(station, ap,
+                            LinkStartConfig {
+                                100,
+                                1000,
+                                false,
+                                false,
+                            }) != LinkMonitorResult::Ok)
         {
             return false;
         }
@@ -1271,8 +1296,13 @@ namespace
         }
         // Independent, FCS-verified AP deauth continues to revoke a link.
         LinkMonitor independent;
-        if (independent.started(station, ap, 100, 1000, false, false) !=
-            LinkMonitorResult::Ok)
+        if (independent.started(station, ap,
+                                LinkStartConfig {
+                                    100,
+                                    1000,
+                                    false,
+                                    false,
+                                }) != LinkMonitorResult::Ok)
         {
             return false;
         }
@@ -1615,17 +1645,26 @@ int main()
     // before they are copied, yet report the link Associated.
     LinkMonitor monitor;
     const Mac accessPoint {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-    if (monitor.started(station, accessPoint, 100, 1000, false, false) !=
-            LinkMonitorResult::Ok ||
+    if (monitor.started(station, accessPoint,
+                        LinkStartConfig {
+                            100,
+                            1000,
+                            false,
+                            false,
+                        }) != LinkMonitorResult::Ok ||
         monitor.observeTimeout(3000) != LinkMonitorResult::Ok ||
         monitor.status().state != LinkState::ReconnectPending)
     {
         return 10;
     }
     const LinkSnapshot beforeRestart = monitor.status();
-    if (monitor.started(monitor.status().station, monitor.status().bssid, 100,
-                        3000, false,
-                        false) != LinkMonitorResult::InvalidArgument ||
+    if (monitor.started(monitor.status().station, monitor.status().bssid,
+                        LinkStartConfig {
+                            100,
+                            3000,
+                            false,
+                            false,
+                        }) != LinkMonitorResult::InvalidArgument ||
         monitor.status().state != LinkState::ReconnectPending ||
         !sameMac(monitor.status().station, beforeRestart.station) ||
         !sameMac(monitor.status().bssid, beforeRestart.bssid) ||
@@ -1633,16 +1672,31 @@ int main()
     {
         return 11;
     }
-    if (monitor.started(station, monitor.status().bssid, 100, 3000, false,
-                        false) != LinkMonitorResult::InvalidArgument ||
-        monitor.started(monitor.status().station, accessPoint, 100, 3000, false,
-                        false) != LinkMonitorResult::InvalidArgument ||
+    if (monitor.started(station, monitor.status().bssid,
+                        LinkStartConfig {
+                            100,
+                            3000,
+                            false,
+                            false,
+                        }) != LinkMonitorResult::InvalidArgument ||
+        monitor.started(monitor.status().station, accessPoint,
+                        LinkStartConfig {
+                            100,
+                            3000,
+                            false,
+                            false,
+                        }) != LinkMonitorResult::InvalidArgument ||
         monitor.status().state != LinkState::ReconnectPending)
     {
         return 12;
     }
-    if (monitor.started(station, accessPoint, 100, 3000, false, false) !=
-            LinkMonitorResult::Ok ||
+    if (monitor.started(station, accessPoint,
+                        LinkStartConfig {
+                            100,
+                            3000,
+                            false,
+                            false,
+                        }) != LinkMonitorResult::Ok ||
         !sameMac(monitor.status().station, station) ||
         !sameMac(monitor.status().bssid, accessPoint))
     {
