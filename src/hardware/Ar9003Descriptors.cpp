@@ -323,6 +323,22 @@ namespace simpleath
             return DescriptorError::Ok;
         }
 
+        bool admissibleRxMpdu(const RxStatus &status, size_t dmaBytes)
+        {
+            // A callback receives one FCS-inclusive MPDU, not a chained RX
+            // buffer, aggregate or a reused length from an earlier ring slot.
+            return status.completed && status.frameValid && !status.crcError &&
+                   !status.decryptError && !status.micError &&
+                   !status.phyError && !status.keyMiss &&
+                   !status.moreFragments && !status.aggregated &&
+                   !status.aggregationFirst && !status.aggregationContinues &&
+                   dmaBytes == status.frameLength &&
+                   dmaBytes >= kRxMinMpduBytes &&
+                   dmaBytes <= kRxMaxSingleMpduBytes &&
+                   supportedRxRate(status.rateCode) &&
+                   (!status.ht40 || status.rateCode >= kHtMcs0);
+        }
+
         DescriptorError decodeRxStatus(const RxStatusWords &raw, RxStatus &out)
         {
             // Never clear an output that aliases a DMA-visible status ring.
@@ -380,12 +396,7 @@ namespace simpleath
             // authorize an aggregate's first, middle or last member for
             // native delivery without that independently reviewed pipeline.
             // The 12-bit length field cannot authorize jumbo MPDUs either.
-            if (!status.frameValid || status.frameLength < kRxMinMpduBytes ||
-                status.frameLength > kRxMaxSingleMpduBytes ||
-                !supportedRxRate(status.rateCode) ||
-                (status.ht40 && status.rateCode < kHtMcs0) ||
-                status.moreFragments || status.aggregated ||
-                status.aggregationContinues || status.aggregationFirst)
+            if (!admissibleRxMpdu(status, status.frameLength))
             {
                 return DescriptorError::ReceiveError;
             }

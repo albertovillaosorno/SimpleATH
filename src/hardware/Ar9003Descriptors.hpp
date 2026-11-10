@@ -136,6 +136,13 @@ namespace simpleath
                 uint32_t timestamp;
         };
 
+        // The last native PCI callback boundary must recheck the complete
+        // decoded RX status and the exact DMA span, even when its producer
+        // already called decodeRxStatus(). Prevent stale or fabricated status
+        // from entering scan/AWDL, association or OS-owned WPA2 processing.
+        // This does not establish a live radio, valid channel or key state.
+        bool admissibleRxMpdu(const RxStatus &status, size_t dmaBytes);
+
         // Caller must first synchronize DMA and verify a complete status write.
         // This only decodes status; it does not read payloads or acknowledge
         // IRQs. AR_RxMore marks an incomplete chained DMA buffer and is

@@ -2399,10 +2399,8 @@ class SimpleATH final : public IOService
                 verifiedReceiveChannel_ != kAwdlSocialChannelSix ||
                 queues_.epoch() != epoch_ ||
                 queues_.phase() != simpleath::NativeQueuePhase::Running ||
-                !status.completed || !status.frameValid || status.crcError ||
-                status.decryptError || status.micError || status.phyError ||
-                status.keyMiss || frame == nullptr || bytes <= kFcsBytes ||
-                bytes > kMaximumMpduBytes + kFcsBytes)
+                frame == nullptr || bytes <= kFcsBytes ||
+                !simpleath::edma::admissibleRxMpdu(status, bytes))
             {
                 return;
             }
@@ -2654,7 +2652,8 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             if (!self.radioOperational_ || !self.powered_ ||
-                !self.liveRfKillUnblocked())
+                !self.liveRfKillUnblocked() ||
+                !simpleath::edma::admissibleRxMpdu(status, bytes))
             {
                 return;
             }

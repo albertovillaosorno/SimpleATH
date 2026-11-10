@@ -157,6 +157,7 @@ namespace
         Scenario71 = 71,
         Scenario72 = 72,
         Scenario73 = 73,
+        Scenario74 = 74,
     };
 
     constexpr int kLegacyWhitelistFailure = 72;
@@ -188,6 +189,101 @@ namespace
             }
         }
         return true;
+    }
+
+    // Exercise the exact predicate used by the native EDMA RX callback,
+    // independently of descriptor decoder fixture construction.
+    bool validNativeReceiveAdmission()
+    {
+        using simpleath::edma::admissibleRxMpdu;
+        using simpleath::edma::RxStatus;
+        constexpr size_t kHeaderWithFcs = 28U;
+        constexpr unsigned kRejectedStatusCases = 11U;
+        constexpr unsigned kCase6 = 6U;
+        constexpr uint8_t kLegacyRateCck1M = 0x1bU;
+        constexpr uint8_t kHtRateMcs0 = 0x80U;
+        RxStatus good {};
+        good.completed = true;
+        good.frameValid = true;
+        good.frameLength = kHeaderWithFcs;
+        good.rateCode = kLegacyRateCck1M;
+        if (!admissibleRxMpdu(good, kHeaderWithFcs) ||
+            admissibleRxMpdu(good, kHeaderWithFcs - 1U) ||
+            admissibleRxMpdu(good, kHeaderWithFcs + 1U))
+        {
+            return false;
+        }
+        // A single errored status bit or unsupported rate must not create
+        // a peer, beacon, EAPOL or data packet, even with frameValid forged.
+        for (unsigned bad = 0U; bad < kRejectedStatusCases; ++bad)
+        {
+            RxStatus status = good;
+            switch (bad)
+            {
+                case 0U:
+                    status.completed = false;
+                    break;
+                case 1U:
+                    status.frameValid = false;
+                    break;
+                case 2U:
+                    status.crcError = true;
+                    break;
+                case 3U:
+                    status.decryptError = true;
+                    break;
+                case 4U:
+                    status.micError = true;
+                    break;
+                case kFixtureDec5:
+                    status.phyError = true;
+                    break;
+                case kCase6:
+                    status.keyMiss = true;
+                    break;
+                case kFixtureDec7u:
+                    status.moreFragments = true;
+                    break;
+                case kFixtureDec8u:
+                    status.aggregated = true;
+                    break;
+                case kFixtureDec9u:
+                    status.aggregationFirst = true;
+                    break;
+                default:
+                    status.aggregationContinues = true;
+                    break;
+            }
+            if (admissibleRxMpdu(status, kHeaderWithFcs))
+            {
+                return false;
+            }
+        }
+        RxStatus invalid = good;
+        invalid.rateCode = kFixtureHexffu;
+        if (admissibleRxMpdu(invalid, kHeaderWithFcs))
+        {
+            return false;
+        }
+        invalid = good;
+        invalid.ht40 = true;
+        if (admissibleRxMpdu(invalid, kHeaderWithFcs))
+        {
+            return false;
+        }
+        invalid.rateCode = kHtRateMcs0;
+        if (!admissibleRxMpdu(invalid, kHeaderWithFcs))
+        {
+            return false;
+        }
+        invalid = good;
+        invalid.frameLength = kFixtureDec13;
+        if (admissibleRxMpdu(invalid, invalid.frameLength))
+        {
+            return false;
+        }
+        invalid.frameLength = kFixtureDec2347u;
+        return !admissibleRxMpdu(invalid, invalid.frameLength);
     }
 
     struct CodecScenario
@@ -1120,6 +1216,10 @@ namespace
 
 int main()
 {
+    if (!validNativeReceiveAdmission())
+    {
+        return static_cast<int>(Failure::Scenario74);
+    }
     if (!exactLegacyRateWhitelist())
     {
         return kLegacyWhitelistFailure;
