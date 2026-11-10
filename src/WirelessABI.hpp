@@ -53,6 +53,53 @@ namespace ath
     constexpr unsigned bitsPerHalfWord = 16U;
     constexpr unsigned bitsPerThreeBytes = 24U;
 
+    // Fixed on-wire field positions from the Sonoma/Sequoia/Tahoe layouts.
+    // Named offsets keep validation tied to the exact ABI-sized fields.
+    constexpr size_t scanMultipleCountOffset = 8U;
+    constexpr size_t scanMultipleExtraCountOffset = 0x19CU;
+    constexpr size_t scanMultipleLimitOffset = 0x210U;
+    constexpr size_t scanMultipleEntryStart = 0x10U;
+    constexpr size_t scanMultipleEntryBytes = 0x28U;
+    constexpr uint32_t maximumScanMultipleEntries = 10U;
+    constexpr uint32_t maximumScanMultipleExtras = 16U;
+    constexpr uint32_t maximumScanMultipleLimit = 400U;
+    constexpr uint32_t maximumSsidBytes = 32U;
+    constexpr size_t powerAvailabilityMinimum = 0x14U;
+    constexpr size_t powerRadioCountOffset = 4U;
+    constexpr size_t powerRadioStatusOffset = 8U;
+    constexpr size_t powerRadioWordBytes = 4U;
+    constexpr size_t powerAvailableOutputOffset = 8U;
+    constexpr size_t powerReasonOutputOffset = 0x10U;
+    constexpr size_t sequoiaJoinMinimum = 0x10U;
+    constexpr size_t sequoiaJoinStatus1 = 0x08U;
+    constexpr size_t sequoiaJoinStatus2 = 0x0CU;
+    constexpr size_t tahoeJoinStatus1 = 0x1B8U;
+    constexpr size_t tahoeJoinStatus2 = 0x1BCU;
+    constexpr size_t tahoeJoinResultOffset = 0x1C4U;
+    constexpr size_t tahoeJoinAvailableOffset = 0x1C8U;
+    constexpr size_t tahoeJoinBssidOffset = 0x1CCU;
+    constexpr size_t kMacAddressBytes = 6U;
+    constexpr size_t associateExtensionBytes = 0x2CU;
+    constexpr size_t legacyAssociateFlagOffset = 0x202U;
+    constexpr size_t extendedAssociateFlagOffset = 0x206U;
+    constexpr size_t associateLowerOffset = 8U;
+    constexpr size_t associateUpperOffset = 12U;
+    constexpr size_t associateLowerByte0 = 6U;
+    constexpr size_t associateLowerByte1 = 7U;
+    constexpr size_t associateUpperByte0 = 8U;
+    constexpr size_t associateUpperByte1 = 9U;
+    constexpr size_t associateReserved0 = 10U;
+    constexpr size_t associateReserved1 = 11U;
+    constexpr size_t associateCopyBegin = 0xCU;
+    constexpr size_t associateCopyEnd = 0x215U;
+    constexpr size_t associateTailBegin = 0x218U;
+    constexpr size_t roamHeaderBytes = 12U;
+    constexpr size_t minimumEventRingBytes = 4096U;
+    constexpr size_t maximumEventRingBytes = 0x80000U;
+    constexpr uint32_t eventWrappedStatus = 0x50U;
+    constexpr uint32_t eventWritingStatus = 0x52U;
+    constexpr uint32_t eventPublishedStatus = 0x57U;
+
     enum class AirPortBackend : uint8_t
     {
         Original,
@@ -382,14 +429,20 @@ namespace ath
             abi.scanMultipleSize < legacyScanMultipleSize ||
             capacity < abi.scanMultipleSize ||
             request.length != abi.scanMultipleSize || readUInt32(buffer) != 1 ||
-            readUInt32(buffer + 8) > 10 || readUInt32(buffer + 0x19C) > 16 ||
-            readUInt32(buffer + 0x210) > 400)
+            readUInt32(buffer + scanMultipleCountOffset) >
+                maximumScanMultipleEntries ||
+            readUInt32(buffer + scanMultipleExtraCountOffset) >
+                maximumScanMultipleExtras ||
+            readUInt32(buffer + scanMultipleLimitOffset) >
+                maximumScanMultipleLimit)
         {
             return false;
         }
-        for (size_t index = 0; index < readUInt32(buffer + 8); ++index)
+        for (size_t index = 0;
+             index < readUInt32(buffer + scanMultipleCountOffset); ++index)
         {
-            if (readUInt32(buffer + 0x10 + (index * 0x28)) > 32)
+            if (readUInt32(buffer + scanMultipleEntryStart +
+                           (index * scanMultipleEntryBytes)) > maximumSsidBytes)
             {
                 return false;
             }
@@ -409,12 +462,13 @@ namespace ath
     {
         // The fixed status and reason words occupy bytes through 0x13.
         if ((power == nullptr) || (output == nullptr) ||
-            length != powerDataSize || abi.driverAvailableSize < 0x14 ||
+            length != powerDataSize ||
+            abi.driverAvailableSize < powerAvailabilityMinimum ||
             capacity < abi.driverAvailableSize || readUInt32(power) != 1)
         {
             return false;
         }
-        const auto radios = readUInt32(power + 4);
+        const auto radios = readUInt32(power + powerRadioCountOffset);
         if ((radios == 0U) || radios > 4)
         {
             return false;
@@ -422,7 +476,8 @@ namespace ath
         uint32_t available = 0;
         for (size_t index = 0; index < radios; ++index)
         {
-            const auto value = readUInt32(power + 8 + (index * 4));
+            const auto value = readUInt32(power + powerRadioStatusOffset +
+                                          (index * powerRadioWordBytes));
             if (value > 1)
             {
                 return false;
@@ -433,8 +488,9 @@ namespace ath
         {
             output[index] = 0;
         }
-        writeUInt32(output + 8, available);
-        writeUInt32(output + 0x10, powerStateAvailabilityReason);
+        writeUInt32(output + powerAvailableOutputOffset, available);
+        writeUInt32(output + powerReasonOutputOffset,
+                    powerStateAvailabilityReason);
         return true;
     }
 
@@ -447,9 +503,11 @@ namespace ath
         const bool tahoe = abi.joinEventPolicy == JoinEventPolicy::Tahoe;
         // The 32-bit status fields and optional BSSID have policy-specific
         // fixed offsets; reject a shortened profile before any output write.
-        const size_t minimum = sequoia ? 0x10 : 0x1CC + bssidLength;
+        const size_t minimum =
+            sequoia ? sequoiaJoinMinimum : tahoeJoinBssidOffset + bssidLength;
         if ((!sequoia && !tahoe) || (output == nullptr) ||
-            ((bssidLength != 0U) && ((bssid == nullptr) || bssidLength != 6)) ||
+            ((bssidLength != 0U) &&
+             ((bssid == nullptr) || bssidLength != kMacAddressBytes)) ||
             abi.joinStatusSize < minimum || capacity < abi.joinStatusSize)
         {
             return false;
@@ -458,16 +516,18 @@ namespace ath
         {
             output[index] = 0;
         }
-        writeUInt32(output + (sequoia ? 0x08 : 0x1B8), status);
-        writeUInt32(output + (sequoia ? 0x0C : 0x1BC), status);
+        writeUInt32(output + (sequoia ? sequoiaJoinStatus1 : tahoeJoinStatus1),
+                    status);
+        writeUInt32(output + (sequoia ? sequoiaJoinStatus2 : tahoeJoinStatus2),
+                    status);
         if (!sequoia)
         {
-            writeUInt32(output + 0x1C4, result);
-            writeUInt32(output + 0x1C8, 1);
+            writeUInt32(output + tahoeJoinResultOffset, result);
+            writeUInt32(output + tahoeJoinAvailableOffset, 1);
         }
         for (size_t index = 0; index < bssidLength; ++index)
         {
-            output[(sequoia ? 0 : 0x1CC) + index] = bssid[index];
+            output[(sequoia ? 0 : tahoeJoinBssidOffset) + index] = bssid[index];
         }
         return true;
     }
@@ -477,9 +537,10 @@ namespace ath
     {
         // Extended layout shifts the bytes at 0x218..0x223 from
         // 0x244..0x24F; both source and destination must be present.
-        const size_t minimum = abi.associateLayout == AssociateLayout::Legacy
-                                   ? legacyAssociateSize
-                                   : legacyAssociateSize + 0x2C;
+        const size_t minimum =
+            abi.associateLayout == AssociateLayout::Legacy
+                ? legacyAssociateSize
+                : legacyAssociateSize + associateExtensionBytes;
         if ((abi.associateLayout != AssociateLayout::Legacy &&
              abi.associateLayout != AssociateLayout::Extended) ||
             (buffer == nullptr) || abi.associateSize < minimum ||
@@ -489,35 +550,41 @@ namespace ath
         }
         if (abi.associateLayout == AssociateLayout::Legacy)
         {
-            if (buffer[0x202] > 3)
+            if (buffer[legacyAssociateFlagOffset] > 3)
             {
                 return false;
             }
             request.length = legacyAssociateSize;
             return true;
         }
-        const auto lower = readUInt32(buffer + 8);
-        const auto upper = readUInt32(buffer + 12);
-        if (lower > UINT16_MAX || upper > UINT16_MAX || buffer[0x206] > 3)
+        const auto lower = readUInt32(buffer + associateLowerOffset);
+        const auto upper = readUInt32(buffer + associateUpperOffset);
+        if (lower > UINT16_MAX || upper > UINT16_MAX ||
+            buffer[extendedAssociateFlagOffset] > 3)
         {
             return false;
         }
-        for (size_t offset = 0xC; offset < 0x215; ++offset)
+        for (size_t offset = associateCopyBegin; offset < associateCopyEnd;
+             ++offset)
         {
             buffer[offset] = buffer[offset + 4];
         }
-        buffer[6] = static_cast<uint8_t>(lower);
-        buffer[7] = static_cast<uint8_t>(lower >> bitsPerByte);
-        buffer[8] = static_cast<uint8_t>(upper);
-        buffer[9] = static_cast<uint8_t>(upper >> bitsPerByte);
-        buffer[10] = buffer[11] = 0;
-        for (size_t offset = 0x215; offset < 0x218; ++offset)
+        buffer[associateLowerByte0] = static_cast<uint8_t>(lower);
+        buffer[associateLowerByte1] =
+            static_cast<uint8_t>(lower >> bitsPerByte);
+        buffer[associateUpperByte0] = static_cast<uint8_t>(upper);
+        buffer[associateUpperByte1] =
+            static_cast<uint8_t>(upper >> bitsPerByte);
+        buffer[associateReserved0] = buffer[associateReserved1] = 0;
+        for (size_t offset = associateCopyEnd; offset < associateTailBegin;
+             ++offset)
         {
             buffer[offset] = 0;
         }
-        for (size_t offset = 0x218; offset < legacyAssociateSize; ++offset)
+        for (size_t offset = associateTailBegin; offset < legacyAssociateSize;
+             ++offset)
         {
-            buffer[offset] = buffer[offset + 0x2C];
+            buffer[offset] = buffer[offset + associateExtensionBytes];
         }
         for (size_t offset = legacyAssociateSize; offset < abi.associateSize;
              ++offset)
@@ -534,19 +601,21 @@ namespace ath
     {
         if ((buffer == nullptr) || (band == nullptr) ||
             capacity < legacyRoamBandSize ||
-            bandCapacity < nativeRoamBandSize || readUInt32(band + 12) != 1)
+            bandCapacity < nativeRoamBandSize ||
+            readUInt32(band + roamHeaderBytes) != 1)
         {
             return false;
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
-            buffer[offset] = band[offset + 12];
+            buffer[offset] = band[offset + roamHeaderBytes];
         }
-        for (size_t offset = 4; offset < 12; ++offset)
+        for (size_t offset = 4; offset < roamHeaderBytes; ++offset)
         {
             buffer[offset] = band[offset];
         }
-        for (size_t offset = 12; offset < legacyRoamBandSize; ++offset)
+        for (size_t offset = roamHeaderBytes; offset < legacyRoamBandSize;
+             ++offset)
         {
             buffer[offset] = band[offset + 4];
         }
@@ -565,17 +634,18 @@ namespace ath
         {
             return false;
         }
-        for (size_t offset = legacyRoamBandSize; offset > 12; --offset)
+        for (size_t offset = legacyRoamBandSize; offset > roamHeaderBytes;
+             --offset)
         {
             band[offset + 3] = buffer[offset - 1];
         }
-        for (size_t offset = 4; offset < 12; ++offset)
+        for (size_t offset = 4; offset < roamHeaderBytes; ++offset)
         {
             band[offset] = buffer[offset];
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
-            band[offset + 12] = buffer[offset];
+            band[offset + roamHeaderBytes] = buffer[offset];
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
@@ -653,9 +723,9 @@ namespace ath
                                      uint64_t microseconds)
             {
                 if ((ring == nullptr) || (state == nullptr) ||
-                    (name == nullptr) || capacity < 4096 ||
-                    capacity > 0x80000 || ((capacity & 3U) != 0U) ||
-                    length > maximumEventPayload ||
+                    (name == nullptr) || capacity < minimumEventRingBytes ||
+                    capacity > maximumEventRingBytes ||
+                    ((capacity & 3U) != 0U) || length > maximumEventPayload ||
                     ((length != 0U) && (payload == nullptr)))
                 {
                     return RingResult::Invalid;
@@ -707,13 +777,14 @@ namespace ath
                     for (size_t offset = write; offset < capacity; offset += 4)
                     {
                         __atomic_store_n(
-                            reinterpret_cast<uint32_t *>(ring + offset), 0x50U,
-                            __ATOMIC_RELEASE);
+                            reinterpret_cast<uint32_t *>(ring + offset),
+                            eventWrappedStatus, __ATOMIC_RELEASE);
                     }
                     write = 0;
                 }
                 auto *header = reinterpret_cast<EventHeader *>(ring + write);
-                __atomic_store_n(&header->status, 0x52U, __ATOMIC_RELAXED);
+                __atomic_store_n(&header->status, eventWritingStatus,
+                                 __ATOMIC_RELAXED);
                 header->flags = 0;
                 header->sequence = ++sequence;
                 header->seconds = seconds;
@@ -740,7 +811,8 @@ namespace ath
                     ring[(write + sizeof(EventHeader) + offset) % capacity] =
                         offset < length ? bytes[offset] : 0;
                 }
-                __atomic_store_n(&header->status, 0x57U, __ATOMIC_RELEASE);
+                __atomic_store_n(&header->status, eventPublishedStatus,
+                                 __ATOMIC_RELEASE);
                 write = static_cast<uint32_t>((write + record) % capacity);
                 __atomic_store_n(&state->write, write, __ATOMIC_RELEASE);
                 return RingResult::Written;
