@@ -184,6 +184,7 @@ namespace
         TxWorkflowBankFailed = 50,
         TxWorkflowBankReadbackFailed = 51,
         TxWorkflowSourceSnapshot = 52,
+        TxWorkflowPreflightBar = 53,
     };
 
     struct RateFixture
@@ -1171,6 +1172,20 @@ namespace
         {
             return static_cast<int>(Failure::TxWorkflowUnauthorized);
         }
+        // This BAR fits every OLPC register but not the higher forced-gain
+        // rate-bank register. The *combined* preflight must write nothing.
+        TxPowerBackend shortBar = backend;
+        shortBar.barLengthBytes = kTxForcedGain;
+        const auto preflight =
+            programAr9565TransmitPower(fixture.output, authority, shortBar);
+        if (preflight.phase != TxPowerWorkflowPhase::OpenLoop ||
+            preflight.openLoop.result !=
+                TxPowerProgramResult::MissingAuthorization ||
+            preflight.requiresReset || fake.olpc.writes != 0U ||
+            fake.rateBank.writes != 0U)
+        {
+            return static_cast<int>(Failure::TxWorkflowUnauthorized);
+        }
         authority.eepromContentsVerified = true;
         authority.boardAntennaConfigurationVerified = true;
         authority.localCountryRulesAvailable = true;
@@ -1178,6 +1193,15 @@ namespace
         authority.txPowerLimitsVerified = true;
         authority.radioKillUnblocked = true;
         authority.coexistenceConfigurationVerified = true;
+        const auto rejectedBar =
+            programAr9565TransmitPower(fixture.output, authority, shortBar);
+        if (rejectedBar.phase != TxPowerWorkflowPhase::OpenLoop ||
+            rejectedBar.openLoop.result != TxPowerProgramResult::InvalidBar ||
+            rejectedBar.requiresReset || fake.olpc.writes != 0U ||
+            fake.rateBank.writes != 0U)
+        {
+            return static_cast<int>(Failure::TxWorkflowPreflightBar);
+        }
         progress =
             programAr9565TransmitPower(fixture.output, authority, backend);
         if (progress.phase != TxPowerWorkflowPhase::Completed ||

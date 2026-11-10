@@ -1080,6 +1080,28 @@ namespace simpleath
         const PowerCandidates stableCandidate = candidate;
         const CalibrationAndRegulatory stablePolicy = authorization;
         const TxPowerBackend stableBackend = backend;
+        // The rate bank reaches a higher BAR offset than OLPC. Validate both
+        // stages before the very first register mutation, rather than leaving
+        // a partial OLPC transaction requiring reset for a known-short BAR.
+        if (stableBackend.context == nullptr ||
+            stableBackend.ownerEpoch == 0U ||
+            stableBackend.permitWrite == nullptr ||
+            stableBackend.write32 == nullptr || stableBackend.read32 == nullptr)
+        {
+            return workflow;
+        }
+        if (stablePolicy.use != RadioInitialization::TransmitReceive ||
+            !radioInitializationAuthorized(stablePolicy))
+        {
+            workflow.openLoop.result =
+                TxPowerProgramResult::MissingAuthorization;
+            return workflow;
+        }
+        if (stableBackend.barLengthBytes < kTxForcedGain + sizeof(uint32_t))
+        {
+            workflow.openLoop.result = TxPowerProgramResult::InvalidBar;
+            return workflow;
+        }
         workflow.openLoop = programAr9565TxOpenLoopCalibration(
             stableCandidate, stablePolicy, stableBackend);
         workflow.requiresReset = workflow.openLoop.requiresReset;
