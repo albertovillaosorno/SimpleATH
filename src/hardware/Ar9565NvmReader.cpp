@@ -30,6 +30,17 @@
 #include "Ar9565InitCatalog.hpp"
 #include <cstddef>
 #include <cstdint>
+// Linux cross-check uses an incomplete macOS SDK: its public <iterator>
+// transitively includes incompatible Linux C headers. Real/macOS and host
+// builds use the public header; Darwin target compilation instead uses
+// the narrow libc++ std::next definition.
+// NOLINTBEGIN(misc-include-cleaner)
+#ifdef __APPLE__
+#include <__iterator/next.h>
+#else
+#include <iterator>
+#endif
+// NOLINTEND(misc-include-cleaner)
 
 namespace simpleath
 {
@@ -301,23 +312,77 @@ namespace simpleath
         }
     } // namespace
 
-    // Internal byte-range capture is used for exact four-byte origin probes;
-    // public captureAr9565Nvm retains its ascending-zero address semantics.
-    static NvmResult captureRange(const NvmReadBackend &borrowedBackend,
-                                  const Identity &borrowedIdentity,
-                                  NvmSource source, size_t firstByte,
-                                  uint8_t *destination, size_t byteCount,
-                                  NvmReadStatus &reportedStatus)
+    // Keep the post-ready EEPROM read separate from the wait status sample.
+    // All backend callbacks and D0/clock gates remain inside Capture.
+    static NvmResult readCaptureWord(Capture &capture, NvmSource source,
+                                     uint32_t trigger, uint32_t &value)
     {
-        // The output could alias the caller's backend callbacks or identity.
-        // Reject such a contract breach BEFORE clearing either output or
-        // invoking a corrupted function pointer. On this error the returned
-        // result, not the unwritable/aliased status field, is authoritative.
-        // The opaque context's full allocation size is not known here. Its
-        // pointer must at least not point into either writable output: clearing
-        // that storage would corrupt callback state before the first call.
-        // The caller still guarantees disjointness of the complete allocation.
-        if (overlaps(destination, byteCount, &borrowedBackend,
+        NvmResult result = capture.read(trigger, value);
+        if (result != NvmResult::Ok)
+        {
+            return result;
+        }
+        result = source == NvmSource::Eeprom
+                     ? capture.wait(
+                           WaitSpec {
+                               kEepromData,
+                               kEepromBusy | kEepromProtected,
+                               0U,
+                               kEepromWordTimeoutMicros,
+                           },
+                           value)
+                     : capture.wait(
+                           WaitSpec {
+                               kOtpStatus,
+                               kOtpReadyMask,
+                               kOtpReadyValue,
+                               kOtpWordTimeoutMicros,
+                           },
+                           value);
+        if (result != NvmResult::Ok)
+        {
+            return result;
+        }
+        if (source == NvmSource::Otp)
+        {
+            return capture.read(kOtpData, value);
+        }
+        // ath_pci_eeprom_read requires a second status/data read after ready.
+        result = capture.read(kEepromData, value);
+        if (result != NvmResult::Ok)
+        {
+            return result;
+        }
+        if (value == kInvalidNvmRegister)
+        {
+            return NvmResult::RegisterReadFailed;
+        }
+        if ((value & kEepromAbsentAccess) != 0U)
+        {
+            return NvmResult::StorageAbsent;
+        }
+        if ((value & kEepromProtected) != 0U)
+        {
+            return NvmResult::ProtectedAccess;
+        }
+        // BUSY_ACCESS is not included in the original wait mask.
+        if ((value & (kEepromBusy | kEepromBusyAccess)) != 0U)
+        {
+            return NvmResult::UnstableStatus;
+        }
+        return NvmResult::Ok;
+    }
+
+    // Reject all aliases before mutating output or dereferencing callback
+    // state; context-allocation overlap beyond its pointer is owner contract.
+    static bool captureArgumentsDisjoint(const NvmReadBackend &borrowedBackend,
+                                         const Identity &borrowedIdentity,
+                                         const uint8_t *destination,
+                                         size_t byteCount,
+                                         NvmReadStatus &reportedStatus)
+    {
+        return !(
+            overlaps(destination, byteCount, &borrowedBackend,
                      sizeof(borrowedBackend)) ||
             overlaps(destination, byteCount, &borrowedIdentity,
                      sizeof(borrowedIdentity)) ||
@@ -335,7 +400,104 @@ namespace simpleath
             overlaps(borrowedBackend.context, 1, &borrowedBackend,
                      sizeof(borrowedBackend)) ||
             overlaps(borrowedBackend.context, 1, &borrowedIdentity,
-                     sizeof(borrowedIdentity)))
+                     sizeof(borrowedIdentity)));
+    }
+
+    // Live silicon/RTC preflight occurs after the first D0 gate, before any
+    // EEPROM or OTP trigger MMIO read.
+    static NvmResult verifyCaptureSilicon(Capture &capture,
+                                          NvmReadStatus &status)
+    {
+        uint32_t value = 0;
+        NvmResult result = capture.read(kRevisionRegister, value);
+        if (result != NvmResult::Ok)
+        {
+            return result;
+        }
+        // A disconnected BAR can read as all ones. This is a transport fault,
+        // not evidence that a different silicon revision was discovered.
+        if (value == kInvalidNvmRegister)
+        {
+            return NvmResult::RegisterReadFailed;
+        }
+        if (decodeRevision(value, status.silicon) != Result::Ok)
+        {
+            return NvmResult::UnsupportedSilicon;
+        }
+        result = capture.read(kRtcStatusRegister, value);
+        if (result != NvmResult::Ok)
+        {
+            return result;
+        }
+        if (value == kInvalidNvmRegister)
+        {
+            return NvmResult::RegisterReadFailed;
+        }
+        if ((value & kRtcStatusMask) != kRtcOn)
+        {
+            return NvmResult::RadioAsleep;
+        }
+
+        return NvmResult::Ok;
+    }
+
+    // Validate live callback table, physical identity and D0 before Capture
+    // samples the first time source. This is intentionally after zeroing the
+    // valid destination range in captureRange.
+    static NvmResult validateCaptureOwner(const NvmReadBackend &backend,
+                                          const Identity &physicalIdentity)
+    {
+        if ((backend.context == nullptr) || (backend.ownerInD0 == nullptr) ||
+            (backend.read32 == nullptr) || (backend.nowMicros == nullptr) ||
+            (backend.delayMicros == nullptr))
+        {
+            return NvmResult::InvalidArgument;
+        }
+        if (!isSupportedPci(physicalIdentity.vendorId,
+                            physicalIdentity.deviceId) ||
+            physicalIdentity.spoofPossible)
+        {
+            return NvmResult::UnsupportedIdentity;
+        }
+        // The monotonic clock can belong to the same revoked PCI owner as
+        // MMIO. Do not invoke it during Capture construction before the first
+        // ownership check. Capture::budget rechecks ownership before reads.
+        if (!backend.ownerInD0(backend.context))
+        {
+            return NvmResult::SessionUnavailable;
+        }
+        return NvmResult::Ok;
+    }
+
+    // Only bounded origin search spans may issue NVM trigger reads.
+    static bool validCaptureSpan(NvmSource source, size_t firstByte,
+                                 const uint8_t *destination, size_t byteCount)
+    {
+        const size_t maximum =
+            source == NvmSource::Eeprom ? kEepromReadLimit : kOtpReadLimit;
+        return destination != nullptr && byteCount != 0 &&
+               firstByte < maximum && byteCount <= maximum - firstByte &&
+               (source == NvmSource::Eeprom || source == NvmSource::Otp);
+    }
+
+    // Internal byte-range capture is used for exact four-byte origin probes;
+    // public captureAr9565Nvm retains its ascending-zero address semantics.
+    static NvmResult captureRange(const NvmReadBackend &borrowedBackend,
+                                  const Identity &borrowedIdentity,
+                                  NvmSource source, size_t firstByte,
+                                  uint8_t *destination, size_t byteCount,
+                                  NvmReadStatus &reportedStatus)
+    {
+        // The output could alias the caller's backend callbacks or identity.
+        // Reject such a contract breach BEFORE clearing either output or
+        // invoking a corrupted function pointer. On this error the returned
+        // result, not the unwritable/aliased status field, is authoritative.
+        // The opaque context's full allocation size is not known here. Its
+        // pointer must at least not point into either writable output: clearing
+        // that storage would corrupt callback state before the first call.
+        // The caller still guarantees disjointness of the complete allocation.
+        if (!captureArgumentsDisjoint(borrowedBackend, borrowedIdentity,
+                                      destination, byteCount, reportedStatus))
         {
             return NvmResult::InvalidArgument;
         }
@@ -375,65 +537,23 @@ namespace simpleath
         NvmReadStatus &status = report.state();
         status = {};
         status.source = source;
-        const size_t maximum =
-            source == NvmSource::Eeprom ? kEepromReadLimit : kOtpReadLimit;
-        if ((destination == nullptr) || byteCount == 0 ||
-            firstByte >= maximum || byteCount > maximum - firstByte ||
-            (source != NvmSource::Eeprom && source != NvmSource::Otp))
+        if (!validCaptureSpan(source, firstByte, destination, byteCount))
         {
             return status.result = NvmResult::InvalidArgument;
         }
         clearBytes(destination, byteCount);
-        if ((backend.context == nullptr) || (backend.ownerInD0 == nullptr) ||
-            (backend.read32 == nullptr) || (backend.nowMicros == nullptr) ||
-            (backend.delayMicros == nullptr))
+        const NvmResult owner = validateCaptureOwner(backend, physicalIdentity);
+        if (owner != NvmResult::Ok)
         {
-            return status.result = NvmResult::InvalidArgument;
-        }
-        if (!isSupportedPci(physicalIdentity.vendorId,
-                            physicalIdentity.deviceId) ||
-            physicalIdentity.spoofPossible)
-        {
-            return status.result = NvmResult::UnsupportedIdentity;
-        }
-        // The monotonic clock can belong to the same revoked PCI owner as
-        // MMIO. Do not invoke it during Capture construction before the first
-        // ownership check. Capture::budget rechecks ownership before reads.
-        if (!backend.ownerInD0(backend.context))
-        {
-            return status.result = NvmResult::SessionUnavailable;
+            return status.result = owner;
         }
         Capture capture(backend, status);
+        NvmResult result = verifyCaptureSilicon(capture, status);
+        if (result != NvmResult::Ok)
+        {
+            return status.result = result;
+        }
         uint32_t value = 0;
-        NvmResult result = capture.read(kRevisionRegister, value);
-        if (result != NvmResult::Ok)
-        {
-            return status.result = result;
-        }
-        // A disconnected BAR can read as all ones. This is a transport fault,
-        // not evidence that a different silicon revision was discovered.
-        if (value == kInvalidNvmRegister)
-        {
-            return status.result = NvmResult::RegisterReadFailed;
-        }
-        if (decodeRevision(value, status.silicon) != Result::Ok)
-        {
-            return status.result = NvmResult::UnsupportedSilicon;
-        }
-        result = capture.read(kRtcStatusRegister, value);
-        if (result != NvmResult::Ok)
-        {
-            return status.result = result;
-        }
-        if (value == kInvalidNvmRegister)
-        {
-            return status.result = NvmResult::RegisterReadFailed;
-        }
-        if ((value & kRtcStatusMask) != kRtcOn)
-        {
-            return status.result = NvmResult::RadioAsleep;
-        }
-
         const uint32_t wordBytes = source == NvmSource::Eeprom ? 2 : 4;
         const size_t firstWord = firstByte / wordBytes;
         const size_t words =
@@ -458,79 +578,18 @@ namespace simpleath
             const uint32_t trigger =
                 (source == NvmSource::Eeprom ? kEepromWindow : kOtpWindow) +
                 static_cast<uint32_t>((firstWord + word) * 4);
-            result =
-                capture.read(trigger, value); // Starts the NVM transaction.
+            result = readCaptureWord(capture, source, trigger, value);
             if (result != NvmResult::Ok)
             {
                 break;
-            }
-            result = source == NvmSource::Eeprom
-                         ? capture.wait(
-                               WaitSpec {
-                                   kEepromData,
-                                   kEepromBusy | kEepromProtected,
-                                   0U,
-                                   kEepromWordTimeoutMicros,
-                               },
-                               value)
-                         : capture.wait(
-                               WaitSpec {
-                                   kOtpStatus,
-                                   kOtpReadyMask,
-                                   kOtpReadyValue,
-                                   kOtpWordTimeoutMicros,
-                               },
-                               value);
-            if (result != NvmResult::Ok)
-            {
-                break;
-            }
-            if (source == NvmSource::Eeprom)
-            {
-                // ath_pci_eeprom_read performs a SECOND status/data read
-                // after the ready wait. The wait-loop sample is not payload.
-                result = capture.read(kEepromData, value);
-                if (result != NvmResult::Ok)
-                {
-                    break;
-                }
-                if (value == kInvalidNvmRegister)
-                {
-                    result = NvmResult::RegisterReadFailed;
-                }
-                else if ((value & kEepromAbsentAccess) != 0)
-                {
-                    result = NvmResult::StorageAbsent;
-                }
-                else if ((value & kEepromProtected) != 0)
-                {
-                    result = NvmResult::ProtectedAccess;
-                }
-                else if ((value & (kEepromBusy | kEepromBusyAccess)) != 0)
-                {
-                    // BUSY_ACCESS is separate from the upstream wait mask.
-                    // Never accept a still-active second sample as data.
-                    result = NvmResult::UnstableStatus;
-                }
-                if (result != NvmResult::Ok)
-                {
-                    break;
-                }
-            }
-            else
-            {
-                result = capture.read(kOtpData, value);
-                if (result != NvmResult::Ok)
-                {
-                    break;
-                }
             }
             for (uint32_t byte = 0; byte < wordBytes; ++byte)
             {
                 const size_t absolute = ((firstWord + word) * wordBytes) + byte;
                 if (absolute >= firstByte && absolute - firstByte < byteCount)
                 {
-                    destination[status.bytesAcquired++] =
+                    *std::next(destination, static_cast<std::ptrdiff_t>(
+                                                status.bytesAcquired++)) =
                         static_cast<uint8_t>(value >> (byte * kBitsPerByte));
                 }
             }
@@ -558,6 +617,96 @@ namespace simpleath
     {
         return captureRange(backend, physicalIdentity, source, 0, destination,
                             byteCount, status);
+    }
+
+    // Selected candidate only: a failure here cannot trigger fallback.
+    static NvmDiscoveryResult
+    completeSelectedBoard(const NvmReadBackend &backend,
+                          const EepromTemplates &templates, NvmSource source,
+                          uint16_t origin, const uint8_t *storage,
+                          size_t length, uint8_t *scratch, size_t scratchBytes,
+                          NvmBoardSelection &board, NvmDiscoveryStatus &status)
+    {
+        status.lastRestore = {};
+        const EepromResult restored =
+            restoreEepromDump(storage, length, origin, templates, scratch,
+                              scratchBytes, board.image, status.lastRestore);
+        if (restored != EepromResult::Ok)
+        {
+            return NvmDiscoveryResult::CorruptImage;
+        }
+        const EepromResult parsed =
+            summarizeBoardData(board.image, board.summary);
+        status.lastBoardResult = parsed;
+        if (parsed != EepromResult::Ok)
+        {
+            return NvmDiscoveryResult::CorruptImage;
+        }
+        // A correctly checksummed delta may still replace the 2-GHz
+        // calibration pier frequencies with zeros, out-of-band values or
+        // a nonincreasing sequence. Keep the raw summary diagnostic API
+        // permissive, but never publish that image as selected board data.
+        if (!board.summary.calibrationPierBinsPlausible)
+        {
+            status.lastBoardResult = EepromResult::UnsupportedFormat;
+            return NvmDiscoveryResult::CorruptImage;
+        }
+        // Pinned dictionaries contain placeholder MAC addresses; a
+        // reference/delta with no actual board MAC must not be promoted
+        // to a recovered device identity, even if its chain mask fits.
+        constexpr uint8_t templateIds[] = {2, 3, 4, 5, 6};
+        bool placeholderMac = false;
+        for (const uint8_t id : templateIds)
+        {
+            size_t templateLength = 0;
+            const uint8_t *defaults =
+                templates.find(templates.context, id, &templateLength);
+            if ((defaults == nullptr) ||
+                templateLength != sizeof(board.image.bytes))
+            {
+                continue;
+            }
+            // The pinned 1088-byte dictionary is immutable, and the MAC
+            // starts at the fixed two-octet template header offset.
+            uint8_t prefix[kTemplateMacOffset + kPermanentMacBytes] {};
+            uint8_t boardMac[kPermanentMacBytes] {};
+            __builtin_memcpy(&prefix[0], defaults, sizeof(prefix));
+            __builtin_memcpy(&boardMac[0], &board.summary.mac[0],
+                             sizeof(boardMac));
+            if (__builtin_memcmp(&boardMac[0], &prefix[kTemplateMacOffset],
+                                 sizeof(boardMac)) == 0)
+            {
+                placeholderMac = true;
+                break;
+            }
+        }
+        if (placeholderMac)
+        {
+            status.lastBoardResult = EepromResult::InvalidBoardIdentity;
+            return NvmDiscoveryResult::CorruptImage;
+        }
+        const EepromResult gains =
+            selectBoardGainProfiles(board.summary, board.txGain, board.rxGain);
+        status.lastBoardResult = gains;
+        if (gains != EepromResult::Ok)
+        {
+            return NvmDiscoveryResult::CorruptImage;
+        }
+        // Reconstructing and checking the board can outlive the last
+        // active capture callback. The owner may lose D0 while parsing;
+        // do not publish a snapshot using only the capture's earlier
+        // ownership checks. A revocable lease also checks its epoch.
+        if (!backend.ownerInD0(backend.context))
+        {
+            status.lastCapture.result = NvmResult::SessionUnavailable;
+            status.lastCapture.captureComplete = false;
+            return NvmDiscoveryResult::CaptureFailed;
+        }
+        board.source = source;
+        board.origin = origin;
+        board.silicon = status.lastCapture.silicon;
+        board.valid = true;
+        return NvmDiscoveryResult::Ok;
     }
 
     NvmDiscoveryResult discoverAr9565Nvm(const NvmReadBackend &backend,
@@ -665,99 +814,18 @@ namespace simpleath
             {
                 headerStable =
                     headerStable &&
-                    header[i] == storage[length - sizeof(header) + i];
+                    *std::next(&header[0], static_cast<std::ptrdiff_t>(i)) ==
+                        *std::next(storage, static_cast<std::ptrdiff_t>(
+                                                length - sizeof(header) + i));
             }
             if (!headerStable)
             {
                 outcome = NvmDiscoveryResult::CorruptImage;
                 break;
             }
-            status.lastRestore = {};
-            const EepromResult restored = restoreEepromDump(
-                storage, length, candidate.origin, templates, scratch,
-                scratchBytes, board.image, status.lastRestore);
-            if (restored != EepromResult::Ok)
-            {
-                outcome = NvmDiscoveryResult::CorruptImage;
-                break;
-            }
-            const EepromResult parsed =
-                summarizeBoardData(board.image, board.summary);
-            status.lastBoardResult = parsed;
-            if (parsed != EepromResult::Ok)
-            {
-                outcome = NvmDiscoveryResult::CorruptImage;
-                break;
-            }
-            // A correctly checksummed delta may still replace the 2-GHz
-            // calibration pier frequencies with zeros, out-of-band values or
-            // a nonincreasing sequence. Keep the raw summary diagnostic API
-            // permissive, but never publish that image as selected board data.
-            if (!board.summary.calibrationPierBinsPlausible)
-            {
-                status.lastBoardResult = EepromResult::UnsupportedFormat;
-                outcome = NvmDiscoveryResult::CorruptImage;
-                break;
-            }
-            // Pinned dictionaries contain placeholder MAC addresses; a
-            // reference/delta with no actual board MAC must not be promoted
-            // to a recovered device identity, even if its chain mask fits.
-            constexpr uint8_t templateIds[] = {2, 3, 4, 5, 6};
-            bool placeholderMac = false;
-            for (const uint8_t id : templateIds)
-            {
-                size_t templateLength = 0;
-                const uint8_t *defaults =
-                    templates.find(templates.context, id, &templateLength);
-                if ((defaults == nullptr) ||
-                    templateLength != sizeof(board.image.bytes))
-                {
-                    continue;
-                }
-                // The pinned 1088-byte dictionary is immutable, and the MAC
-                // starts at the fixed two-octet template header offset.
-                uint8_t prefix[kTemplateMacOffset + kPermanentMacBytes] {};
-                uint8_t boardMac[kPermanentMacBytes] {};
-                __builtin_memcpy(&prefix[0], defaults, sizeof(prefix));
-                __builtin_memcpy(&boardMac[0], &board.summary.mac[0],
-                                 sizeof(boardMac));
-                if (__builtin_memcmp(&boardMac[0], &prefix[kTemplateMacOffset],
-                                     sizeof(boardMac)) == 0)
-                {
-                    placeholderMac = true;
-                    break;
-                }
-            }
-            if (placeholderMac)
-            {
-                status.lastBoardResult = EepromResult::InvalidBoardIdentity;
-                outcome = NvmDiscoveryResult::CorruptImage;
-                break;
-            }
-            const EepromResult gains = selectBoardGainProfiles(
-                board.summary, board.txGain, board.rxGain);
-            status.lastBoardResult = gains;
-            if (gains != EepromResult::Ok)
-            {
-                outcome = NvmDiscoveryResult::CorruptImage;
-                break;
-            }
-            // Reconstructing and checking the board can outlive the last
-            // active capture callback. The owner may lose D0 while parsing;
-            // do not publish a snapshot using only the capture's earlier
-            // ownership checks. A revocable lease also checks its epoch.
-            if (!stableBackend.ownerInD0(stableBackend.context))
-            {
-                status.lastCapture.result = NvmResult::SessionUnavailable;
-                status.lastCapture.captureComplete = false;
-                outcome = NvmDiscoveryResult::CaptureFailed;
-                break;
-            }
-            board.source = candidate.source;
-            board.origin = candidate.origin;
-            board.silicon = status.lastCapture.silicon;
-            board.valid = true;
-            outcome = NvmDiscoveryResult::Ok;
+            outcome = completeSelectedBoard(
+                stableBackend, templates, candidate.source, candidate.origin,
+                storage, length, scratch, scratchBytes, board, status);
             break;
         }
         // Erase all transient NVM bytes, even when a reconstructed immutable
@@ -791,11 +859,10 @@ namespace simpleath
     {
         // Volatile byte erasure prevents a dead-store optimization from
         // retaining the prior board MAC, calibration and regulatory fields.
-        volatile uint8_t *bytes = reinterpret_cast<volatile uint8_t *>(&board_);
-        for (size_t i = 0; i < sizeof(board_); ++i)
-        {
-            bytes[i] = 0;
-        }
+        // A full zero of the owned object, followed by a compiler barrier,
+        // prevents dead-store elimination of the erased board credentials.
+        __builtin_memset(&board_, 0, sizeof(board_));
+        __atomic_signal_fence(__ATOMIC_SEQ_CST);
         board_.txGain = TxGainProfile::Unknown;
         board_.rxGain = RxGainProfile::Unknown;
         activeEpoch_ = 0;
