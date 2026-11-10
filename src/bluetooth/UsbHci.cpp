@@ -56,6 +56,36 @@ namespace simpleath
         constexpr uint16_t kHciHandleMask = 0x0fffU;
         constexpr uint16_t kHciMaximumHandle = 0x0effU;
 
+        // HCI input is borrowed from the USB owner, not the mutable transport.
+        // Source bytes that overlap this state could be overwritten by packet
+        // reassembly, command admission or controller-credit accounting before
+        // the backend finishes consuming them. Compare numeric addresses
+        // without unrelated-object pointer relational comparisons.
+        uintptr_t addressOf(const void *pointer)
+        {
+            uintptr_t address = 0U;
+            static_assert(sizeof(address) == sizeof(pointer),
+                          "pointer must fit uintptr_t");
+            __builtin_memcpy(static_cast<void *>(&address),
+                             static_cast<const void *>(&pointer),
+                             sizeof(address));
+            return address;
+        }
+
+        bool aliasesTransport(const UsbHciState &state, const uint8_t *input,
+                              size_t bytes)
+        {
+            if (input == nullptr || bytes == 0U)
+            {
+                return false;
+            }
+            const uintptr_t ownerAddress = addressOf(&state);
+            const uintptr_t inputAddress = addressOf(input);
+            return ownerAddress <= inputAddress
+                       ? inputAddress - ownerAddress < sizeof(state)
+                       : ownerAddress - inputAddress < bytes;
+        }
+
         bool validEndpoint(uint8_t address, bool input)
         {
             return (address & kEndpointNumberMask) != 0U &&
@@ -707,7 +737,8 @@ namespace simpleath
                 state.faulted = true;
                 return UsbHciStatus::Faulted;
             }
-            if (data == nullptr || bytes == 0U)
+            if (data == nullptr || bytes == 0U ||
+                aliasesTransport(state, data, bytes))
             {
                 return UsbHciStatus::InvalidArgument;
             }
@@ -833,6 +864,10 @@ namespace simpleath
         {
             return permission;
         }
+        if (aliasesTransport(state, command, bytes))
+        {
+            return UsbHciStatus::InvalidArgument;
+        }
         if (command == nullptr || bytes < kHciCommandHeaderBytes ||
             bytes > kUsbHciMaxCommandBytes ||
             bytes != static_cast<size_t>(*usbByteOffset(command, 2U)) +
@@ -912,6 +947,10 @@ namespace simpleath
         if (permission != UsbHciStatus::Ok)
         {
             return permission;
+        }
+        if (aliasesTransport(state, packet, bytes))
+        {
+            return UsbHciStatus::InvalidArgument;
         }
         if (packet == nullptr || bytes < kAclHeaderBytes ||
             bytes > kUsbHciMaxAclBytes ||

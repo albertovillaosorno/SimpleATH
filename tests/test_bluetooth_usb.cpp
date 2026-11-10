@@ -551,6 +551,83 @@ namespace
                state.aclWindow.availableCredits == 2U;
     }
 
+    bool testHciBorrowedBuffersDoNotAliasOwner()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> vendorEvent {0xffU, 1U, 0x5aU};
+        constexpr std::array<uint8_t, 5U> acl {2U, 0x20U, 1U, 0U, 0x7fU};
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        // A native caller must not borrow packet bytes from its mutable HCI
+        // session. Command admission changes credit and pending state before
+        // the physical USB callback consumes its input.
+        std::memcpy(state.events.packet.data(), kReadBufferSize.data(),
+                    kReadBufferSize.size());
+        if (sendUsbHciCommand(state, host(fake), state.events.packet.data(),
+                              kReadBufferSize.size()) !=
+                UsbHciStatus::InvalidArgument ||
+            state.commandWindow.pending || state.commandWindow.credits != 1U ||
+            state.aclWindow.readBufferPending)
+        {
+            return false;
+        }
+        std::memcpy(state.events.packet.data(), vendorEvent.data(),
+                    vendorEvent.size());
+        if (receiveUsbHciEvent(state, host(fake), state.events.packet.data(),
+                               vendorEvent.size()) !=
+                UsbHciStatus::InvalidArgument ||
+            state.events.used != 0U || state.faulted || fake.delivered != 0U ||
+            std::memcmp(state.events.packet.data(), vendorEvent.data(),
+                        vendorEvent.size()) != 0)
+        {
+            return false;
+        }
+        // Even a partially overlapping source is unsafe as reassembly
+        // advances and may rewrite bytes that have not yet been consumed.
+        std::memcpy(&state.events.packet.at(1U), vendorEvent.data(),
+                    vendorEvent.size());
+        if (receiveUsbHciEvent(state, host(fake), &state.events.packet.at(1U),
+                               vendorEvent.size()) !=
+                UsbHciStatus::InvalidArgument ||
+            state.events.used != 0U || state.faulted || fake.delivered != 0U ||
+            std::memcmp(&state.events.packet.at(1U), vendorEvent.data(),
+                        vendorEvent.size()) != 0)
+        {
+            return false;
+        }
+        if (!negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        std::memcpy(state.acl.packet.data(), acl.data(), acl.size());
+        const size_t deliveries = fake.delivered;
+        if (sendUsbHciAcl(state, host(fake), state.acl.packet.data(),
+                          acl.size()) != UsbHciStatus::InvalidArgument ||
+            receiveUsbHciAcl(state, host(fake), state.acl.packet.data(),
+                             acl.size()) != UsbHciStatus::InvalidArgument ||
+            state.aclWindow.availableCredits != 2U || state.acl.used != 0U ||
+            fake.delivered != deliveries || state.faulted)
+        {
+            return false;
+        }
+        // Independent caller-owned input must still traverse the real path.
+        return receiveUsbHciEvent(state, host(fake), vendorEvent.data(),
+                                  vendorEvent.size()) == UsbHciStatus::Ok &&
+               sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) ==
+                   UsbHciStatus::Ok &&
+               state.aclWindow.availableCredits == 1U && !state.faulted;
+    }
+
     bool testResetQuarantinesPreCompletionConnections()
     {
         constexpr UsbHciEndpoints endpoints {
@@ -2121,6 +2198,11 @@ int main()
     {
         constexpr int kHciAttachOwnershipFailure = 12;
         return kHciAttachOwnershipFailure;
+    }
+    if (!testHciBorrowedBuffersDoNotAliasOwner())
+    {
+        constexpr int kHciOwnerBufferAliasFailure = 29;
+        return kHciOwnerBufferAliasFailure;
     }
     if (!testHci())
     {
