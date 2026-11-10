@@ -37,18 +37,6 @@ Makefile          text eol=lf
 .gitignore        text eol=lf
 .gitattributes    text eol=lf
 
-# Data & Documents
-*.json            text eol=lf
-*.jsonc           text eol=lf linguist-detectable=false
-*.lock            text eol=lf
-*.toml            text eol=lf
-*.yaml            text eol=lf
-*.yml             text eol=lf
-*.md              text eol=lf linguist-detectable
-*.mdc             text eol=lf linguist-detectable
-*.bib             text eol=lf linguist-detectable
-*.tex             text eol=lf linguist-detectable
-
 # Linguist Overrides
 docs/**/*         linguist-documentation=false eol=lf linguist-detectable
 tests/**/*        linguist-documentation=false eol=lf linguist-detectable
@@ -74,3 +62,15 @@ src/**/*          linguist-documentation=false eol=lf linguist-detectable
 *.dylib           binary
 *.a               binary
 *.lib             binary
+
+# Data & Documents
+*.lock            text eol=lf
+*.toml            text eol=lf
+*.yaml            text eol=lf
+*.yml             text eol=lf
+*.md              text eol=lf linguist-detectable
+*.mdc             text eol=lf linguist-detectable
+*.bib             text eol=lf linguist-detectable
+*.tex             text eol=lf linguist-detectable
+*.json            linguist-detectable=false linguist-generated=true
+*.jsonc           linguist-detectable=false linguist-generated=true
