@@ -142,9 +142,27 @@ and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/ma
   `channelAuthorized_` have no true-producing call site; the portable full
   receive-only radio sequence has no native caller. These are concrete source
   blockers, not reasons to bypass physical RF/board/regulatory authorization.
-- Outstanding: actual native scan/connect control, calibrated radio,
-  exact Tahoe OS supplicant and Wi-Fi ABI, group-rekey completion,
-  Bluetooth and AWDL. No kext build or physical radio test occurred.
+- DCO 724207d wires the OS native connect callback through the exact
+  BSSID/SSID/channel/security selector and initial authentication MPDU queue.
+  The shared transmit policy demands real RF, DMA, RF-kill, regulatory and
+  calibrated-power readiness; no absent evidence is fabricated. Failed
+  authentication queueing revokes the provisional station state.
+- DCO 039cfdc wires native non-PMF disassociation to a validated 26-byte
+  management MPDU and EDMA transmit, then revokes the native PTK/GTK,
+  controlled port and station on successful submission. PMF-negotiated
+  disassociation remains blocked pending protected management support.
+  Standalone C++14/C++17 ASan+UBSan fixture validates frame layout, reasons,
+  bounds and alias refusal; direct strict Tidy on the new fixture and
+  serializer region is clean.
+- Concurrent-source repository validation after these stages: 577 checks,
+  541 passes, 35 existing strict Tidy failures, zero skipped, plus one
+  source-snapshot failure while another author edited Bluetooth. This is
+  not a clean full validation; rerun without concurrent source edits.
+- Outstanding: actual native passive scan and receiver calibration, channel
+  authorization, TX rate/TPC publication, Tahoe OS supplicant/AirPort ABI,
+  PMF and reconnect flows, Bluetooth and AWDL. The native connect/leave
+  callbacks are implemented but still unreachable without physical radio
+  authorization. No kext build or physical radio test occurred.
 
 ## Evidence
 
