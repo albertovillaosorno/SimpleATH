@@ -85,6 +85,13 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   USB HCI fixture passed C++14/C++17 ASan+UBSan, direct strict Clang-Tidy,
   format and Darwin C++14 SDK syntax checks. These are **offline** checks,
   not physical advertising tests or a Bluetooth stack integration proof.
+- Commit `a7406b6` protects the ATH3K firmware USB owner boundary: after
+  each inter-chunk delay it rechecks ownership before submitting bulk data,
+  and reports `IdentityLost` for owner revocation during state/version reads.
+  A synthetic USB callback test covers all three transitions; C++14/C++17
+  ASan+UBSan, focused strict Clang-Tidy and formatting passed. The latest
+  complete repository check had 534 passes, 36 existing strict Clang-Tidy
+  failures and zero skips; these are source-only results, not USB operation.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
