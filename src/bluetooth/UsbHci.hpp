@@ -68,6 +68,9 @@ namespace simpleath
             UsbBytes<uint8_t, kUsbHciMaxAclBytes> packet {};
             size_t used {};
             size_t expected {};
+            // The borrowed completed packet remains live while the host
+            // delivery callback runs. Same-stream reentry must not rewrite it.
+            bool delivering {};
     };
 
     struct UsbHciAclHandle

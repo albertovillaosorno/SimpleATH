@@ -66,6 +66,11 @@ namespace
             bool revokeOnFirmwareDelay {};
             bool revokeOnFirmwareLookup {};
             bool failFirmwareLookupAndRevoke {};
+            UsbHciState *reentryState {};
+            UsbHciPacketKind reentryKind {UsbHciPacketKind::Event};
+            UsbHciStatus reentryStatus {UsbHciStatus::Ok};
+            bool reenterOnDelivery {};
+            bool reentered {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -429,6 +434,8 @@ namespace
         return true;
     }
 
+    UsbHciHostCallbacks host(UsbFake &fake);
+
     bool deliver(void *context, UsbHciPacketKind kind, const uint8_t *packet,
                  size_t bytes)
     {
@@ -445,6 +452,23 @@ namespace
         else
         {
             fake.deliveredAclBytes += bytes;
+        }
+        if (fake.reenterOnDelivery && !fake.reentered &&
+            kind == fake.reentryKind && fake.reentryState != nullptr)
+        {
+            // A host callback must not recursively overwrite the completed
+            // frame that it is still borrowing from the USB stream.
+            fake.reentered = true;
+            constexpr std::array<uint8_t, 3U> event {0xffU, 1U, 0x7fU};
+            constexpr std::array<uint8_t, 5U> acl {
+                2U, 0x20U, 1U, 0U, 0x7fU,
+            };
+            fake.reentryStatus =
+                kind == UsbHciPacketKind::Event
+                    ? receiveUsbHciEvent(*fake.reentryState, host(fake),
+                                         event.data(), event.size())
+                    : receiveUsbHciAcl(*fake.reentryState, host(fake),
+                                       acl.data(), acl.size());
         }
         if (fake.revokeOnDelivery)
         {
@@ -1677,6 +1701,56 @@ namespace
                               race.state.commandWindow.credits == 1U));
     }
 
+    bool testNestedHciDeliveryCannotOverwriteBorrowedPacket()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> event {0xffU, 1U, 0x5aU};
+        constexpr std::array<uint8_t, 5U> acl {
+            2U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        fake.reentryState = &state;
+        fake.reenterOnDelivery = true;
+        if (receiveUsbHciEvent(state, host(fake), event.data(), event.size()) !=
+                UsbHciStatus::Faulted ||
+            fake.reentryStatus != UsbHciStatus::Faulted || !state.faulted ||
+            fake.delivered != 1U ||
+            receiveUsbHciEvent(state, host(fake), event.data(), event.size()) !=
+                UsbHciStatus::Faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        fake.reenterOnDelivery = false;
+        fake.reentered = false;
+        fake.delivered = 0U;
+        if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        fake.delivered = 0U;
+        fake.reentryKind = UsbHciPacketKind::Acl;
+        fake.reenterOnDelivery = true;
+        return receiveUsbHciAcl(state, host(fake), acl.data(), acl.size()) ==
+                   UsbHciStatus::Faulted &&
+               fake.reentryStatus == UsbHciStatus::Faulted && state.faulted &&
+               fake.delivered == 1U &&
+               receiveUsbHciAcl(state, host(fake), acl.data(), acl.size()) ==
+                   UsbHciStatus::Faulted;
+    }
+
     bool testStaleHciEpochCallbacks()
     {
         constexpr std::array<EpochRaceEvent, 3U> triggers {
@@ -1792,6 +1866,11 @@ int main()
     {
         constexpr int kFirmwareOwnershipFailure = 10;
         return kFirmwareOwnershipFailure;
+    }
+    if (!testNestedHciDeliveryCannotOverwriteBorrowedPacket())
+    {
+        constexpr int kRecursiveUsbDeliveryFailure = 24;
+        return kRecursiveUsbDeliveryFailure;
     }
     if (!testStaleHciEpochCallbacks())
     {

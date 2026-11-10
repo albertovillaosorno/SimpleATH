@@ -609,11 +609,21 @@ namespace simpleath
                 }
             }
             const uint64_t deliveryEpoch = state.epoch;
+            stream.delivering = true;
             const bool delivered = host.deliver(
                 host.context, kind, stream.packet.data(), stream.used);
             if (replacedSession(state, deliveryEpoch))
             {
+                // A callback may have detached and replaced this stream.
+                // Never clear the successor's delivery guard or fault state.
                 return UsbHciStatus::OwnershipLost;
+            }
+            stream.delivering = false;
+            if (state.faulted)
+            {
+                // Reentrant ingress faulted this stream before delivery
+                // returned. Never report a successful outer packet.
+                return UsbHciStatus::Faulted;
             }
             if (!delivered)
             {
@@ -652,6 +662,14 @@ namespace simpleath
             if (permission != UsbHciStatus::Ok)
             {
                 return permission;
+            }
+            if (stream.delivering)
+            {
+                // host.deliver still borrows stream.packet: an inline USB
+                // response may recurse here and must not overwrite it.
+                // The physical owner must recover under a fresh USB epoch.
+                state.faulted = true;
+                return UsbHciStatus::Faulted;
             }
             if (data == nullptr || bytes == 0U)
             {
