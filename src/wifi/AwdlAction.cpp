@@ -38,6 +38,7 @@ namespace simpleath
             constexpr size_t kIpv6PayloadBytesOffset = 4U;
             constexpr uint8_t kIpv6Version = 6U;
             constexpr uint8_t kAwdlQosDataSubtype = 8U;
+            constexpr uint8_t kQosAmsduPresent = 0x80U;
             constexpr size_t kDataMacHeaderBytes = 24U;
             constexpr size_t kQosControlBytes = 2U;
             constexpr size_t kFcsBytes = 4U;
@@ -362,6 +363,12 @@ namespace simpleath
             {
                 return parsed;
             }
+            // This parser handles one ordinary MSDU, not A-MSDU subframes
+            // or an arbitrarily long aggregate. Match the FCS-free TX bound.
+            if (length > kMaxMpduWithFcs - kFcsBytes)
+            {
+                return Result::InvalidFrame;
+            }
             if (header.type != FrameType::Data ||
                 (header.subtype != 0U &&
                  header.subtype != kAwdlQosDataSubtype) ||
@@ -370,6 +377,14 @@ namespace simpleath
                 !validStationMac(header.source) ||
                 __builtin_memcmp(&header.bssid.bytes, &kAwdlBssid,
                                  sizeof(kAwdlBssid)) != 0)
+            {
+                return Result::UnsupportedFrame;
+            }
+            // In a QoS Data header this flag changes the payload into an
+            // A-MSDU subframe sequence, not an LLC/SNAP IPv6 MSDU.
+            if (header.subtype == kAwdlQosDataSubtype &&
+                (*usbByteOffset(bytes, kDataMacHeaderBytes) &
+                 kQosAmsduPresent) != 0U)
             {
                 return Result::UnsupportedFrame;
             }

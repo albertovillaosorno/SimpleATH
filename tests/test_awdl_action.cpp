@@ -342,6 +342,17 @@ namespace
         {
             return false;
         }
+        // QoS Control bit 7 declares an A-MSDU, whose subframe payload
+        // cannot be interpreted as a directly encapsulated IPv6 MSDU.
+        constexpr uint8_t kAmsduPresent = 0x80U;
+        qos.at(kHeaderBytes) = kAmsduPresent;
+        if (parseAwdlIpv6Data(qos.data(), qos.size(), decoded) !=
+                Result::UnsupportedFrame ||
+            decoded.ipv6Bytes != 0U)
+        {
+            return false;
+        }
+        qos.at(kHeaderBytes) = 0U;
         qos.at(0U) = kDataFrameType;
         qos.at(1U) = 0x01U; // ToDS violates AWDL addressing.
         if (parseAwdlIpv6Data(qos.data(), qos.size(), decoded) !=
@@ -404,8 +415,30 @@ namespace
         }
         copyField(frame, 4U, destination);
         frame.at(kFragmentOffset) = 1U; // Data fragment not reassembled.
-        return parseAwdlIpv6Data(frame.data(), frame.size(), decoded) ==
-               Result::UnsupportedFrame;
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        // A single non-aggregated 802.11 MPDU must not bypass the same
+        // FCS-including 2346-octet bound enforced by the TX serializer.
+        constexpr size_t kMaxMpduWithoutFcs = 2342U;
+        std::array<uint8_t, kMaxMpduWithoutFcs + 1U> oversized {};
+        frame.at(kFragmentOffset) = 0U;
+        for (size_t index = 0U; index < frame.size(); ++index)
+        {
+            oversized.at(index) = frame.at(index);
+        }
+        const size_t excessIpv6Payload =
+            oversized.size() - ipv6Offset - kIpv6Bytes;
+        constexpr uint8_t kByteShift = 8U;
+        oversized.at(ipv6Offset + 4U) =
+            static_cast<uint8_t>(excessIpv6Payload >> kByteShift);
+        oversized.at(ipv6Offset + kIpv6LengthLowOffset) =
+            static_cast<uint8_t>(excessIpv6Payload);
+        return parseAwdlIpv6Data(oversized.data(), oversized.size(), decoded) ==
+                   Result::InvalidFrame &&
+               decoded.ipv6Bytes == 0U;
     }
 
     bool serializeAwdlIpv6Data()
