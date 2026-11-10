@@ -1701,6 +1701,50 @@ namespace
         return true;
     }
 
+    bool testFirmwareReenumerationPolicy()
+    {
+        // A successful identity switch must not leave the pre-firmware
+        // service bound forever. A failed partial download needs the same
+        // reset, but not if the USB owner was replaced during an I/O.
+        constexpr Ath3kBootProgress switched {
+            Ath3kBootResult::AwaitReenumeration,
+            Ath3kBootPhase::Done,
+            1024U,
+            true,
+        };
+        constexpr Ath3kBootProgress partial {
+            Ath3kBootResult::UsbTransferFailed,
+            Ath3kBootPhase::LoadPatch,
+            20U,
+            true,
+        };
+        constexpr Ath3kBootProgress revoked {
+            Ath3kBootResult::IdentityLost,
+            Ath3kBootPhase::LoadConfiguration,
+            20U,
+            true,
+        };
+        constexpr Ath3kBootProgress missing {
+            Ath3kBootResult::FirmwareUnavailable,
+            Ath3kBootPhase::LoadPatch,
+            0U,
+            false,
+        };
+        constexpr Ath3kBootProgress alreadyOperational {
+            Ath3kBootResult::AlreadyOperational,
+            Ath3kBootPhase::Done,
+            0U,
+            false,
+        };
+        return shouldReenumerateAth3k(switched, true) &&
+               shouldReenumerateAth3k(partial, true) &&
+               !shouldReenumerateAth3k(switched, false) &&
+               !shouldReenumerateAth3k(partial, false) &&
+               !shouldReenumerateAth3k(revoked, true) &&
+               !shouldReenumerateAth3k(missing, true) &&
+               !shouldReenumerateAth3k(alreadyOperational, true);
+    }
+
 } // namespace
 
 int main()
@@ -1708,6 +1752,11 @@ int main()
     if (!testFirmware())
     {
         return 1;
+    }
+    if (!testFirmwareReenumerationPolicy())
+    {
+        constexpr int kReenumerationPolicyFailure = 23;
+        return kReenumerationPolicyFailure;
     }
     if (!testFirmwareOwnershipBoundary())
     {

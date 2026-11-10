@@ -81,6 +81,18 @@ namespace simpleath
             bool requiresUsbReset;
     };
 
+    // A firmware upload or identity switch may leave USB hardware in an
+    // intermediate mode. The native owner must first release its interface
+    // lease, then request re-enumeration on an independent USB reset thread.
+    // Never reset an interface whose physical ownership was revoked during
+    // USB I/O; it may already belong to a replacement controller instance.
+    constexpr bool shouldReenumerateAth3k(const Ath3kBootProgress &progress,
+                                          bool ownerCurrent)
+    {
+        return ownerCurrent && progress.requiresUsbReset &&
+               progress.result != Ath3kBootResult::IdentityLost;
+    }
+
     // Linux ath3k v6.12 has independent USB IDs for its AR3012 bootstrap.
     // The WLAN PCI 168c:0036 ID is NOT a USB matching criterion. Matching
     // these published USB IDs is necessary, not proof of Dell board identity.

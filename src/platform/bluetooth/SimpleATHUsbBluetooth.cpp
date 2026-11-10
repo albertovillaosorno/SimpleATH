@@ -7,6 +7,7 @@
 #include <IOKit/usb/AppleUSBDefinitions.h>
 #include <IOKit/usb/IOUSBHostDevice.h>
 #include <IOKit/usb/StandardUSB.h>
+#include <kern/thread_call.h>
 #include <libkern/OSTypes.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
@@ -46,6 +47,75 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
     constexpr size_t kMaxFirmwareName = 48;
     constexpr size_t kMaxFirmwareBytes = size_t {1024U} * 1024U;
     constexpr unsigned int kRegistryPropertyBits = 32U;
+
+    // The device lease belongs to this independent thread call. The USB
+    // service itself can terminate without leaving a callback to freed
+    // service state or running reset from the USB port workloop.
+    struct ResetRequest
+    {
+            IOUSBHostDevice *device;
+            IOService *owner;
+            simpleath::Ath3kUsbIdentity identity;
+            thread_call_t call;
+    };
+
+    const auto resetAfterBootstrap =
+        [](thread_call_param_t requestContext, void *const unusedContext)
+    {
+        static_cast<void>(unusedContext);
+        auto *request = static_cast<ResetRequest *>(requestContext);
+        IOUSBHostDevice *const device = request->device;
+        const auto *descriptor =
+            device->isInactive() ? nullptr : device->getDeviceDescriptor();
+        // If the controller already switched product/revision, a reset of
+        // the old retained provider would disrupt a new Bluetooth host.
+        if (descriptor != nullptr &&
+            USBToHost16(descriptor->idVendor) == request->identity.vendorId &&
+            USBToHost16(descriptor->idProduct) == request->identity.productId &&
+            USBToHost16(descriptor->bcdDevice) ==
+                request->identity.deviceRevision)
+        {
+            (void)device->reset();
+        }
+        device->release();
+        (void)thread_call_free(request->call);
+        const IOService *const owner = request->owner;
+        IOFree(request, sizeof(ResetRequest));
+        // The service reference also pins the kext's asynchronous code
+        // until the device handoff has finished.
+        owner->release();
+    };
+
+    bool requestReenumeration(IOUSBHostDevice * device, IOService * owner,
+                              const simpleath::Ath3kUsbIdentity &identity)
+    {
+        if (device == nullptr)
+        {
+            return false;
+        }
+        auto *request =
+            static_cast<ResetRequest *>(IOMalloc(sizeof(ResetRequest)));
+        if (request == nullptr)
+        {
+            device->release();
+            return false;
+        }
+        request->device = device;
+        request->owner = owner;
+        request->identity = identity;
+        owner->retain();
+        request->call = thread_call_allocate_with_priority(
+            resetAfterBootstrap, request, THREAD_CALL_PRIORITY_KERNEL);
+        if (request->call == nullptr)
+        {
+            owner->release();
+            device->release();
+            IOFree(request, sizeof(ResetRequest));
+            return false;
+        }
+        (void)thread_call_enter(request->call);
+        return true;
+    }
 
     bool physicalIdentity(IOUSBHostInterface * interface,
                           simpleath::Ath3kUsbIdentity & out)
@@ -182,17 +252,30 @@ bool SimpleATHUsbBluetooth::start(IOService *provider)
     setProperty("SimpleATHBluetoothBootstrapResult",
                 static_cast<uint32_t>(status.result), kRegistryPropertyBits);
     setProperty("SimpleATHBluetoothUsbResetRequired", status.requiresUsbReset);
-    // Close the USB interface before requesting device re-enumeration. The
-    // normal HCI owner must attach to the *new* device; this object never
-    // fabricates BLE, pairing or AirDrop registration.
+    // The switch-identity control transfer alone does not prove a new
+    // IOUSBHostDevice instance exists. Release the interface before asking
+    // the USB host to reset/re-enumerate. On a failed partial upload this
+    // also prevents another client inheriting ambiguous controller state.
+    const bool mayReset =
+        simpleath::shouldReenumerateAth3k(status, permitted(this, epoch_));
+    IOUSBHostDevice *device =
+        mayReset && interface_ != nullptr ? interface_->getDevice() : nullptr;
+    if (device != nullptr)
+    {
+        device->retain();
+    }
     simpleath::closeNativeAth3kIo(usb_);
     if (status.result != simpleath::Ath3kBootResult::AwaitReenumeration)
     {
         revoke();
+        (void)requestReenumeration(device, this, identity);
         return false;
     }
     setProperty("SimpleATHBluetoothAwaitReenumeration", true);
     registerService();
+    // The kernel scheduler (rather than this USB port callback) now owns
+    // the retained device. Reset failure is never reported as HCI ready.
+    (void)requestReenumeration(device, this, identity);
     return true;
 }
 

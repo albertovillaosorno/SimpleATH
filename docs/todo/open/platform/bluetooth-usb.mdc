@@ -256,3 +256,24 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   Strict Ruff and BasedPyright for the new source and tests pass, with no
   rule suppressions. Post-reenumeration macOS Bluetooth host registration,
   native BLE policy and Wi-Fi coexistence integration remain open.
+
+- **Native AR3012 bootstrap re-enumeration recovery (2026-11-10):**
+  `SimpleATHUsbBluetooth::start` now treats a successful switch-identity
+  request and an ambiguous partial firmware upload as actual USB recovery
+  work, rather than publishing only a `UsbResetRequired` property. After
+  closing the firmware interface it schedules the pinned MacKernelSDK
+  `IOUSBHostDevice::reset` on a separate kernel thread-call worker (the USB
+  port workloop is forbidden for this API). A retained device/service pair
+  stays alive until the callback exits. Before reset, the worker checks the
+  old device remains active with the exact original USB vendor, product and
+  revision, so it never deliberately resets an already-reenumerated HCI
+  controller. Revoked USB epochs or downloads without writes are not reset.
+  The portable `shouldReenumerateAth3k` decision has a seven-case synthetic
+  regression; the full Bluetooth USB host fixture passed C++14/C++17 with
+  ASan+UBSan, direct strict Clang-Tidy is clean for the changed native
+  service and fixture, and native MacKernelSDK C++14 syntax-only checks
+  passed `-Wall -Wextra -Werror`. These checks cannot prove physical USB
+  reset or Tahoe adoption by `bluetoothd`, and do not close this P0 record.
+  The old Bluetooth HCI kernel superclass is not introduced: the public
+  Tahoe Bluetooth host path is still userspace and requires an independent
+  compatibility/integration contract and actual BLE/AirDrop host policy.
