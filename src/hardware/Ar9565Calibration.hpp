@@ -272,6 +272,8 @@ namespace simpleath
     };
 
     // Recheck the already configured GPIO without changing its direction.
+    // Require input direction before AND after physical level sampling;
+    // unexpected pin mux/direction drift is unsafe and requires reset.
     // Two matching physical samples and a final owner lease check are needed
     // for an Unblocked result. Every failure, unknown board GPIO or switched
     // level denies runtime TX/RX; no write/reset or RF permission is implied.

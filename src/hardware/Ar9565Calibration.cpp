@@ -833,7 +833,7 @@ namespace simpleath
             return result;
         }
         result.result = RfKillResult::InvalidBar;
-        if (stable.barLengthBytes < kRfKillInput + sizeof(uint32_t))
+        if (stable.barLengthBytes < kRfKillDirection + sizeof(uint32_t))
         {
             return result;
         }
@@ -847,10 +847,31 @@ namespace simpleath
             result.result = RfKillResult::OwnershipLost;
             return false;
         };
+        const uint32_t directionMask =
+            kRfKillDirectionMask
+            << (static_cast<uint32_t>(config.gpio) * kRfKillDirectionWidth);
+        uint32_t directionBefore = 0;
         uint32_t first = 0;
         uint32_t second = 0;
+        uint32_t directionAfter = 0;
         if (!permit())
         {
+            return result;
+        }
+        result.result = RfKillResult::ReadFailed;
+        if (!stable.read32(stable.context, kRfKillDirection, &directionBefore))
+        {
+            return result;
+        }
+        ++result.completedReads;
+        if (!permit())
+        {
+            return result;
+        }
+        result.result = RfKillResult::ReadbackMismatch;
+        if ((directionBefore & directionMask) != 0U)
+        {
+            result.requiresReset = true;
             return result;
         }
         result.result = RfKillResult::ReadFailed;
@@ -876,6 +897,22 @@ namespace simpleath
         ++result.completedReads;
         if (!permit())
         {
+            return result;
+        }
+        result.result = RfKillResult::ReadFailed;
+        if (!stable.read32(stable.context, kRfKillDirection, &directionAfter))
+        {
+            return result;
+        }
+        ++result.completedReads;
+        if (!permit())
+        {
+            return result;
+        }
+        result.result = RfKillResult::ReadbackMismatch;
+        if ((directionAfter & directionMask) != 0U)
+        {
+            result.requiresReset = true;
             return result;
         }
         result.result = RfKillResult::Unstable;

@@ -29,6 +29,7 @@ namespace
         kRfKillDirectionInitial & ~(3U << kRfKillInputPinShift);
     constexpr uint32_t kRfKillSamplingDelay = 100;
     constexpr size_t kRfKillReads = 4;
+    constexpr size_t kRfKillRuntimeReads = 4;
     constexpr int kFailedRfKillSuccessExit = 15;
     constexpr int kFailedRfKillAdmissionExit = 16;
     constexpr int kFailedRfKillFailuresExit = 17;
@@ -128,6 +129,8 @@ namespace
             size_t gpioInputReads = 0;
             size_t rfkillDelays = 0;
             bool changeGpioOnSecondSample = false;
+            bool changeDirectionOnSecondSample = false;
+            bool changeOtherDirectionOnSecondSample = false;
             uint32_t selfgen = kSingleChain;
             uint32_t receiveMask = 0;
             uint32_t calibrationMask = 0;
@@ -227,6 +230,15 @@ namespace
             if (mock.changeGpioOnSecondSample && mock.gpioInputReads == 2)
             {
                 mock.gpioInput ^= kRfKillInputHigh;
+            }
+            if (mock.changeDirectionOnSecondSample && mock.gpioInputReads == 2)
+            {
+                mock.gpioDirection = kRfKillDirectionInitial;
+            }
+            if (mock.changeOtherDirectionOnSecondSample &&
+                mock.gpioInputReads == 2)
+            {
+                mock.gpioDirection ^= 1U;
             }
         }
         if (address == kAgc && mock.triggered)
@@ -1099,17 +1111,20 @@ namespace
     {
         const RfKillBoardConfiguration board {true, kRfKillTestPin, true};
         Mock clear {};
+        clear.gpioDirection = kRfKillInputDirection;
         const auto allowed =
             observeAr9565RfKill(board, rfkillReadBackend(clear));
         if (allowed.result != RfKillResult::Unblocked ||
-            allowed.hardwareBlocked || allowed.completedReads != 2 ||
+            allowed.hardwareBlocked ||
+            allowed.completedReads != kRfKillRuntimeReads ||
             allowed.completedWrites != 0 || allowed.requiresReset ||
             clear.writeCount != 0 || clear.rfkillDelays != 1 ||
-            clear.gpioDirection != kRfKillDirectionInitial)
+            clear.gpioDirection != kRfKillInputDirection)
         {
             return false;
         }
         Mock blocked {};
+        blocked.gpioDirection = kRfKillInputDirection;
         blocked.gpioInput = kRfKillInputHigh;
         if (observeAr9565RfKill(board, rfkillReadBackend(blocked)).result !=
                 RfKillResult::Blocked ||
@@ -1120,6 +1135,7 @@ namespace
             return false;
         }
         Mock changing {};
+        changing.gpioDirection = kRfKillInputDirection;
         changing.changeGpioOnSecondSample = true;
         if (observeAr9565RfKill(board, rfkillReadBackend(changing)).result !=
                 RfKillResult::Unstable ||
@@ -1127,7 +1143,39 @@ namespace
         {
             return false;
         }
+        Mock incorrectDirection {};
+        const auto directionFailure =
+            observeAr9565RfKill(board, rfkillReadBackend(incorrectDirection));
+        if (directionFailure.result != RfKillResult::ReadbackMismatch ||
+            !directionFailure.requiresReset ||
+            directionFailure.completedReads != 1 ||
+            incorrectDirection.writeCount != 0)
+        {
+            return false;
+        }
+        Mock directionDrift {};
+        directionDrift.gpioDirection = kRfKillInputDirection;
+        directionDrift.changeDirectionOnSecondSample = true;
+        const auto drift =
+            observeAr9565RfKill(board, rfkillReadBackend(directionDrift));
+        if (drift.result != RfKillResult::ReadbackMismatch ||
+            !drift.requiresReset ||
+            drift.completedReads != kRfKillRuntimeReads ||
+            directionDrift.writeCount != 0)
+        {
+            return false;
+        }
+        Mock unrelatedPin {};
+        unrelatedPin.gpioDirection = kRfKillInputDirection;
+        unrelatedPin.changeOtherDirectionOnSecondSample = true;
+        if (observeAr9565RfKill(board, rfkillReadBackend(unrelatedPin))
+                    .result != RfKillResult::Unblocked ||
+            unrelatedPin.writeCount != 0)
+        {
+            return false;
+        }
         Mock reversed {};
+        reversed.gpioDirection = kRfKillInputDirection;
         reversed.gpioInput = kRfKillInputHigh;
         if (observeAr9565RfKill({true, kRfKillTestPin, false},
                                 rfkillReadBackend(reversed))
@@ -1136,7 +1184,8 @@ namespace
             return false;
         }
         Mock denied {};
-        denied.revokeAt = 3;
+        denied.gpioDirection = kRfKillInputDirection;
+        denied.revokeAt = 2;
         if (observeAr9565RfKill(board, rfkillReadBackend(denied)).result !=
                 RfKillResult::OwnershipLost ||
             denied.readCount != 1 || denied.writeCount != 0)
@@ -1144,6 +1193,7 @@ namespace
             return false;
         }
         Mock badRead {};
+        badRead.gpioDirection = kRfKillInputDirection;
         badRead.failReadAt = 2;
         if (observeAr9565RfKill(board, rfkillReadBackend(badRead)).result !=
                 RfKillResult::ReadFailed ||
