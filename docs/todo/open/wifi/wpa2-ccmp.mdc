@@ -109,6 +109,16 @@ Offline synthetic C++14/C++17 sanitizer regressions cover successful rekeys,
 replay, corrupted MIC, bad KDE/RSC, partial install failure, tampering and
 revocation. These callbacks are fake; no hardware key operation is proven.
 
+The native OS-owned WPA2 receive owner now routes group-addressed CCMP
+Key ID **zero** to its dedicated GTK slot, rather than rejecting it or
+misrouting it to pairwise PTK zero. The two-bit on-air Key ID permits 0..3;
+unicast still requires pairwise index zero, and the session independently
+checks the authenticated MIC and replay/PN before delivery. A source-backed
+CCMP group-zero vector regression covers key selection, valid decrypt,
+wrong-slot rejection and replay. This corrects group address/key selection
+only; it does not authorize RF, prove native OS key installation, or complete
+protected Group1/Group2 rekey integration.
+
 **Group rekey is still not end-to-end integrated.** `DataPath`'s RX
 admission now accepts Group1 only with independently verified pairwise CCMP RX,
 but `WifiEngine` must still dispatch it to `Wpa2Supplicant` and submit the

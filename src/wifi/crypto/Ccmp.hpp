@@ -17,6 +17,34 @@ namespace simpleath
             constexpr size_t kCcmpTidCount = 16U;
             constexpr size_t kCcmpMaximumMpduBytes = 2346U;
             constexpr uint64_t kCcmpMaximumPacketNumber = 0xffffffffffffULL;
+            // IEEE 802.11 CCMP ExtIV has two Key ID bits (0..3). The same
+            // numeric zero names a PTK on a unicast MPDU and a GTK on a
+            // group-addressed MPDU; destination class, not Key ID alone,
+            // selects the native session. Never send group Key ID zero to
+            // the unicast pairwise replay/PN ledger.
+            constexpr uint8_t kCcmpReceiveKeyIndexCount = 4U;
+
+            enum class CcmpReceiveKeyClass : uint8_t
+            {
+                Invalid,
+                Pairwise,
+                Group,
+            };
+
+            constexpr CcmpReceiveKeyClass
+            classifyCcmpReceiveKey(bool groupAddressed, uint8_t keyId)
+            {
+                if (keyId >= kCcmpReceiveKeyIndexCount)
+                {
+                    return CcmpReceiveKeyClass::Invalid;
+                }
+                if (groupAddressed)
+                {
+                    return CcmpReceiveKeyClass::Group;
+                }
+                return keyId == 0U ? CcmpReceiveKeyClass::Pairwise
+                                   : CcmpReceiveKeyClass::Invalid;
+            }
 
             enum class CcmpResult : uint8_t
             {

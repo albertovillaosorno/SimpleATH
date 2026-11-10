@@ -166,6 +166,64 @@ namespace
                    : (__LINE__ % kDiagnosticModulo) + 1;
     }
 
+    int testGroupKeyZeroUsesGtkLedger()
+    {
+        // CCMP authenticates the MAC AAD and ciphertext, not the two Key ID
+        // bits of ExtIV. The independently verified GTK vector for index 1
+        // is valid for the same TK at index 0 after changing just that index.
+        if (classifyCcmpReceiveKey(true, 0U) != CcmpReceiveKeyClass::Group ||
+            classifyCcmpReceiveKey(true, 1U) != CcmpReceiveKeyClass::Group ||
+            classifyCcmpReceiveKey(true, 3U) != CcmpReceiveKeyClass::Group ||
+            classifyCcmpReceiveKey(true, 4U) != CcmpReceiveKeyClass::Invalid ||
+            classifyCcmpReceiveKey(false, 0U) !=
+                CcmpReceiveKeyClass::Pairwise ||
+            classifyCcmpReceiveKey(false, 1U) != CcmpReceiveKeyClass::Invalid ||
+            classifyCcmpReceiveKey(false, 3U) != CcmpReceiveKeyClass::Invalid)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        CcmpSession groupZero {};
+        CcmpSession groupOne {};
+        if (!fresh(groupZero, 0U) || !fresh(groupOne, 1U))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto keyZero = kGtkWire;
+        keyZero.at(27U) = 0x20U; // ExtIV=1, KeyID=0.
+        std::array<uint8_t, kCcmpMaximumMpduBytes> output {};
+        output.fill(0xa5U);
+        const auto untouched = output;
+        size_t recovered = 777U;
+        if (groupOne.unprotect(kEpoch, keyZero.data(), keyZero.size(),
+                               output.data(), output.size(),
+                               recovered) != CcmpResult::InvalidFrame ||
+            recovered != 777U || output != untouched ||
+            groupOne.receiveFloor() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto expected = kPlain;
+        expected.at(1U) = 0x02U;
+        for (size_t index = 4U; index < 10U; ++index)
+        {
+            expected.at(index) = 0xffU;
+        }
+        if (groupZero.unprotect(kEpoch, keyZero.data(), keyZero.size(),
+                                output.data(), output.size(),
+                                recovered) != CcmpResult::Ok ||
+            recovered != expected.size() ||
+            std::memcmp(output.data(), expected.data(), expected.size()) != 0 ||
+            groupZero.receiveFloor() != 1U || groupOne.receiveFloor() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return groupZero.unprotect(kEpoch, keyZero.data(), keyZero.size(),
+                                   output.data(), output.size(),
+                                   recovered) == CcmpResult::ReplayDetected
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
     int testTamperingAndNoDisclosure()
     {
         CcmpSession tx {};
@@ -525,6 +583,10 @@ int main()
         return result;
     }
     if (const int result = testGtkGroupReceiveVector())
+    {
+        return result;
+    }
+    if (const int result = testGroupKeyZeroUsesGtkLedger())
     {
         return result;
     }

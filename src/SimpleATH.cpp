@@ -85,6 +85,9 @@ namespace
     constexpr size_t kCcmpMicBytes = 8;
     constexpr size_t kCcmpKeyIdOffset = 3;
     constexpr uint8_t kCcmpKeyIdShift = 6;
+    static_assert(simpleath::kCcmpGroupSlots ==
+                      simpleath::ieee80211::crypto::kCcmpReceiveKeyIndexCount,
+                  "Native GTK ledger must cover every CCMP Key ID");
     constexpr uint8_t kAllGroupKeySlotsRevoked =
         (1U << simpleath::kCcmpGroupSlots) - 1U;
     constexpr uint8_t kNoKeyCacheSlot = 0xff;
@@ -2350,14 +2353,20 @@ class SimpleATH final : public IOService
             const auto keyId =
                 static_cast<uint8_t>(wireKeyByte >> kCcmpKeyIdShift);
             const bool group = (header.destination.bytes[0] & 1U) != 0U;
-            if ((group &&
-                 (keyId == 0U || keyId >= simpleath::kCcmpGroupSlots)) ||
-                (!group && keyId != 0U))
+            const auto keyClass =
+                simpleath::ieee80211::crypto::classifyCcmpReceiveKey(group,
+                                                                     keyId);
+            if (keyClass ==
+                simpleath::ieee80211::crypto::CcmpReceiveKeyClass::Invalid)
             {
                 return;
             }
+            // GTK index zero is legal and distinct from the PTK at index
+            // zero. A group destination MUST select its GTK slot, even if
+            // the unicast PTK uses the same two-bit on-air index.
             auto *receive = &nativePairwiseRx_;
-            if (group)
+            if (keyClass ==
+                simpleath::ieee80211::crypto::CcmpReceiveKeyClass::Group)
             {
                 size_t currentId = 0;
                 for (auto &slot : nativeGroupRx_)
