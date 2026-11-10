@@ -96,9 +96,13 @@ traffic and supplicant-authenticated Group2; the existing cleartext serializer
 still refuses Group2. The native PCI owner now calls the protected TX
 serializer and queues its software-encrypted MPDU with hardware cipher mode
 Clear. This is **not** a live authorized Tahoe network data port: keycache,
-OS supplicant ownership, protected RX and regulatory RF setup remain open. Inbound Group1 is now admitted by `DataPath` only when
-verified-protected and key-installed, but `WifiEngine` does not dispatch it to
-the supplicant; owner-driven PN persistence and native integration remain open.
+OS supplicant ownership, protected RX and regulatory RF setup remain open.
+Inbound Group1 is admitted only when CCMP-verified and key-installed.
+`WifiEngine::acceptProtectedGroupRekey` now connects this bounded RX
+admission, the supplicant's authenticated Group1/GTK update, and
+the pairwise-CCMP-protected Group2 response. This is a portable driver-owned
+API, not a native registered RX/TX callback. Owner-driven PN persistence and
+Tahoe integration remain open.
 
 The portable `Wpa2Supplicant` now retains only KCK/KEK after M4 and handles
 post-install Group Key Handshake message 1 through an explicit API. It checks
@@ -119,17 +123,26 @@ wrong-slot rejection and replay. This corrects group address/key selection
 only; it does not authorize RF, prove native OS key installation, or complete
 protected Group1/Group2 rekey integration.
 
-**Group rekey is still not end-to-end integrated.** `DataPath`'s RX
-admission now accepts Group1 only with independently verified pairwise CCMP RX,
-but `WifiEngine` must still dispatch it to `Wpa2Supplicant` and submit the
-resulting Group2 through the protected sender. `prepareProtectedStationTx`
-can encrypt the exact Group2
-EAPOL reply under a matching pairwise CCMP session and owner epoch, using a
-caller-owned disjoint and erased plaintext scratch buffer, but it does not
-authenticate the supplicant's EAPOL MIC or bind to a physical native keycache.
-The existing M2/M4 serializer must never emit Group2 in the clear. Wire the
-supplicant, the authenticated Group1 RX path, live CCMP TX/PN ownership, and
-keycache owner/epoch coordination before claiming real network rekeying.
+**The portable driver-owned rekey path is not bound to native Tahoe.**
+`WifiEngine::acceptProtectedGroupRekey` admits a CCMP-authenticated Group1
+only under an installed driver-owned association. It delegates EAPOL MIC,
+replay floor and GTK/KDE authentication to `Wpa2Supplicant`, then protects
+Group2 under a supplied same-epoch pairwise CCMP TX session. Failed
+post-install encryption revokes the association and keys; invalid replay or
+MIC does not produce Group2. This contract does not establish hardware TX
+submission, keycache installation or packet completion.
+
+Native Tahoe instead selects OS-owned WPA2. Its source path separately
+checks the AP, CCMP MIC and replay in `receiveNativeProtected`, then delivers
+Group1 EAPOL to the OS owner. The native Ethernet TX path uses a live
+pairwise CCMP session for post-install Group2. Its native key installer also
+permits new GTK slots while the port is authorized. These are source paths,
+not evidence that RF, EDMA, actual OS Group2 submissions or controlled-port
+operation have succeeded. Never call the portable driver-owned rekey API
+from this OS-owned connection or start a second handshake. Complete and
+validate real native epoch/PN ownership, TX completion/failure rollback and
+radio startup before claiming operational network rekeying. The existing
+M2/M4 cleartext serializer must never emit Group2 in the clear.
 
 Connect the existing guarded AR9565 keycache programming/removal with the
 source-only CCMP packet engine under a single native epoch, then complete
@@ -171,6 +184,17 @@ nonce/output overlap, group RSC/PN propagation, timeout and failed key rollback.
 Use synthetic keys only; passing vectors is not cryptographic certification.
 
 ## Evidence
+
+- 2026-11-10: DCO `4b046c4` adds the portable driver-owned, bounded
+  `WifiEngine::acceptProtectedGroupRekey` entrypoint for verified pairwise
+  CCMP Group1 RX, supplicant-authenticated GTK replacement and
+  pairwise-protected Group2 TX. A synthetic M1-M4 plus encrypted Group1/Group2
+  host fixture verifies replay, wrong MIC, buffer capacity/alias rejection,
+  scratch erasure, and revocation when Group2 encryption fails. Direct C++14
+  and C++17 ASan/UBSan and strict Clang-Tidy of the two changed C++ units
+  passed. No Tahoe AirPort RX/TX caller, hardware TX completion, driver-owned
+  live pairwise session, RF or physical keycache behavior was tested or added.
+  Keep the native integration and epoch/PN ownership requirements open.
 
 - 2026-11-10: DCO `9724869` introduces an explicitly OS-owned WPA2
   candidate-selection path in `WifiEngine` using an **exact** scan-observed
