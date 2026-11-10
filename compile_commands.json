@@ -1500,6 +1500,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_bluetooth_hci_poll.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_bluetooth_hci_poll.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_bluetooth_le.cpp",
     "arguments": [
       "clang++",
