@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565KeyCache.hpp"
 #include "hardware/Ar9565MacControl.hpp"
 #include "hardware/Ar9565NvmReader.hpp"
+#include "hardware/Ar9565Regulator.hpp"
+#include "hardware/Ar9565RfIni.hpp"
 #include "hardware/Ar9565RtcPower.hpp"
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
@@ -30,6 +33,7 @@ namespace
 
     bool gSimpleATHEnabled = true;
     constexpr size_t kNvmStorageBytes = 4096;
+    constexpr unsigned int kRfPropertyWidthBits = 32;
     // IOService copies this table when registering the power driver.
     IOPMPowerState gPowerStates[2] = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -200,12 +204,38 @@ class SimpleATH final : public IOService
 
         simpleath::KeyCacheBackend keyCacheBackend()
         {
-            return {&access_,
-                    epoch_,
-                    backend_.activeRegisters().barLengthBytes,
-                    keyCachePermit,
-                    readRegister,
-                    writeRegister};
+            return {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                keyCachePermit,
+                readRegister,
+                writeRegister,
+            };
+        }
+
+        static bool rfPowerPermit(void *context, uint64_t epoch)
+        {
+            const auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return canReset(context, epoch) &&
+                   self.board_.view(epoch) != nullptr && !self.queuesAdopted_ &&
+                   !self.radioOperational_ && !self.channelAuthorized_;
+        }
+
+        simpleath::RxAgcBackend rfPowerBackend()
+        {
+            const simpleath::RfIniBackend io {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                rfPowerPermit,
+                writeRegister,
+                delayMicros,
+            };
+            return {
+                io,
+                readRegister,
+            };
         }
 
         static bool readRegister(void *context, uint32_t offset,
@@ -510,6 +540,40 @@ class SimpleATH final : public IOService
                 return abortStart("CCMPKeyCacheScrub",
                                   static_cast<uint32_t>(cacheResult.result));
             setProperty("SimpleATHKeyCacheInitialized", true);
+            // The lease comes from an actual PCI-owned NVM read in this same
+            // epoch, not an EEPROM template or a caller-supplied board.
+            // PMU and XTAL tuning must precede PLL/PHY programming; neither
+            // step grants RX, TX, automatic-response or coexistence readiness.
+            const simpleath::RegulatorEvidence boardEvidence {
+                board->valid && board->image.restored,
+                enginesQuiesced_ && !queuesAdopted_ && !radioOperational_ &&
+                    !channelAuthorized_,
+            };
+            const auto analogIo = rfPowerBackend();
+            stage("AR9565PMU1Regulator");
+            const auto regulator = simpleath::configureAr9565InternalRegulator(
+                board->image, boardEvidence, analogIo);
+            setProperty("SimpleATHPMU1Result",
+                        static_cast<uint32_t>(regulator.result),
+                        kRfPropertyWidthBits);
+            setProperty("SimpleATHPMU1ResetRequired", regulator.requiresReset);
+            if (regulator.result != simpleath::RegulatorResult::Ok)
+            {
+                return abortStart("AR9565PMU1Regulator",
+                                  static_cast<uint32_t>(regulator.result));
+            }
+            stage("AR9565XTALCapacitors");
+            const auto crystal = simpleath::configureAr9565XtalCapacitors(
+                board->image, boardEvidence, analogIo);
+            setProperty("SimpleATHXTALResult",
+                        static_cast<uint32_t>(crystal.result),
+                        kRfPropertyWidthBits);
+            setProperty("SimpleATHXTALResetRequired", crystal.requiresReset);
+            if (crystal.result != simpleath::RegulatorResult::Ok)
+            {
+                return abortStart("AR9565XTALCapacitors",
+                                  static_cast<uint32_t>(crystal.result));
+            }
             setProperty("SimpleATHBoardAcquired", true);
             // This marks completed hardware acquisition, not network readiness.
             // RF calibration/queue/IO80211 integration must consume this board.

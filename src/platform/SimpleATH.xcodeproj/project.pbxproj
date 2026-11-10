@@ -14,6 +14,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00000000000000000000D550 /* Ar9565Regulator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D551 /* Ar9565Regulator.cpp */; };
+		00000000000000000000D560 /* Ar9565BoardModal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D561 /* Ar9565BoardModal.cpp */; };
+		00000000000000000000D570 /* Ar9565Coexistence.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D571 /* Ar9565Coexistence.cpp */; };
+		00000000000000000000D580 /* Ar9565OfdmTiming.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D581 /* Ar9565OfdmTiming.cpp */; };
 		00000000000000000000D540 /* Ar9565KeyCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D541 /* Ar9565KeyCache.cpp */; };
 		00000000000000000000D530 /* Ar9565Calibration.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D531 /* Ar9565Calibration.cpp */; };
 		00000000000000000000D520 /* Ar9565RfBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D521 /* Ar9565RfBus.cpp */; };
@@ -60,6 +64,14 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		00000000000000000000D551 /* Ar9565Regulator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Regulator.cpp; sourceTree = "<group>"; };
+		00000000000000000000D552 /* Ar9565Regulator.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Regulator.hpp; sourceTree = "<group>"; };
+		00000000000000000000D561 /* Ar9565BoardModal.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565BoardModal.cpp; sourceTree = "<group>"; };
+		00000000000000000000D562 /* Ar9565BoardModal.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565BoardModal.hpp; sourceTree = "<group>"; };
+		00000000000000000000D571 /* Ar9565Coexistence.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Coexistence.cpp; sourceTree = "<group>"; };
+		00000000000000000000D572 /* Ar9565Coexistence.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Coexistence.hpp; sourceTree = "<group>"; };
+		00000000000000000000D581 /* Ar9565OfdmTiming.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565OfdmTiming.cpp; sourceTree = "<group>"; };
+		00000000000000000000D582 /* Ar9565OfdmTiming.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565OfdmTiming.hpp; sourceTree = "<group>"; };
 		00000000000000000000D541 /* Ar9565KeyCache.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565KeyCache.cpp; sourceTree = "<group>"; };
 		00000000000000000000D542 /* Ar9565KeyCache.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565KeyCache.hpp; sourceTree = "<group>"; };
 		00000000000000000000D531 /* Ar9565Calibration.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Calibration.cpp; sourceTree = "<group>"; };
@@ -159,6 +171,14 @@
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
 				00000000000000000000D541 /* Ar9565KeyCache.cpp */,
+				00000000000000000000D551 /* Ar9565Regulator.cpp */,
+				00000000000000000000D552 /* Ar9565Regulator.hpp */,
+				00000000000000000000D561 /* Ar9565BoardModal.cpp */,
+				00000000000000000000D562 /* Ar9565BoardModal.hpp */,
+				00000000000000000000D571 /* Ar9565Coexistence.cpp */,
+				00000000000000000000D572 /* Ar9565Coexistence.hpp */,
+				00000000000000000000D581 /* Ar9565OfdmTiming.cpp */,
+				00000000000000000000D582 /* Ar9565OfdmTiming.hpp */,
 				00000000000000000000D542 /* Ar9565KeyCache.hpp */,
 				00000000000000000000D531 /* Ar9565Calibration.cpp */,
 				00000000000000000000D532 /* Ar9565Calibration.hpp */,
@@ -333,6 +353,10 @@
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				00000000000000000000D540 /* Ar9565KeyCache.cpp in Sources */,
+				00000000000000000000D550 /* Ar9565Regulator.cpp in Sources */,
+				00000000000000000000D560 /* Ar9565BoardModal.cpp in Sources */,
+				00000000000000000000D570 /* Ar9565Coexistence.cpp in Sources */,
+				00000000000000000000D580 /* Ar9565OfdmTiming.cpp in Sources */,
 				00000000000000000000D530 /* Ar9565Calibration.cpp in Sources */,
 				00000000000000000000D520 /* Ar9565RfBus.cpp in Sources */,
 				00000000000000000000D510 /* Ar9565Pll.cpp in Sources */,
