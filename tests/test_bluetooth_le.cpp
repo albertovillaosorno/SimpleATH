@@ -219,6 +219,25 @@ namespace
 
             LeDiscoveryResult accept(const uint8_t *event, size_t bytes)
             {
+                // Mirror the native owner: HCI credits are accounted before
+                // the LE observer receives a matched Command Complete.
+                constexpr size_t kCompleteBytes = 6U;
+                constexpr size_t kOpcodeLow = 3U;
+                constexpr size_t kOpcodeHigh = 4U;
+                constexpr unsigned kOpcodeShift = 8U;
+                constexpr uint8_t kCompleteCode = 0x0eU;
+                if (event != nullptr && bytes == kCompleteBytes &&
+                    *usbByteOffset(event, 0U) == kCompleteCode &&
+                    transport_.commandWindow.pending &&
+                    (static_cast<uint32_t>(*usbByteOffset(event, kOpcodeLow)) |
+                     (static_cast<uint32_t>(*usbByteOffset(event, kOpcodeHigh))
+                      << kOpcodeShift)) ==
+                        transport_.commandWindow.pendingOpcode &&
+                    receiveUsbHciEvent(transport_, hostFor(fake_), event,
+                                       bytes) != UsbHciStatus::Ok)
+                {
+                    return LeDiscoveryResult::TransportFailed;
+                }
                 return acceptLeHciEvent(scan_, transport_, hostFor(fake_),
                                         ownerFor(fake_), event, bytes);
             }

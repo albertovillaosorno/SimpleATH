@@ -114,10 +114,11 @@ namespace
         return false;
     }
 
-    bool deliver(void * /*context*/, UsbHciPacketKind /*kind*/,
-                 const uint8_t * /*packet*/, size_t /*bytes*/)
+    bool deliver(void * /*context*/, UsbHciPacketKind kind,
+                 const uint8_t *packet, size_t bytes)
     {
-        return false;
+        return kind == UsbHciPacketKind::Event && packet != nullptr &&
+               bytes != 0U;
     }
 
     class Fixture
@@ -175,6 +176,25 @@ namespace
 
             LeAdvertisingResult accept(const uint8_t *data, size_t bytes)
             {
+                // The native event owner must account controller command
+                // completion BEFORE handing a callback to this producer.
+                constexpr size_t kCompleteBytes = 6U;
+                constexpr size_t kOpcodeLow = 3U;
+                constexpr size_t kOpcodeHigh = 4U;
+                constexpr unsigned kOpcodeShift = 8U;
+                constexpr uint8_t kCompleteCode = 0x0eU;
+                if (data != nullptr && bytes == kCompleteBytes &&
+                    *usbByteOffset(data, 0U) == kCompleteCode &&
+                    transport_.commandWindow.pending &&
+                    (static_cast<uint32_t>(*usbByteOffset(data, kOpcodeLow)) |
+                     (static_cast<uint32_t>(*usbByteOffset(data, kOpcodeHigh))
+                      << kOpcodeShift)) ==
+                        transport_.commandWindow.pendingOpcode &&
+                    receiveUsbHciEvent(transport_, host(), data, bytes) !=
+                        UsbHciStatus::Ok)
+                {
+                    return LeAdvertisingResult::TransportFailed;
+                }
                 return acceptLeAdvertisingEvent(advertising_, transport_,
                                                 host(), owner(), data, bytes);
             }
