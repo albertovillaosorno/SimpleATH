@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 // Independently declared from Intel Tahoe 25G332 native symbols/vtables.
 #ifndef SIMPLEATH_TAHOE_INTERFACE_ABI_HPP
 #define SIMPLEATH_TAHOE_INTERFACE_ABI_HPP
@@ -36,7 +35,6 @@ class IO80211SkywalkInterface : public IOService
         unsigned long initialPowerStateForDomainState(IOPMPowerFlags) override;
         void setInterfaceRole(unsigned int);
         void setInterfaceId(unsigned int);
-        void deferBSDAttach(bool);
 
     public:
         virtual IOReturn enable(unsigned int) __asm__(
@@ -255,7 +253,7 @@ class IO80211SkywalkInterface : public IOService
         virtual const char *classNameOverride() __asm__(
             "__ZN23IO80211SkywalkInterface17classNameOverrideEv"); // 0x09f8
     private:
-        virtual void nativeSlot0A00() __asm__(
+        virtual void deferBSDAttach(bool) __asm__(
             "__ZN25IOSkywalkNetworkInterface14deferBSDAttachEb");
 
     private:
@@ -710,7 +708,7 @@ class IO80211SkywalkInterface : public IOService
         virtual bool isInterfaceEnabled() __asm__(
             "__ZN23IO80211SkywalkInterface18isInterfaceEnabledEv"); // 0x0cf0
     public:
-        virtual ether_addr *getSelfMacAddr() __asm__(
+        virtual uint64_t getSelfMacAddr() __asm__(
             "__ZN23IO80211SkywalkInterface14getSelfMacAddrEv"); // 0x0cf8
     public:
         virtual IOSkywalkPacketBufferPool *
@@ -769,24 +767,24 @@ class IO80211SkywalkInterface : public IOService
         virtual void nativeSlot0D68() __asm__(
             "__ZN23IO80211SkywalkInterface13getTxHeadroomEv");
 
-    private:
-        virtual void nativeSlot0D70() __asm__(
+    public:
+        virtual OSObject *getRxCompQueue() __asm__(
             "__ZN23IO80211SkywalkInterface14getRxCompQueueEv");
 
-    private:
-        virtual void nativeSlot0D78() __asm__(
+    public:
+        virtual OSObject *getTxCompQueue() __asm__(
             "__ZN23IO80211SkywalkInterface14getTxCompQueueEv");
 
-    private:
-        virtual void nativeSlot0D80() __asm__(
+    public:
+        virtual OSObject *getTxSubQueue(unsigned int) __asm__(
             "__ZN23IO80211SkywalkInterface13getTxSubQueueE17apple80211_wme_ac");
 
-    private:
-        virtual void nativeSlot0D88() __asm__(
+    public:
+        virtual OSObject *getTxPacketPool() __asm__(
             "__ZN23IO80211SkywalkInterface15getTxPacketPoolEv");
 
-    private:
-        virtual void nativeSlot0D90() __asm__(
+    public:
+        virtual OSObject *getRxPacketPool() __asm__(
             "__ZN23IO80211SkywalkInterface15getRxPacketPoolEv");
 
     public:
@@ -795,8 +793,8 @@ class IO80211SkywalkInterface : public IOService
     public:
         virtual IOReturn disableDatapath() __asm__(
             "__ZN23IO80211SkywalkInterface15disableDatapathEv"); // 0x0da0
-    private:
-        virtual void nativeSlot0DA8() __asm__(
+    public:
+        virtual unsigned int getNumTxQueues() __asm__(
             "__ZN23IO80211SkywalkInterface14getNumTxQueuesEv");
 
     private:

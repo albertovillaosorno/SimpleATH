@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 #include "SimpleATHTahoeController.hpp"
+#include "SimpleATHInfraProtocol.hpp"
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeControllerABI.hpp"
@@ -118,6 +118,35 @@ bool SimpleATHTahoeController::start(IOService *provider)
         return false;
     }
     started_ = true;
+    infrastructure_ = new SimpleATHInfraProtocol;
+    if (infrastructure_ == nullptr || !infrastructure_->initialize(this))
+    {
+        setProperty("SimpleATHNativeFailureStage", "InfraInit");
+        stop(provider);
+        return false;
+    }
+    if (!infrastructure_->attach(this))
+    {
+        setProperty("SimpleATHNativeFailureStage", "InfraAttach");
+        stop(provider);
+        return false;
+    }
+    infrastructureAttached_ = true;
+    if (!attachInterface(infrastructure_, this))
+    {
+        setProperty("SimpleATHNativeFailureStage", "NativeAttach");
+        stop(provider);
+        return false;
+    }
+    nativeAttached_ = true;
+    if (!infrastructure_->start(this))
+    {
+        setProperty("SimpleATHNativeFailureStage", "InfraStart");
+        stop(provider);
+        return false;
+    }
+    infrastructure_->registerService();
+    infrastructurePublished_ = true;
     removeProperty("SimpleATHNativeFailureStage");
     if (diagnostics.detailed)
     {
@@ -129,6 +158,7 @@ bool SimpleATHTahoeController::start(IOService *provider)
 
 void SimpleATHTahoeController::stop(IOService *provider)
 {
+    releaseInfrastructure();
     if (started_)
     {
         started_ = false;
@@ -140,6 +170,7 @@ void SimpleATHTahoeController::stop(IOService *provider)
 
 void SimpleATHTahoeController::free()
 {
+    releaseInfrastructure();
     transport_.unbind();
     capture_.stop();
     if (workQueue_ != nullptr)
@@ -148,6 +179,43 @@ void SimpleATHTahoeController::free()
         workQueue_ = nullptr;
     }
     IO80211Controller::free();
+}
+
+void SimpleATHTahoeController::releaseInfrastructure()
+{
+    if (infrastructure_ == nullptr)
+    {
+        return;
+    }
+    if (infrastructurePublished_)
+    {
+        infrastructurePublished_ = false;
+        (void)infrastructure_->terminate(kIOServiceRequired |
+                                         kIOServiceSynchronous);
+    }
+    infrastructure_->stop(this);
+    if (nativeAttached_)
+    {
+        detachInterface(infrastructure_, false);
+        nativeAttached_ = false;
+    }
+    if (infrastructureAttached_)
+    {
+        infrastructure_->detach(this);
+        infrastructureAttached_ = false;
+    }
+    infrastructure_->release();
+    infrastructure_ = nullptr;
+}
+
+IOReturn SimpleATHTahoeController::radioPower(bool on)
+{
+    return transport_.setPower(on);
+}
+
+IOReturn SimpleATHTahoeController::radioMac(const uint8_t address[6])
+{
+    return transport_.setMac(address);
 }
 
 bool SimpleATHTahoeController::createWorkQueue()
@@ -181,8 +249,9 @@ bool SimpleATHTahoeController::isCommandProhibited(int command)
         return true;
     }
     simpleath::tahoe::WirelessSnapshot state {};
-    return transport_.snapshot(state) != kIOReturnSuccess ||
-           !state.radioAvailable || state.rfKillBlocked;
+    // Inventory and power-on requests must remain callable while the radio
+    // is down. Concrete mutating callbacks enforce RF/power requirements.
+    return transport_.snapshot(state) != kIOReturnSuccess;
 }
 
 IOReturn SimpleATHTahoeController::getHardwareAddress(IOEthernetAddress *out)

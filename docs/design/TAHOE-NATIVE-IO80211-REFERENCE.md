@@ -233,3 +233,61 @@ These are source/ABI observations and real startup calls, not native runtime
 validation or completion of the missing InfraProtocol registration, WCL
 request/event dispatcher, Skywalk packet ownership and radio activation.
 Those requirements remain open. No kext build, load or physical test ran.
+
+
+## Concrete InfraProtocol and native packet path — 2026-11-10
+
+This source update supersedes earlier statements that no native class is
+instantiated. `SimpleATHTahoeController::start` now creates the concrete
+`SimpleATHInfraProtocol`, initializes its real native Infra/Skywalk prefix,
+sets infrastructure role/id, attaches the IOService and native controller,
+starts it and publishes it after native packet registration succeeds. Start
+errors unwind child resources before controller capture/work-queue teardown.
+Published children are terminated before detachment; event sources are retired
+while the controller is alive, even if an OS client retains the stopped child.
+
+`TahoePacketPath` creates actual native IOSkywalkPacketBufferPool objects and
+TX-submission/TX-completion/RX-completion queues. Its on-demand RX allocation
+uses the kernel pool, not an RX submission buffer provider. The genuine native
+`registerInfraEthernetInterface` API performs wireless/BSD registration with
+these three queues; its result is IOReturn, zero on success. RegistrationInfo
+is a 0x130-byte factory-initialized buffer with option/version 1. No private
+expansion pointers or fake IOEthernetInterface provider are written.
+
+The independently imported 19 native method labels were checked as defined
+external nlist symbols (n_type 0x0f) in matching 25G332 IO80211Family and
+IOSkywalkFamily. This is static evidence, not a loaded-kernel link/runtime
+claim. Queue action callbacks return packet counts, not IOReturn: native
+legacyDequeue advances only by accepted TX count; enqueueAndCompletePackets
+uses the completion callback's produced count. Native networking TX refill
+prepares packets before submission. Accepted Ethernet bytes are copied into
+the radio owner before OS completion; retained packets return through native
+TX completion exactly once. RX owns new pool storage and completes/returns
+unused prepared packets. Queue pressure leaves unaccepted TX packets with
+Skywalk. All callbacks share the controller's native work loop.
+
+A second ABI correction is `getSelfMacAddr`: native registration masks the
+returned RAX value to six MAC bytes. It returns the address value, not a
+pointer. The concrete override follows that contract. Queue/pool accessors
+and deferBSDAttach are typed at their existing virtual slots.
+
+Modern WCL scan requests now enter an interface command gate and the physical
+owner's real generation-scoped scan operation. The copied completion path
+filters SSID/BSSID/2.4 GHz channels, encodes observed BSS snapshots and posts
+native scan-result/scan-done messages. It never invents a radio dwell or scan
+success. The current physical owner only has a verified-current-channel
+passive dwell path; channel traversal and active probing remain required RF
+work. The scan request identifier is not mistaken for a version. Inventory,
+MAC, channel, signal, power, leave/abort and data-path requests reach real
+provider operations; the controller does not globally prohibit inventory or
+power requests just because the radio is currently down.
+
+Focused evidence: the three changed native translation units pass strict
+Darwin SDK C++14 syntax-only checking; the production-used scan codec passes
+its offline host fixture for truncated requests, 5/6 GHz overlap, SSID filters,
+maximum rate/RSN payload capacity and malformed RSN rejection. No kext
+compilation, link, load, radio or physical traffic test has run. Source/global
+lint is not claimed clean. Native association/PMK handshake ownership and
+completion events, remaining status/capability selectors, RF activation,
+Bluetooth-host integration and AWDL remain open requirements; this is not a
+claim that the driver is 100% complete or usable on the notebook yet.

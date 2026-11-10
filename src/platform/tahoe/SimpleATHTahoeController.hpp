@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 // Exact-25G332 IO80211Controller entrypoint for a physical AR9565 owner.
 #ifndef SIMPLEATH_TAHOE_CONTROLLER_HPP
 #define SIMPLEATH_TAHOE_CONTROLLER_HPP
@@ -7,9 +6,11 @@
 #include "TahoeControllerABI.hpp"
 #include "TahoeWirelessTransport.hpp"
 
+class SimpleATHInfraProtocol;
+
 // This class is a genuine modern IO80211Controller subclass, not an Ethernet
-// interface impersonation. The Tahoe IO80211InfraProtocol, Skywalk packet pool
-// and exact Apple80211/WCL dispatch are separate mandatory integration steps.
+// interface impersonation. Its concrete InfraProtocol owns native Skywalk
+// registration, packet queues and serialized WCL request/event dispatch.
 class SimpleATHTahoeController final : public IO80211Controller
 {
     private:
@@ -75,8 +76,10 @@ class SimpleATHTahoeController final : public IO80211Controller
         CCLogStream *getLogger() const override;
         CommonFaultReporter *getFaultReporterFromDriver() override;
 
-        // These entrypoints are used only by the eventual verified modern
-        // InfraProtocol and WCL handlers; callers own their request buffers.
+        // Concrete InfraProtocol and packet callbacks copy all borrowed data
+        // synchronously through the epoch-scoped physical radio owner.
+        IOReturn radioPower(bool on);
+        IOReturn radioMac(const uint8_t address[6]);
         IOReturn radioSnapshot(simpleath::tahoe::WirelessSnapshot &out);
         IOReturn scanStart(uint64_t &generation);
         IOReturn scanCancel(uint64_t generation);
@@ -94,6 +97,11 @@ class SimpleATHTahoeController final : public IO80211Controller
                                  size_t &length);
 
     private:
+        void releaseInfrastructure();
+        SimpleATHInfraProtocol *infrastructure_ {nullptr};
+        bool infrastructureAttached_ {false};
+        bool nativeAttached_ {false};
+        bool infrastructurePublished_ {false};
         simpleath::tahoe::TahoeWirelessTransport transport_;
         simpleath::tahoe::TahoeCapture capture_;
         IO80211WorkQueue *workQueue_ {nullptr};

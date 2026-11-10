@@ -89,3 +89,22 @@ ABI blockers visible while implementing the supported source path.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+
+### Concrete source progress — 2026-11-10
+
+Normal startup now creates `SimpleATHInfraProtocol` and calls native Infra/
+Skywalk initialization, attach/start/publication and native packet registration.
+`TahoePacketPath` owns real pool/queue factories, count-based TX/RX callbacks,
+completion and pressure; no fake Ethernet provider wrapper is used. Modern
+scan/abort/result/done and inventory/MAC/power/link paths are production callers
+of the physical-owner contract. A command gate and timer serialize mailboxes;
+stop cancels work before provider/queue lifetime ends. See the design record
+for exact static evidence and remaining ABI assumptions.
+
+Strict syntax-only SDK checks passed for 3 changed native translation units;
+the production scan codec's host fixture passed. Nineteen native method labels
+were verified as defined external symbols in the exact KDK. These checks do
+not prove loading, packet registration or RF success. Required native join/
+PMK ownership, completion/status/capability operations and AWDL are still
+missing; physical RF activation is also not complete. This TODO stays open.

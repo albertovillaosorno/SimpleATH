@@ -14,6 +14,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        00000000000000000000D740 /* SimpleATHInfraProtocol.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D741 /* SimpleATHInfraProtocol.cpp */; };
+        00000000000000000000D730 /* TahoePacketPath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D731 /* TahoePacketPath.cpp */; };
         00000000000000000000D720 /* TahoeCapture.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D721 /* TahoeCapture.cpp */; };
 		00000000000000000000D700 /* SimpleATHTahoeController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D702 /* SimpleATHTahoeController.cpp */; };
 		00000000000000000000D701 /* TahoeWirelessTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D704 /* TahoeWirelessTransport.cpp */; };
@@ -78,6 +80,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        00000000000000000000D741 /* SimpleATHInfraProtocol.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/SimpleATHInfraProtocol.cpp; sourceTree = "<group>"; };
+        00000000000000000000D742 /* SimpleATHInfraProtocol.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/tahoe/SimpleATHInfraProtocol.hpp; sourceTree = "<group>"; };
+        00000000000000000000D731 /* TahoePacketPath.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/TahoePacketPath.cpp; sourceTree = "<group>"; };
+        00000000000000000000D732 /* TahoePacketPath.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/tahoe/TahoePacketPath.hpp; sourceTree = "<group>"; };
         00000000000000000000D721 /* TahoeCapture.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/TahoeCapture.cpp; sourceTree = "<group>"; };
         00000000000000000000D722 /* TahoeCapture.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/tahoe/TahoeCapture.hpp; sourceTree = "<group>"; };
 		00000000000000000000D702 /* SimpleATHTahoeController.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/SimpleATHTahoeController.cpp; sourceTree = "<group>"; };
@@ -218,6 +224,10 @@
 				00000000000000000000D702 /* SimpleATHTahoeController.cpp */,
 				00000000000000000000D703 /* SimpleATHTahoeController.hpp */,
                 00000000000000000000D721 /* TahoeCapture.cpp */,
+                00000000000000000000D741 /* SimpleATHInfraProtocol.cpp */,
+                00000000000000000000D742 /* SimpleATHInfraProtocol.hpp */,
+                00000000000000000000D731 /* TahoePacketPath.cpp */,
+                00000000000000000000D732 /* TahoePacketPath.hpp */,
                 00000000000000000000D722 /* TahoeCapture.hpp */,
 				00000000000000000000D704 /* TahoeWirelessTransport.cpp */,
 				00000000000000000000D705 /* TahoeWirelessTransport.hpp */,
@@ -430,6 +440,8 @@
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				00000000000000000000D700 /* SimpleATHTahoeController.cpp in Sources */,
                 00000000000000000000D720 /* TahoeCapture.cpp in Sources */,
+                00000000000000000000D740 /* SimpleATHInfraProtocol.cpp in Sources */,
+                00000000000000000000D730 /* TahoePacketPath.cpp in Sources */,
 				00000000000000000000D701 /* TahoeWirelessTransport.cpp in Sources */,
 				00000000000000000000D610 /* Ath3kUsb.cpp in Sources */,
 				00000000000000000000D611 /* UsbHci.cpp in Sources */,
