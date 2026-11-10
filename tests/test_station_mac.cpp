@@ -1,0 +1,196 @@
+#include "hardware/Ar9565Core.hpp"
+#include "hardware/Ar9565MacControl.hpp"
+#include <array>
+#include <cstdint>
+
+namespace
+{
+    constexpr uint32_t kStationIdLow = 0x8000U;
+    constexpr uint32_t kStationIdHigh = 0x8004U;
+    constexpr uint32_t kBarBytes = 0x9000U;
+    constexpr uint64_t kEpoch = 17U;
+    constexpr uint32_t kOriginalHigh = 0xa5a50000U;
+    constexpr uint32_t kExpectedLow = 0x33221102U;
+    constexpr uint32_t kExpectedHigh = 0xa5a55544U;
+    constexpr unsigned int kExpectedPermits = 6U;
+    constexpr int kFailedWriteCase = 5;
+    constexpr int kFailedRevocationCase = 6;
+    constexpr int kFailedReadbackCase = 7;
+    constexpr int kFailedBackendCase = 8;
+
+    struct FixtureOptions
+    {
+            uint64_t epoch {kEpoch};
+            uint32_t bar {kBarBytes};
+    };
+
+    struct Hardware
+    {
+            uint32_t low {0};
+            uint32_t high {kOriginalHigh};
+            uint64_t epoch {kEpoch};
+            unsigned int reads {0};
+            unsigned int writes {0};
+            unsigned int permits {0};
+            unsigned int revokeOnPermit {0};
+            unsigned int failOnWrite {0};
+            bool rejectReads {false};
+            bool mismatchReadback {false};
+    };
+
+    bool permit(void *context, uint64_t epoch)
+    {
+        auto &hw = *static_cast<Hardware *>(context);
+        ++hw.permits;
+        if (hw.revokeOnPermit == hw.permits)
+        {
+            hw.epoch = 0;
+        }
+        return epoch == hw.epoch;
+    }
+
+    bool read(void *context, uint32_t offset, uint32_t *value)
+    {
+        auto &hw = *static_cast<Hardware *>(context);
+        ++hw.reads;
+        if (hw.rejectReads || value == nullptr)
+        {
+            return false;
+        }
+        if (offset == kStationIdLow)
+        {
+            *value = hw.low ^ (hw.mismatchReadback ? 1U : 0U);
+            return true;
+        }
+        if (offset == kStationIdHigh)
+        {
+            *value = hw.high;
+            return true;
+        }
+        return false;
+    }
+
+    // Callback ABI fixes the adjacent register/value arguments.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    bool write(void *context, uint32_t offset, uint32_t value)
+    {
+        auto &hw = *static_cast<Hardware *>(context);
+        ++hw.writes;
+        if (hw.failOnWrite == hw.writes)
+        {
+            return false;
+        }
+        if (offset == kStationIdLow)
+        {
+            hw.low = value;
+            return true;
+        }
+        if (offset == kStationIdHigh)
+        {
+            hw.high = value;
+            return true;
+        }
+        return false;
+    }
+
+    simpleath::MacIdentityProgress program(Hardware &hw, const uint8_t *address,
+                                           FixtureOptions options = {})
+    {
+        const simpleath::RegisterBus bus {&hw, read, write, options.bar};
+        return simpleath::programAr9565StationMac(bus, address, options.epoch,
+                                                  permit);
+    }
+} // namespace
+
+int main()
+{
+    using simpleath::MacIdentityResult;
+    const std::array<uint8_t, 6> mac {0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U};
+    Hardware successful;
+    const auto committed = program(successful, mac.data());
+    if (committed.result != MacIdentityResult::Ok || committed.requiresReset ||
+        committed.completedWrites != 2U || successful.low != kExpectedLow ||
+        successful.high != kExpectedHigh ||
+        successful.permits != kExpectedPermits)
+    {
+        return 1;
+    }
+    Hardware invalid;
+    const std::array<uint8_t, 6> zero {};
+    const std::array<uint8_t, 6> multicast {0x03U, 1U, 2U, 3U, 4U, 5U};
+    if (program(invalid, nullptr).result != MacIdentityResult::InvalidMac ||
+        program(invalid, zero.data()).result != MacIdentityResult::InvalidMac ||
+        program(invalid, multicast.data()).result !=
+            MacIdentityResult::InvalidMac ||
+        program(invalid, mac.data(), {0, kBarBytes}).result !=
+            MacIdentityResult::InvalidBackend ||
+        program(invalid, mac.data(), {kEpoch, kStationIdHigh}).result !=
+            MacIdentityResult::InvalidBackend ||
+        invalid.reads != 0 || invalid.writes != 0 || invalid.permits != 0)
+    {
+        return 2;
+    }
+    Hardware denied;
+    denied.epoch = 0;
+    const auto preflight = program(denied, mac.data());
+    if (preflight.result != MacIdentityResult::OwnershipLost ||
+        preflight.requiresReset || denied.reads != 0 || denied.writes != 0)
+    {
+        return 3;
+    }
+    Hardware badRead;
+    badRead.rejectReads = true;
+    if (program(badRead, mac.data()).result != MacIdentityResult::ReadFailed ||
+        badRead.writes != 0)
+    {
+        return 4;
+    }
+    for (unsigned int failure = 1; failure <= 2; ++failure)
+    {
+        Hardware badWrite;
+        badWrite.failOnWrite = failure;
+        const auto attempted = program(badWrite, mac.data());
+        if (attempted.result != MacIdentityResult::WriteFailed ||
+            !attempted.requiresReset ||
+            attempted.completedWrites != failure - 1U)
+        {
+            return kFailedWriteCase;
+        }
+    }
+    for (unsigned int revoke = 2; revoke <= kExpectedPermits; ++revoke)
+    {
+        Hardware revoked;
+        revoked.revokeOnPermit = revoke;
+        const auto attempted = program(revoked, mac.data());
+        unsigned int expectedWrites = 0;
+        if (revoke > 3U)
+        {
+            expectedWrites = 2U;
+        }
+        else if (revoke > 2U)
+        {
+            expectedWrites = 1U;
+        }
+        if (attempted.result != MacIdentityResult::OwnershipLost ||
+            attempted.requiresReset != (revoke > 2U) ||
+            attempted.completedWrites != expectedWrites)
+        {
+            return kFailedRevocationCase;
+        }
+    }
+    Hardware mismatch;
+    mismatch.mismatchReadback = true;
+    const auto readback = program(mismatch, mac.data());
+    if (readback.result != MacIdentityResult::ReadbackMismatch ||
+        !readback.requiresReset || readback.completedWrites != 2U)
+    {
+        return kFailedReadbackCase;
+    }
+    const simpleath::RegisterBus missing {};
+    if (simpleath::programAr9565StationMac(missing, mac.data(), kEpoch, permit)
+            .result != MacIdentityResult::InvalidBackend)
+    {
+        return kFailedBackendCase;
+    }
+    return 0;
+}

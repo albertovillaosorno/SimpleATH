@@ -1294,7 +1294,7 @@ class SimpleATH final : public IOService
         {
             return powered_ && !stopping_ && radioOperational_ &&
                    channelAuthorized_ && rfKillKnownUnblocked_ &&
-                   board_.view(epoch_) != nullptr &&
+                   board_.view(epoch_) != nullptr && stationMacProgrammed_ &&
                    queues_.epoch() == epoch_ &&
                    queues_.phase() == simpleath::NativeQueuePhase::Running &&
                    txSafety_.siliconIdentified &&
@@ -1872,6 +1872,14 @@ class SimpleATH final : public IOService
             }
         }
 
+        static bool stationMacPermit(void *context, uint64_t epoch)
+        {
+            const auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return canReset(context, epoch) &&
+                   self.board_.view(epoch) != nullptr && !self.queuesAdopted_ &&
+                   !self.radioOperational_ && !self.channelAuthorized_;
+        }
+
         static bool rfBoardPermit(void *context, uint64_t epoch)
         {
             const auto &self = *static_cast<RegisterAccess *>(context)->owner;
@@ -1997,7 +2005,7 @@ class SimpleATH final : public IOService
             // physical switch, not just an earlier boot-time radio flag.
             return currentQueueOwner(context, epoch) &&
                    self.radioOperational_ && self.channelAuthorized_ &&
-                   self.liveRfKillUnblocked();
+                   self.stationMacProgrammed_ && self.liveRfKillUnblocked();
         }
 
         static bool queueBusMaster(void *context, bool enabled)
@@ -2853,6 +2861,23 @@ class SimpleATH final : public IOService
             setProperty("SimpleATHPermanentMAC", mac);
             mac->release();
             setProperty("SimpleATHNvmOrigin", board->origin, 32);
+            // The permanent MAC is not only a registry property: program
+            // both PCU identity registers while automatic ACK/CTS, DMA and
+            // transmit queues are physically quiesced. Upper STA_ID1 mode
+            // bits must survive; a partial write is recovered by full reset.
+            stage("AR9565StationAddress");
+            const auto mapped = backend_.activeRegisters();
+            const simpleath::RegisterBus stationBus {
+                &access_, readRegister, writeRegister, mapped.barLengthBytes};
+            const auto identityResult = simpleath::programAr9565StationMac(
+                stationBus, board->summary.mac, epoch_, stationMacPermit);
+            setProperty("SimpleATHStationAddressResult",
+                        static_cast<uint32_t>(identityResult.result), 32);
+            if (identityResult.result != simpleath::MacIdentityResult::Ok)
+                return abortStart("AR9565StationAddress",
+                                  static_cast<uint32_t>(identityResult.result));
+            stationMacProgrammed_ = true;
+            setProperty("SimpleATHStationAddressProgrammed", true);
             // The Atheros key RAM may contain stale keys from earlier OS or
             // firmware ownership. Before any protected path is permitted,
             // clear all 128 slots under the same live PCI epoch and gate.
@@ -3021,6 +3046,8 @@ class SimpleATH final : public IOService
             keyCache_ = {};
             setProperty("SimpleATHKeyCacheInitialized", false);
             board_.invalidate();
+            stationMacProgrammed_ = false;
+            setProperty("SimpleATHStationAddressProgrammed", false);
             enginesQuiesced_ = false;
             // IRQ delivery and queue DMA stop before BAR/provider revocation.
             // Client mapping release occurs after leaving the gate; uncertain
@@ -3217,6 +3244,7 @@ class SimpleATH final : public IOService
         uint64_t awdlReceivedMifs_ {0};
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};
+        bool stationMacProgrammed_ {false};
         bool radioOperational_ {false};
         bool channelAuthorized_ {false};
         IOPCIDevice *pci_ {nullptr};

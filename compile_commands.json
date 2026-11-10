@@ -1929,6 +1929,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_station_mac.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_station_mac.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_tahoe_join_codec.cpp",
     "arguments": [
       "clang++",

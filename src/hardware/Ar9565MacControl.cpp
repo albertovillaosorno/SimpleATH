@@ -31,6 +31,9 @@ namespace simpleath
         constexpr uint32_t kTransmitEnable = 0x0840;
         constexpr uint32_t kAllTransmitQueues = 0x3ff;
         constexpr uint32_t kDiagnosticControl = 0x8048;
+        constexpr uint32_t kStationIdLow = 0x8000;
+        constexpr uint32_t kStationIdHigh = 0x8004;
+        constexpr uint32_t kStationMacHighMask = 0x0000ffffU;
         constexpr uint32_t kBlockReceiveAndResponses = 0x02000026;
         constexpr uint32_t kObserveBus = 0x806c;
         constexpr uint32_t kReceiveState = 0x01f00000;
@@ -54,6 +57,109 @@ namespace simpleath
                    bus.barLengthBytes >= kObserveBus + sizeof(uint32_t);
         }
     } // namespace
+
+    MacIdentityProgress
+    programAr9565StationMac(const RegisterBus &supplied,
+                            const uint8_t mac[kPermanentMacBytes],
+                            uint64_t epoch, bool (*permit)(void *, uint64_t))
+    {
+        MacIdentityProgress result {};
+        const RegisterBus bus = supplied;
+        if (bus.context == nullptr || bus.read32 == nullptr ||
+            bus.write32 == nullptr || permit == nullptr || epoch == 0 ||
+            bus.barLengthBytes < kStationIdHigh + sizeof(uint32_t))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::InvalidMac;
+        if (!validatePermanentMac(mac))
+        {
+            return result;
+        }
+        // Capture the entire identity before invoking owner callbacks; a
+        // borrowed address must never change partway through programming.
+        uint8_t station[kPermanentMacBytes] {};
+        __builtin_memcpy(&station[0], mac, sizeof(station));
+        const uint32_t low = static_cast<uint32_t>(station[0]) |
+                             (static_cast<uint32_t>(station[1]) << 8U) |
+                             (static_cast<uint32_t>(station[2]) << 16U) |
+                             (static_cast<uint32_t>(station[3]) << 24U);
+        const uint32_t high = static_cast<uint32_t>(station[4]) |
+                              (static_cast<uint32_t>(station[5]) << 8U);
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        uint32_t originalHigh = 0;
+        result.result = MacIdentityResult::ReadFailed;
+        if (!read(bus, kStationIdHigh, originalHigh))
+        {
+            return result;
+        }
+        const uint32_t updatedHigh =
+            (originalHigh & ~kStationMacHighMask) | high;
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::WriteFailed;
+        result.requiresReset = true;
+        if (!bus.write32(bus.context, kStationIdLow, low))
+        {
+            return result;
+        }
+        ++result.completedWrites;
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::WriteFailed;
+        if (!bus.write32(bus.context, kStationIdHigh, updatedHigh))
+        {
+            return result;
+        }
+        ++result.completedWrites;
+        uint32_t checkLow = 0;
+        uint32_t checkHigh = 0;
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::ReadFailed;
+        if (!read(bus, kStationIdLow, checkLow))
+        {
+            return result;
+        }
+        // Both readback MMIO accesses independently require the active
+        // owner. A provider may disappear between these two callbacks.
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::ReadFailed;
+        if (!read(bus, kStationIdHigh, checkHigh))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::ReadbackMismatch;
+        if (checkLow != low || checkHigh != updatedHigh)
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::OwnershipLost;
+        if (!permit(bus.context, epoch))
+        {
+            return result;
+        }
+        result.result = MacIdentityResult::Ok;
+        result.requiresReset = false;
+        return result;
+    }
 
     MacStopResult quiesceAr9565Mac(const RegisterBus &supplied,
                                    void (*delayMicros)(void *, uint32_t))
