@@ -216,6 +216,7 @@ namespace simpleath
             owner_ = candidate;
             mailboxLock_ = lock;
             epoch_ = snapshotValue.epoch;
+            callbackRevision_ = 0;
             associationGeneration_ = snapshotValue.associated
                                          ? snapshotValue.associationGeneration
                                          : 0U;
@@ -240,6 +241,7 @@ namespace simpleath
                 mailboxLock_ = nullptr;
                 epoch_ = 0;
                 associationGeneration_ = 0;
+                callbackRevision_ = 0;
                 providerStopped_ = false;
                 IOLockFree(lock);
                 provider->release();
@@ -299,6 +301,11 @@ namespace simpleath
             {
                 return kIOReturnNotReady;
             }
+            // Snapshot's owner gate and mailbox lock cannot be held together.
+            // An event between them invalidates this sampled state.
+            IOLockLock(mailboxLock_);
+            const uint64_t startingRevision = callbackRevision_;
+            IOLockUnlock(mailboxLock_);
             WirelessSnapshot current {};
             const IOReturn result = owner_.snapshot(owner_.context, &current);
             if (result != kIOReturnSuccess || (current.epoch == 0U))
@@ -306,7 +313,8 @@ namespace simpleath
                 return result == kIOReturnSuccess ? kIOReturnNotReady : result;
             }
             IOLockLock(mailboxLock_);
-            if (providerStopped_)
+            if (!acceptWirelessSnapshot(current.epoch, epoch_, startingRevision,
+                                        callbackRevision_, providerStopped_))
             {
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotReady;
@@ -637,6 +645,15 @@ namespace simpleath
                 IOLockUnlock(lock);
                 return;
             }
+            if (self.callbackRevision_ == UINT64_MAX)
+            {
+                // Never wrap and accidentally validate an ancient snapshot.
+                self.providerStopped_ = true;
+                self.invalidateMailboxes();
+                IOLockUnlock(lock);
+                return;
+            }
+            ++self.callbackRevision_;
             if (epoch != self.epoch_)
             {
                 // The same physical provider can resume on a fresh PCI

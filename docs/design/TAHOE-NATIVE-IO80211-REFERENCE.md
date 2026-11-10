@@ -407,3 +407,11 @@ native Wi-Fi readiness.
 The portable `tests/test_native_wireless_epoch.cpp` covers zero and matching epochs, stale/premature PCI and association
 generations, terminal epochs and stopped providers. Native source and exact-target linking still require validation
 on an authorized macOS build; this test is a host policy check only.
+
+An additional notification revision is captured before each provider snapshot.
+If a callback arrives before the snapshot is published, or the sampled PCI
+epoch is older than the consumer's active epoch, the transport rejects that
+snapshot instead of rolling back its association or RF authorization. The
+revision never wraps into a potentially trusted value; exhausting it revokes
+the transport. The host fixture covers both stale-epoch and intervening-event
+snapshot rejection; physical execution remains unverified.

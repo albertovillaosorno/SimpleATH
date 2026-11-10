@@ -93,6 +93,7 @@ namespace simpleath
                 IOLock *mailboxLock_ {nullptr};
                 uint64_t epoch_ {0};
                 uint64_t associationGeneration_ {0};
+                uint64_t callbackRevision_ {0};
                 uint64_t scanGeneration_ {0};
                 uint64_t previousScanGeneration_ {0};
                 bool subscribed_ {false};

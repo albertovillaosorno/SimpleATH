@@ -5,6 +5,7 @@
 int main()
 {
     using simpleath::tahoe::acceptWirelessReceiveIdentity;
+    using simpleath::tahoe::acceptWirelessSnapshot;
     constexpr uint64_t first = 1U;
     constexpr uint64_t second = 2U;
     constexpr uint64_t latest = UINT64_MAX;
@@ -41,6 +42,18 @@ int main()
     {
         constexpr int kStoppedProviderFailure = 5;
         return kStoppedProviderFailure;
+    }
+    // A stale provider call must not roll back a new PCI epoch, nor revive
+    // a previous association after a link event arrived during the call.
+    if (!acceptWirelessSnapshot(first, first, 0, 0, false) ||
+        !acceptWirelessSnapshot(second, first, 1, 1, false) ||
+        acceptWirelessSnapshot(first, second, 1, 1, false) ||
+        acceptWirelessSnapshot(first, first, 0, 1, false) ||
+        acceptWirelessSnapshot(0, first, 1, 1, false) ||
+        acceptWirelessSnapshot(second, first, 1, 1, true))
+    {
+        constexpr int kSnapshotRaceFailure = 6;
+        return kSnapshotRaceFailure;
     }
     return 0;
 }
