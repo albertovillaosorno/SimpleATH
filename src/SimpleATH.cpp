@@ -3,6 +3,8 @@
 #include "hardware/Ar9003Descriptors.hpp"
 #include "hardware/Ar9003TxControl.hpp"
 #include "hardware/Ar9565Calibration.hpp"
+#include "hardware/Ar9565Core.hpp"
+#include "hardware/Ar9565Eeprom.hpp"
 #include "hardware/Ar9565KeyCache.hpp"
 #include "hardware/Ar9565MacControl.hpp"
 #include "hardware/Ar9565NvmReader.hpp"
@@ -11,7 +13,9 @@
 #include "hardware/Ar9565RtcPower.hpp"
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
+#include "platform/Ar9565PciSession.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
+#include "platform/tahoe/TahoeJoinSession.hpp"
 #include "wifi/AwdlAction.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
@@ -21,22 +25,29 @@
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
+#include "wifi/Wpa2Supplicant.hpp"
 #include "wifi/crypto/Ccmp.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
 #include <IOKit/IOCommandGate.h>
+#include <IOKit/IOInterruptEventSource.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOTypes.h>
 #include <IOKit/IOWorkLoop.h>
+#include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/pwr_mgt/IOPM.h>
+#include <IOKit/pwr_mgt/IOPMpowerState.h>
 #include <cstddef>
 #include <cstdint>
 #include <kern/clock.h>
+#include <libkern/OSTypes.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
-#include <libkern/libkern.h>
+#include <mach/i386/kern_return.h>
+#include <mach/kern_return.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
 #include <string.h>
@@ -76,6 +87,8 @@ namespace
     constexpr uint8_t kSequenceFragmentBits = 4;
     constexpr uint8_t kByteBits = 8;
     constexpr uint64_t kMicrosPerMillisecond = 1000;
+    constexpr unsigned int kCounterPropertyWidthBits = 64;
+    constexpr size_t kManagementReplyCapacity = 4096;
     constexpr uint16_t kNativePassiveDwellMs = 120;
     constexpr uint8_t kAwdlSocialChannelSix = 6U;
     constexpr uint8_t kAwdlActionSubtype = 13U;
@@ -118,8 +131,20 @@ namespace
     // IOService copies this table when registering the power driver.
     IOPMPowerState gPowerStates[2] = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-        {1, kIOPMDeviceUsable | kIOPMPowerOn, kIOPMPowerOn, kIOPMPowerOn, 0, 0,
-         0, 0, 0, 0, 0, 0},
+        {
+            1,
+            kIOPMDeviceUsable | kIOPMPowerOn,
+            kIOPMPowerOn,
+            kIOPMPowerOn,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        },
     };
 } // namespace
 
@@ -142,39 +167,58 @@ class SimpleATH final : public IOService
         bool start(IOService *provider) override
         {
             if (!gSimpleATHEnabled || !IOService::start(provider))
+            {
                 return false;
+            }
             pci_ = OSDynamicCast(IOPCIDevice, provider);
-            if (!pci_)
+            if (pci_ == nullptr)
+            {
                 return failStart(provider, "PCIProvider", kIOReturnBadArgument);
+            }
             lifecycle_ = IOLockAlloc();
-            if (!observerLock_)
+            if (observerLock_ == nullptr)
+            {
                 observerLock_ = IOLockAlloc();
+            }
             loop_ = IOWorkLoop::workLoop();
             gate_ = IOCommandGate::commandGate(this);
-            if (!lifecycle_ || !observerLock_ || !loop_ || !gate_)
+            if ((lifecycle_ == nullptr) || (observerLock_ == nullptr) ||
+                (loop_ == nullptr) || (gate_ == nullptr))
+            {
                 return failStart(provider, "WorkLoop", kIOReturnNoMemory);
+            }
             const IOReturn added = loop_->addEventSource(gate_);
             if (added != kIOReturnSuccess)
+            {
                 return failStart(provider, "CommandGate", added);
+            }
             gateAttached_ = true;
             scanTimer_ = IOTimerEventSource::timerEventSource(
                 kIOTimerEventSourceOptionsPriorityWorkLoop, this,
                 scanTimerFired);
-            if (!scanTimer_)
+            if (scanTimer_ == nullptr)
+            {
                 return failStart(provider, "ScanTimer", kIOReturnNoMemory);
+            }
             const IOReturn timerAdded = loop_->addEventSource(scanTimer_);
             if (timerAdded != kIOReturnSuccess)
+            {
                 return failStart(provider, "ScanTimer", timerAdded);
+            }
             scanTimerAttached_ = true;
             access_.owner = this;
             const simpleath::NativePciPowerGate power {&access_, poweredGate};
             if (!backend_.configure(this, pci_, power))
+            {
                 return failStart(provider, "PCIConfigure", kIOReturnNotReady);
+            }
             storage_ = static_cast<uint8_t *>(IOMalloc(kNvmStorageBytes));
             scratch_ = static_cast<uint8_t *>(
                 IOMalloc(simpleath::kAr9565EepromScratchBytes));
-            if (!storage_ || !scratch_)
+            if ((storage_ == nullptr) || (scratch_ == nullptr))
+            {
                 return failStart(provider, "NVMStorage", kIOReturnNoMemory);
+            }
             diagnostics_ = simpleath::readNativeDiagnostics();
             simpleath::publishNativeDiagnostics(this, diagnostics_);
             setProperty("SimpleATHMode", "NativeAR9565");
@@ -183,24 +227,29 @@ class SimpleATH final : public IOService
             pmInitialized_ = true;
             provider->joinPMtree(this);
             const IOReturn registered =
-                registerPowerDriver(this, gPowerStates, 2);
+                registerPowerDriver(this, &gPowerStates[0], 2);
             if (registered != kIOReturnSuccess)
+            {
                 return failStart(provider, "PowerRegistration", registered);
+            }
             const IOReturn result = startClient();
             if (result != kIOReturnSuccess)
+            {
                 return failStart(provider, "HardwareStart", result);
+            }
             started_ = true;
             changePowerStateTo(1);
             registerService();
             return true;
         }
 
-        IOReturn setPowerState(unsigned long state, IOService *) override
+        IOReturn setPowerState(unsigned long state,
+                               IOService * /*whatDevice*/) override
         {
             // PM invokes this on a sleepable thread. The same gate serializes
             // reset/NVM, sleep, stop and provider termination; no worker needs
             // to reenter it while an operation is waiting.
-            if (gate_ && started_)
+            if ((gate_ != nullptr) && started_)
             {
                 if (state == 0)
                 {
@@ -208,14 +257,16 @@ class SimpleATH final : public IOService
                     releaseQueuesClient();
                 }
                 else
+                {
                     startClient();
+                }
             }
             return kIOPMAckImplied;
         }
 
         bool willTerminate(IOService *provider, IOOptionBits options) override
         {
-            if (gate_)
+            if (gate_ != nullptr)
             {
                 gate_->runAction(terminateAction);
                 releaseQueuesClient();
@@ -230,8 +281,10 @@ class SimpleATH final : public IOService
                 PMstop();
                 pmInitialized_ = false;
             }
-            if (gate_ && gateAttached_)
+            if ((gate_ != nullptr) && gateAttached_)
+            {
                 gate_->runAction(stopAction);
+            }
             releaseQueuesClient();
             cleanup();
             IOService::stop(provider);
@@ -242,7 +295,7 @@ class SimpleATH final : public IOService
             cleanup();
             // The transport retains the provider until its synchronous
             // unsubscribe. The observer lock must outlive stop()/cleanup().
-            if (observerLock_)
+            if (observerLock_ != nullptr)
             {
                 IOLockFree(observerLock_);
                 observerLock_ = nullptr;
@@ -262,14 +315,21 @@ class SimpleATH final : public IOService
                 return IOService::callPlatformFunction(name, wait, p1, p2, p3,
                                                        p4);
             }
-            if (!p1 || p2 || p3 || p4)
+            if ((p1 == nullptr) || (p2 != nullptr) || (p3 != nullptr) ||
+                (p4 != nullptr))
+            {
                 return kIOReturnBadArgument;
+            }
             auto *out = static_cast<simpleath::tahoe::WirelessOwnerV2 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
+            {
                 return kIOReturnUnsupported;
-            if (!gate_)
+            }
+            if (gate_ == nullptr)
+            {
                 return kIOReturnNotReady;
+            }
             return gate_->runAction(exportWirelessOwnerAction, out);
         }
 
@@ -279,12 +339,22 @@ class SimpleATH final : public IOService
         // serialized gate; only the mailbox notification callback crosses to
         // the child's independent work loop.
         static IOReturn exportWirelessOwnerAction(OSObject *object, void *arg,
-                                                  void *, void *, void *)
+                                                  void * /*unused*/,
+                                                  void * /*unused*/,
+                                                  void * /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(object);
+            auto *typed = OSDynamicCast(SimpleATH, object);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
             if (!self.powered_ || self.stopping_ ||
-                !self.board_.view(self.epoch_) || !self.observerLock_)
+                (self.board_.view(self.epoch_) == nullptr) ||
+                (self.observerLock_ == nullptr))
+            {
                 return kIOReturnNotReady;
+            }
             auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV2 *>(arg);
             const simpleath::tahoe::WirelessOwnerV2 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
@@ -308,15 +378,24 @@ class SimpleATH final : public IOService
             return kIOReturnSuccess;
         }
 
-        static IOReturn ownerSnapshotAction(OSObject *object, void *arg, void *,
-                                            void *, void *)
+        static IOReturn ownerSnapshotAction(OSObject *object, void *arg,
+                                            void * /*unused*/,
+                                            void * /*unused*/,
+                                            void * /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(object);
+            auto *typed = OSDynamicCast(SimpleATH, object);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
             auto &out = *static_cast<simpleath::tahoe::WirelessSnapshot *>(arg);
             out = {};
             const auto *board = self.board_.view(self.epoch_);
-            if (!self.powered_ || self.stopping_ || !board)
+            if (!self.powered_ || self.stopping_ || (board == nullptr))
+            {
                 return kIOReturnNotReady;
+            }
             out.epoch = self.epoch_;
             if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0)
             {
@@ -367,9 +446,10 @@ class SimpleATH final : public IOService
                     }
                 }
             }
-            memcpy(out.permanentMac, board->summary.mac,
+            memcpy(&out.permanentMac[0], &board->summary.mac[0],
                    sizeof(out.permanentMac));
-            memcpy(out.currentMac, board->summary.mac, sizeof(out.currentMac));
+            memcpy(&out.currentMac[0], &board->summary.mac[0],
+                   sizeof(out.currentMac));
             const auto link = self.engine_.linkStatus();
             const bool liveRfKill = self.liveRfKillUnblocked();
             // Association precedes WPA2 key installation. Report only a
@@ -468,21 +548,29 @@ class SimpleATH final : public IOService
         static IOReturn ownerSnapshot(void *context,
                                       simpleath::tahoe::WirelessSnapshot *out)
         {
-            if (!context || !out)
+            if ((context == nullptr) || (out == nullptr))
+            {
                 return kIOReturnBadArgument;
-            auto &self = *static_cast<SimpleATH *>(context);
-            if (!self.gate_)
+            }
+            auto const &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
                 return kIOReturnNotReady;
+            }
             return self.gate_->runAction(ownerSnapshotAction, out);
         }
 
         static IOReturn ownerSetPower(void *context, bool on)
         {
-            if (!context)
+            if (context == nullptr)
+            {
                 return kIOReturnBadArgument;
+            }
             auto &self = *static_cast<SimpleATH *>(context);
             if (!self.started_ || self.stopping_)
+            {
                 return kIOReturnNotReady;
+            }
             if (on)
             {
                 // Power-on performs the real PCI/RTC/EEPROM sequence, not a
@@ -497,15 +585,19 @@ class SimpleATH final : public IOService
         ownerSetMac(void *context,
                     const uint8_t address[simpleath::tahoe::kWirelessMacBytes])
         {
-            if (!context || !address)
+            if ((context == nullptr) || (address == nullptr))
+            {
                 return kIOReturnBadArgument;
+            }
             simpleath::tahoe::WirelessSnapshot current {};
             const IOReturn result = ownerSnapshot(context, &current);
             if (result != kIOReturnSuccess)
+            {
                 return result;
+            }
             // Until hardware and native interface readdressing are wired,
             // only an idempotent request for the physical MAC is valid.
-            return memcmp(address, current.currentMac,
+            return memcmp(address, &current.currentMac[0],
                           sizeof(current.currentMac)) == 0
                        ? kIOReturnSuccess
                        : kIOReturnUnsupported;
@@ -1061,9 +1153,16 @@ class SimpleATH final : public IOService
         }
 
         static IOReturn ownerInstallKeyAction(OSObject *object, void *argument,
-                                              void *, void *, void *)
+                                              void * /*unused*/,
+                                              void * /*unused*/,
+                                              void * /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(object);
+            auto *typed = OSDynamicCast(SimpleATH, object);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
             const auto &key =
                 *static_cast<const simpleath::tahoe::NativeCcmpKey *>(argument);
             const auto &link = self.engine_.linkStatus();
@@ -1075,7 +1174,7 @@ class SimpleATH final : public IOService
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
-                !self.board_.view(self.epoch_) ||
+                (self.board_.view(self.epoch_) == nullptr) ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 self.engine_.stationState() !=
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
@@ -1090,21 +1189,26 @@ class SimpleATH final : public IOService
             if (key.remove)
             {
                 if (!self.queues_.hasTransmitSpace())
+                {
                     return kIOReturnBusy;
+                }
                 if (key.pairwise && key.keyId == 0 &&
-                    memcmp(key.peer, link.bssid.bytes,
+                    memcmp(&key.peer[0], &link.bssid.bytes[0],
                            simpleath::tahoe::kWirelessMacBytes) == 0)
                 {
                     self.nativePairwiseTx_.revoke();
                     self.nativePairwiseRx_.revoke();
                     for (auto &group : self.nativeGroupRx_)
+                    {
                         group.revoke();
+                    }
                     self.nativePairwiseKeyRevoked_ = true;
                     self.controlledPortAuthorized_ = false;
                     return kIOReturnSuccess;
                 }
-                if (!key.pairwise && key.keyId < simpleath::kCcmpGroupSlots &&
-                    memcmp(key.peer, link.bssid.bytes,
+                if (!key.pairwise &&
+                    self.nativeGroupSlot(key.keyId) != nullptr &&
+                    memcmp(&key.peer[0], &link.bssid.bytes[0],
                            simpleath::tahoe::kWirelessMacBytes) == 0)
                 {
                     // During a GTK rotation, removing the retired slot must
@@ -1112,9 +1216,11 @@ class SimpleATH final : public IOService
                     // installed new GTK remains. A retired slot stays
                     // unusable for the rest of this physical key epoch;
                     // reinstalling it would roll its receive PN floor back.
-                    if (!self.nativeGroupRx_[key.keyId].installed())
+                    if (!(*self.nativeGroupSlot(key.keyId)).installed())
+                    {
                         return kIOReturnUnsupported;
-                    self.nativeGroupRx_[key.keyId].revoke();
+                    }
+                    (*self.nativeGroupSlot(key.keyId)).revoke();
                     self.nativeGroupKeyRevokedMask_ |=
                         static_cast<uint8_t>(1U << key.keyId);
                     if (!self.nativeGroupInstalled())
@@ -1128,29 +1234,35 @@ class SimpleATH final : public IOService
             }
             if (key.receivePacketNumber >
                     simpleath::ieee80211::crypto::kCcmpMaximumPacketNumber ||
-                memcmp(key.peer, link.bssid.bytes,
+                memcmp(&key.peer[0], &link.bssid.bytes[0],
                        simpleath::tahoe::kWirelessMacBytes) != 0 ||
                 self.nativePairwiseKeyRevoked_ ||
                 (key.pairwise && self.controlledPortAuthorized_))
+            {
                 return kIOReturnUnsupported;
+            }
             if (!key.pairwise)
             {
-                if (key.keyId >= simpleath::kCcmpGroupSlots ||
+                if (self.nativeGroupSlot(key.keyId) == nullptr ||
                     (self.nativeGroupKeyRevokedMask_ &
                      static_cast<uint8_t>(1U << key.keyId)) != 0U ||
                     !self.nativePairwiseTx_.installed() ||
                     !self.nativePairwiseRx_.installed() ||
-                    self.nativeGroupRx_[key.keyId].installed())
+                    (*self.nativeGroupSlot(key.keyId)).installed())
+                {
                     return kIOReturnUnsupported;
+                }
                 // An OS-owned Group1/Group2 handshake may install a new
                 // receive-only GTK in an unused slot while the data port is
                 // open. Existing slot and pairwise PN state remain intact;
                 // replacing the same slot without a fresh epoch is refused.
                 // Never use the GTK to transmit station unicast data or
                 // trust unauthenticated packet KeyID as a key selector.
-                const auto installed = self.nativeGroupRx_[key.keyId].install(
-                    key.material, link.bssid.bytes, key.keyId, self.epoch_, 0,
-                    key.receivePacketNumber);
+                const auto installed =
+                    (*self.nativeGroupSlot(key.keyId))
+                        .install(&key.material[0], &link.bssid.bytes[0],
+                                 key.keyId, self.epoch_, 0,
+                                 key.receivePacketNumber);
                 return installed == simpleath::ieee80211::crypto::CcmpResult::Ok
                            ? kIOReturnSuccess
                            : kIOReturnBadArgument;
@@ -1164,11 +1276,13 @@ class SimpleATH final : public IOService
                 return kIOReturnUnsupported;
             }
             const auto installed = self.nativePairwiseTx_.install(
-                key.material, link.station.bytes, 0, self.epoch_, 0, 0);
+                &key.material[0], &link.station.bytes[0], 0, self.epoch_, 0, 0);
             if (installed != simpleath::ieee80211::crypto::CcmpResult::Ok)
+            {
                 return kIOReturnBadArgument;
+            }
             const auto receiveInstalled = self.nativePairwiseRx_.install(
-                key.material, link.bssid.bytes, 0, self.epoch_, 0,
+                &key.material[0], &link.bssid.bytes[0], 0, self.epoch_, 0,
                 key.receivePacketNumber);
             if (receiveInstalled !=
                 simpleath::ieee80211::crypto::CcmpResult::Ok)
@@ -1185,11 +1299,15 @@ class SimpleATH final : public IOService
         ownerInstallKey(void *context,
                         const simpleath::tahoe::NativeCcmpKey *key)
         {
-            if (!context || !key)
+            if ((context == nullptr) || (key == nullptr))
+            {
                 return kIOReturnBadArgument;
-            auto &self = *static_cast<SimpleATH *>(context);
-            if (!self.gate_)
+            }
+            auto const &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
                 return kIOReturnNotReady;
+            }
             // The caller retains key storage only until this operation
             // completes, and may change it while waiting for the gate. Never
             // let an OS-owned pointer supply a torn CCMP key or replay floor.
@@ -1277,12 +1395,29 @@ class SimpleATH final : public IOService
             return self.gate_->runAction(ownerAuthorizePortAction, &requested);
         }
 
+        simpleath::ieee80211::crypto::CcmpSession *nativeGroupSlot(uint8_t id)
+        {
+            size_t index = 0;
+            for (auto &group : nativeGroupRx_)
+            {
+                if (index++ == id)
+                {
+                    return &group;
+                }
+            }
+            return nullptr;
+        }
+
         bool nativeGroupInstalled() const
         {
+            // Kernel SDK does not expose compatible std::algorithm headers.
+            // Explicit bounded iteration avoids host ABI dependencies.
             for (const auto &group : nativeGroupRx_)
             {
                 if (group.installed())
+                {
                     return true;
+                }
             }
             return false;
         }
@@ -1330,9 +1465,16 @@ class SimpleATH final : public IOService
             // the entire 802.11 protected MPDU, including ExtIV and MIC. Use
             // hardware CLEAR descriptor mode to avoid double encryption; a
             // protected 802.11 frame with no software key is never accepted.
-            if (softwareProtected && (!nativePairwiseTx_.installed() ||
-                                      (frame[1] & kProtectedFrameFlag) == 0))
+            uint16_t frameControl = 0;
+            __builtin_memcpy(&frameControl, frame, sizeof(frameControl));
+            constexpr uint16_t kProtectedFrameControl =
+                static_cast<uint16_t>(kProtectedFrameFlag) << kByteBits;
+            if (softwareProtected &&
+                (!nativePairwiseTx_.installed() ||
+                 (frameControl & kProtectedFrameControl) == 0))
+            {
                 return kIOReturnNotReady;
+            }
             control.crypto = simpleath::edma::TxCrypto::Clear;
             control.keyCacheIndex = kNoKeyCacheSlot;
             control.rate[0] = txRate_;
@@ -1588,11 +1730,15 @@ class SimpleATH final : public IOService
 
         static void ownerUnsubscribe(void *context, void *observer)
         {
-            if (!context || !observer)
+            if ((context == nullptr) || (observer == nullptr))
+            {
                 return;
+            }
             auto &self = *static_cast<SimpleATH *>(context);
-            if (!self.observerLock_)
+            if (self.observerLock_ == nullptr)
+            {
                 return;
+            }
             // Provider-stop notifications hold this lock throughout the
             // callback. Unsubscribe joins them before mailbox deallocation.
             IOLockLock(self.observerLock_);
@@ -1627,30 +1773,31 @@ class SimpleATH final : public IOService
 
         static bool poweredGate(void *context)
         {
-            auto &self = *static_cast<RegisterAccess *>(context)->owner;
-            return self.loop_ && self.loop_->inGate() && self.powered_ &&
-                   !self.stopping_ && self.pci_ && !self.pci_->isInactive();
+            auto const &self = *static_cast<RegisterAccess *>(context)->owner;
+            return (self.loop_ != nullptr) && self.loop_->inGate() &&
+                   self.powered_ && !self.stopping_ && (self.pci_ != nullptr) &&
+                   !self.pci_->isInactive();
         }
 
-        static uint64_t nowMicros(void *)
+        static uint64_t nowMicros(void * /*unused*/)
         {
             uint64_t absolute = 0;
             uint64_t nanos = 0;
             clock_get_uptime(&absolute);
             absolutetime_to_nanoseconds(absolute, &nanos);
-            return nanos / 1000;
+            return nanos / kMicrosPerMillisecond;
         }
 
-        static void delayMicros(void *, uint32_t micros)
+        static void delayMicros(void * /*unused*/, uint32_t micros)
         {
             // Round the deadline up; a short delay cannot count as a reset
             // pulse.
             const uint64_t end = nowMicros(nullptr) + micros + 1;
-            do
+            IODelay((micros != 0U) ? micros : 1);
+            while (nowMicros(nullptr) < end)
             {
-                IODelay(micros ? micros : 1);
+                IODelay((micros != 0U) ? micros : 1);
             }
-            while (nowMicros(nullptr) < end);
         }
 
         static bool nvmOwner(void *context)
@@ -1658,19 +1805,19 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             return poweredGate(context) && self.epoch_ != 0 &&
                    self.session_.status().readAccessReady &&
-                   self.backend_.activeRegisters().read32;
+                   (self.backend_.activeRegisters().read32 != nullptr);
         }
 
         static bool canReset(void *context, uint64_t epoch)
         {
-            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            auto const &self = *static_cast<RegisterAccess *>(context)->owner;
             return epoch == self.epoch_ && self.enginesQuiesced_ &&
                    nvmOwner(context);
         }
 
         static bool keyCachePermit(void *context, uint64_t epoch)
         {
-            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            auto const &self = *static_cast<RegisterAccess *>(context)->owner;
             // Key RAM is mutable only with exclusive PCI ownership and all
             // descriptor engines and automatic MAC responses quiesced.
             const auto queue = self.queues_.phase();
@@ -1954,14 +2101,18 @@ class SimpleATH final : public IOService
                 return false;
             }
             const simpleath::RfKillBoardConfiguration board {
-                rfKillPinConfigured_, rfKillGpio_, rfKillActiveHigh_};
+                rfKillPinConfigured_,
+                rfKillGpio_,
+                rfKillActiveHigh_,
+            };
             const simpleath::RfKillReadBackend backend {
                 &access_,
                 epoch_,
                 backend_.activeRegisters().barLengthBytes,
                 rfKillRuntimePermit,
                 readRegister,
-                delayMicros};
+                delayMicros,
+            };
             return simpleath::observeAr9565RfKill(board, backend).result ==
                    simpleath::RfKillResult::Unblocked;
         }
@@ -2000,7 +2151,8 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto bus = self.backend_.activeRegisters();
-            return bus.read32 && bus.read32(bus.context, offset, value);
+            return (bus.read32 != nullptr) &&
+                   bus.read32(bus.context, offset, value);
         }
 
         static bool writeRegister(void *context, uint32_t offset,
@@ -2008,12 +2160,13 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto bus = self.backend_.activeRegisters();
-            return bus.write32 && bus.write32(bus.context, offset, value);
+            return (bus.write32 != nullptr) &&
+                   bus.write32(bus.context, offset, value);
         }
 
         static bool currentQueueOwner(void *context, uint64_t epoch)
         {
-            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            auto const &self = *static_cast<RegisterAccess *>(context)->owner;
             return epoch == self.epoch_ && nvmOwner(context);
         }
 
@@ -2282,7 +2435,9 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             if (!self.radioOperational_ || !self.powered_ ||
                 !self.liveRfKillUnblocked())
+            {
                 return;
+            }
             self.receiveNativeAwdl(frame, bytes, status);
             // An OS-installed TK has a single security owner: data RX must
             // use the matching native CCMP session, not the portable engine's
@@ -2349,10 +2504,15 @@ class SimpleATH final : public IOService
             simpleath::ieee80211::EngineAction action {};
             const auto result = self.engine_.acceptRx(
                 frame, bytes, trust,
-                {status.combinedRssi, nowMicros(nullptr) / 1000},
-                self.managementReply_, sizeof(self.managementReply_), action);
+                {
+                    status.combinedRssi,
+                    nowMicros(nullptr) / kMicrosPerMillisecond,
+                },
+                &self.managementReply_[0], sizeof(self.managementReply_),
+                action);
             self.setProperty("SimpleATHLastReceiveResult",
-                             static_cast<uint32_t>(result), 32);
+                             static_cast<uint32_t>(result),
+                             kRfPropertyWidthBits);
             const bool hardwareKeyUpdate =
                 self.queues_.keyUpdateIsolatedGated();
             if (hardwareKeyUpdate)
@@ -2449,7 +2609,7 @@ class SimpleATH final : public IOService
             }
             ++self.receivedFrames_;
             self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
-                             64);
+                             kCounterPropertyWidthBits);
             // Authentication/association and the WPA2 M2/M4 replies are
             // already serialized by WifiEngine. They need the same verified
             // RF/rate/power authorization as Ethernet data, but do not need
@@ -2560,13 +2720,14 @@ class SimpleATH final : public IOService
         }
 
         static void
-        queueTransmitted(void *context, uint64_t,
+        queueTransmitted(void *context, uint64_t /*unused*/,
                          const simpleath::edma::TxCompletion &status)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             ++self.transmitCompletions_;
             self.setProperty("SimpleATHTransmitCompletions",
-                             self.transmitCompletions_, 64);
+                             self.transmitCompletions_,
+                             kCounterPropertyWidthBits);
             self.setProperty("SimpleATHLastTransmitSucceeded",
                              status.frameTransmitOk);
             // The EDMA owner already freed its TX slot before this callback.
@@ -2666,18 +2827,28 @@ class SimpleATH final : public IOService
             }
         }
 
-        static void queueInterrupt(OSObject *owner, IOInterruptEventSource *,
-                                   int)
+        static void queueInterrupt(OSObject *owner,
+                                   IOInterruptEventSource * /*unused*/,
+                                   int /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(owner);
+            auto *typed = OSDynamicCast(SimpleATH, owner);
+            if (typed == nullptr)
+            {
+                return;
+            }
+            auto &self = *typed;
             if (self.queuesAdopted_)
+            {
                 self.queues_.serviceInterruptGated();
+            }
         }
 
         IOReturn startClient()
         {
-            if (!lifecycle_ || !gate_)
+            if ((lifecycle_ == nullptr) || (gate_ == nullptr))
+            {
                 return kIOReturnNotReady;
+            }
             IOLockLock(lifecycle_);
             IOReturn result = gate_->runAction(startAction);
             if (result == kIOReturnSuccess &&
@@ -2699,11 +2870,14 @@ class SimpleATH final : public IOService
                     queueTransmitted,
                     queueFault,
                     session_.status().barLengthBytes,
-                    queueKeyUpdateResumed};
+                    queueKeyUpdateResumed,
+                };
                 result = queues_.prepareClient(this, pci_, loop_, preparedEpoch,
                                                callbacks, queueInterrupt);
                 if (result == kIOReturnSuccess)
+                {
                     result = gate_->runAction(adoptQueuesAction);
+                }
                 if (result != kIOReturnSuccess)
                 {
                     queues_.releaseClient();
@@ -2716,19 +2890,29 @@ class SimpleATH final : public IOService
 
         void releaseQueuesClient()
         {
-            if (!lifecycle_)
+            if (lifecycle_ == nullptr)
+            {
                 return;
+            }
             IOLockLock(lifecycle_);
             const IOReturn result = queues_.releaseClient();
             if (result != kIOReturnSuccess)
+            {
                 IOLog("SimpleATH: queue mappings quarantined (0x%x)\n", result);
+            }
             IOLockUnlock(lifecycle_);
         }
 
-        static IOReturn adoptQueuesAction(OSObject *owner, void *, void *,
-                                          void *, void *)
+        static IOReturn adoptQueuesAction(OSObject *owner, void * /*unused*/,
+                                          void * /*unused*/, void * /*unused*/,
+                                          void * /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(owner);
+            auto *typed = OSDynamicCast(SimpleATH, owner);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
             const IOReturn result = self.queues_.adoptGated(self.epoch_);
             if (result == kIOReturnSuccess)
             {
@@ -2742,10 +2926,18 @@ class SimpleATH final : public IOService
             return result;
         }
 
-        static IOReturn failedQueueStartAction(OSObject *owner, void *, void *,
-                                               void *, void *)
+        static IOReturn failedQueueStartAction(OSObject *owner,
+                                               void * /*unused*/,
+                                               void * /*unused*/,
+                                               void * /*unused*/,
+                                               void * /*unused*/)
         {
-            auto &self = *static_cast<SimpleATH *>(owner);
+            auto *typed = OSDynamicCast(SimpleATH, owner);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
             self.error("DMAPreparation", kIOReturnNoResources);
             self.stopHardware(simpleath::ProviderAccess::Available);
             return kIOReturnSuccess;
@@ -2756,11 +2948,15 @@ class SimpleATH final : public IOService
             enginesQuiesced_ = false;
             const auto bus = backend_.activeRegisters();
             const simpleath::RegisterBus active {
-                &access_, readRegister, writeRegister, bus.barLengthBytes};
+                &access_,
+                readRegister,
+                writeRegister,
+                bus.barLengthBytes,
+            };
             const auto result =
                 simpleath::quiesceAr9565Mac(active, delayMicros);
             setProperty("SimpleATHMacStopResult", static_cast<uint32_t>(result),
-                        32);
+                        kRfPropertyWidthBits);
             enginesQuiesced_ = result == simpleath::MacStopResult::Ok;
             return enginesQuiesced_;
         }
@@ -2773,38 +2969,60 @@ class SimpleATH final : public IOService
             {
                 IOLog("SimpleATH debug: epoch=%llu powered=%u quiesced=%u "
                       "DMA=%u radio=%u channel=%u\n",
-                      epoch_, powered_, enginesQuiesced_, queuesAdopted_,
-                      radioOperational_, channelAuthorized_);
+                      epoch_, static_cast<int>(powered_),
+                      static_cast<int>(enginesQuiesced_),
+                      static_cast<int>(queuesAdopted_),
+                      static_cast<int>(radioOperational_),
+                      static_cast<int>(channelAuthorized_));
             }
         }
 
         IOReturn error(const char *name, uint32_t detail)
         {
             setProperty("SimpleATHFailureStage", name);
-            setProperty("SimpleATHFailureCode", detail, 32);
+            setProperty("SimpleATHFailureCode", detail, kRfPropertyWidthBits);
             setProperty("SimpleATHDriverReady", false);
             IOLog("SimpleATH: %s failed (0x%x)\n", name, detail);
             return kIOReturnIOError;
         }
 
+        // Preserve the opaque PCI owner token without a pointer/integer cast.
+        static uintptr_t pointerToken(IOPCIDevice *provider)
+        {
+            static_assert(sizeof(IOPCIDevice *) == sizeof(uintptr_t),
+                          "native owner token must preserve pointer identity");
+            uintptr_t token = 0;
+            __builtin_memcpy(&token, static_cast<const void *>(&provider),
+                             sizeof(token));
+            return token;
+        }
+
         IOReturn startHardware()
         {
-            if (powered_ && board_.view(epoch_))
+            if (powered_ && (board_.view(epoch_) != nullptr))
+            {
                 return kIOReturnSuccess;
+            }
             if (stopping_ || epoch_ == UINT64_MAX)
+            {
                 return kIOReturnNotReady;
+            }
             powered_ = true;
             ++epoch_;
             stage("PCIClaimAndMap");
             const auto pciResult = session_.start(backend_.callbacks());
             if (pciResult != simpleath::PciSessionResult::Ok)
+            {
                 return abortStart("PCIClaimAndMap",
                                   static_cast<uint32_t>(pciResult));
+            }
             // Use the identity already obtained from live configuration by
             // the exclusive session, not IORegistry matching properties.
             identity_ = session_.hardwareStatus().pci;
-            setProperty("SimpleATHVendorID", identity_.vendorId, 32);
-            setProperty("SimpleATHDeviceID", identity_.deviceId, 32);
+            setProperty("SimpleATHVendorID", identity_.vendorId,
+                        kRfPropertyWidthBits);
+            setProperty("SimpleATHDeviceID", identity_.deviceId,
+                        kRfPropertyWidthBits);
             setProperty("SimpleATHPciExclusiveOwner", true);
             setProperty("SimpleATHMmioTransportReady", true);
             stage("PhysicalSilicon");
@@ -2812,19 +3030,25 @@ class SimpleATH final : public IOService
             simpleath::Silicon silicon {};
             if (!readRegister(&access_, simpleath::kRevisionRegister,
                               &rawRevision))
+            {
                 return abortStart("PhysicalSilicon", kIOReturnIOError);
+            }
             const auto decoded =
                 simpleath::decodeRevision(rawRevision, silicon);
             if (decoded != simpleath::Result::Ok)
+            {
                 return abortStart("PhysicalSilicon",
                                   static_cast<uint32_t>(decoded));
+            }
             stage("QuiesceMAC");
             if (!quiesceEngines())
+            {
                 return abortStart("QuiesceMAC", kIOReturnTimeout);
+            }
             const auto bus = backend_.activeRegisters();
             const simpleath::RtcPowerBackend reset {
                 &access_,
-                reinterpret_cast<uintptr_t>(pci_),
+                pointerToken(pci_),
                 epoch_,
                 canReset,
                 readRegister,
@@ -2834,25 +3058,32 @@ class SimpleATH final : public IOService
                 bus.barLengthBytes,
                 false,
                 nullptr,
-                nullptr};
+                nullptr,
+            };
             simpleath::RtcPowerStatus resetStatus {};
             stage("RTCBootstrap");
             const auto rtcResult = simpleath::transitionAr9565Rtc(
                 reset, identity_, simpleath::RtcOperation::BootstrapPowerOn,
                 rtc_, resetStatus);
             if (rtcResult != simpleath::RtcResult::Ok)
+            {
                 return abortStart("RTCBootstrap",
                                   static_cast<uint32_t>(rtcResult));
+            }
             if (!quiesceEngines())
+            {
                 return abortStart("PostResetQuiesce", kIOReturnTimeout);
+            }
             // The old inspection-only path rejects EEPROM-absent functions,
             // including valid OTP-backed boards. Let actual NVM discovery
             // choose EEPROM or OTP instead of using that diagnostic as a
             // startup gate.
-            setProperty("SimpleATHSREV", resetStatus.silicon.rawSrev, 32);
+            setProperty("SimpleATHSREV", resetStatus.silicon.rawSrev,
+                        kRfPropertyWidthBits);
             const simpleath::NvmReadBackend reader {
                 &access_,  nvmOwner,    readRegister,
-                nowMicros, delayMicros, bus.barLengthBytes};
+                nowMicros, delayMicros, bus.barLengthBytes,
+            };
             simpleath::NvmDiscoveryStatus discovery {};
             stage("EEPROMDiscovery");
             const auto acquired = board_.acquire(
@@ -2862,24 +3093,29 @@ class SimpleATH final : public IOService
             {
                 setProperty("SimpleATHNvmCaptureResult",
                             static_cast<uint32_t>(discovery.lastCapture.result),
-                            32);
+                            kRfPropertyWidthBits);
                 setProperty("SimpleATHNvmRestoreResult",
                             static_cast<uint32_t>(discovery.lastRestore.result),
-                            32);
+                            kRfPropertyWidthBits);
                 return abortStart("EEPROMDiscovery",
                                   static_cast<uint32_t>(acquired));
             }
             const auto *board = board_.view(epoch_);
-            if (!board)
+            if (board == nullptr)
+            {
                 return abortStart("EEPROMLease", kIOReturnNotReady);
+            }
             setProperty("SimpleATHEepromValidated", true);
-            auto *mac = OSData::withBytes(board->summary.mac,
+            auto *mac = OSData::withBytes(&board->summary.mac[0],
                                           simpleath::kPermanentMacBytes);
-            if (!mac)
+            if (mac == nullptr)
+            {
                 return abortStart("MACPublication", kIOReturnNoMemory);
+            }
             setProperty("SimpleATHPermanentMAC", mac);
             mac->release();
-            setProperty("SimpleATHNvmOrigin", board->origin, 32);
+            setProperty("SimpleATHNvmOrigin", board->origin,
+                        kRfPropertyWidthBits);
             // The permanent MAC is not only a registry property: program
             // PCU identity and exact BSSID mask registers while automatic
             // ACK/CTS, DMA and transmit queues are quiesced. STA_ID1 mode
@@ -2887,14 +3123,21 @@ class SimpleATH final : public IOService
             stage("AR9565StationAddress");
             const auto mapped = backend_.activeRegisters();
             const simpleath::RegisterBus stationBus {
-                &access_, readRegister, writeRegister, mapped.barLengthBytes};
+                &access_,
+                readRegister,
+                writeRegister,
+                mapped.barLengthBytes,
+            };
             const auto identityResult = simpleath::programAr9565StationMac(
-                stationBus, board->summary.mac, epoch_, stationMacPermit);
+                stationBus, &board->summary.mac[0], epoch_, stationMacPermit);
             setProperty("SimpleATHStationAddressResult",
-                        static_cast<uint32_t>(identityResult.result), 32);
+                        static_cast<uint32_t>(identityResult.result),
+                        kRfPropertyWidthBits);
             if (identityResult.result != simpleath::MacIdentityResult::Ok)
+            {
                 return abortStart("AR9565StationAddress",
                                   static_cast<uint32_t>(identityResult.result));
+            }
             stationMacProgrammed_ = true;
             setProperty("SimpleATHStationAddressProgrammed", true);
             // The Atheros key RAM may contain stale keys from earlier OS or
@@ -2906,10 +3149,13 @@ class SimpleATH final : public IOService
             const auto cacheResult = simpleath::initializeAr9565KeyCache(
                 keyCacheBackend(), keyCache_);
             setProperty("SimpleATHKeyCacheInitResult",
-                        static_cast<uint32_t>(cacheResult.result), 32);
+                        static_cast<uint32_t>(cacheResult.result),
+                        kRfPropertyWidthBits);
             if (cacheResult.result != simpleath::KeyCacheResult::Ok)
+            {
                 return abortStart("CCMPKeyCacheScrub",
                                   static_cast<uint32_t>(cacheResult.result));
+            }
             setProperty("SimpleATHKeyCacheInitialized", true);
             // Register actual kernel entropy and physical AR9565 keycache
             // operations for a later driver-owned PMK join. This binds no
@@ -2919,7 +3165,9 @@ class SimpleATH final : public IOService
                 nativeInstallGroup, nativeRemoveKeys,
             };
             if (!engine_.configureKeys(keyHardware))
+            {
                 return abortStart("Wpa2HardwareAdapter", kIOReturnNotReady);
+            }
             // The lease comes from an actual PCI-owned NVM read in this same
             // epoch, not an EEPROM template or a caller-supplied board.
             // PMU and XTAL tuning must precede PLL/PHY programming; neither
@@ -3016,7 +3264,9 @@ class SimpleATH final : public IOService
             nativePairwiseTx_.revoke();
             nativePairwiseRx_.revoke();
             for (auto &group : nativeGroupRx_)
+            {
                 group.revoke();
+            }
             nativePairwiseKeyRevoked_ = false;
             nativeGroupKeyRevokedMask_ = 0;
             if (queuesAdopted_)
@@ -3046,7 +3296,8 @@ class SimpleATH final : public IOService
             // Portable supplicant key removal now runs only after the native
             // queues AND automatic MAC responses have been quiesced. This is
             // essential for the real AR9565 hardware-keycache callbacks.
-            engine_.radioStopped(nowMicros(nullptr) / 1000, true);
+            engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                 true);
             if (keyCache_.initialized)
             {
                 bool wiped = false;
@@ -3055,7 +3306,8 @@ class SimpleATH final : public IOService
                     const auto erasure = simpleath::eraseAr9565Keys(
                         keyCacheBackend(), keyCache_);
                     setProperty("SimpleATHKeyCacheEraseResult",
-                                static_cast<uint32_t>(erasure.result), 32);
+                                static_cast<uint32_t>(erasure.result),
+                                kRfPropertyWidthBits);
                     wiped = erasure.result == simpleath::KeyCacheResult::Ok;
                 }
                 setProperty("SimpleATHKeyCacheWipeConfirmed", wiped);
@@ -3162,33 +3414,35 @@ class SimpleATH final : public IOService
                 scanTimerAttached_ = false;
             }
             backend_.clear();
-            if (lifecycle_)
+            if (lifecycle_ != nullptr)
             {
                 IOLockFree(lifecycle_);
                 lifecycle_ = nullptr;
             }
-            if (gate_)
+            if (gate_ != nullptr)
             {
                 if (gateAttached_)
+                {
                     loop_->removeEventSource(gate_);
+                }
                 gate_->release();
                 gate_ = nullptr;
                 gateAttached_ = false;
             }
-            if (loop_)
+            if (loop_ != nullptr)
             {
                 loop_->release();
                 loop_ = nullptr;
             }
-            if (storage_)
+            if (storage_ != nullptr)
             {
-                bzero(storage_, kNvmStorageBytes);
+                memset(storage_, 0, kNvmStorageBytes);
                 IOFree(storage_, kNvmStorageBytes);
                 storage_ = nullptr;
             }
-            if (scratch_)
+            if (scratch_ != nullptr)
             {
-                bzero(scratch_, simpleath::kAr9565EepromScratchBytes);
+                memset(scratch_, 0, simpleath::kAr9565EepromScratchBytes);
                 IOFree(scratch_, simpleath::kAr9565EepromScratchBytes);
                 scratch_ = nullptr;
             }
@@ -3230,7 +3484,7 @@ class SimpleATH final : public IOService
         // the current board-acquisition-only boot intentionally cannot.
         uint8_t verifiedReceiveChannel_ {0};
         bool scanTimerAttached_ {false};
-        uint8_t managementReply_[4096] {};
+        uint8_t managementReply_[kManagementReplyCapacity] {};
         size_t deferredManagementBytes_ {0};
         uint64_t deferredManagementEpoch_ {0};
         uint64_t deferredJoinRequestId_ {0};
@@ -3292,7 +3546,8 @@ class SimpleATH final : public IOService
 
 OSDefineMetaClassAndStructors(SimpleATH, IOService)
 
-    extern "C" kern_return_t SimpleATH_kern_start(kmod_info_t *, void *)
+    extern "C" kern_return_t
+    SimpleATH_kern_start(kmod_info_t * /*unused*/, void * /*unused*/)
 {
     int ignored = 0;
     gSimpleATHEnabled =
@@ -3300,7 +3555,8 @@ OSDefineMetaClassAndStructors(SimpleATH, IOService)
     return KERN_SUCCESS;
 }
 
-extern "C" kern_return_t SimpleATH_kern_stop(kmod_info_t *, void *)
+extern "C" kern_return_t SimpleATH_kern_stop(kmod_info_t * /*unused*/,
+                                             void * /*unused*/)
 {
     return KERN_SUCCESS;
 }
