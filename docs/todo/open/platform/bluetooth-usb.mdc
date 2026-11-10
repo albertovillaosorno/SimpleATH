@@ -59,7 +59,8 @@ transport must both be integrated; PCI WLAN startup does not perform them.
 
 Missing BLE security references `net/bluetooth/smp.c`, `ecdh_helper.c` and
 `ecdh_helper.h` were downloaded from Linux v6.12, resolved to commit
-`adc218676eef25575469234709c2d87185ca223a`. Their exact hashes, upstream URLs, licensing
+`adc218676eef25575469234709c2d87185ca223a`. Their exact hashes,
+upstream URLs, licensing
 and reference-only scope are recorded in `src/linux/linux-port-ledger.jsonl`.
 The local reference tree remains intentionally excluded from Git. These Linux
 files are research input, not linked macOS code or a completed Bluetooth path.
@@ -124,6 +125,17 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   direct strict Clang-Tidy and scoped formatting passed. This does not
   establish native macOS Bluetooth host registration, HCI traffic, or
   physical controller behavior.
+- Commit feccb08 adds host-authorized **active** legacy LE scanning
+  alongside existing passive scanning. The portable controller now sends
+  actual HCI LE Set Scan Parameters (0x200b) with scan type 1 only after
+  an explicit Bluetooth-host approval of exclusive procedure ownership,
+  public-address privacy policy and scan timing. It rechecks the live USB
+  epoch after authorization, tracks active versus passive sessions, and
+  suppresses unsolicited SCAN_RSP reports on passive scans. Synthetic
+  regressions cover denied/revoked authorization, command contents,
+  controller completion/cancellation and active/passive report dispatch.
+  C++14/C++17 ASan+UBSan, scoped strict Clang-Tidy and formatting passed.
+  This does **not** attach the real macOS host or establish AirDrop readiness.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
