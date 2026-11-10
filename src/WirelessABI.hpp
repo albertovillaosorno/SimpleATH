@@ -47,6 +47,8 @@ namespace ath
     constexpr size_t scanIELengthOffset = 0x8A;
     constexpr size_t scanIEOffset = 0x8C;
     constexpr size_t legacyScanIECapacity = 0x400;
+    constexpr size_t interfaceNameBytes = 16U;
+    constexpr size_t eventFilterBitmapBytes = 31U;
     constexpr unsigned bitsPerByte = 8U;
     constexpr unsigned bitsPerHalfWord = 16U;
     constexpr unsigned bitsPerThreeBytes = 24U;
@@ -201,7 +203,7 @@ namespace ath
 
     struct Request
     {
-            char interfaceName[16];
+            char interfaceName[interfaceNameBytes];
             int32_t type;
             int32_t value;
             uint32_t length;
@@ -253,8 +255,16 @@ namespace ath
             "Unknown", "FCC",  "ETSI", "Japan",
             "Korea",   "APAC", "RoW",  "Indonesia",
         };
-        return locale < sizeof(names) / sizeof(names[0]) ? names[locale]
-                                                         : names[0];
+        size_t index = 0;
+        for (const char *candidate : names)
+        {
+            if (index == locale)
+            {
+                return candidate;
+            }
+            ++index;
+        }
+        return names[0];
     }
 
     static_assert(sizeof(LocaleData) == 8 && offsetof(LocaleData, locale) == 4,
@@ -271,12 +281,9 @@ namespace ath
         {
             return false;
         }
-        const auto *const bytes =
-            reinterpret_cast<const uint8_t *>(&request.value);
-        for (size_t index = 0; index < sizeof(request.value); ++index)
-        {
-            buffer[index] = bytes[index];
-        }
+        // The target is Intel little-endian, and the scalar is exactly the
+        // four-byte ABI field. Copy its representation without aliasing.
+        __builtin_memcpy(buffer, &request.value, sizeof(request.value));
         request.length = sizeof(request.value);
         return true;
     }
@@ -349,19 +356,23 @@ namespace ath
 
     inline uint32_t readUInt32(const uint8_t *buffer)
     {
-        return static_cast<uint32_t>(buffer[0]) |
-               (static_cast<uint32_t>(buffer[1]) << bitsPerByte) |
-               (static_cast<uint32_t>(buffer[2]) << bitsPerHalfWord) |
-               (static_cast<uint32_t>(buffer[3]) << bitsPerThreeBytes);
+        uint8_t octets[sizeof(uint32_t)] {};
+        __builtin_memcpy(&octets[0], buffer, sizeof(octets));
+        return static_cast<uint32_t>(octets[0]) |
+               (static_cast<uint32_t>(octets[1]) << bitsPerByte) |
+               (static_cast<uint32_t>(octets[2]) << bitsPerHalfWord) |
+               (static_cast<uint32_t>(octets[3]) << bitsPerThreeBytes);
     }
 
     inline void writeUInt32(uint8_t *buffer, uint32_t value)
     {
-        for (size_t index = 0; index < sizeof(value); ++index)
-        {
-            buffer[index] =
-                static_cast<uint8_t>(value >> (index * bitsPerByte));
-        }
+        const uint8_t octets[sizeof(value)] {
+            static_cast<uint8_t>(value),
+            static_cast<uint8_t>(value >> bitsPerByte),
+            static_cast<uint8_t>(value >> bitsPerHalfWord),
+            static_cast<uint8_t>(value >> bitsPerThreeBytes),
+        };
+        __builtin_memcpy(buffer, &octets[0], sizeof(octets));
     }
 
     inline bool prepareScanMultiple(Request &request, uint8_t *buffer,
@@ -576,14 +587,31 @@ namespace ath
     struct EventFilter
     {
             uint8_t all;
-            uint8_t bitmap[31];
+            uint8_t bitmap[eventFilterBitmapBytes];
 
             bool accepts(uint32_t event) const
             {
-                return (all != 0U) ||
-                       ((event != 0U) && event <= sizeof(bitmap) * 8 &&
-                        ((bitmap[(event - 1) / 8] &
-                          (1U << ((event - 1) % 8))) != 0U));
+                if (all != 0U)
+                {
+                    return true;
+                }
+                if (event == 0U || event > sizeof(bitmap) * bitsPerByte)
+                {
+                    return false;
+                }
+                const size_t byteIndex = (event - 1U) / bitsPerByte;
+                const uint8_t flag =
+                    static_cast<uint8_t>(1U << ((event - 1U) % bitsPerByte));
+                size_t index = 0;
+                for (const uint8_t octet : bitmap)
+                {
+                    if (index == byteIndex)
+                    {
+                        return (octet & flag) != 0U;
+                    }
+                    ++index;
+                }
+                return false;
             }
     };
 
@@ -604,7 +632,7 @@ namespace ath
             uint16_t length;
             uint16_t padding;
             uint32_t event;
-            char interfaceName[16];
+            char interfaceName[interfaceNameBytes];
     };
 
     enum class RingResult : uint8_t
