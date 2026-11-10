@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "hardware/Ar9003Descriptors.hpp"
 #include "hardware/Ar9003TxControl.hpp"
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565KeyCache.hpp"
@@ -51,6 +52,13 @@ namespace
     constexpr size_t kMinimumMpduBytes = 24;
     constexpr size_t kMaximumMpduBytes = 2342;
     constexpr size_t kFcsBytes = 4;
+    constexpr uint16_t kEtherTypeEapol = 0x888eU;
+    constexpr size_t kCcmpExtIvBytes = 8;
+    constexpr size_t kCcmpMicBytes = 8;
+    constexpr size_t kCcmpKeyIdOffset = 3;
+    constexpr uint8_t kCcmpKeyIdShift = 6;
+    constexpr uint8_t kAllGroupKeySlotsRevoked =
+        (1U << simpleath::kCcmpGroupSlots) - 1U;
     constexpr uint8_t kNoKeyCacheSlot = 0xff;
     constexpr uint8_t kProtectedFrameFlag = 0x40U;
     constexpr uint16_t kSequenceMask = 0x0fffU;
@@ -263,11 +271,14 @@ class SimpleATH final : public IOService
                    sizeof(out.permanentMac));
             memcpy(out.currentMac, board->summary.mac, sizeof(out.currentMac));
             const auto link = self.engine_.linkStatus();
-            // Never convert a software association into an OS link claim.
+            // Association precedes WPA2 key installation. Report only a
+            // genuinely received association on the active radio epoch;
+            // controlledPortOpen independently gates IP traffic and DHCP.
             out.associated =
-                self.radioOperational_ &&
-                link.state == simpleath::ieee80211::LinkState::Associated &&
-                link.networkInterfaceReady;
+                self.radioOperational_ && self.channelAuthorized_ &&
+                self.queues_.epoch() == self.epoch_ &&
+                self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
+                link.state == simpleath::ieee80211::LinkState::Associated;
             if (out.associated)
                 memcpy(out.bssid, link.bssid.bytes, sizeof(out.bssid));
             out.powered = self.powered_;
@@ -487,10 +498,67 @@ class SimpleATH final : public IOService
             return self.gate_->runAction(ownerInstallKeyAction, request);
         }
 
-        static IOReturn ownerAuthorizePort(void *, bool)
+        static IOReturn ownerAuthorizePortAction(OSObject *object,
+                                                 void *argument,
+                                                 void * /*unused1*/,
+                                                 void * /*unused2*/,
+                                                 void * /*unused3*/)
         {
-            // No DMA/CCMP replay proof or delivered native packet pool yet.
-            return kIOReturnNotReady;
+            // IOKit delivers only this provider's registered gate callback.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            if (argument == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            const bool open = *static_cast<const bool *>(argument);
+            if (!open)
+            {
+                self.controlledPortAuthorized_ = false;
+                self.notifyWirelessChange(false);
+                return kIOReturnSuccess;
+            }
+            const auto link = self.engine_.linkStatus();
+            // An OS supplicant may open this port only after association,
+            // installation of a fresh pairwise TK and GTK, and physical
+            // channel/queue/RF authorization in this PCI epoch. A key install
+            // callback alone cannot advance the controlled port.
+            if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.rfKillKnownUnblocked_ ||
+                self.board_.view(self.epoch_) == nullptr ||
+                self.queues_.epoch() != self.epoch_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                !self.txSafety_.dmaMappingValid ||
+                !self.txSafety_.channelRegulatoryAuthorized ||
+                !self.txSafety_.transmitPowerLimitsValidated ||
+                self.nativePairwiseKeyRevoked_ ||
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                self.engine_.stationState() !=
+                    simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                !self.nativePairwiseTx_.installed() ||
+                !self.nativePairwiseRx_.installed() ||
+                !self.nativeGroupInstalled())
+            {
+                return kIOReturnNotReady;
+            }
+            self.controlledPortAuthorized_ = true;
+            self.notifyWirelessChange(false);
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerAuthorizePort(void *context, bool open)
+        {
+            if (context == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            bool requested = open;
+            return self.gate_->runAction(ownerAuthorizePortAction, &requested);
         }
 
         bool nativeGroupInstalled() const
@@ -573,8 +641,7 @@ class SimpleATH final : public IOService
             // before this packet may reach a DMA descriptor.
             if (!self->powered_ || self->stopping_ ||
                 !self->controlledPortAuthorized_ ||
-                link.state != simpleath::ieee80211::LinkState::Associated ||
-                !link.networkInterfaceReady)
+                link.state != simpleath::ieee80211::LinkState::Associated)
             {
                 return kIOReturnNotReady;
             }
@@ -907,6 +974,174 @@ class SimpleATH final : public IOService
             return self.backend_.setBusMasterGated(enabled);
         }
 
+        // Each completed EDMA buffer is borrowed only until this callback
+        // returns. The native controller copies the constructed Ethernet
+        // packet synchronously into its own mailbox; neither DMA nor CCMP
+        // scratch pointers can escape this gate.
+        void deliverNativeMsdu(const simpleath::ieee80211::Msdu &msdu,
+                               bool protectedEapol)
+        {
+            const bool handshake =
+                protectedEapol && msdu.etherType == kEtherTypeEapol;
+            if (!radioOperational_ || !channelAuthorized_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                observerLock_ == nullptr ||
+                (!controlledPortAuthorized_ && !handshake))
+            {
+                return;
+            }
+            size_t ethernetBytes = 0;
+            if (simpleath::ieee80211::encodeReceivedEthernet(
+                    msdu, &ethernetRx_[0], sizeof(ethernetRx_),
+                    ethernetBytes) != simpleath::ieee80211::Result::Ok)
+            {
+                return;
+            }
+            IOLockLock(observerLock_);
+            if (wirelessObserver_ != nullptr && wirelessReceive_ != nullptr &&
+                radioOperational_ && channelAuthorized_ &&
+                (controlledPortAuthorized_ || handshake))
+            {
+                wirelessReceive_(wirelessObserver_, &ethernetRx_[0],
+                                 ethernetBytes);
+            }
+            IOLockUnlock(observerLock_);
+        }
+
+        void receiveNativeProtected(const uint8_t *frame, size_t bytes,
+                                    const simpleath::edma::RxStatus &status)
+        {
+            // Do not guess a key from a 802.11 header before validating the
+            // hardware status, FCS span, association and CCMP IV bounds.
+            // The selected session then authenticates the MIC and replay PN.
+            const auto link = engine_.linkStatus();
+            if (frame == nullptr || bytes < kFcsBytes ||
+                bytes > simpleath::ieee80211::crypto::kCcmpMaximumMpduBytes ||
+                !status.frameValid || status.crcError || status.decryptError ||
+                status.phyError || status.micError || status.keyMiss ||
+                !powered_ || !radioOperational_ || !channelAuthorized_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                queues_.epoch() != epoch_ ||
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                !nativePairwiseTx_.installed() ||
+                !nativePairwiseRx_.installed() || !nativeGroupInstalled())
+            {
+                return;
+            }
+            const size_t mpduBytes = bytes - kFcsBytes;
+            simpleath::ieee80211::Frame header {};
+            if (simpleath::ieee80211::parseFrame(frame, mpduBytes, header) !=
+                    simpleath::ieee80211::Result::Ok ||
+                header.type != simpleath::ieee80211::FrameType::Data ||
+                !header.protectedFrame ||
+                mpduBytes <
+                    header.headerLength + kCcmpExtIvBytes + kCcmpMicBytes + 1U)
+            {
+                return;
+            }
+            // A group MPDU may only select a currently installed GTK slot;
+            // unicast must always use the pairwise key 0. The portable CCMP
+            // bridge independently verifies the authenticated key ID.
+            // Bound is checked above against complete ExtIV/MIC spans.
+            // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            const auto wireKeyByte =
+                frame[header.headerLength + kCcmpKeyIdOffset];
+            // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            const auto keyId =
+                static_cast<uint8_t>(wireKeyByte >> kCcmpKeyIdShift);
+            const bool group = (header.destination.bytes[0] & 1U) != 0U;
+            if ((group &&
+                 (keyId == 0U || keyId >= simpleath::kCcmpGroupSlots)) ||
+                (!group && keyId != 0U))
+            {
+                return;
+            }
+            auto *receive = &nativePairwiseRx_;
+            if (group)
+            {
+                size_t currentId = 0;
+                for (auto &slot : nativeGroupRx_)
+                {
+                    if (currentId == keyId)
+                    {
+                        receive = &slot;
+                        break;
+                    }
+                    ++currentId;
+                }
+            }
+            const simpleath::ieee80211::LinkContext connection {
+                link.station,
+                link.bssid,
+                simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
+                true,
+                radioOperational_,
+                channelAuthorized_,
+                true,
+            };
+            simpleath::ieee80211::Msdu msdu {};
+            const auto result = simpleath::ieee80211::inspectProtectedStationRx(
+                connection, frame, bytes, true, true, *receive, epoch_,
+                &protectedRxScratch_[0], sizeof(protectedRxScratch_), msdu);
+            setProperty("SimpleATHLastProtectedReceiveResult",
+                        static_cast<uint32_t>(result), kRfPropertyWidthBits);
+            // Protected post-install Group1 EAPOL can reach the OS-owned
+            // supplicant before the data port opens. Ordinary IP/ARP remains
+            // blocked until the OS explicitly authorizes the controlled port.
+            if (result == simpleath::ieee80211::DataPathResult::Ok)
+            {
+                deliverNativeMsdu(msdu, true);
+            }
+            // Scrub even malformed/authentication-failed partial plaintext.
+            // Keep the borrowed Msdu strictly within this synchronous scope.
+            volatile uint8_t *const clear = &protectedRxScratch_[0];
+            for (size_t i = 0; i < sizeof(protectedRxScratch_); ++i)
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                clear[i] = 0;
+            }
+        }
+
+        void receiveNativePreKeyEapol(const uint8_t *frame, size_t bytes,
+                                      const simpleath::edma::RxStatus &status)
+        {
+            // The OS supplicant is the only EAPOL/key owner on the native
+            // data path. Inspect the selected AP and genuine EDMA/FCS status
+            // before forwarding unprotected M1/M3 to that owner. Never admit
+            // ordinary cleartext data or a protected frame without its key.
+            const auto link = engine_.linkStatus();
+            if (frame == nullptr || bytes < kFcsBytes || !status.frameValid ||
+                status.crcError || status.decryptError || status.phyError ||
+                status.micError || status.keyMiss ||
+                queues_.epoch() != epoch_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                engine_.stationState() !=
+                    simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                nativePairwiseTx_.installed() ||
+                nativePairwiseRx_.installed() || nativeGroupInstalled())
+            {
+                return;
+            }
+            const simpleath::ieee80211::LinkContext connection {
+                link.station,
+                link.bssid,
+                simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
+                true,
+                radioOperational_,
+                channelAuthorized_,
+                false,
+            };
+            simpleath::ieee80211::Msdu msdu {};
+            if (simpleath::ieee80211::inspectStationRx(
+                    connection, frame, bytes, true, true, false, msdu) ==
+                    simpleath::ieee80211::DataPathResult::Ok &&
+                msdu.etherType == kEtherTypeEapol)
+            {
+                deliverNativeMsdu(msdu, true);
+            }
+        }
+
         static void queueReceived(void *context, const uint8_t *frame,
                                   size_t bytes,
                                   const simpleath::edma::RxStatus &status)
@@ -914,12 +1149,51 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             if (!self.radioOperational_ || !self.powered_)
                 return;
-            // A native OS-installed TK must never coexist with the portable
-            // engine processing M1/M3 or clear EAPOL. Native RX decryption,
-            // authenticated replay and OS EAPOL dispatch are separate stages;
-            // until then the controlled port and this receive path stay shut.
-            if (self.nativePairwiseTx_.installed())
-                return;
+            // An OS-installed TK has a single security owner: data RX must
+            // use the matching native CCMP session, not the portable engine's
+            // cleartext M1/M3 supplicant. Management frames may still feed the
+            // scan/association state machine without granting data readiness.
+            if (self.nativePairwiseTx_.installed() ||
+                self.nativePairwiseRx_.installed() ||
+                self.nativeGroupInstalled())
+            {
+                simpleath::ieee80211::Frame header {};
+                if (frame == nullptr || bytes < kFcsBytes ||
+                    simpleath::ieee80211::parseFrame(frame, bytes - kFcsBytes,
+                                                     header) !=
+                        simpleath::ieee80211::Result::Ok)
+                {
+                    return;
+                }
+                if (header.type == simpleath::ieee80211::FrameType::Data)
+                {
+                    self.receiveNativeProtected(frame, bytes, status);
+                    return;
+                }
+                if (header.type != simpleath::ieee80211::FrameType::Management)
+                {
+                    return;
+                }
+            }
+            if (self.engine_.stationState() ==
+                    simpleath::ieee80211::StationState::WaitingForWpa2Keys &&
+                self.engine_.linkStatus().state ==
+                    simpleath::ieee80211::LinkState::Associated)
+            {
+                simpleath::ieee80211::Frame header {};
+                if (frame == nullptr || bytes < kFcsBytes ||
+                    simpleath::ieee80211::parseFrame(frame, bytes - kFcsBytes,
+                                                     header) !=
+                        simpleath::ieee80211::Result::Ok)
+                {
+                    return;
+                }
+                if (header.type == simpleath::ieee80211::FrameType::Data)
+                {
+                    self.receiveNativePreKeyEapol(frame, bytes, status);
+                    return;
+                }
+            }
             simpleath::ieee80211::InputTrust trust {};
             trust.radioReady = true;
             trust.channelAuthorized = self.channelAuthorized_;
@@ -990,6 +1264,33 @@ class SimpleATH final : public IOService
                 }
                 return;
             }
+            if (result == simpleath::ieee80211::EngineResult::Ok &&
+                (action.kind ==
+                     simpleath::ieee80211::ActionKind::AssociatedAwaitingKeys ||
+                 action.kind == simpleath::ieee80211::ActionKind::
+                                    OpenAssociationEstablished))
+            {
+                self.controlledPortAuthorized_ = false;
+                self.notifyWirelessChange(false);
+                return;
+            }
+            if (result == simpleath::ieee80211::EngineResult::Ok &&
+                action.kind == simpleath::ieee80211::ActionKind::LinkLost)
+            {
+                // An AP disconnect revokes old key/PN ownership before any
+                // native network client can receive or transmit another byte.
+                self.controlledPortAuthorized_ = false;
+                self.nativePairwiseTx_.revoke();
+                self.nativePairwiseRx_.revoke();
+                for (auto &group : self.nativeGroupRx_)
+                {
+                    group.revoke();
+                }
+                self.nativePairwiseKeyRevoked_ = true;
+                self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+                self.notifyWirelessChange(false);
+                return;
+            }
             // The engine accepts a data MSDU only after association,
             // address/security checks and duplicate suppression. The native
             // owner additionally requires its physical radio and controlled
@@ -1017,24 +1318,7 @@ class SimpleATH final : public IOService
             {
                 return;
             }
-            size_t ethernetBytes = 0;
-            if (simpleath::ieee80211::encodeReceivedEthernet(
-                    msdu, &self.ethernetRx_[0], sizeof(self.ethernetRx_),
-                    ethernetBytes) != simpleath::ieee80211::Result::Ok)
-            {
-                return;
-            }
-            IOLockLock(self.observerLock_);
-            if (self.wirelessObserver_ != nullptr &&
-                self.wirelessReceive_ != nullptr && self.radioOperational_ &&
-                self.channelAuthorized_ && self.controlledPortAuthorized_)
-            {
-                // Tahoe's callback copies synchronously into its bounded
-                // mailbox; the bytes are never retained from this IRQ pool.
-                self.wirelessReceive_(self.wirelessObserver_,
-                                      &self.ethernetRx_[0], ethernetBytes);
-            }
-            IOLockUnlock(self.observerLock_);
+            self.deliverNativeMsdu(msdu, false);
         }
 
         static void
@@ -1073,6 +1357,17 @@ class SimpleATH final : public IOService
             self.queues_.stopGated(!self.pci_->isInactive());
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
+            self.controlledPortAuthorized_ = false;
+            self.nativePairwiseTx_.revoke();
+            self.nativePairwiseRx_.revoke();
+            for (auto &group : self.nativeGroupRx_)
+            {
+                group.revoke();
+            }
+            self.nativePairwiseKeyRevoked_ = true;
+            self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+            memset(&self.protectedRxScratch_[0], 0,
+                   sizeof(self.protectedRxScratch_));
             self.engine_.radioStopped(
                 nowMicros(nullptr) / kMicrosPerMillisecond, false);
             self.notifyWirelessChange(false);
@@ -1391,6 +1686,7 @@ class SimpleATH final : public IOService
             txSequence_ = 0;
             memset(&ethernetTx_[0], 0, sizeof(ethernetTx_));
             memset(&protectedScratch_[0], 0, sizeof(protectedScratch_));
+            memset(&protectedRxScratch_[0], 0, sizeof(protectedRxScratch_));
             nativePairwiseTx_.revoke();
             nativePairwiseRx_.revoke();
             for (auto &group : nativeGroupRx_)
@@ -1540,6 +1836,8 @@ class SimpleATH final : public IOService
         uint8_t ethernetRx_[kNativeEthernetCapacity] {};
         uint8_t ethernetTx_[kNativeTxMpduCapacity] {};
         uint8_t protectedScratch_[kNativeTxMpduCapacity] {};
+        uint8_t protectedRxScratch_
+            [simpleath::ieee80211::crypto::kCcmpMaximumMpduBytes] {};
         // Software CCMP sessions exist only in the current physical epoch.
         // TX uses local station address; RX needs the AP transmitter instead.
         // They are distinct because PN ownership differs by direction.

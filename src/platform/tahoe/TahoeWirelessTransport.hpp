@@ -95,7 +95,11 @@ namespace simpleath
                 uint64_t previousScanGeneration_ {0};
                 bool subscribed_ {false};
                 bool providerStopped_ {false};
+                // EAPOL handshakes precede the data-port authorization.
+                // Both grants come from the same live provider snapshot and
+                // are revoked by radio/association/epoch change.
                 bool receiveAuthorized_ {false};
+                bool eapolReceiveAuthorized_ {false};
                 EventRecord events_[kEventCapacity] {};
                 ReceiveRecord frames_[kRxCapacity] {};
                 size_t eventHead_ {0};

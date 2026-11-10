@@ -16,6 +16,25 @@ namespace simpleath
         namespace
         {
             constexpr size_t kMinEthernetFrame = 14;
+            constexpr size_t kEtherTypeOffset = 12;
+            constexpr uint8_t kEapolEtherTypeHigh = 0x88U;
+            constexpr uint8_t kEapolEtherTypeLow = 0x8eU;
+
+            bool isEapolEthernet(const uint8_t *bytes, size_t length)
+            {
+                if (bytes == nullptr || length < kMinEthernetFrame)
+                {
+                    return false;
+                }
+                // A complete bounded Ethernet-II header is required. The
+                // provider, not this mailbox, authenticates the 802.11 frame.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                const uint8_t high = bytes[kEtherTypeOffset];
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                const uint8_t low = bytes[kEtherTypeOffset + 1U];
+                return high == kEapolEtherTypeHigh && low == kEapolEtherTypeLow;
+            }
+
             constexpr uint8_t kMaxChannel2G = 14;
             constexpr uint32_t kCcmpPacketNumberBits = 48;
 
@@ -143,6 +162,7 @@ namespace simpleath
         {
             // Called under mailboxLock_, never while invoking an owner.
             receiveAuthorized_ = false;
+            eapolReceiveAuthorized_ = false;
             eventHead_ = eventCount_ = 0;
             receiveHead_ = receiveCount_ = 0;
             scanGeneration_ = 0;
@@ -190,10 +210,11 @@ namespace simpleath
             epoch_ = snapshotValue.epoch;
             providerStopped_ = false;
             IOLockLock(lock);
-            receiveAuthorized_ =
+            eapolReceiveAuthorized_ =
                 snapshotValue.radioAvailable && snapshotValue.powered &&
-                snapshotValue.associated && snapshotValue.controlledPortOpen &&
-                !snapshotValue.rfKillBlocked;
+                snapshotValue.associated && !snapshotValue.rfKillBlocked;
+            receiveAuthorized_ =
+                eapolReceiveAuthorized_ && snapshotValue.controlledPortOpen;
             IOLockUnlock(lock);
             // A synchronous subscribe may invoke notify before returning;
             // the mailbox and initial owner epoch already exist.
@@ -283,10 +304,11 @@ namespace simpleath
                 epoch_ = current.epoch;
                 invalidateMailboxes();
             }
-            receiveAuthorized_ = current.radioAvailable && current.powered &&
-                                 current.associated &&
-                                 current.controlledPortOpen &&
-                                 !current.rfKillBlocked;
+            eapolReceiveAuthorized_ = current.radioAvailable &&
+                                      current.powered && current.associated &&
+                                      !current.rfKillBlocked;
+            receiveAuthorized_ =
+                eapolReceiveAuthorized_ && current.controlledPortOpen;
             IOLockUnlock(mailboxLock_);
             out = current;
             return kIOReturnSuccess;
@@ -492,6 +514,23 @@ namespace simpleath
                 }
             }
             const IOReturn result = owner_.authorizePort(owner_.context, open);
+            if (result == kIOReturnSuccess && open)
+            {
+                // The provider's port-change notification revokes prior
+                // mailbox grants; refresh from the acknowledged live owner
+                // before reporting an opened data port to this controller.
+                WirelessSnapshot confirmed {};
+                const IOReturn refreshed = snapshot(confirmed);
+                if (refreshed != kIOReturnSuccess ||
+                    !confirmed.controlledPortOpen)
+                {
+                    // An epoch change or provider stop cannot leave a
+                    // successful but unobservable network authorization.
+                    owner_.authorizePort(owner_.context, false);
+                    return refreshed == kIOReturnSuccess ? kIOReturnNotReady
+                                                         : refreshed;
+                }
+            }
             if (result == kIOReturnSuccess && !open)
             {
                 IOLockLock(mailboxLock_);
@@ -559,6 +598,7 @@ namespace simpleath
                 event == WirelessEvent::RadioChanged)
             {
                 self.receiveAuthorized_ = false;
+                self.eapolReceiveAuthorized_ = false;
                 self.receiveCount_ = 0;
                 self.receiveHead_ = 0;
                 memset(&self.frames_[0], 0, sizeof(self.frames_));
@@ -611,7 +651,10 @@ namespace simpleath
             IOLockLock(lock);
             if ((bytes == nullptr) || length < kMinEthernetFrame ||
                 length > kMaxEthernetFrame || (self.epoch_ == 0U) ||
-                !self.receiveAuthorized_ || self.receiveCount_ == kRxCapacity)
+                (!self.receiveAuthorized_ &&
+                 !(self.eapolReceiveAuthorized_ &&
+                   isEapolEthernet(bytes, length))) ||
+                self.receiveCount_ == kRxCapacity)
             {
                 ++self.receiveDrops_;
             }
@@ -683,7 +726,7 @@ namespace simpleath
                 return kIOReturnBadArgument;
             }
             IOLockLock(mailboxLock_);
-            if ((receiveCount_ == 0U) || !receiveAuthorized_ || (epoch_ == 0U))
+            if ((receiveCount_ == 0U) || (epoch_ == 0U))
             {
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotReady;
@@ -700,6 +743,20 @@ namespace simpleath
             {
                 memset(&packet, 0, sizeof(packet));
                 receiveHead_ = (receiveHead_ + 1) % kRxCapacity;
+                --receiveCount_;
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            // Recheck the association/port policy at consumption as well as
+            // callback ingress: a port revocation cannot release an earlier
+            // queued IPv4 packet. WPA2 EAPOL remains eligible before data
+            // authorization, but only from the verified native RX provider.
+            if (!receiveAuthorized_ &&
+                !(eapolReceiveAuthorized_ &&
+                  isEapolEthernet(&packet.bytes[0], packet.length)))
+            {
+                memset(&packet, 0, sizeof(packet));
+                receiveHead_ = (receiveHead_ + 1U) % kRxCapacity;
                 --receiveCount_;
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotReady;
