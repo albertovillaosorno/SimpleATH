@@ -18,6 +18,20 @@ namespace
     constexpr uint32_t kAgc = 0xa2c4;
     constexpr uint32_t kCarrier = 0xa2d8;
     constexpr uint32_t kTxIq = 0xa5c4;
+    constexpr uint32_t kRfKillGpioDirection = 0x4050;
+    constexpr uint32_t kRfKillGpioInput = 0x404c;
+    constexpr uint32_t kRfKillDirectionInitial = 0xff;
+    constexpr uint8_t kRfKillTestPin = 2;
+    constexpr uint8_t kRfKillInvalidPin = 14;
+    constexpr uint32_t kRfKillInputHigh = 1U << kRfKillTestPin;
+    constexpr uint32_t kRfKillInputPinShift = kRfKillTestPin * 2U;
+    constexpr uint32_t kRfKillInputDirection =
+        kRfKillDirectionInitial & ~(3U << kRfKillInputPinShift);
+    constexpr uint32_t kRfKillSamplingDelay = 100;
+    constexpr size_t kRfKillReads = 4;
+    constexpr int kFailedRfKillSuccessExit = 15;
+    constexpr int kFailedRfKillAdmissionExit = 16;
+    constexpr int kFailedRfKillFailuresExit = 17;
     constexpr uint32_t kSelfgenMask = 0x832c;
     constexpr uint32_t kReceiveMask = 0xa2a0;
     constexpr uint32_t kCalMask = 0xa2c0;
@@ -108,6 +122,11 @@ namespace
             uint32_t txIq = kTxIqEnable | kTxIqUnrelated;
             uint32_t carrier = kCarrierEnable | kCarrierUnrelated;
             uint32_t agc = kFilter | kPeak | kAgcUnrelated;
+            uint32_t gpioDirection = kRfKillDirectionInitial;
+            uint32_t gpioInput = 0;
+            size_t gpioInputReads = 0;
+            size_t rfkillDelays = 0;
+            bool changeGpioOnSecondSample = false;
             uint32_t selfgen = kSingleChain;
             uint32_t receiveMask = 0;
             uint32_t calibrationMask = 0;
@@ -153,6 +172,10 @@ namespace
                 return &mock.carrier;
             case kTxIq:
                 return &mock.txIq;
+            case kRfKillGpioDirection:
+                return &mock.gpioDirection;
+            case kRfKillGpioInput:
+                return &mock.gpioInput;
             case kSelfgenMask:
                 return &mock.selfgen;
             case kReceiveMask:
@@ -196,6 +219,14 @@ namespace
             reg(mock, address) == nullptr)
         {
             return false;
+        }
+        if (address == kRfKillGpioInput)
+        {
+            ++mock.gpioInputReads;
+            if (mock.changeGpioOnSecondSample && mock.gpioInputReads == 2)
+            {
+                mock.gpioInput ^= kRfKillInputHigh;
+            }
         }
         if (address == kAgc && mock.triggered)
         {
@@ -259,11 +290,20 @@ namespace
     void delay(void *context, uint32_t micros)
     {
         auto &mock = *static_cast<Mock *>(context);
-        if (micros != kDelay)
+        if (micros == kRfKillSamplingDelay)
+        {
+            ++mock.rfkillDelays;
+        }
+        if (micros != kDelay && micros != kRfKillSamplingDelay)
         {
             mock.badDelay = true;
         }
         ++mock.delayCount;
+    }
+
+    RfKillBackend rfkillBackend(Mock &mock, uint32_t bar = kBar)
+    {
+        return {&mock, kEpoch, bar, permit, read, write, delay};
     }
 
     RxAgcBackend backend(Mock &mock, uint32_t bar = kBar)
@@ -930,6 +970,125 @@ namespace
                failedAgcWrite.writeCount == kWorkflowBeforeIqWriteCount - 1;
     }
 
+    bool testsRfKillSuccess()
+    {
+        const RfKillBoardConfiguration board {true, kRfKillTestPin, true};
+        Mock unblocked {};
+        const auto clear = sampleAr9565RfKill(board, rfkillBackend(unblocked));
+        if (clear.result != RfKillResult::Unblocked || clear.hardwareBlocked ||
+            clear.requiresReset || clear.completedWrites != 1 ||
+            clear.completedReads != kRfKillReads ||
+            clear.gpio != kRfKillTestPin ||
+            unblocked.gpioDirection != kRfKillInputDirection ||
+            unblocked.writes.at(0).address != kRfKillGpioDirection ||
+            unblocked.writes.at(0).value != kRfKillInputDirection ||
+            unblocked.rfkillDelays != 1 || unblocked.badDelay)
+        {
+            return false;
+        }
+        Mock blocked {};
+        blocked.gpioInput = kRfKillInputHigh;
+        const auto denied = sampleAr9565RfKill(board, rfkillBackend(blocked));
+        if (denied.result != RfKillResult::Blocked || !denied.hardwareBlocked ||
+            denied.requiresReset || blocked.rfkillDelays != 1)
+        {
+            return false;
+        }
+        Mock inverse {};
+        inverse.gpioInput = kRfKillInputHigh;
+        inverse.gpioDirection = kRfKillInputDirection;
+        const auto activeLow = sampleAr9565RfKill({true, kRfKillTestPin, false},
+                                                  rfkillBackend(inverse));
+        return activeLow.result == RfKillResult::Unblocked &&
+               !activeLow.hardwareBlocked && activeLow.completedWrites == 0 &&
+               activeLow.completedReads == kRfKillReads &&
+               inverse.rfkillDelays == 1;
+    }
+
+    bool testsRfKillAdmission()
+    {
+        Mock mock {};
+        const RfKillBoardConfiguration board {true, kRfKillTestPin, true};
+        auto io = rfkillBackend(mock);
+        io.permitMmio = nullptr;
+        if (sampleAr9565RfKill(board, io).result !=
+            RfKillResult::InvalidBackend)
+        {
+            return false;
+        }
+        if (sampleAr9565RfKill({false, kRfKillTestPin, true},
+                               rfkillBackend(mock))
+                    .result != RfKillResult::NotConfigured ||
+            sampleAr9565RfKill({true, kRfKillInvalidPin, true},
+                               rfkillBackend(mock))
+                    .result != RfKillResult::InvalidGpio ||
+            sampleAr9565RfKill(board, rfkillBackend(mock, kRfKillGpioDirection))
+                    .result != RfKillResult::InvalidBar)
+        {
+            return false;
+        }
+        return mock.writeCount == 0 && mock.readCount == 0;
+    }
+
+    bool testsRfKillFailures()
+    {
+        const RfKillBoardConfiguration board {true, kRfKillTestPin, true};
+        Mock denied {};
+        denied.denied = true;
+        const auto unavailable =
+            sampleAr9565RfKill(board, rfkillBackend(denied));
+        if (unavailable.result != RfKillResult::OwnershipLost ||
+            !unavailable.hardwareBlocked || unavailable.requiresReset ||
+            denied.writeCount != 0)
+        {
+            return false;
+        }
+        Mock failedWrite {};
+        failedWrite.failWriteAt = 1;
+        const auto failed =
+            sampleAr9565RfKill(board, rfkillBackend(failedWrite));
+        if (failed.result != RfKillResult::WriteFailed ||
+            !failed.requiresReset || !failed.hardwareBlocked ||
+            failedWrite.writeCount != 0)
+        {
+            return false;
+        }
+        Mock lostEpoch {};
+        lostEpoch.revokeAt = 3;
+        const auto lost = sampleAr9565RfKill(board, rfkillBackend(lostEpoch));
+        if (lost.result != RfKillResult::OwnershipLost || !lost.requiresReset ||
+            lostEpoch.writeCount != 1)
+        {
+            return false;
+        }
+        Mock ignored {};
+        ignored.ignoreWriteTo = kRfKillGpioDirection;
+        const auto mismatch = sampleAr9565RfKill(board, rfkillBackend(ignored));
+        if (mismatch.result != RfKillResult::ReadbackMismatch ||
+            !mismatch.requiresReset ||
+            ignored.gpioDirection != kRfKillDirectionInitial)
+        {
+            return false;
+        }
+        Mock failingRead {};
+        failingRead.failReadAt = 3;
+        const auto unreadable =
+            sampleAr9565RfKill(board, rfkillBackend(failingRead));
+        if (unreadable.result != RfKillResult::ReadFailed ||
+            !unreadable.requiresReset || !unreadable.hardwareBlocked ||
+            failingRead.writeCount != 1)
+        {
+            return false;
+        }
+        Mock unstable {};
+        unstable.changeGpioOnSecondSample = true;
+        const auto fluctuating =
+            sampleAr9565RfKill(board, rfkillBackend(unstable));
+        return fluctuating.result == RfKillResult::Unstable &&
+               fluctuating.requiresReset && fluctuating.hardwareBlocked &&
+               unstable.rfkillDelays == 1 && unstable.gpioInputReads == 2;
+    }
+
 } // namespace
 
 int main()
@@ -989,6 +1148,18 @@ int main()
     if (!testsWorkflowFailures())
     {
         return kFailedWorkflowFailuresExit;
+    }
+    if (!testsRfKillSuccess())
+    {
+        return kFailedRfKillSuccessExit;
+    }
+    if (!testsRfKillAdmission())
+    {
+        return kFailedRfKillAdmissionExit;
+    }
+    if (!testsRfKillFailures())
+    {
+        return kFailedRfKillFailuresExit;
     }
     return 0;
 }

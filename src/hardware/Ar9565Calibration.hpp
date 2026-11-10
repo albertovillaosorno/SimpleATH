@@ -213,6 +213,63 @@ namespace simpleath
         const CalibrationAndRegulatory &authorization,
         const RxAgcBackend &backend);
 
+    struct RfKillBoardConfiguration
+    {
+            bool configured;
+            uint8_t gpio;
+            bool activeHigh;
+    };
+
+    struct RfKillBackend
+    {
+            void *context;
+            uint64_t ownerEpoch;
+            uint32_t barLengthBytes;
+            // RF-kill sampling must be possible before radio authorization.
+            // Permit only a live D0 owner, serialized MAC gate, valid board
+            // epoch and quiesced engines; do not require RF-kill unblocked.
+            bool (*permitMmio)(void *context, uint64_t epoch);
+            bool (*read32)(void *context, uint32_t offset, uint32_t *value);
+            bool (*write32)(void *context, uint32_t offset, uint32_t value);
+            void (*delayMicros)(void *context, uint32_t micros);
+    };
+
+    enum class RfKillResult : uint8_t
+    {
+        Unblocked,
+        Blocked,
+        InvalidBackend,
+        NotConfigured,
+        InvalidGpio,
+        InvalidBar,
+        OwnershipLost,
+        ReadFailed,
+        WriteFailed,
+        ReadbackMismatch,
+        Unstable,
+    };
+
+    struct RfKillProgress
+    {
+            RfKillResult result;
+            bool hardwareBlocked;
+            uint8_t gpio;
+            size_t completedReads;
+            size_t completedWrites;
+            bool requiresReset;
+    };
+
+    // AR9565 PCIe GPIO RF-kill: EEPROM rfSilent GPIO/polarity, AR9300 input
+    // and GPIO OE settings. Configure the specified pin to high-impedance
+    // input, verify the write, then sample twice across a short delay. Linux
+    // ath9k treats a GPIO value equal to EEPROM polarity as BLOCKED. If the
+    // EEPROM does not advertise an RF-kill pin, NotConfigured is returned:
+    // neither the switch nor an ACPI/platform alternative is assumed safe.
+    // This is a sampled state, not a standing authorization; recheck on
+    // channel changes and before radio TX/RX. MAC response gates stay shut.
+    RfKillProgress sampleAr9565RfKill(const RfKillBoardConfiguration &board,
+                                      const RfKillBackend &backend);
+
 } // namespace simpleath
 
 #endif

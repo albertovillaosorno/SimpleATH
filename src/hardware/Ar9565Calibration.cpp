@@ -70,6 +70,15 @@ namespace simpleath
         constexpr uint32_t kSelfGeneratedChainmaskRegister = 0x832c;
         constexpr uint32_t kSingleRxChain = 1;
         constexpr uint32_t kNoAutoTransmit = 0;
+        // ath9k hw.c: ath9k_hw_cfg_gpio_input/gpio_get, gpio.c:
+        // ath_is_rfkill_set; reg.h: AR_GPIO_OE_OUT, AR_GPIO_IN and
+        // AR9565_GPIO_MASK (14 valid pins). Never use AR_GPIO_IN_OUT for 9565.
+        constexpr uint32_t kRfKillDirection = 0x4050;
+        constexpr uint32_t kRfKillInput = 0x404c;
+        constexpr uint8_t kRfKillPins = 14;
+        constexpr uint32_t kRfKillDirectionWidth = 2;
+        constexpr uint32_t kRfKillDirectionMask = 0x3;
+        constexpr uint32_t kRfKillSettleMicros = 100;
         constexpr uint32_t kNoiseCal = 0x2;
         constexpr uint32_t kNoiseEnable = 0x8000;
         constexpr uint32_t kNoiseNoUpdate = 0x20000;
@@ -124,6 +133,13 @@ namespace simpleath
             const int delta = static_cast<int>(request.control.number) -
                               static_cast<int>(request.secondary);
             return delta == kHt40Separation || delta == -kHt40Separation;
+        }
+
+        bool validRfKillBackend(const RfKillBackend &backend)
+        {
+            return backend.context != nullptr && backend.ownerEpoch != 0 &&
+                   backend.permitMmio != nullptr && backend.read32 != nullptr &&
+                   backend.write32 != nullptr && backend.delayMicros != nullptr;
         }
 
         bool validBackend(const RxAgcBackend &backend)
@@ -790,6 +806,116 @@ namespace simpleath
         progress.phase = RxCalibrationPhase::Completed;
         progress.requiresReset = false;
         return progress;
+    }
+
+    RfKillProgress sampleAr9565RfKill(const RfKillBoardConfiguration &board,
+                                      const RfKillBackend &backend)
+    {
+        RfKillProgress result {
+            RfKillResult::InvalidBackend, true, 0, 0, 0, false,
+        };
+        const RfKillBackend stable = backend;
+        const RfKillBoardConfiguration config = board;
+        if (!validRfKillBackend(stable))
+        {
+            return result;
+        }
+        result.result = RfKillResult::NotConfigured;
+        if (!config.configured)
+        {
+            return result;
+        }
+        result.result = RfKillResult::InvalidGpio;
+        if (config.gpio >= kRfKillPins)
+        {
+            return result;
+        }
+        result.result = RfKillResult::InvalidBar;
+        if (stable.barLengthBytes < kRfKillDirection + sizeof(uint32_t))
+        {
+            return result;
+        }
+        result.gpio = config.gpio;
+        const auto permit = [&]
+        {
+            if (stable.permitMmio(stable.context, stable.ownerEpoch))
+            {
+                return true;
+            }
+            result.result = RfKillResult::OwnershipLost;
+            return false;
+        };
+        const auto read = [&](uint32_t offset, uint32_t &value)
+        {
+            if (!permit())
+            {
+                return false;
+            }
+            if (!stable.read32(stable.context, offset, &value))
+            {
+                result.result = RfKillResult::ReadFailed;
+                return false;
+            }
+            ++result.completedReads;
+            return true;
+        };
+        uint32_t direction = 0;
+        if (!read(kRfKillDirection, direction))
+        {
+            return result;
+        }
+        const uint32_t mask =
+            kRfKillDirectionMask
+            << (static_cast<uint32_t>(config.gpio) * kRfKillDirectionWidth);
+        const uint32_t inputDirection = direction & ~mask;
+        if (inputDirection != direction)
+        {
+            if (!permit())
+            {
+                return result;
+            }
+            result.requiresReset = true;
+            result.result = RfKillResult::WriteFailed;
+            if (!stable.write32(stable.context, kRfKillDirection,
+                                inputDirection))
+            {
+                return result;
+            }
+            ++result.completedWrites;
+        }
+        uint32_t observed = 0;
+        if (!read(kRfKillDirection, observed))
+        {
+            return result;
+        }
+        result.result = RfKillResult::ReadbackMismatch;
+        if (observed != inputDirection)
+        {
+            return result;
+        }
+        uint32_t first = 0;
+        uint32_t second = 0;
+        if (!read(kRfKillInput, first) || !permit())
+        {
+            return result;
+        }
+        stable.delayMicros(stable.context, kRfKillSettleMicros);
+        if (!read(kRfKillInput, second) || !permit())
+        {
+            return result;
+        }
+        const uint32_t bit = uint32_t {1} << config.gpio;
+        result.result = RfKillResult::Unstable;
+        if (((first ^ second) & bit) != 0)
+        {
+            return result;
+        }
+        const bool levelHigh = (second & bit) != 0;
+        result.hardwareBlocked = levelHigh == config.activeHigh;
+        result.requiresReset = false;
+        result.result = result.hardwareBlocked ? RfKillResult::Blocked
+                                               : RfKillResult::Unblocked;
+        return result;
     }
 
 } // namespace simpleath
