@@ -394,6 +394,257 @@ namespace
         return parseAwdlIpv6Data(frame.data(), frame.size(), decoded) ==
                Result::UnsupportedFrame;
     }
+
+    bool serializeAwdlIpv6Data()
+    {
+        constexpr size_t kIpv6Bytes = 45U;
+        constexpr size_t kSerializedDataHeaderBytes = 16U;
+        constexpr size_t kQosBytes = 2U;
+        constexpr size_t kDataFrameBytes =
+            kHeaderBytes + kSerializedDataHeaderBytes + kIpv6Bytes;
+        constexpr uint8_t kIpv6Version = 0x60U;
+        constexpr uint8_t kIpv6PayloadLength = 5U;
+        constexpr uint16_t kMacSequence = 0x0456U;
+        constexpr uint16_t kInnerSequence = 0x3412U;
+        constexpr uint8_t kQosType = 0x88U;
+        constexpr uint8_t kDataType = 0x08U;
+        constexpr size_t kInvalidMacSequence = 0x1000U;
+        constexpr size_t kMaxMpdu = 2346U;
+        constexpr size_t kFcsBytes = 4U;
+        constexpr size_t kIpv6LengthLowOffset = 5U;
+        constexpr size_t kIpv6HeaderBytes = 40U;
+        constexpr size_t kLastIpv6ByteOffset = 44U;
+        constexpr size_t kShortIpv6Header = 39U;
+        constexpr uint8_t kFirstIpv6DataByte = 0xabU;
+        constexpr uint8_t kLastIpv6DataByte = 0xcdU;
+        constexpr uint8_t kOutputSentinel = 0xa5U;
+        constexpr uint8_t kWrongIpv6Version = 0x40U;
+        constexpr size_t kCountSentinel = 123U;
+        constexpr uint8_t kQosSubtype = 8U;
+        std::array<uint8_t, kIpv6Bytes> ipv6 {};
+        ipv6.at(0U) = kIpv6Version;
+        ipv6.at(kIpv6LengthLowOffset) = kIpv6PayloadLength;
+        ipv6.at(kIpv6HeaderBytes) = kFirstIpv6DataByte;
+        ipv6.at(kLastIpv6ByteOffset) = kLastIpv6DataByte;
+        const Mac source {{0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U}};
+        const Mac multicast {{0x33U, 0x33U, 0x00U, 0x00U, 0x00U, 0x01U}};
+        AwdlIpv6Tx tx {
+            source, multicast,   kMacSequence, kInnerSequence,
+            false,  ipv6.data(), ipv6.size(),
+        };
+        std::array<uint8_t, kDataFrameBytes + kQosBytes + 1U> output {};
+        output.fill(kOutputSentinel);
+        size_t written = kCountSentinel;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != kDataFrameBytes || output.at(0U) != kDataType ||
+            output.at(written) != kOutputSentinel ||
+            output.at(kHeaderBytes + kSerializedDataHeaderBytes +
+                      kIpv6HeaderBytes) != kFirstIpv6DataByte)
+        {
+            return false;
+        }
+        AwdlIpv6Data decoded {};
+        if (parseAwdlIpv6Data(output.data(), written, decoded) != Result::Ok ||
+            decoded.sequence != kInnerSequence ||
+            decoded.header.sequence != kMacSequence ||
+            !sameMac(decoded.header.source, source) ||
+            !sameMac(decoded.header.destination, multicast) ||
+            decoded.ipv6Bytes != ipv6.size() ||
+            std::memcmp(usbByteOffset(output.data(), decoded.ipv6Offset),
+                        ipv6.data(), ipv6.size()) != 0)
+        {
+            return false;
+        }
+        tx.qos = true;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != kDataFrameBytes + kQosBytes ||
+            output.at(0U) != kQosType ||
+            parseAwdlIpv6Data(output.data(), written, decoded) != Result::Ok ||
+            decoded.header.subtype != kQosSubtype ||
+            decoded.ipv6Offset !=
+                kHeaderBytes + kSerializedDataHeaderBytes + kQosBytes)
+        {
+            return false;
+        }
+        output.fill(kOutputSentinel);
+        if (makeAwdlIpv6Data(tx, output.data(), written - 1U, written) !=
+                Result::BufferTooSmall ||
+            written != 0U || output.at(0U) != kOutputSentinel)
+        {
+            return false;
+        }
+        tx.qos = false;
+        tx.macSequence = kInvalidMacSequence;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        tx.macSequence = kMacSequence;
+        tx.source.bytes[0U] = 0x03U;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidAddress)
+        {
+            return false;
+        }
+        tx.source = source;
+        tx.destination = {};
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidAddress)
+        {
+            return false;
+        }
+        tx.destination = multicast;
+        ipv6.at(0U) = kWrongIpv6Version;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        ipv6.at(0U) = kIpv6Version;
+        ipv6.at(kIpv6LengthLowOffset) = kIpv6PayloadLength + 1U;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::Truncated)
+        {
+            return false;
+        }
+        ipv6.at(kIpv6LengthLowOffset) = kIpv6PayloadLength - 1U;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        ipv6.at(kIpv6LengthLowOffset) = kIpv6PayloadLength;
+        tx.ipv6Bytes = kShortIpv6Header;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::Truncated)
+        {
+            return false;
+        }
+        std::array<uint8_t, kMaxMpdu - kFcsBytes> oversizeIpv6 {};
+        oversizeIpv6.at(0U) = kIpv6Version;
+        tx.ipv6 = oversizeIpv6.data();
+        tx.ipv6Bytes = oversizeIpv6.size();
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        tx.ipv6Bytes = ipv6.size();
+        tx.ipv6 = nullptr;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+            Result::NullBuffer)
+        {
+            return false;
+        }
+        tx.ipv6 = ipv6.data();
+        written = kCountSentinel;
+        if (makeAwdlIpv6Data(tx, ipv6.data(), ipv6.size(), written) !=
+                Result::OverlappingBuffers ||
+            written != kCountSentinel || ipv6.at(0U) != kIpv6Version)
+        {
+            return false;
+        }
+        // Even a failed output-size check must not reset a length field
+        // stored inside the caller's live request descriptor.
+        const size_t originalLength = tx.ipv6Bytes;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), tx.ipv6Bytes) !=
+                Result::OverlappingBuffers ||
+            tx.ipv6Bytes != originalLength)
+        {
+            return false;
+        }
+        return output.at(0U) == kOutputSentinel;
+    }
+
+    bool serializeAwdlIpv6LengthBoundaries()
+    {
+        constexpr size_t kMpduWithFcsBytes = 2346U;
+        constexpr size_t kFcsBytes = 4U;
+        constexpr size_t kMacHeaderBytes = 24U;
+        constexpr size_t kAwdlDataHeaderBytes = 16U;
+        constexpr size_t kQosHeaderBytes = 2U;
+        constexpr size_t kIpv6HeaderBytes = 40U;
+        constexpr size_t kIpv6LengthHighOffset = 4U;
+        constexpr size_t kIpv6LengthLowOffset = 5U;
+        constexpr uint8_t kIpv6Version = 0x60U;
+        constexpr uint8_t kIpv6PayloadLengthShift = 8U;
+        constexpr size_t kMaxNormalIpv6 = kMpduWithFcsBytes - kFcsBytes -
+                                          kMacHeaderBytes -
+                                          kAwdlDataHeaderBytes;
+        constexpr size_t kMaxQosIpv6 = kMaxNormalIpv6 - kQosHeaderBytes;
+        std::array<uint8_t, kMaxNormalIpv6 + 1U> ipv6 {};
+        ipv6.at(0U) = kIpv6Version;
+        const Mac source {{0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U}};
+        const Mac destination {{0x02U, 0xaaU, 0xbbU, 0xccU, 0xddU, 0xeeU}};
+        AwdlIpv6Tx request {
+            source, destination, 0U, 0U, false, ipv6.data(), kMaxNormalIpv6,
+        };
+        std::array<uint8_t, kMpduWithFcsBytes> output {};
+        const auto setIpv6Length = [&ipv6](size_t packetBytes)
+        {
+            const size_t payloadBytes = packetBytes - kIpv6HeaderBytes;
+            ipv6.at(kIpv6LengthHighOffset) =
+                static_cast<uint8_t>(payloadBytes >> kIpv6PayloadLengthShift);
+            ipv6.at(kIpv6LengthLowOffset) = static_cast<uint8_t>(payloadBytes);
+        };
+        setIpv6Length(kMaxNormalIpv6);
+        size_t written = 0U;
+        AwdlIpv6Data parsed {};
+        if (makeAwdlIpv6Data(request, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != kMpduWithFcsBytes - kFcsBytes ||
+            parseAwdlIpv6Data(output.data(), written, parsed) != Result::Ok ||
+            parsed.ipv6Bytes != kMaxNormalIpv6)
+        {
+            return false;
+        }
+        request.qos = true;
+        if (makeAwdlIpv6Data(request, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        request.ipv6Bytes = kMaxQosIpv6;
+        setIpv6Length(kMaxQosIpv6);
+        if (makeAwdlIpv6Data(request, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != kMpduWithFcsBytes - kFcsBytes ||
+            parseAwdlIpv6Data(output.data(), written, parsed) != Result::Ok ||
+            parsed.ipv6Bytes != kMaxQosIpv6)
+        {
+            return false;
+        }
+        request.qos = false;
+        request.ipv6Bytes = kMaxNormalIpv6 + 1U;
+        setIpv6Length(request.ipv6Bytes);
+        if (makeAwdlIpv6Data(request, output.data(), output.size(), written) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        // The written count must not be stored in a caller-owned output
+        // span; even error-path clearing of such storage is disallowed.
+        constexpr size_t kCountStorageWords = 64U;
+        std::array<size_t, kCountStorageWords> words {};
+        constexpr size_t kCountSentinel = 123U;
+        words.at(0U) = kCountSentinel;
+        uint8_t *wordBytes = nullptr;
+        const void *wordsAddress = words.data();
+        static_assert(sizeof(wordBytes) == sizeof(wordsAddress),
+                      "pointer representation width");
+        __builtin_memcpy(static_cast<void *>(&wordBytes),
+                         static_cast<const void *>(&wordsAddress),
+                         sizeof(wordBytes));
+        request.ipv6Bytes = kMaxQosIpv6;
+        setIpv6Length(kMaxQosIpv6);
+        return makeAwdlIpv6Data(request, wordBytes, sizeof(words),
+                                words.at(0U)) == Result::OverlappingBuffers &&
+               words.at(0U) == kCountSentinel;
+    }
+
 } // namespace
 
 int main()
@@ -417,6 +668,16 @@ int main()
     if (!acceptAwdlIpv6Data())
     {
         return kAwdlDataFailure;
+    }
+    if (!serializeAwdlIpv6Data())
+    {
+        constexpr int kTxFailure = 6;
+        return kTxFailure;
+    }
+    if (!serializeAwdlIpv6LengthBoundaries())
+    {
+        constexpr int kTxBoundaryFailure = 7;
+        return kTxBoundaryFailure;
     }
     return 0;
 }

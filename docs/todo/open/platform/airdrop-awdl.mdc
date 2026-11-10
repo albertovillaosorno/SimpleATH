@@ -91,3 +91,26 @@ truncation, wrong IP version and mismatched IPv6 length. This parser does
 The LLC/data header interpretation follows the same published AWDL research
 and the 2026-11-04 brcmfmac AWDL data-path patch series:
 https://lore-kernel.gnuweeb.org/brcm80211/20261104151547.70333-6-dev@deq.rocks/
+
+## Source progress — 2026-11-10: bounded AWDL IPv6 TX framing
+
+The ordinary Xcode target's `src/wifi/AwdlAction.{hpp,cpp}` also exports
+`makeAwdlIpv6Data`. This serializer constructs an FCS-free, unprotected
+three-address AWDL 802.11 Data or QoS Data MPDU, Apple AWDL BSSID and
+LLC/SNAP header, inner AWDL sequence, reserved-zero field and IPv6 EtherType.
+It accepts only a complete IPv6 packet with matching 16-bit payload length,
+valid source/unicast or multicast destination, a bounded MAC sequence and an
+MPDU no larger than 2346 octets including the radio-owned four-byte FCS.
+No mutation occurs on failed bounds/alias checks; overlapping caller input,
+output and count storage are rejected before a write. No key or cipher state
+is inferred from a constructed packet.
+
+`tests/test_awdl_action.cpp` round-trips normal/QoS serialization through
+the independent RX parser, exercises source/destination, sequence and IPv6
+length rejection, byte capacity and buffer aliasing, and covers the exact
+maximum FCS-free MPDU boundaries. C++14/C++17 ASan+UBSan host regressions,
+strict Clang-Tidy on edited source and test units, and Clang-Format passed.
+These are offline source tests only. No native AWDL host interface, peer
+scheduler, real radio TX, encryption or AirDrop traffic has been connected;
+peer/channel/keys/regulatory authority remain mandatory outside the
+serializer. This P0 task remains open.

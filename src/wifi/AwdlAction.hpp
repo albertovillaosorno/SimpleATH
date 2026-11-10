@@ -71,6 +71,29 @@ namespace simpleath
         Result parseAwdlIpv6Data(const uint8_t *bytes, size_t length,
                                  AwdlIpv6Data &out);
 
+        // Bounded AWDL IPv6 data MPDU serialization for an independently
+        // authorized peer/channel. Produces an FCS-free 802.11 MPDU, not a
+        // Bluetooth, AWDL scheduling, association or native OS transport.
+        // The payload must be an entire IPv6 packet with an exact 16-bit
+        // IPv6 payload length. The caller owns sequence generation and must
+        // separately prove radio, regulatory and peer/TX authorization.
+        struct AwdlIpv6Tx
+        {
+                Mac source {};
+                Mac destination {};
+                uint16_t macSequence {};
+                uint16_t awdlSequence {};
+                bool qos {};
+                const uint8_t *ipv6 {};
+                size_t ipv6Bytes {};
+        };
+
+        // On an ordinary error written is cleared and output is untouched.
+        // Aliasing any input/output or output/count storage is rejected
+        // before modifying either. Hardware owns FCS generation.
+        Result makeAwdlIpv6Data(const AwdlIpv6Tx &request, uint8_t *output,
+                                size_t capacity, size_t &written);
+
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before
         // publishing a value snapshot. Unknown TLV types remain opaque.

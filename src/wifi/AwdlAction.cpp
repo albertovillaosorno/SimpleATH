@@ -38,6 +38,18 @@ namespace simpleath
             constexpr size_t kIpv6PayloadBytesOffset = 4U;
             constexpr uint8_t kIpv6Version = 6U;
             constexpr uint8_t kAwdlQosDataSubtype = 8U;
+            constexpr size_t kDataMacHeaderBytes = 24U;
+            constexpr size_t kQosControlBytes = 2U;
+            constexpr size_t kFcsBytes = 4U;
+            constexpr size_t kMaxMpduWithFcs = 2346U;
+            constexpr uint16_t kMacSequenceMax = 0x0fffU;
+            constexpr uint8_t kMacSequenceShift = 4U;
+            constexpr uint8_t kDataFrameControl = 0x08U;
+            constexpr uint8_t kQosDataFrameControl = 0x88U;
+            constexpr size_t kDestinationOffset = 4U;
+            constexpr size_t kSourceOffset = 10U;
+            constexpr size_t kBssidOffset = 16U;
+            constexpr size_t kMacSequenceOffset = 22U;
             constexpr uint8_t kAwdlDataLlc[kAwdlDataSequenceOffset] {
                 0xaaU, 0xaaU, 0x03U, 0x00U, 0x17U,
                 0xf2U, 0x08U, 0x00U, 0x03U, 0x04U,
@@ -133,6 +145,106 @@ namespace simpleath
             };
             offset_ += static_cast<size_t>(valueLength) + kTlvHeaderBytes;
             return AwdlTlvStatus::Element;
+        }
+
+        Result makeAwdlIpv6Data(const AwdlIpv6Tx &request, uint8_t *output,
+                                size_t capacity, size_t &written)
+        {
+            // Do not alter a borrowed packet, caller identity, or the result
+            // count through a caller-constructed alias on any failure path.
+            if (overlaps(output, capacity, &request, sizeof(request)) ||
+                overlaps(output, capacity, &written, sizeof(written)) ||
+                overlaps(output, capacity, request.ipv6, request.ipv6Bytes) ||
+                overlaps(&written, sizeof(written), &request,
+                         sizeof(request)) ||
+                overlaps(&written, sizeof(written), request.ipv6,
+                         request.ipv6Bytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            written = 0U;
+            if (output == nullptr || request.ipv6 == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            if (!validStationMac(request.source))
+            {
+                return Result::InvalidAddress;
+            }
+            uint8_t destinationAggregate = 0U;
+            for (const uint8_t octet : request.destination.bytes)
+            {
+                destinationAggregate |= octet;
+            }
+            if (destinationAggregate == 0U)
+            {
+                return Result::InvalidAddress;
+            }
+            if (request.macSequence > kMacSequenceMax)
+            {
+                return Result::InvalidFrame;
+            }
+            if (request.ipv6Bytes < kIpv6HeaderBytes)
+            {
+                return Result::Truncated;
+            }
+            // The maximum transmitted 802.11 MPDU includes four FCS bytes,
+            // so size-check before interpreting any caller-provided IPv6.
+            const size_t headerBytes =
+                kDataMacHeaderBytes + (request.qos ? kQosControlBytes : 0U);
+            const size_t framingBytes = headerBytes + kAwdlDataHeaderBytes;
+            if (request.ipv6Bytes > kMaxMpduWithFcs - kFcsBytes - framingBytes)
+            {
+                return Result::InvalidFrame;
+            }
+            if ((*request.ipv6 >> 4U) != kIpv6Version)
+            {
+                return Result::InvalidFrame;
+            }
+            const size_t declaredBytes =
+                kIpv6HeaderBytes +
+                (static_cast<size_t>(
+                     *usbByteOffset(request.ipv6, kIpv6PayloadBytesOffset))
+                 << kBitsPerByte) +
+                static_cast<size_t>(
+                    *usbByteOffset(request.ipv6, kIpv6PayloadBytesOffset + 1U));
+            if (declaredBytes != request.ipv6Bytes)
+            {
+                return request.ipv6Bytes < declaredBytes ? Result::Truncated
+                                                         : Result::InvalidFrame;
+            }
+            const size_t needed = framingBytes + request.ipv6Bytes;
+            if (capacity < needed)
+            {
+                return Result::BufferTooSmall;
+            }
+            __builtin_memset(output, 0, framingBytes);
+            *usbByteOffset(output, 0U) =
+                request.qos ? kQosDataFrameControl : kDataFrameControl;
+            __builtin_memcpy(usbByteOffset(output, kDestinationOffset),
+                             &request.destination.bytes, kMacAddressBytes);
+            __builtin_memcpy(usbByteOffset(output, kSourceOffset),
+                             &request.source.bytes, kMacAddressBytes);
+            __builtin_memcpy(usbByteOffset(output, kBssidOffset), &kAwdlBssid,
+                             kMacAddressBytes);
+            const auto sequenceControl =
+                static_cast<uint16_t>(request.macSequence << kMacSequenceShift);
+            *usbByteOffset(output, kMacSequenceOffset) =
+                static_cast<uint8_t>(sequenceControl);
+            *usbByteOffset(output, kMacSequenceOffset + 1U) =
+                static_cast<uint8_t>(sequenceControl >> kBitsPerByte);
+            uint8_t *const body = usbByteOffset(output, headerBytes);
+            __builtin_memcpy(body, &kAwdlDataLlc, sizeof(kAwdlDataLlc));
+            *usbByteOffset(body, kAwdlDataSequenceOffset) =
+                static_cast<uint8_t>(request.awdlSequence);
+            *usbByteOffset(body, kAwdlDataSequenceOffset + 1U) =
+                static_cast<uint8_t>(request.awdlSequence >> kBitsPerByte);
+            __builtin_memcpy(usbByteOffset(body, kAwdlDataTypeOffset),
+                             &kIpv6EtherType, sizeof(kIpv6EtherType));
+            __builtin_memcpy(usbByteOffset(output, framingBytes), request.ipv6,
+                             request.ipv6Bytes);
+            written = needed;
+            return Result::Ok;
         }
 
         Result parseAwdlIpv6Data(const uint8_t *bytes, size_t length,
