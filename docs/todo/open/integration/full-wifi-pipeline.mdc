@@ -158,11 +158,34 @@ and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/ma
   541 passes, 35 existing strict Tidy failures, zero skipped, plus one
   source-snapshot failure while another author edited Bluetooth. This is
   not a clean full validation; rerun without concurrent source edits.
-- Outstanding: actual native passive scan and receiver calibration, channel
-  authorization, TX rate/TPC publication, Tahoe OS supplicant/AirPort ABI,
-  PMF and reconnect flows, Bluetooth and AWDL. The native connect/leave
-  callbacks are implemented but still unreachable without physical radio
-  authorization. No kext build or physical radio test occurred.
+- DCO c97c4a7 (2026-11-10) replaces three native owner scan stubs with
+  serialized, generation-checked `WifiEngine`/`LegacyScanBridge` calls and an
+  `IOTimerEventSource` passive 120-ms dwell. Begin requires a currently tuned,
+  independently authorized RX channel and real radio/queue/board epoch;
+  BSS results are defensive copies of genuinely received scan records. The
+  completion event and last successful snapshot remain generation-scoped,
+  including when a subsequent scan is cancelled or fails. Timer work and
+  cursors are revoked at teardown; failed scan admission does not discard an
+  existing association. `nextBss` returns end-of-results only for a genuinely
+  completed scan, never for cancelled/unavailable work.
+- This scan integration is **not yet operational**: the native owner has no
+  producer for `verifiedReceiveChannel_`, and `radioOperational_` and
+  `channelAuthorized_` still remain false on native startup. There is no
+  full-channel country-approved RF tune, no proven board antenna/BT lease,
+  no successful hardware receive or native AirPort scan evidence. The real
+  calibration/coexistence/channel and regulatory owner must set these only
+  after successful physical work, then implement legally authorized hopping.
+- Focused `test_scan_bridge` host C++14 and C++17 ASan+UBSan passes, and pinned
+  MacKernelSDK x86_64 C++14 `-Wall -Wextra -Werror -fsyntax-only` on
+  `src/SimpleATH.cpp` passes. Direct strict Tidy still reports 226 findings in
+  this source unit (including three ABI action-signature adjacency findings);
+  this is not zero lint. Full `tools/validate.py --tests` was aborted because
+  concurrent GPL-2.0 licensing/native source edits invalidated the snapshot.
+  No native kext build, RF activity or physical test is claimed.
+- Outstanding: proven calibrated receive-only radio activation, full legal
+  channel scanning, TX rate/TPC publication, Tahoe OS supplicant/AirPort ABI,
+  PMF and reconnect flows, Bluetooth and AWDL. The native connect/leave/scan
+  callbacks are implemented but still blocked until RF authorization.
 
 ## Evidence
 
