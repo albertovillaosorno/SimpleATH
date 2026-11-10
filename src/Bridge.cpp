@@ -22,6 +22,7 @@
 #include <IOKit/IOUserClient.h>
 #include <IOKit/IOWorkLoop.h>
 #include <cstdint>
+#include <i386/types.h>
 #include <kern/clock.h>
 #include <kern/thread.h>
 #include <kern/thread_call.h>
@@ -29,11 +30,13 @@
 #include <libkern/c++/OSMetaClass.h>
 #include <libkern/c++/OSObject.h>
 #include <libkern/copyio.h>
+#include <libkern/libkern.h>
 #include <mach-o/loader.h>
-#include <mach/mach_time.h>
+#include <mach/i386/vm_types.h>
 #include <mach/mach_types.h>
-#include <mach/thread_act.h>
+#include <mach/machine.h>
 #include <stddef.h>
+#include <string.h>
 #include <sys/errno.h>
 #include <sys/systm.h>
 
