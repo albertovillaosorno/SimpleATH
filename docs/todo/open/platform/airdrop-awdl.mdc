@@ -77,3 +77,17 @@ peer election/timing, channel dwell, regulatory scheduling, BLE service
 policy, AirDrop/Continuity host linkage and actual IPv6 transfer. Merely
 compiling this fail-closed syntax parser does not imply any macOS AWDL or
 Bluetooth functionality. This P0 TODO remains open.
+
+The same production source now also parses **read-only AWDL IPv6 data ingress**:
+`parseAwdlIpv6Data` requires a complete, unprotected, nonfragmented
+three-address 802.11 data/QoS packet carrying the Apple LLC/SNAP AWDL
+protocol header, reserved-zero 16-bit field and IPv6 EtherType. It checks
+IPv6 version and exact advertised payload length, then publishes copied
+link metadata, inner sequence number and IPv6 byte offsets/lengths. The
+same synthetic fixture covers valid normal/QoS frames and rejects wrong
+vendor headers, To-DS routing, non-IPv6 data, fragment sequences,
+truncation, wrong IP version and mismatched IPv6 length. This parser does
+**not** produce an Ethernet frame, an IPv6 socket or a native AWDL interface.
+The LLC/data header interpretation follows the same published AWDL research
+and the 2026-11-04 brcmfmac AWDL data-path patch series:
+https://lore-kernel.gnuweeb.org/brcm80211/20261104151547.70333-6-dev@deq.rocks/

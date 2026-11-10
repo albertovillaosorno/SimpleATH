@@ -54,6 +54,23 @@ namespace simpleath
                 size_t offset_ {};
         };
 
+        // Only a verified, decrypted-on-air, FCS-stripped 802.11 MPDU may
+        // enter this parser. It recognizes the Apple AWDL LLC/SNAP header
+        // and IPv6 EtherType; no IPv6 data is delivered to macOS here.
+        struct AwdlIpv6Data
+        {
+                Frame header {};
+                uint16_t sequence {};
+                size_t ipv6Offset {};
+                size_t ipv6Bytes {};
+        };
+
+        // A complete single-MSDU, unprotected AWDL data frame with no
+        // fragmentation and exact IPv6 payload-length accounting. This
+        // value snapshot does not authenticate peers or create an AWDL link.
+        Result parseAwdlIpv6Data(const uint8_t *bytes, size_t length,
+                                 AwdlIpv6Data &out);
+
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before
         // publishing a value snapshot. Unknown TLV types remain opaque.

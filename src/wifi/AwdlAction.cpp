@@ -30,6 +30,19 @@ namespace simpleath
             constexpr uint8_t kVendorPrefix[kVendorPrefixBytes] {
                 127U, 0x00U, 0x17U, 0xf2U, 0x08U, 0x10U,
             };
+            constexpr size_t kAwdlDataHeaderBytes = 16U;
+            constexpr size_t kAwdlDataSequenceOffset = 10U;
+            constexpr size_t kAwdlDataReservedOffset = 12U;
+            constexpr size_t kAwdlDataTypeOffset = 14U;
+            constexpr size_t kIpv6HeaderBytes = 40U;
+            constexpr size_t kIpv6PayloadBytesOffset = 4U;
+            constexpr uint8_t kIpv6Version = 6U;
+            constexpr uint8_t kAwdlQosDataSubtype = 8U;
+            constexpr uint8_t kAwdlDataLlc[kAwdlDataSequenceOffset] {
+                0xaaU, 0xaaU, 0x03U, 0x00U, 0x17U,
+                0xf2U, 0x08U, 0x00U, 0x03U, 0x04U,
+            };
+            constexpr uint8_t kIpv6EtherType[2] {0x86U, 0xddU};
 
             uint16_t readLittle16(const uint8_t *bytes)
             {
@@ -120,6 +133,91 @@ namespace simpleath
             };
             offset_ += static_cast<size_t>(valueLength) + kTlvHeaderBytes;
             return AwdlTlvStatus::Element;
+        }
+
+        Result parseAwdlIpv6Data(const uint8_t *bytes, size_t length,
+                                 AwdlIpv6Data &out)
+        {
+            if (overlaps(&out, sizeof(out), bytes, length))
+            {
+                return Result::OverlappingBuffers;
+            }
+            out = {};
+            Frame header {};
+            const Result parsed = parseFrame(bytes, length, header);
+            if (parsed != Result::Ok)
+            {
+                return parsed;
+            }
+            if (header.type != FrameType::Data ||
+                (header.subtype != 0U &&
+                 header.subtype != kAwdlQosDataSubtype) ||
+                header.toDs || header.fromDs || header.protectedFrame ||
+                header.moreFragments || header.fragment != 0U ||
+                !validStationMac(header.source) ||
+                __builtin_memcmp(&header.bssid.bytes, &kAwdlBssid,
+                                 sizeof(kAwdlBssid)) != 0)
+            {
+                return Result::UnsupportedFrame;
+            }
+            uint8_t aggregate = 0U;
+            for (const uint8_t destinationByte : header.destination.bytes)
+            {
+                aggregate |= destinationByte;
+            }
+            if (aggregate == 0U)
+            {
+                return Result::InvalidAddress;
+            }
+            if (length - header.headerLength <
+                kAwdlDataHeaderBytes + kIpv6HeaderBytes)
+            {
+                return Result::Truncated;
+            }
+            const uint8_t *body = usbByteOffset(bytes, header.headerLength);
+            if (__builtin_memcmp(body, &kAwdlDataLlc, sizeof(kAwdlDataLlc)) !=
+                    0 ||
+                __builtin_memcmp(usbByteOffset(body, kAwdlDataTypeOffset),
+                                 &kIpv6EtherType, sizeof(kIpv6EtherType)) != 0)
+            {
+                return Result::UnsupportedFrame;
+            }
+            uint8_t reserved[2] {};
+            __builtin_memcpy(&reserved,
+                             usbByteOffset(body, kAwdlDataReservedOffset),
+                             sizeof(reserved));
+            if (reserved[0] != 0U || reserved[1] != 0U)
+            {
+                return Result::InvalidFrame;
+            }
+            const size_t ipv6Offset =
+                header.headerLength + kAwdlDataHeaderBytes;
+            const uint8_t *ipv6 = usbByteOffset(bytes, ipv6Offset);
+            if ((*ipv6 >> 4U) != kIpv6Version)
+            {
+                return Result::InvalidFrame;
+            }
+            const auto highLength = static_cast<uint32_t>(
+                *usbByteOffset(ipv6, kIpv6PayloadBytesOffset));
+            const auto lowLength = static_cast<uint32_t>(
+                *usbByteOffset(ipv6, kIpv6PayloadBytesOffset + 1U));
+            const auto payloadLength =
+                static_cast<uint16_t>((highLength << kBitsPerByte) | lowLength);
+            const size_t declaredBytes =
+                kIpv6HeaderBytes + static_cast<size_t>(payloadLength);
+            const size_t observedBytes = length - ipv6Offset;
+            if (declaredBytes != observedBytes)
+            {
+                return observedBytes < declaredBytes ? Result::Truncated
+                                                     : Result::InvalidFrame;
+            }
+            out = {
+                header,
+                readLittle16(usbByteOffset(body, kAwdlDataSequenceOffset)),
+                ipv6Offset,
+                declaredBytes,
+            };
+            return Result::Ok;
         }
 
         Result parseAwdlAction(const uint8_t *bytes, size_t length,

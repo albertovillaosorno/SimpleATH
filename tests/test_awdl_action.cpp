@@ -43,10 +43,11 @@ namespace
     constexpr uint32_t kPhyTime = 0x78563412U;
     constexpr uint32_t kTargetTime = 0x21436587U;
     constexpr uint8_t kMifSubtype = 3U;
+    constexpr int kAwdlDataFailure = 5;
     using Packet = std::array<uint8_t, kPacketBytes>;
 
-    template <size_t Length>
-    void copyField(Packet &frame, size_t offset,
+    template <typename Buffer, size_t Length>
+    void copyField(Buffer &frame, size_t offset,
                    const std::array<uint8_t, Length> &field)
     {
         for (size_t index = 0U; index < field.size(); ++index)
@@ -262,6 +263,137 @@ namespace
         }
         return true;
     }
+
+    bool acceptAwdlIpv6Data()
+    {
+        constexpr size_t kAwdlDataBytes = 16U;
+        constexpr size_t kIpv6LengthLowOffset = 5U;
+        constexpr size_t kAwdlReservedLowOffset = 12U;
+        constexpr size_t kAwdlEtherTypeHighOffset = 14U;
+        constexpr uint8_t kIpv6HeaderVersion = 0x60U;
+        constexpr uint8_t kInvalidIpv6HeaderVersion = 0x40U;
+        constexpr uint8_t kQosFrameType = 0x88U;
+        constexpr uint8_t kQosSubtype = 8U;
+        constexpr size_t kIpv6Bytes = 40U;
+        constexpr size_t kWholeFrameBytes =
+            kHeaderBytes + kAwdlDataBytes + kIpv6Bytes;
+        constexpr uint8_t kDataFrameType = 0x08U;
+        constexpr uint16_t kSequenceNumber = 0x3412U;
+        using DataPacket = std::array<uint8_t, kWholeFrameBytes>;
+        DataPacket frame {};
+        frame.at(0U) = kDataFrameType;
+        const std::array<uint8_t, kMacAddressBytes> destination {
+            0x33U, 0x33U, 0x00U, 0x00U, 0x00U, 0x01U,
+        };
+        const std::array<uint8_t, kMacAddressBytes> station {
+            0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U,
+        };
+        const std::array<uint8_t, kMacAddressBytes> bssid {
+            0x00U, 0x25U, 0x00U, 0xffU, 0x94U, 0x73U,
+        };
+        const std::array<uint8_t, kAwdlDataBytes> awdlData {
+            0xaaU, 0xaaU, 0x03U, 0x00U, 0x17U, 0xf2U, 0x08U, 0x00U,
+            0x03U, 0x04U, 0x12U, 0x34U, 0x00U, 0x00U, 0x86U, 0xddU,
+        };
+        copyField(frame, 4U, destination);
+        copyField(frame, kSourceOffset, station);
+        copyField(frame, kBssidOffset, bssid);
+        copyField(frame, kHeaderBytes, awdlData);
+        const size_t ipv6Offset = kHeaderBytes + kAwdlDataBytes;
+        frame.at(ipv6Offset) =
+            kIpv6HeaderVersion; // IPv6 version; zero payload length.
+        AwdlIpv6Data decoded {};
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+                Result::Ok ||
+            decoded.header.type != FrameType::Data ||
+            decoded.ipv6Offset != ipv6Offset ||
+            decoded.ipv6Bytes != kIpv6Bytes ||
+            decoded.sequence != kSequenceNumber)
+        {
+            return false;
+        }
+        // QoS Data has a two-byte extra header; the SNAP header moves too.
+        std::array<uint8_t, kWholeFrameBytes + 2U> qos {};
+        for (size_t index = 0U; index < kHeaderBytes; ++index)
+        {
+            qos.at(index) = frame.at(index);
+        }
+        for (size_t index = kHeaderBytes; index < frame.size(); ++index)
+        {
+            qos.at(index + 2U) = frame.at(index);
+        }
+        qos.at(0U) = kQosFrameType; // QoS data subtype.
+        if (parseAwdlIpv6Data(qos.data(), qos.size(), decoded) != Result::Ok ||
+            decoded.header.subtype != kQosSubtype ||
+            decoded.ipv6Offset != ipv6Offset + 2U)
+        {
+            return false;
+        }
+        qos.at(0U) = kDataFrameType;
+        qos.at(1U) = 0x01U; // ToDS violates AWDL addressing.
+        if (parseAwdlIpv6Data(qos.data(), qos.size(), decoded) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        frame.at(0U) = kDataFrameType;
+        frame.at(kHeaderBytes + 4U) ^= 0x01U; // Wrong Apple OUI.
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        frame.at(kHeaderBytes + 4U) ^= 0x01U;
+        frame.at(kHeaderBytes + kAwdlEtherTypeHighOffset) ^= 0x01U;
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        frame.at(kHeaderBytes + kAwdlEtherTypeHighOffset) ^= 0x01U;
+        frame.at(kHeaderBytes + kAwdlReservedLowOffset) = 1U;
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        frame.at(kHeaderBytes + kAwdlReservedLowOffset) = 0U;
+        frame.at(ipv6Offset) =
+            kInvalidIpv6HeaderVersion; // IPv4-like version is forbidden.
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::InvalidFrame)
+        {
+            return false;
+        }
+        frame.at(ipv6Offset) = kIpv6HeaderVersion;
+        if (parseAwdlIpv6Data(frame.data(), frame.size() - 1U, decoded) !=
+            Result::Truncated)
+        {
+            return false;
+        }
+        frame.at(ipv6Offset + kIpv6LengthLowOffset) =
+            1U; // Declares one extra IPv6 byte.
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::Truncated)
+        {
+            return false;
+        }
+        frame.at(ipv6Offset + kIpv6LengthLowOffset) = 0U;
+        frame.at(4U) = 0U; // First multicast destination byte.
+        for (size_t index = 4U; index < kSourceOffset; ++index)
+        {
+            frame.at(index) = 0U;
+        }
+        if (parseAwdlIpv6Data(frame.data(), frame.size(), decoded) !=
+            Result::InvalidAddress)
+        {
+            return false;
+        }
+        copyField(frame, 4U, destination);
+        frame.at(kFragmentOffset) = 1U; // Data fragment not reassembled.
+        return parseAwdlIpv6Data(frame.data(), frame.size(), decoded) ==
+               Result::UnsupportedFrame;
+    }
 } // namespace
 
 int main()
@@ -281,6 +413,10 @@ int main()
     if (!acceptPadding())
     {
         return 4;
+    }
+    if (!acceptAwdlIpv6Data())
+    {
+        return kAwdlDataFailure;
     }
     return 0;
 }
