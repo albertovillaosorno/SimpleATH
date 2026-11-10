@@ -104,9 +104,9 @@ namespace simpleath
                 }
 
             private:
-                HandshakePhase phase_;
-                uint64_t latestReplayCounter_;
-                uint8_t initialAnonce_[kEapolAnonceBytes];
+                HandshakePhase phase_ {HandshakePhase::Empty};
+                uint64_t latestReplayCounter_ {0};
+                uint8_t initialAnonce_[kEapolAnonceBytes] {};
         };
 
     } // namespace ieee80211
