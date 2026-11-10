@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_USB_BYTES_HPP
 #define SIMPLEATH_USB_BYTES_HPP
 

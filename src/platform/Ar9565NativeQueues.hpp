@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_AR9565_NATIVE_QUEUES_HPP
 #define SIMPLEATH_AR9565_NATIVE_QUEUES_HPP
 #include "../hardware/Ar9003TxControl.hpp"

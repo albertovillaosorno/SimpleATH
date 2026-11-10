@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Native IOPCIFamily ownership and register transport.
 #ifndef SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP
 #define SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP

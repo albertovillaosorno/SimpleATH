@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Fake WPA2 callbacks and EAPOL bytes only: no radio, keycache or PCI I/O.
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"

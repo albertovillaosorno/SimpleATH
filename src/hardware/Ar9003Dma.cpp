@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Ar9003Dma.hpp"
 #include <cstddef>
 #include <cstdint>

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic AR9565 channel-width PHY/MAC mode and guarded MMIO test.
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Channel.hpp"

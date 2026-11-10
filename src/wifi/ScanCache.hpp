@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Bounded, allocation-free 802.11 BSS discovery cache.
 #ifndef SIMPLEATH_WIFI_SCAN_CACHE_HPP
 #define SIMPLEATH_WIFI_SCAN_CACHE_HPP

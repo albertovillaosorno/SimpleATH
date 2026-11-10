@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Ar9565Pll.hpp"
 #include "Ar9565Channel.hpp"
 #include "Ar9565Core.hpp"

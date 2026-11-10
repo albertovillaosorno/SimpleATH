@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_ATH3K_USB_HPP
 #define SIMPLEATH_ATH3K_USB_HPP
 

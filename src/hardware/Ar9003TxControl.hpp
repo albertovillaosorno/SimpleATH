@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // AR9003 TX control/status codec; adapted from register layouts described in
 // Linux ath9k ar9003_mac.c and mac.h, preserving provenance in the .cpp file.
 // No PCI writes, queue doorbells, IOMMU operations or real RF transmission.

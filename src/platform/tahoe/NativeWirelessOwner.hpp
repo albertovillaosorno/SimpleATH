@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 SimpleATH contributors.
 #ifndef SIMPLEATH_TAHOE_NATIVE_WIRELESS_OWNER_HPP
 #define SIMPLEATH_TAHOE_NATIVE_WIRELESS_OWNER_HPP

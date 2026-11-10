@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // WPA2-PSK/CCMP 4-way handshake state and key installation coordination.
 // Cryptographic operations MUST use a reviewed OS/platform backend.
 #ifndef SIMPLEATH_WIFI_WPA2_SUPPLICANT_HPP

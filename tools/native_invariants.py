@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 SimpleATH contributors.
 """Fail-closed native ABI invariants that remain active in optimized Python."""
 

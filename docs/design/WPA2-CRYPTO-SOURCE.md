@@ -50,7 +50,8 @@ claim that the device has a usable WPA2 association.
   and now pass C++14/C++17 ASan/UBSan rejection cases. This tests defensive
   source boundaries, not native keycache, crypto assurance or radio behavior.
 
-These are new GPL-2.0-only C++ sources built from published specifications
+These are independently authored C++ sources without a project-wide license
+grant, built from published specifications
 (FIPS 180-4, RFC 2104, RFC 2898, FIPS 197, RFC 3394, IEEE 802.11).
 No new third-party implementation is copied or bundled.
 

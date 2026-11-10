@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Intel Tahoe native wireless transport: epoch-scoped provider callbacks.
 #ifndef SIMPLEATH_TAHOE_WIRELESS_TRANSPORT_HPP
 #define SIMPLEATH_TAHOE_WIRELESS_TRANSPORT_HPP

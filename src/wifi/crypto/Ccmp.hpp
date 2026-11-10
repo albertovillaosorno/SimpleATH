@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // 802.11 CCMP-128 for unfragmented, three-address data and QoS data.
 // Pure source implementation; native key/PN ownership still requires wiring.
 #ifndef SIMPLEATH_WIFI_CCMP_HPP

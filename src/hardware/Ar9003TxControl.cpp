@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Hardware descriptor field reference: Linux ath9k ar9003_mac.c / mac.h.
 // Linux reference copyrights and licensing are reproduced for provenance.
 /*

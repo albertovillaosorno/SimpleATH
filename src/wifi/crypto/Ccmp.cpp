@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // CCMP-128: IEEE 802.11 CCMP nonce/AAD/ExtIV and NIST SP 800-38C CCM.
 // FIPS 197 AES-128 forward cipher. No device, RF, entropy or OS I/O.
 #include "Ccmp.hpp"

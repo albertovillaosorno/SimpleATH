@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Host-only 802.11 admission regressions; no RF, Apple80211 or DMA inputs.
 #include "wifi/Frames.hpp"

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic ABI size guards; never uses IOKit, real events, or hardware.
 #include "WirelessABI.hpp"
 

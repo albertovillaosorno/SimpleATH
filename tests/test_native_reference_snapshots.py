@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 SimpleATH contributors.
 """Exercise pinned ABI snapshot integrity with synthetic offline JSON only."""
 

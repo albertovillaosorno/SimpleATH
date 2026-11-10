@@ -1,7 +1,9 @@
 # Third-party notices
 
 The following external projects supply retained references or attributed source.
-They are not relicensed by this file or by the SimpleATH GPL-2.0 license.
+They are not relicensed by this file. SimpleATH has no repository-wide license
+grant for its independently authored source. Third-party terms remain intact.
+The GPLv2 text for components requiring it is retained in licenses/GPL-2.0.txt.
 
 ## Linux kernel (ath9k, mac80211, cfg80211, PCI and Bluetooth)
 
@@ -23,7 +25,8 @@ copyright notices and source material. The prior loader architecture and ABI
 references informed this research, but the current stage-one SimpleATH kext
 contains no embedded SimpleBCM payload or Broadcom runtime.
 
-SimpleATH's newly authored glue and diagnostic code is GPL-2.0-only.
+Independently authored SimpleATH glue and diagnostics have no general license
+grant. Original third-party permissions and obligations remain unchanged.
 
 
 ## AirPort_RTW89
@@ -65,5 +68,19 @@ The repository's kernel extensions, plugin, build and package code use
 PolyForm Noncommercial 1.0.0, Copyright (c) 2026 NullMoth Systems
 (https://nullmothsystems.com). The translator and Mesa changes have separate
 licenses described upstream. Its noncommercial restriction is not replaced
-by SimpleATH's GPL-2.0-only license. Current use is architectural research
+by SimpleATH's personal/research purpose or absence of a general license. Current use is architectural research
 only; no NullMoth code, firmware, binaries or headers are redistributed.
+
+
+## AirportItlwm-BE200 / OpenIntelWireless / OpenBSD
+
+Source: https://github.com/Ersiter/AirportItlwm-BE200
+Reviewed revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163` (2026-11-10).
+
+The root project license is GNU GPL version 2. Original AirportItlwm/WCL
+copyright notices include Copyright (c) 2023 Zhong Xianyao and Copyright
+(c) 2026 laobamac; retain the exact upstream notices for any adapted files.
+OpenBSD-derived networking source keeps its own permissive file notices.
+Current scope is modern WCL request/event and native lifetime comparison;
+any adapted implementation is identified in its destination source header.
+Intel firmware and hardware code are not included for the AR9565.

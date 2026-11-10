@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "UsbHciEndpointSelector.hpp"
 #include "UsbBytes.hpp"
 #include "UsbHci.hpp"

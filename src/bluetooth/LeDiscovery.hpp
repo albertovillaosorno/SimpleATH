@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_LE_DISCOVERY_HPP
 #define SIMPLEATH_LE_DISCOVERY_HPP
 

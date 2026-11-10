@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "hardware/Ar9003Descriptors.hpp"

@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic Mach-O parser safety checks with no real system images."""
 

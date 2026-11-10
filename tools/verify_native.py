@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 """Inspect a legacy native ABI product and opt-in forwarding fixture.
 
 This is a build-time offline verifier; importing it never invokes compilers.

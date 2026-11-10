@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Ath3kUsb.hpp"
 #include "UsbBytes.hpp"
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Source-only OS-native disassociation frame regression, no RF or IOKit.
 #include "wifi/Frames.hpp"
 #include <array>

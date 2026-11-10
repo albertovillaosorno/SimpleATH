@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Ar9565NativePci.hpp"
 #include "Ar9565PciSession.hpp"
 #include "hardware/Ar9565Core.hpp"

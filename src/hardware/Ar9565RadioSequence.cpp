@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565RadioSequence.hpp"
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"

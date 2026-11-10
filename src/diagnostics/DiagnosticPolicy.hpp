@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_DIAGNOSTIC_POLICY_HPP
 #define SIMPLEATH_DIAGNOSTIC_POLICY_HPP
 #include <cstddef>

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic owner and MMIO writer: no radio, PCI, DMA or TX is touched.
 #include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565InitCatalog.hpp"

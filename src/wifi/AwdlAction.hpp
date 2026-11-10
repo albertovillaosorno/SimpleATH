@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Bounded AWDL action-frame ingress. No native peer or AirDrop readiness.
 #ifndef SIMPLEATH_AWDL_ACTION_HPP
 #define SIMPLEATH_AWDL_ACTION_HPP

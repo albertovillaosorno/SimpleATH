@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Linux-derived descriptor format/constants retain their upstream notice.
 /*
  * Copyright (c) 2008-2011 Atheros Communications Inc.

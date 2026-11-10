@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Coordinates portable 802.11 scan, association, EAPOL and data parsing.
 // NO native macOS Wi-Fi interface, physical PCI, RF, DMA, OS event loop,
 // packet allocator or hardware TX is implemented by this engine.

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_TAHOE_CAPTURE_HPP
 #define SIMPLEATH_TAHOE_CAPTURE_HPP
 

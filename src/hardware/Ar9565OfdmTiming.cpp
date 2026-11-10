@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Algorithm: Linux ath9k v6.12 ar9003_phy.c and hw.c; register fields:
 // ar9003_phy.h. Qualcomm/Atheros source licensed under the ISC notice.
 /*

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Host-only regression for public WPA2 outputs: no radio, kernel or DMA.
 #include "wifi/Frames.hpp"

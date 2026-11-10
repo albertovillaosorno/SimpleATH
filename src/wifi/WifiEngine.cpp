@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "WifiEngine.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"

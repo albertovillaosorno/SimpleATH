@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // DMA validation and ring ownership metadata for AR9003/AR9565.
 // The platform's PCI owner supplies actual DMA mappings, memory barriers,
 // interrupt acknowledgements, and hardware queue programming.

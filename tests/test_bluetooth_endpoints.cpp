@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic USB endpoint topology tests; no real USB device or kext loaded.
 #include "bluetooth/Ath3kUsb.hpp"
 #include "bluetooth/UsbHci.hpp"

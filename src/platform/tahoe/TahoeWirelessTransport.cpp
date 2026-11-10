@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "TahoeWirelessTransport.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "wifi/LegacyScanBridge.hpp"

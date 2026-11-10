@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Factory signatures and option byte offsets independently checked against
 // Intel 25G332 corecapture + IO80211Family symbols and option consumers.
 #include "TahoeCapture.hpp"

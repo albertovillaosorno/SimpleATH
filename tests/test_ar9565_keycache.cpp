@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Offline register simulation only. No PCI, firmware or radio access.
 #include "hardware/Ar9565KeyCache.hpp"
 #include "wifi/Frames.hpp"

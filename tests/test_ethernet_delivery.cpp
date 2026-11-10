@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Offline Ethernet-II copy from an accepted 802.11 MSDU; no radio or OS I/O.
 #include "wifi/DataFrames.hpp"
 #include "wifi/Frames.hpp"

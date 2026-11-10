@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Wpa2Supplicant.hpp"
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"

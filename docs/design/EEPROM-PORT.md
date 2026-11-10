@@ -173,8 +173,9 @@ The catalog is included through the already staged `Ar9565Eeprom.cpp`, without
 linking Linux objects or changing the passive service's hardware behavior.
 
 The algorithms and format come from the local Linux ath9k references. Their
-permissive Atheros notice is retained in the new parser; new control code is
-GPL-2.0-only. The original Linux files and generated INI tables are unchanged.
+permissive Atheros notice is retained in the new parser; new control code has
+no project-wide license grant. The original Linux files and generated INI
+tables are unchanged.
 Reference SHA-256 values are recorded in `Ar9565Eeprom.cpp`. No GPL-only Linux
 implementation has been copied into the new parser.
 

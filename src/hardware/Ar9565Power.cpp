@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // ath9k-derived target interpolation and 2 GHz CTL edge interpretation.
 /*
  * Copyright (c) 2008-2011 Atheros Communications Inc.

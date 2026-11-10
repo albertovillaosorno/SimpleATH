@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Infrastructure-station 802.11 data path framing (RFC 1042 LLC/SNAP).
 // Offline CCMP framing only; NO RF, PCI DMA or native interface ownership.
 #ifndef SIMPLEATH_WIFI_DATA_PATH_HPP

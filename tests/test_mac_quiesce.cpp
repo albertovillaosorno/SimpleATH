@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565MacControl.hpp"
 #include <cstdint>

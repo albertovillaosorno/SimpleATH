@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Original compact implementation of the published SHA-1, PBKDF2, WPA2
 // PRF-384, AES-128 inverse cipher and RFC3394 key unwrap algorithms.
 //

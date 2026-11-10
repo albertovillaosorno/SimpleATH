@@ -317,8 +317,16 @@ Wi-Fi or AirPort on the target machine.
 
 ## License and attribution
 
-New authored SimpleATH source is GPL-2.0-only. Referenced Linux
-ath9k source and imported tables retain their original permissive
-file-specific license notices; historical SimpleBCM reference
-material retains its original attribution. See
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This is the owner's public personal development and research project.
+No repository-wide license is granted for independently authored SimpleATH
+code. Public source availability is not a blanket permission to reuse it.
+
+Third-party components retain their own licenses, copyrights and conditions;
+GPL-2.0 components remain GPL-2.0, and permissive imports keep their original
+notices. [licenses/GPL-2.0.txt](licenses/GPL-2.0.txt) is the retained third-party
+GPLv2 text, not a license for the whole repository. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for exact scopes.
+
+Removing a project-wide license does not waive upstream terms or the GPL
+obligations of a distributed combined derivative. No license of upstream
+NullMoth code is changed by this policy.

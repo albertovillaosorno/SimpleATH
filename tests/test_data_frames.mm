@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Objective-C++ frontend and portable LLC RX; no Apple framework required.
 #include "wifi/DataFrames.hpp"

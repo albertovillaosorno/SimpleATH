@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Portable 802.11 management frame parser and frame serializers.
 // Parsing an AP beacon is not equivalent to having a working Wi-Fi radio.
 #ifndef SIMPLEATH_IEEE80211_FRAMES_HPP

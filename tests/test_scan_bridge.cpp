@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Offline portable scan pipeline; this is NOT Apple80211, RF or device I/O.
 #include "wifi/Frames.hpp"

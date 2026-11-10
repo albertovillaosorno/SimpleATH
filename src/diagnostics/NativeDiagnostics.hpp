@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_NATIVE_DIAGNOSTICS_HPP
 #define SIMPLEATH_NATIVE_DIAGNOSTICS_HPP
 #include "DiagnosticPolicy.hpp"

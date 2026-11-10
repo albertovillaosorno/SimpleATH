@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Alberto Villa Osorno.
 """Exercise real validator failure paths and offline language execution."""
 

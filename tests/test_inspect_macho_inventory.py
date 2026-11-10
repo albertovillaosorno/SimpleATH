@@ -1,4 +1,3 @@
-# SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 SimpleATH contributors.
 """Synthetic Mach-O symbol inventory boundaries; no host images or KDK reads."""
 

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "Station.hpp"
 #include "Frames.hpp"
 #include "Wpa2Supplicant.hpp"

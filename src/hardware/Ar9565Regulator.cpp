@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Linux ath9k v6.12 ar9003_eeprom.c: ar9003_hw_internal_regulator_apply,
 // ar9003_phy.h: AR_PHY_PMU1(AR_SREV_9565) and AR_PHY_PMU1_PWD.
 /*

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Portable AR9003 descriptor codec contract only; no DMA mapping or hardware.
 #include "hardware/Ar9003Descriptors.hpp"

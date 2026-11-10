@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // AR9003 keycache register protocol from Linux ath/key.c and ath/reg.h:
 // https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/key.c
 // Original reference copyright (c) 2008-2009 Atheros Communications Inc.

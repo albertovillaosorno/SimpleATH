@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "ScanCache.hpp"
 #include "wifi/Frames.hpp"
 #include <cstddef>

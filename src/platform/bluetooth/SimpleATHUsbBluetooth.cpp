@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #include "SimpleATHUsbBluetooth.hpp"
 #include "NativeAth3kIo.hpp"
 #include "bluetooth/Ath3kUsb.hpp"

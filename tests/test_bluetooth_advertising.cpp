@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Offline synthetic HCI USB transport. No physical controller or BLE RF.
 #include "bluetooth/LeAdvertising.hpp"
 #include "bluetooth/UsbBytes.hpp"

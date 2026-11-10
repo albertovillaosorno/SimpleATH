@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 #ifndef SIMPLEATH_AR9565_PHY_MODE_HPP
 #define SIMPLEATH_AR9565_PHY_MODE_HPP
 

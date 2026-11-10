@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Portable malformed-payload guard tests; no kernel, PCI or kext operations.
 #include "NativeProfile.hpp"
 #include "Payload.hpp"

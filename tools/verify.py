@@ -5,7 +5,6 @@
 #  Created by laobamac on 2026/9/5.
 #  Copyright © 2026 laobamac. All rights reserved.
 #
-# SPDX-License-Identifier: GPL-2.0-only
 """Run the opt-in macOS ABI verification fixture with checked outputs."""
 
 from __future__ import annotations

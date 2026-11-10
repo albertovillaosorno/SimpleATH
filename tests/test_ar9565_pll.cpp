@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Synthetic PLL register protocol, no live PCI, RF or kext dependency.
 #include "hardware/Ar9565Channel.hpp"
 #include "hardware/Ar9565Core.hpp"

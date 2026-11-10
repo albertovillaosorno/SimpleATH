@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Offline legacy BLE controller scan tests. No Bluetooth hardware or host API.
 #include "bluetooth/LeDiscovery.hpp"
 #include "bluetooth/UsbBytes.hpp"

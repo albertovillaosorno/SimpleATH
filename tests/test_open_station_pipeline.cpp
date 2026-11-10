@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Portable synthetic open-BSS association; NO native Wi-Fi, RF, PCI or OS I/O.
 #include "wifi/DataFrames.hpp"

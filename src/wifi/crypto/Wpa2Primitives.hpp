@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0-only
 // Portable WPA2-PSK cryptographic primitives. This is not an entropy source,
 // keychain, negotiated RSN policy, CCMP packet engine or hardware key backend.
 //
