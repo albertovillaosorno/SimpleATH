@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "bluetooth/UsbBytes.hpp"
+
 namespace simpleath
 {
     namespace tahoe
@@ -17,41 +19,61 @@ namespace simpleath
         constexpr unsigned int kWclConnectionEvent = 213;
         constexpr unsigned int kWclJoinAbortEvent = 214;
         constexpr unsigned int kWclLinkEvent = 216;
-        constexpr size_t kWclConnectionEventBytes = 0xa4;
+        constexpr size_t kWclConnectionEventBytes = 0xa4U;
+        constexpr size_t kWclMacAddressBytes = 6U;
+        constexpr size_t kWclSupplicantEventBytes = 0x28U;
+        constexpr size_t kWclDeauthEventBytes = 0x14U;
+        constexpr size_t kWclAssociationEventBytes = 0x1cU;
+        constexpr size_t kWclBeaconEventBytes = 0x14U;
+        constexpr size_t kWclLinkEventBytes = 0x10U;
+        constexpr size_t kWclStatusOffset = 8U;
+        constexpr size_t kWclLinkStateOffset = 6U;
+        constexpr size_t kWclDeauthBssidOffset = 10U;
+        constexpr size_t kWclAssociationBssidOffset = 5U;
+        constexpr size_t kWclCommonBssidOffset = 4U;
+        constexpr size_t kWclAssociationStatusOffset = 20U;
+        constexpr size_t kWclCommonStatusOffset = 12U;
+
+        struct JoinEventOutcome
+        {
+                int32_t driverStatus;
+                uint16_t reason;
+        };
 
         template <typename T>
         inline void joinEventValue(uint8_t *bytes, size_t offset, T value)
         {
-            memcpy(bytes + offset, &value, sizeof(value));
+            memcpy(simpleath::usbByteOffset(bytes, offset), &value,
+                   sizeof(value));
         }
 
         // A native event may announce only observed provider progress. This
         // encoder just writes the native envelope; it cannot authorize a port.
         inline size_t encodeJoinEvent(unsigned int message,
-                                      const uint8_t bssid[6],
-                                      int32_t driverStatus, uint16_t reason,
-                                      bool up, uint8_t *out, size_t capacity)
+                                      const uint8_t bssid[kWclMacAddressBytes],
+                                      const JoinEventOutcome &outcome, bool up,
+                                      uint8_t *out, size_t capacity)
         {
             size_t length = 0;
             switch (message)
             {
                 case kWclSupplicantEvent:
-                    length = 0x28;
+                    length = kWclSupplicantEventBytes;
                     break;
                 case kWclDeauthEvent:
-                    length = 0x14;
+                    length = kWclDeauthEventBytes;
                     break;
                 case kWclAssociationEvent:
-                    length = 0x1c;
+                    length = kWclAssociationEventBytes;
                     break;
                 case kWclFirstBeaconEvent:
-                    length = 0x14;
+                    length = kWclBeaconEventBytes;
                     break;
                 case kWclConnectionEvent:
-                    length = 0xa4;
+                    length = kWclConnectionEventBytes;
                     break;
                 case kWclLinkEvent:
-                    length = 0x10;
+                    length = kWclLinkEventBytes;
                     break;
                 default:
                     return 0;
@@ -60,34 +82,44 @@ namespace simpleath
             {
                 return 0;
             }
-            uint8_t address[6] {};
-            memcpy(address, bssid, sizeof(address));
+            uint8_t address[kWclMacAddressBytes] {};
+            memcpy(&address[0U], bssid, sizeof(address));
             memset(out, 0, length);
             if (message == kWclSupplicantEvent)
             {
                 joinEventValue<uint32_t>(out, 0, 1);
-                joinEventValue<int32_t>(out, 8, driverStatus);
+                joinEventValue<int32_t>(out, kWclStatusOffset,
+                                        outcome.driverStatus);
             }
             else if (message == kWclLinkEvent)
             {
-                memcpy(out, address, sizeof(address));
-                out[6] = up ? 1U : 0U;
-                joinEventValue<uint32_t>(out, 8, reason);
+                memcpy(out, &address[0U], sizeof(address));
+                *simpleath::usbByteOffset(out, kWclLinkStateOffset) =
+                    up ? 1U : 0U;
+                joinEventValue<uint32_t>(out, kWclStatusOffset, outcome.reason);
             }
             else if (message == kWclDeauthEvent)
             {
-                joinEventValue<int32_t>(out, 0, driverStatus);
-                joinEventValue<uint16_t>(out, 8, reason);
-                memcpy(out + 10, address, sizeof(address));
+                joinEventValue<int32_t>(out, 0, outcome.driverStatus);
+                joinEventValue<uint16_t>(out, kWclStatusOffset, outcome.reason);
+                memcpy(simpleath::usbByteOffset(out, kWclDeauthBssidOffset),
+                       &address[0U], sizeof(address));
             }
             else
             {
-                joinEventValue<uint16_t>(out, 0, driverStatus == 0 ? 0 : 1);
-                joinEventValue<uint16_t>(out, 2, reason);
+                joinEventValue<uint16_t>(out, 0,
+                                         outcome.driverStatus == 0 ? 0 : 1);
+                joinEventValue<uint16_t>(out, 2, outcome.reason);
                 const bool association = message == kWclAssociationEvent;
-                memcpy(out + (association ? 5U : 4U), address, sizeof(address));
-                joinEventValue<int32_t>(out, association ? 20U : 12U,
-                                        driverStatus);
+                memcpy(simpleath::usbByteOffset(
+                           out, association ? kWclAssociationBssidOffset
+                                            : kWclCommonBssidOffset),
+                       &address[0U], sizeof(address));
+                joinEventValue<int32_t>(out,
+                                        association
+                                            ? kWclAssociationStatusOffset
+                                            : kWclCommonStatusOffset,
+                                        outcome.driverStatus);
             }
             return length;
         }

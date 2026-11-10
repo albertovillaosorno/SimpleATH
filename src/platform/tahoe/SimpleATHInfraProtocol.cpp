@@ -631,8 +631,8 @@ void SimpleATHInfraProtocol::emitJoin(unsigned int message, IOReturn status,
 {
     uint8_t bytes[simpleath::tahoe::kWclConnectionEventBytes] {};
     const size_t length = simpleath::tahoe::encodeJoinEvent(
-        message, join_.bssid(), static_cast<int32_t>(status), reason, up, bytes,
-        sizeof(bytes));
+        message, join_.bssid(), {static_cast<int32_t>(status), reason}, up,
+        bytes, sizeof(bytes));
     if (length != 0)
     {
         emit(message, bytes, length);
