@@ -174,6 +174,20 @@ namespace simpleath
                                            uint8_t requestedChannel,
                                            bool allowOpen, bool allowWpa2,
                                            const uint8_t pmk[kWpa2PmkBytes]);
+                // Native macOS owns PSK derivation/EAPOL/CCMP on this path.
+                // Select only the exact observed BSSID and security type;
+                // never start the portable supplicant or accept a PMK here.
+                // All scan, radio and country checks still apply. This
+                // selects a candidate, NOT an association or usable port.
+                EngineResult chooseNetworkForOsSupplicant(
+                    const Mac &station, const Mac &bssid, const uint8_t *ssid,
+                    size_t ssidLength, uint8_t requestedChannel,
+                    bool wpa2Personal);
+
+                bool osSupplicantOwnsWpa2() const
+                {
+                    return osSupplicantOwned_;
+                }
 
                 // Caller submits returned frame only after full
                 // RF/calibration/DMA policy.
@@ -286,6 +300,7 @@ namespace simpleath
                 uint16_t nextSequence_ {0};
                 bool selected_ {false};
                 bool keysConfigured_ {false};
+                bool osSupplicantOwned_ {false};
                 bool channelAuthorized_ {false};
                 static constexpr size_t kMaximumScanChannels = 14;
                 ScanChannelDwell scanChannels_[kMaximumScanChannels] {};

@@ -204,6 +204,7 @@ namespace simpleath
             stationAddress_ = {};
             selected_ = false;
             keysConfigured_ = false;
+            osSupplicantOwned_ = false;
             channelAuthorized_ = false;
             nextSequence_ = 0;
             resetDataSequences();
@@ -508,6 +509,56 @@ namespace simpleath
                 return EngineResult::InvalidInput;
             }
             selected_ = true;
+            osSupplicantOwned_ = false;
+            resetDataSequences();
+            stationAddress_ = station;
+            return EngineResult::Ok;
+        }
+
+        EngineResult WifiEngine::chooseNetworkForOsSupplicant(
+            const Mac &station, const Mac &bssid, const uint8_t *ssid,
+            size_t ssidLength, uint8_t requestedChannel, bool wpa2Personal)
+        {
+            // An already configured internal key provider must never share
+            // EAPOL, nonce or key ownership with the native OS supplicant.
+            if (selected_ || keysConfigured_ ||
+                station_.state() != StationState::Scanning ||
+                (scanConfigured_ && !scanComplete_))
+            {
+                return EngineResult::InvalidState;
+            }
+            if (!channelAuthorized_ || requestedChannel < 1U ||
+                requestedChannel > kMaximum2GhzChannel)
+            {
+                return EngineResult::CountryNotAuthorized;
+            }
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid) || ssid == nullptr || ssidLength == 0 ||
+                ssidLength > kMaxSsidBytes ||
+                overlaps(ssid, ssidLength, this, sizeof(*this)) ||
+                overlaps(&station, sizeof(station), this, sizeof(*this)) ||
+                overlaps(&bssid, sizeof(bssid), this, sizeof(*this)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            Bss candidate {};
+            if (!cache_.matchingBssid(bssid, ssid,
+                                      ScanSelection {
+                                          ssidLength,
+                                          requestedChannel,
+                                          !wpa2Personal,
+                                          wpa2Personal,
+                                      },
+                                      candidate))
+            {
+                return EngineResult::NoMatchingBss;
+            }
+            if (station_.select(station, candidate) != StationResult::Ok)
+            {
+                return EngineResult::InvalidInput;
+            }
+            selected_ = true;
+            osSupplicantOwned_ = wpa2Personal;
             resetDataSequences();
             stationAddress_ = station;
             return EngineResult::Ok;
@@ -524,6 +575,7 @@ namespace simpleath
             stationAddress_ = {};
             resetDataSequences();
             selected_ = false;
+            osSupplicantOwned_ = false;
         }
 
         EngineResult WifiEngine::emitPrepared(ActionKind kind, size_t written,
@@ -802,6 +854,13 @@ namespace simpleath
                 action = result;
                 return EngineResult::Ok;
             }
+            // The native OS-owned EAPOL path is separately admitted by the
+            // physical EDMA owner and forwarded to one OS supplicant. Never
+            // run the portable PMK/nonce/handshake callbacks for that link.
+            if (osSupplicantOwned_)
+            {
+                return EngineResult::NoAction;
+            }
             if (link.security != LinkSecurity::Wpa2Ccmp ||
                 state != StationState::WaitingForWpa2Keys)
             {
@@ -986,6 +1045,7 @@ namespace simpleath
             resetDataSequences();
             selected_ = false;
             keysConfigured_ = false;
+            osSupplicantOwned_ = false;
             channelAuthorized_ = false;
             scanConfigured_ = false;
             scanOnChannel_ = false;

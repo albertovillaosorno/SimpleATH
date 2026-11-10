@@ -183,6 +183,121 @@ namespace
         return true;
     }
 
+    bool osOwnedWpa2SelectsExactObservedBssid()
+    {
+        using namespace simpleath::ieee80211;
+        constexpr uint8_t rsnIe[22] {
+            48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+            0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
+        };
+        uint8_t advertisement[kBeaconBytes + sizeof(rsnIe)] {};
+        makeBeacon(advertisement, 6);
+        advertisement[34] |= 0x10; // RSN privacy capability.
+        for (size_t i = 0; i < sizeof(rsnIe); ++i)
+        {
+            advertisement[kBeaconBytes + i] = rsnIe[i];
+        }
+        const Mac weaker {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac stronger {{0x02, 0x11, 0x22, 0x33, 0x44, 0x66}};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const uint8_t ssid[] {'T', 'e', 's', 't'};
+        const ScanSelection allowed {sizeof(ssid), 6, false, true};
+        ScanCache cache;
+        Bss result {};
+        if (cache.observe(advertisement, {sizeof(advertisement), -68, 100}) !=
+            Result::Ok)
+        {
+            return false;
+        }
+        advertisement[15] = advertisement[21] = stronger.bytes[5];
+        if (cache.observe(advertisement, {sizeof(advertisement), -21, 101}) !=
+                Result::Ok ||
+            !cache.strongest(ssid, allowed, result) ||
+            !sameMac(result.beacon.bssid, stronger) ||
+            !cache.matchingBssid(weaker, ssid, allowed, result) ||
+            !sameMac(result.beacon.bssid, weaker))
+        {
+            return false;
+        }
+        result.rssiDbm = 12;
+        const Mac unknown {{0x02, 0x11, 0x22, 0x33, 0x44, 0x77}};
+        if (cache.matchingBssid(unknown, ssid, allowed, result) ||
+            result.occupied || result.rssiDbm != 0 ||
+            cache.matchingBssid(weaker, ssid, {sizeof(ssid), 11, false, true},
+                                result) ||
+            cache.matchingBssid(weaker, ssid, {sizeof(ssid), 6, true, false},
+                                result))
+        {
+            return false;
+        }
+        // Reject aliased output without corrupting the caller's BSSID.
+        Bss aliased {};
+        aliased.beacon.bssid = weaker;
+        if (cache.matchingBssid(aliased.beacon.bssid, ssid, allowed, aliased) ||
+            !sameMac(aliased.beacon.bssid, weaker))
+        {
+            return false;
+        }
+
+        static WifiEngine native;
+        if (native.startScan(true, true) != EngineResult::Ok)
+        {
+            return false;
+        }
+        EngineAction action {};
+        const InputTrust verified {true, true, true, false};
+        // The OS selected the *weaker* observed BSSID; never silently join
+        // the stronger neighbor with the same SSID and advertised RSNE.
+        advertisement[15] = advertisement[21] = weaker.bytes[5];
+        if (native.acceptRx(advertisement, sizeof(advertisement), verified,
+                            {-68, 200}, nullptr, 0, action) != EngineResult::Ok)
+        {
+            return false;
+        }
+        advertisement[15] = advertisement[21] = stronger.bytes[5];
+        if (native.acceptRx(advertisement, sizeof(advertisement), verified,
+                            {-21, 201}, nullptr, 0,
+                            action) != EngineResult::Ok ||
+            native.chooseNetworkForOsSupplicant(station, unknown, ssid,
+                                                sizeof(ssid), 6, true) !=
+                EngineResult::NoMatchingBss ||
+            native.chooseNetworkForOsSupplicant(station, weaker, ssid,
+                                                sizeof(ssid), 6, false) !=
+                EngineResult::NoMatchingBss ||
+            native.chooseNetworkForOsSupplicant(weaker, weaker, ssid,
+                                                sizeof(ssid), 6, true) !=
+                EngineResult::InvalidInput ||
+            native.chooseNetwork(station, ssid, sizeof(ssid), 6, false, true,
+                                 nullptr) != EngineResult::CryptoUnavailable ||
+            native.chooseNetworkForOsSupplicant(station, weaker, ssid,
+                                                sizeof(ssid), 6,
+                                                true) != EngineResult::Ok ||
+            !native.osSupplicantOwnsWpa2() ||
+            native.stationState() != StationState::CandidateSelected ||
+            native.chooseNetworkForOsSupplicant(station, stronger, ssid,
+                                                sizeof(ssid), 6, true) !=
+                EngineResult::InvalidState)
+        {
+            return false;
+        }
+        uint8_t outbound[256] {};
+        if (native.requestAuthentication(7, outbound, sizeof(outbound),
+                                         action) != EngineResult::Ok ||
+            action.kind != ActionKind::TransmitAuthentication ||
+            action.bytes < 24 || outbound[4] != weaker.bytes[0] ||
+            outbound[9] != weaker.bytes[5])
+        {
+            return false;
+        }
+        native.radioStopped(202, true);
+        if (native.osSupplicantOwnsWpa2() ||
+            native.stationState() != StationState::Inactive)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool preferCompatibleAssociationRates()
     {
         using namespace simpleath::ieee80211;
@@ -241,6 +356,10 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!osOwnedWpa2SelectsExactObservedBssid())
+    {
+        return 37;
+    }
     if (!scheduledPassiveScanRequiresVerifiedTune())
     {
         return 36;

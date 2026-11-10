@@ -282,6 +282,38 @@ namespace simpleath
             return true;
         }
 
+        bool ScanCache::matchingBssid(const Mac &bssid, const uint8_t *ssid,
+                                      const ScanSelection &selection,
+                                      Bss &out) const
+        {
+            const size_t ssidLength = selection.ssidLength;
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), &bssid, sizeof(bssid)) ||
+                overlaps(&out, sizeof(out), ssid, ssidLength) ||
+                overlaps(&bssid, sizeof(bssid), this, sizeof(*this)) ||
+                overlaps(ssid, ssidLength, this, sizeof(*this)))
+            {
+                return false;
+            }
+            if (!validStationMac(bssid) || ssidLength == 0 ||
+                ssidLength > kMaxSsidBytes || ssid == nullptr)
+            {
+                out = {};
+                return false;
+            }
+            for (const Bss &candidate : entries_)
+            {
+                if (sameMac(candidate.beacon.bssid, bssid) &&
+                    eligibleForSelection(candidate, ssid, selection))
+                {
+                    out = candidate;
+                    return true;
+                }
+            }
+            out = {};
+            return false;
+        }
+
         bool ScanCache::strongest(const uint8_t *ssid,
                                   const ScanSelection &selection,
                                   Bss &out) const

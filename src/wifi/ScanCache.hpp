@@ -68,6 +68,14 @@ namespace simpleath
                 // The output cannot overlap the input SSID or this cache.
                 bool strongest(const uint8_t *ssid,
                                const ScanSelection &selection, Bss &out) const;
+                // Select the exact OS-requested BSSID, not merely the
+                // strongest matching SSID. Apply identical security, rate,
+                // channel and visible-SSID admission to strongest(). A
+                // failed lookup clears out unless output aliases any input
+                // or cache storage; no borrowed BSS pointer escapes.
+                bool matchingBssid(const Mac &bssid, const uint8_t *ssid,
+                                   const ScanSelection &selection,
+                                   Bss &out) const;
 
             private:
                 Bss entries_[kCapacity] {};

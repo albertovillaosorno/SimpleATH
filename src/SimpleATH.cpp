@@ -396,6 +396,7 @@ class SimpleATH final : public IOService
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 self.engine_.stationState() !=
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                !self.engine_.osSupplicantOwnsWpa2() ||
                 !simpleath::ieee80211::validStationMac(link.station) ||
                 !simpleath::ieee80211::validStationMac(link.bssid))
             {
@@ -535,6 +536,7 @@ class SimpleATH final : public IOService
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 self.engine_.stationState() !=
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                !self.engine_.osSupplicantOwnsWpa2() ||
                 !self.nativePairwiseTx_.installed() ||
                 !self.nativePairwiseRx_.installed() ||
                 !self.nativeGroupInstalled())
@@ -655,8 +657,9 @@ class SimpleATH final : public IOService
                 ethernetHeader[kEtherTypeLowOffset] ==
                     static_cast<uint8_t>(kEtherTypeEapol);
             const bool nativeHandshake =
+                self->engine_.osSupplicantOwnsWpa2() &&
                 self->engine_.stationState() ==
-                simpleath::ieee80211::StationState::WaitingForWpa2Keys;
+                    simpleath::ieee80211::StationState::WaitingForWpa2Keys;
             if (!self->powered_ || self->stopping_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 self->nativePairwiseKeyRevoked_ ||
@@ -1078,6 +1081,7 @@ class SimpleATH final : public IOService
                 queues_.phase() != simpleath::NativeQueuePhase::Running ||
                 queues_.epoch() != epoch_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
+                !engine_.osSupplicantOwnsWpa2() ||
                 !nativePairwiseTx_.installed() ||
                 !nativePairwiseRx_.installed() || !nativeGroupInstalled())
             {
@@ -1173,6 +1177,7 @@ class SimpleATH final : public IOService
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 engine_.stationState() !=
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                !engine_.osSupplicantOwnsWpa2() ||
                 nativePairwiseTx_.installed() ||
                 nativePairwiseRx_.installed() || nativeGroupInstalled())
             {
@@ -1208,9 +1213,10 @@ class SimpleATH final : public IOService
             // use the matching native CCMP session, not the portable engine's
             // cleartext M1/M3 supplicant. Management frames may still feed the
             // scan/association state machine without granting data readiness.
-            if (self.nativePairwiseTx_.installed() ||
-                self.nativePairwiseRx_.installed() ||
-                self.nativeGroupInstalled())
+            if (self.engine_.osSupplicantOwnsWpa2() &&
+                (self.nativePairwiseTx_.installed() ||
+                 self.nativePairwiseRx_.installed() ||
+                 self.nativeGroupInstalled()))
             {
                 simpleath::ieee80211::Frame header {};
                 if (frame == nullptr || bytes < kFcsBytes ||
@@ -1230,7 +1236,8 @@ class SimpleATH final : public IOService
                     return;
                 }
             }
-            if (self.engine_.stationState() ==
+            if (self.engine_.osSupplicantOwnsWpa2() &&
+                self.engine_.stationState() ==
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys &&
                 self.engine_.linkStatus().state ==
                     simpleath::ieee80211::LinkState::Associated)
