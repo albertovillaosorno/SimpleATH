@@ -1251,6 +1251,81 @@ namespace
                !state.aclWindow.connections.at(0U).active && !state.faulted;
     }
 
+    // The HCI ACL header carries Packet Boundary and Broadcast flag bits in
+    // octet 1. A confirmed handle is not permission to submit reserved or
+    // foreign-link flags, nor to forward malformed controller ACL ingress.
+    bool testAclHeaderFlags()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        auto classicConnected = kClassicConnected;
+        classicConnected.at(3U) = 1U;
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), classicConnected.data(),
+                               classicConnected.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        auto packet = kLeAcl;
+        constexpr uint8_t kClassicBroadcastStart = 0x60U;
+        // Bits 5:4 == 3 are reserved. Broadcast values 2 and 3 are also
+        // reserved; invalid TX must not consume controller ACL credits.
+        constexpr std::array<uint8_t, 3U> kBadClassicTxFlags {
+            0x30U,
+            0x80U,
+            0xc0U,
+        };
+        for (const uint8_t flag : kBadClassicTxFlags)
+        {
+            packet.at(1U) = flag;
+            if (sendUsbHciAcl(state, host(fake), packet.data(),
+                              packet.size()) != UsbHciStatus::MalformedPacket ||
+                state.aclWindow.availableCredits != 2U || state.faulted)
+            {
+                return false;
+            }
+        }
+        // Classic piconet broadcast is not the same as a reserved flag; it
+        // remains transport-legal and is subject to the native host policy.
+        packet.at(1U) = kClassicBroadcastStart;
+        if (sendUsbHciAcl(state, host(fake), packet.data(), packet.size()) !=
+                UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U)
+        {
+            return false;
+        }
+        // Controller-to-host PB=0 is not permitted for normal ACL receive.
+        packet.at(1U) = 0U;
+        if (receiveUsbHciAcl(state, host(fake), packet.data(), packet.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || fake.deliveredAclBytes != 0U)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                              kLeReadSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kLeDedicatedResponse.data(),
+                               kLeDedicatedResponse.size()) !=
+                UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
+                               kLeConnected.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        // LE-U never permits BR/EDR broadcast, even on a real LE handle.
+        packet.at(1U) = kClassicBroadcastStart;
+        return sendUsbHciAcl(state, host(fake), packet.data(), packet.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.leAclWindow.availableCredits == 2U && !state.faulted &&
+               receiveUsbHciAcl(state, host(fake), packet.data(),
+                                packet.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted && fake.deliveredAclBytes == 0U;
+    }
+
     bool testMalformedLeBufferSize()
     {
         UsbFake fake = newFake();
@@ -1665,6 +1740,11 @@ int main()
     if (!testAclHandlePressure())
     {
         return 4;
+    }
+    if (!testAclHeaderFlags())
+    {
+        constexpr int kAclHeaderFlagsFailure = 22;
+        return kAclHeaderFlagsFailure;
     }
     if (!testAclInboundHandleAdmission())
     {

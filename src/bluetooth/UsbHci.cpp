@@ -258,6 +258,29 @@ namespace simpleath
             return accountDisconnection(state, packet, bytes);
         }
 
+        // Core HCI ACL header flags (Vol 4, Part E, 5.4.2). Reserved PB=3
+        // must never reach the USB pipe or the host. Normal controller RX
+        // cannot send host-only PB=0; LE-U does not support the BR/EDR
+        // broadcast flag. The classic host retains role-policy ownership of
+        // its permitted broadcast packets.
+        bool validAclHeaderFlags(const uint8_t *packet,
+                                 const UsbHciAclHandle &entry,
+                                 bool hostToController)
+        {
+            constexpr uint8_t kBoundaryMask = 0x30U;
+            constexpr uint8_t kBoundaryReserved = 0x30U;
+            constexpr uint8_t kBoundaryHostOnly = 0x00U;
+            constexpr uint8_t kBroadcastMask = 0xc0U;
+            constexpr uint8_t kBrEdrBroadcast = 0x40U;
+            const uint8_t flags = *usbByteOffset(packet, 1U);
+            const uint8_t boundary = flags & kBoundaryMask;
+            const uint8_t broadcast = flags & kBroadcastMask;
+            return boundary != kBoundaryReserved &&
+                   (hostToController || boundary != kBoundaryHostOnly) &&
+                   (broadcast == 0U ||
+                    (!entry.le && broadcast == kBrEdrBroadcast));
+        }
+
         UsbHciAclCredits &creditPool(UsbHciAclWindow &classic,
                                      UsbHciLeAclWindow &le,
                                      const UsbHciAclHandle &entry)
@@ -578,7 +601,8 @@ namespace simpleath
                 const UsbHciAclHandle *entry =
                     findHandle(state.aclWindow, handle, false);
                 if (handle > kHciMaximumHandle || entry == nullptr ||
-                    !entry->classified || !entry->connected || entry->retired)
+                    !entry->classified || !entry->connected || entry->retired ||
+                    !validAclHeaderFlags(stream.packet.data(), *entry, false))
                 {
                     state.faulted = true;
                     return UsbHciStatus::MalformedPacket;
@@ -844,6 +868,10 @@ namespace simpleath
             entry->retired || (entry->le && !state.leAclWindow.configured))
         {
             return UsbHciStatus::FlowControlUnavailable;
+        }
+        if (!validAclHeaderFlags(packet, *entry, true))
+        {
+            return UsbHciStatus::MalformedPacket;
         }
         UsbHciAclCredits &pool = creditPool(window, state.leAclWindow, *entry);
         if (!pool.configured)
