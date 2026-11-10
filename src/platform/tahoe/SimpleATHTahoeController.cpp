@@ -18,7 +18,33 @@
 // source-level value layouts are only accepted when their version matches.
 #include <IOKit/80211/apple80211_ioctl.h>
 
-OSDefineMetaClassAndStructors(SimpleATHTahoeController, IO80211Controller)
+// Preserve IOKit metaclass symbols and constructor semantics while ensuring
+// its static registration cannot propagate exceptions during kext loading.
+SimpleATHTahoeController::MetaClass SimpleATHTahoeController::gMetaClass;
+const OSMetaClass *const SimpleATHTahoeController::metaClass =
+    &SimpleATHTahoeController::gMetaClass;
+constexpr const OSMetaClass *SimpleATHTahoeController::superClass;
+
+SimpleATHTahoeController::SimpleATHTahoeController(const OSMetaClass *meta)
+    : IO80211Controller(meta)
+{
+}
+
+SimpleATHTahoeController::~SimpleATHTahoeController() = default;
+
+const OSMetaClass *SimpleATHTahoeController::getMetaClass() const
+{
+    return &gMetaClass;
+}
+
+SimpleATHTahoeController::MetaClass::MetaClass() noexcept
+    : OSMetaClass("SimpleATHTahoeController",
+                  SimpleATHTahoeController::superClass,
+                  sizeof(SimpleATHTahoeController))
+{
+}
+
+OSDefineDefaultStructors(SimpleATHTahoeController, IO80211Controller)
 
     namespace
 {

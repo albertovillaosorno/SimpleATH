@@ -25,9 +25,36 @@ class CommonFaultReporter;
 
 class IO80211WorkQueue : public IOWorkLoop
 {
-    OSDeclareAbstractStructors(IO80211WorkQueue) private
-        : uint8_t nativeStorage_[simpleath::tahoe::kWorkQueueAbiBytes -
-                                 sizeof(IOWorkLoop)];
+        // Expand the IOKit metaclass declaration to express ownership
+        // explicitly. These declarations preserve the imported 25G332 object
+        // and vtable ABI.
+    private:
+        static const OSMetaClass *const superClass;
+
+    public:
+        static const OSMetaClass *const metaClass;
+
+        static class MetaClass : public OSMetaClass
+        {
+            public:
+                MetaClass();
+                OSObject *alloc() const APPLE_KEXT_OVERRIDE;
+        } gMetaClass;
+        friend class IO80211WorkQueue::MetaClass;
+        const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        IO80211WorkQueue(const IO80211WorkQueue &) = delete;
+        IO80211WorkQueue &operator=(const IO80211WorkQueue &) = delete;
+        IO80211WorkQueue(IO80211WorkQueue &&) = delete;
+        IO80211WorkQueue &operator=(IO80211WorkQueue &&) = delete;
+        ~IO80211WorkQueue() APPLE_KEXT_OVERRIDE;
+
+    protected:
+        explicit IO80211WorkQueue(const OSMetaClass *);
+
+    private:
+        IO80211WorkQueue();
+        uint8_t nativeStorage_[simpleath::tahoe::kWorkQueueAbiBytes -
+                               sizeof(IOWorkLoop)];
 };
 
 static_assert(sizeof(IO80211WorkQueue) == simpleath::tahoe::kWorkQueueAbiBytes,
@@ -42,8 +69,32 @@ static_assert(sizeof(IO80211WorkQueue) == simpleath::tahoe::kWorkQueueAbiBytes,
 // required driver overrides retain the actual x86_64 calling convention.
 class IO80211Controller : public IOEthernetController
 {
-    OSDeclareAbstractStructors(IO80211Controller) protected
-        : void free() override;
+    private:
+        static const OSMetaClass *const superClass;
+
+    public:
+        static const OSMetaClass *const metaClass;
+
+        static class MetaClass : public OSMetaClass
+        {
+            public:
+                MetaClass();
+                OSObject *alloc() const APPLE_KEXT_OVERRIDE;
+        } gMetaClass;
+        friend class IO80211Controller::MetaClass;
+        const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        IO80211Controller(const IO80211Controller &) = delete;
+        IO80211Controller &operator=(const IO80211Controller &) = delete;
+        IO80211Controller(IO80211Controller &&) = delete;
+        IO80211Controller &operator=(IO80211Controller &&) = delete;
+        ~IO80211Controller() APPLE_KEXT_OVERRIDE;
+
+    protected:
+        explicit IO80211Controller(const OSMetaClass *);
+        void free() override;
+
+    private:
+        IO80211Controller();
 
     public:
         bool init(OSDictionary * /*properties*/) override;

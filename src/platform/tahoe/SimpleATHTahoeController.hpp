@@ -11,9 +11,35 @@
 // and exact Apple80211/WCL dispatch are separate mandatory integration steps.
 class SimpleATHTahoeController final : public IO80211Controller
 {
-    OSDeclareDefaultStructors(SimpleATHTahoeController)
+    private:
+        static constexpr const OSMetaClass *superClass =
+            &IO80211Controller::gMetaClass;
 
-        public : bool start(IOService *provider) override;
+    public:
+        static const OSMetaClass *const metaClass;
+
+        static class MetaClass : public OSMetaClass
+        {
+            public:
+                MetaClass() noexcept;
+                OSObject *alloc() const APPLE_KEXT_OVERRIDE;
+        } gMetaClass;
+        friend class SimpleATHTahoeController::MetaClass;
+        const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        SimpleATHTahoeController();
+        SimpleATHTahoeController(const SimpleATHTahoeController &) = delete;
+        SimpleATHTahoeController &
+        operator=(const SimpleATHTahoeController &) = delete;
+        SimpleATHTahoeController(SimpleATHTahoeController &&) = delete;
+        SimpleATHTahoeController &
+        operator=(SimpleATHTahoeController &&) = delete;
+        ~SimpleATHTahoeController() APPLE_KEXT_OVERRIDE;
+
+    protected:
+        explicit SimpleATHTahoeController(const OSMetaClass *meta);
+
+    public:
+        bool start(IOService *provider) override;
         void stop(IOService *provider) override;
 
     protected:
