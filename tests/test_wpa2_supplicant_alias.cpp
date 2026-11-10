@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 // Fake WPA2 callbacks and EAPOL bytes only: no radio, keycache or PCI I/O.
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
@@ -127,6 +127,9 @@ namespace
             bool malformedGroupKde = false;
             bool mutateGroupInstallGtk = false;
             bool mutateGroupInstallRsc = false;
+            bool mutatePairwiseInstallTk = false;
+            bool mutateInitialGroupInstallGtk = false;
+            bool mutateInitialGroupInstallRsc = false;
             unsigned nonceCalls = 0;
             unsigned ptkCalls = 0;
             unsigned micCalls = 0;
@@ -275,6 +278,10 @@ namespace
             return false;
         }
         std::memcpy(state.installedTk, tk, sizeof(state.installedTk));
+        if (state.mutatePairwiseInstallTk)
+        {
+            const_cast<uint8_t *>(tk)[0] ^= 1U;
+        }
         return state.pairwiseSuccess;
     }
 
@@ -290,11 +297,13 @@ namespace
         state.installedKeyId = keyId;
         std::memcpy(state.installedGtk, gtk, sizeof(state.installedGtk));
         std::memcpy(state.installedRsc, rsc, sizeof(state.installedRsc));
-        if (state.groupCalls > 1 && state.mutateGroupInstallGtk)
+        if ((state.groupCalls > 1 && state.mutateGroupInstallGtk) ||
+            (state.groupCalls == 1 && state.mutateInitialGroupInstallGtk))
         {
             const_cast<uint8_t *>(gtk)[0] ^= 1U;
         }
-        if (state.groupCalls > 1 && state.mutateGroupInstallRsc)
+        if ((state.groupCalls > 1 && state.mutateGroupInstallRsc) ||
+            (state.groupCalls == 1 && state.mutateInitialGroupInstallRsc))
         {
             const_cast<uint8_t *>(rsc)[0] ^= 1U;
         }
@@ -869,6 +878,9 @@ namespace
         MutatedM3Key,
         MutatedUnwrapKey,
         MutatedM4Key,
+        MutatedInstalledPairwiseTk,
+        MutatedInstalledInitialGtk,
+        MutatedInstalledInitialRsc,
     };
 
     bool exerciseM3(HandshakeCase scenario)
@@ -879,6 +891,12 @@ namespace
         state.alteredRsn = scenario == HandshakeCase::ChangedRsn;
         state.mutateWrappedData = scenario == HandshakeCase::MutatedWrappedData;
         state.mutateUnwrapKey = scenario == HandshakeCase::MutatedUnwrapKey;
+        state.mutatePairwiseInstallTk =
+            scenario == HandshakeCase::MutatedInstalledPairwiseTk;
+        state.mutateInitialGroupInstallGtk =
+            scenario == HandshakeCase::MutatedInstalledInitialGtk;
+        state.mutateInitialGroupInstallRsc =
+            scenario == HandshakeCase::MutatedInstalledInitialRsc;
         state.mutateMicKeyOnCall = scenario == HandshakeCase::MutatedM3Key ? 2U
                                    : scenario == HandshakeCase::MutatedM4Key
                                        ? 3U
@@ -1002,11 +1020,17 @@ namespace
         }
         const bool installationFailed =
             scenario == HandshakeCase::PairwiseFailure ||
-            scenario == HandshakeCase::GroupFailure;
+            scenario == HandshakeCase::GroupFailure ||
+            scenario == HandshakeCase::MutatedInstalledPairwiseTk ||
+            scenario == HandshakeCase::MutatedInstalledInitialGtk ||
+            scenario == HandshakeCase::MutatedInstalledInitialRsc;
+        const bool groupAttempted =
+            scenario == HandshakeCase::GroupFailure ||
+            scenario == HandshakeCase::MutatedInstalledInitialGtk ||
+            scenario == HandshakeCase::MutatedInstalledInitialRsc;
         if (state.rollbackCalls != (installationFailed ? 1U : 0U) ||
             state.pairwiseCalls != (installationFailed ? 1U : 0U) ||
-            state.groupCalls !=
-                (scenario == HandshakeCase::GroupFailure ? 1U : 0U) ||
+            state.groupCalls != (groupAttempted ? 1U : 0U) ||
             state.unwrapCalls !=
                 (scenario == HandshakeCase::InvalidMic ||
                          scenario == HandshakeCase::InvalidReplay ||
@@ -1715,12 +1739,20 @@ int main()
     }
     supplicant.reset();
     const HandshakeCase scenarios[] = {
-        HandshakeCase::Success,       HandshakeCase::PairwiseFailure,
-        HandshakeCase::GroupFailure,  HandshakeCase::InvalidRsc,
-        HandshakeCase::InvalidReplay, HandshakeCase::InvalidMic,
-        HandshakeCase::ChangedRsn,    HandshakeCase::MutatedWrappedData,
-        HandshakeCase::MutatedM3Key,  HandshakeCase::MutatedUnwrapKey,
+        HandshakeCase::Success,
+        HandshakeCase::PairwiseFailure,
+        HandshakeCase::GroupFailure,
+        HandshakeCase::InvalidRsc,
+        HandshakeCase::InvalidReplay,
+        HandshakeCase::InvalidMic,
+        HandshakeCase::ChangedRsn,
+        HandshakeCase::MutatedWrappedData,
+        HandshakeCase::MutatedM3Key,
+        HandshakeCase::MutatedUnwrapKey,
         HandshakeCase::MutatedM4Key,
+        HandshakeCase::MutatedInstalledPairwiseTk,
+        HandshakeCase::MutatedInstalledInitialGtk,
+        HandshakeCase::MutatedInstalledInitialRsc,
     };
     for (const auto scenario : scenarios)
     {

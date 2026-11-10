@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-only
+// SPDX-License-Identifier: GPL-2.0-only
 #include "Wpa2Supplicant.hpp"
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
@@ -765,6 +765,15 @@ namespace simpleath
                       sizeof(calculatedMic));
             secureClear(calculatedMic, sizeof(calculatedMic));
 
+            // The native installer receives borrowed, const TK/GTK/RSC
+            // bytes. Snapshot the authenticated group inputs before calling
+            // it: a broken provider must not replace an M3-authenticated key
+            // or replay floor while still reporting installation success.
+            ScopedSecret<16> gtkSnapshot {};
+            ScopedSecret<8> rscSnapshot {};
+            copyBytes(gtkSnapshot.bytes, gtk, sizeof(gtk));
+            copyBytes(rscSnapshot.bytes, authenticatedRsc,
+                      sizeof(authenticatedRsc));
             // Software confirmation only. The platform callbacks must actually
             // install CCMP keys and persist them to valid hardware keycache
             // slots.
@@ -779,7 +788,8 @@ namespace simpleath
                 secureClear(response, sizeof(response));
                 return Wpa2Result::InvalidState;
             }
-            if (!pairwiseInstalled)
+            if (!pairwiseInstalled ||
+                !constantTimeEqual(ptkSnapshot.bytes, ptk_, sizeof(ptk_)))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));
@@ -793,7 +803,11 @@ namespace simpleath
                 secureClear(response, sizeof(response));
                 return Wpa2Result::InvalidState;
             }
-            if (!groupInstalled)
+            if (!groupInstalled ||
+                !constantTimeEqual(gtk, gtkSnapshot.bytes, sizeof(gtk)) ||
+                !constantTimeEqual(authenticatedRsc, rscSnapshot.bytes,
+                                   sizeof(authenticatedRsc)) ||
+                !constantTimeEqual(ptkSnapshot.bytes, ptk_, sizeof(ptk_)))
             {
                 secureClear(gtk, sizeof(gtk));
                 secureClear(response, sizeof(response));

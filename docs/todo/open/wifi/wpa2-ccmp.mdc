@@ -189,3 +189,20 @@ Use synthetic keys only; passing vectors is not cryptographic certification.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+## Source progress — 2026-11-10: initial M3 key-install integrity
+
+The initial four-way M3 key-install path now verifies that a native backend
+has not rewritten the borrowed pairwise TK/PTK, GTK or authenticated GTK
+receive sequence counter while returning success. A post-callback mismatch
+fails the handshake, invokes installed-key rollback and does not publish M4
+or authorize the controlled port. The check complements the existing
+post-install Group1 rekey integrity checks; both preserve callback epoch
+revocation semantics and erase temporary key snapshots on all paths.
+
+Three synthetic callback-mutation scenarios reproduce an erroneous successful
+M4 with the preceding implementation (exit 26 in the old-source fixture),
+and pass with the new checks under C++14 and C++17 ASan+UBSan. This is an
+offline backend-contract regression, not proof of a physical keycache,
+constant-time crypto, real scan/connect, native supplicant integration or
+hardware operation. The production and WPA2 integration TODOs remain open.
