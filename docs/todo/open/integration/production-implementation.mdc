@@ -82,3 +82,21 @@ orchestration must activate those real paths; native AirPort registration,
 connected scan/association/packet flow, Bluetooth USB/BLE and AirDrop/AWDL
 remain open. The manual macOS debug collector is available for the final
 owner-controlled log cycle.
+
+## Integrated native startup progress — 2026-11-10
+
+Commit `90f146f` supplies the native IO80211 work-queue factory/getter and
+replaces the controller's always-null logger/fault reporter callbacks with
+real CoreCapture factories and owned lifecycle resources. This source is in
+the normal production target, called before native superclass start, and
+unwound after its stop. Required radio/InfraProtocol/packet/Bluetooth/AWDL
+acceptance above is unchanged and remains unfinished.
+
+The same commit implements startup diagnostic selection in the PCI/native
+controller (explicit `simpleathdbg=0/1`, otherwise exposed OpenCore DBG/NPT,
+normal logging on absent or invalid metadata), and preserves matching Release
+dSYM artifacts behind the existing mandatory CI build gate. Focused host
+policy tests, strict Darwin SDK syntax for changed native units, scoped Tidy
+for the capture/policy code, and exact-KDK native import inspection passed.
+There is no new whole-tree zero-failure claim, kext build, runtime verification,
+notebook test or authorization change. Keep this P0 umbrella open.
