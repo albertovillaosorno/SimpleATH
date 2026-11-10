@@ -136,6 +136,13 @@ Clang-Tidy for source and test and Clang-Format checks passed. **Native PCI
 code does not invoke this stage** and it is not sufficient for live
 voltage/temperature tracking, true calibrated per-rate descriptor power,
 country/antenna/BT permission, physical RF transmission or Wi-Fi readiness.
+Commit `50dc0bf` composes OLPC calibration and the existing 12-word
+per-rate register bank into one source-only TX-power transaction with an
+immutable candidate/policy/backend snapshot, owner-gated stage transitions
+and a sticky reset requirement if either stage fails. Synthetic tests also
+cover a caller mutating its input during the first stage, as well as a
+readback/write failure after OLPC has already committed registers. Both
+stages remain **uninvoked by the live native PCI owner**.
 The RF/PHY/regulatory TODO stays open.
 
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
