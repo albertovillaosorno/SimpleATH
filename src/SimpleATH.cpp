@@ -2397,8 +2397,12 @@ class SimpleATH final : public IOService
         {
             if (!radioOperational_ || !channelAuthorized_ ||
                 verifiedReceiveChannel_ != kAwdlSocialChannelSix ||
-                !status.frameValid || status.crcError || frame == nullptr ||
-                bytes <= kFcsBytes || bytes > kMaximumMpduBytes + kFcsBytes)
+                queues_.epoch() != epoch_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                !status.completed || !status.frameValid || status.crcError ||
+                status.decryptError || status.micError || status.phyError ||
+                status.keyMiss || frame == nullptr || bytes <= kFcsBytes ||
+                bytes > kMaximumMpduBytes + kFcsBytes)
             {
                 return;
             }
@@ -2429,17 +2433,13 @@ class SimpleATH final : public IOService
             }
         }
 
-        static void queueReceived(void *context, const uint8_t *frame,
-                                  size_t bytes,
-                                  const simpleath::edma::RxStatus &status)
+        // The native OS supplicant has exclusive ownership of protected
+        // data. Do not pass its frames to the portable WPA2 engine as clear
+        // payloads; management and pre-key EAPOL remain separately admitted.
+        bool routeNativeSecurityRx(const uint8_t *frame, size_t bytes,
+                                   const simpleath::edma::RxStatus &status)
         {
-            auto &self = *static_cast<RegisterAccess *>(context)->owner;
-            if (!self.radioOperational_ || !self.powered_ ||
-                !self.liveRfKillUnblocked())
-            {
-                return;
-            }
-            self.receiveNativeAwdl(frame, bytes, status);
+            auto &self = *this;
             // An OS-installed TK has a single security owner: data RX must
             // use the matching native CCMP session, not the portable engine's
             // cleartext M1/M3 supplicant. Management frames may still feed the
@@ -2455,16 +2455,16 @@ class SimpleATH final : public IOService
                                                      header) !=
                         simpleath::ieee80211::Result::Ok)
                 {
-                    return;
+                    return true;
                 }
                 if (header.type == simpleath::ieee80211::FrameType::Data)
                 {
                     self.receiveNativeProtected(frame, bytes, status);
-                    return;
+                    return true;
                 }
                 if (header.type != simpleath::ieee80211::FrameType::Management)
                 {
-                    return;
+                    return true;
                 }
             }
             if (self.engine_.osSupplicantOwnsWpa2() &&
@@ -2479,41 +2479,24 @@ class SimpleATH final : public IOService
                                                      header) !=
                         simpleath::ieee80211::Result::Ok)
                 {
-                    return;
+                    return true;
                 }
                 if (header.type == simpleath::ieee80211::FrameType::Data)
                 {
                     self.receiveNativePreKeyEapol(frame, bytes, status);
-                    return;
+                    return true;
                 }
             }
-            simpleath::ieee80211::InputTrust trust {};
-            trust.radioReady = true;
-            trust.channelAuthorized = self.channelAuthorized_;
-            // A valid EDMA frame length and CRC alone cannot sanitize an
-            // independent PHY/decrypt/MIC/keycache error. Reject the whole
-            // observation before it can enter EAPOL or beacon accounting.
-            trust.dmaAndFcsVerified =
-                status.frameValid && !status.crcError && !status.decryptError &&
-                !status.phyError && !status.micError && !status.keyMiss;
-            trust.rxFrameIncludesFcs = true;
-            // The security owner supplies replay verification before protected
-            // data can enter the controlled port; clear scan/management frames
-            // do not require a key or a fabricated CCMP attestation.
-            const uint32_t previousBeacons =
-                self.engine_.linkStatus().acceptedBeacons;
-            simpleath::ieee80211::EngineAction action {};
-            const auto result = self.engine_.acceptRx(
-                frame, bytes, trust,
-                {
-                    status.combinedRssi,
-                    nowMicros(nullptr) / kMicrosPerMillisecond,
-                },
-                &self.managementReply_[0], sizeof(self.managementReply_),
-                action);
-            self.setProperty("SimpleATHLastReceiveResult",
-                             static_cast<uint32_t>(result),
-                             kRfPropertyWidthBits);
+            return false;
+        }
+
+        // An RX callback can borrow a device-owned DMA buffer while writing
+        // hardware keys. Defer the prepared reply until DMA truly restarts.
+        bool
+        finishNativeRxKeyLease(simpleath::ieee80211::EngineResult result,
+                               const simpleath::ieee80211::EngineAction &action)
+        {
+            auto &self = *this;
             const bool hardwareKeyUpdate =
                 self.queues_.keyUpdateIsolatedGated();
             if (hardwareKeyUpdate)
@@ -2538,15 +2521,25 @@ class SimpleATH final : public IOService
                     self.engine_.radioStopped(
                         nowMicros(nullptr) / kMicrosPerMillisecond, false);
                     self.notifyWirelessChange(false);
-                    return;
+                    return true;
                 }
                 if (self.deferredManagementBytes_ != 0)
                 {
                     // Transmit is performed by queueKeyUpdateResumed only
                     // after same-epoch physical DMA and MAC restart.
-                    return;
+                    return true;
                 }
             }
+            return false;
+        }
+
+        // Only post-association, FCS-verified beacons for the exact BSSID
+        // may establish the native OS's signal/association progress.
+        void
+        observeNativeAssociatedBeacon(uint32_t previousBeacons,
+                                      const simpleath::edma::RxStatus &status)
+        {
+            auto &self = *this;
             const auto acceptedLink = self.engine_.linkStatus();
             if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0 &&
                 self.joinStatus_ == kIOReturnSuccess &&
@@ -2591,26 +2584,15 @@ class SimpleATH final : public IOService
                     }
                 }
             }
-            if (result == simpleath::ieee80211::EngineResult::CryptoFailure ||
-                result ==
-                    simpleath::ieee80211::EngineResult::AccessPointRejected)
-            {
-                if (self.queues_.phase() ==
-                    simpleath::NativeQueuePhase::Quarantined)
-                {
-                    self.radioOperational_ = false;
-                    self.channelAuthorized_ = false;
-                    self.txSafety_ = {};
-                }
-                self.failNativeJoin(kIOReturnNotReady);
-                self.engine_.radioStopped(
-                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                self.notifyWirelessChange(false);
-                return;
-            }
-            ++self.receivedFrames_;
-            self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
-                             kCounterPropertyWidthBits);
+        }
+
+        // A failed management TX cannot leave a prepared station state live.
+        // The association request's MAC sequence remains owned by the engine.
+        bool sendNativeManagementResponse(
+            simpleath::ieee80211::EngineResult result,
+            const simpleath::ieee80211::EngineAction &action)
+        {
+            auto &self = *this;
             // Authentication/association and the WPA2 M2/M4 replies are
             // already serialized by WifiEngine. They need the same verified
             // RF/rate/power authorization as Ethernet data, but do not need
@@ -2661,6 +2643,80 @@ class SimpleATH final : public IOService
                         ((sequenceField >> kSequenceFragmentBits) + 1U) &
                         kSequenceMask);
                 }
+                return true;
+            }
+            return false;
+        }
+
+        static void queueReceived(void *context, const uint8_t *frame,
+                                  size_t bytes,
+                                  const simpleath::edma::RxStatus &status)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (!self.radioOperational_ || !self.powered_ ||
+                !self.liveRfKillUnblocked())
+            {
+                return;
+            }
+            self.receiveNativeAwdl(frame, bytes, status);
+            if (self.routeNativeSecurityRx(frame, bytes, status))
+            {
+                return;
+            }
+            simpleath::ieee80211::InputTrust trust {};
+            trust.radioReady = true;
+            trust.channelAuthorized = self.channelAuthorized_;
+            // A valid EDMA frame length and CRC alone cannot sanitize an
+            // independent PHY/decrypt/MIC/keycache error. Reject the whole
+            // observation before it can enter EAPOL or beacon accounting.
+            trust.dmaAndFcsVerified =
+                status.frameValid && !status.crcError && !status.decryptError &&
+                !status.phyError && !status.micError && !status.keyMiss;
+            trust.rxFrameIncludesFcs = true;
+            // The security owner supplies replay verification before protected
+            // data can enter the controlled port; clear scan/management frames
+            // do not require a key or a fabricated CCMP attestation.
+            const uint32_t previousBeacons =
+                self.engine_.linkStatus().acceptedBeacons;
+            simpleath::ieee80211::EngineAction action {};
+            const auto result = self.engine_.acceptRx(
+                frame, bytes, trust,
+                {
+                    status.combinedRssi,
+                    nowMicros(nullptr) / kMicrosPerMillisecond,
+                },
+                &self.managementReply_[0], sizeof(self.managementReply_),
+                action);
+            self.setProperty("SimpleATHLastReceiveResult",
+                             static_cast<uint32_t>(result),
+                             kRfPropertyWidthBits);
+            if (self.finishNativeRxKeyLease(result, action))
+            {
+                return;
+            }
+            self.observeNativeAssociatedBeacon(previousBeacons, status);
+            if (result == simpleath::ieee80211::EngineResult::CryptoFailure ||
+                result ==
+                    simpleath::ieee80211::EngineResult::AccessPointRejected)
+            {
+                if (self.queues_.phase() ==
+                    simpleath::NativeQueuePhase::Quarantined)
+                {
+                    self.radioOperational_ = false;
+                    self.channelAuthorized_ = false;
+                    self.txSafety_ = {};
+                }
+                self.failNativeJoin(kIOReturnNotReady);
+                self.engine_.radioStopped(
+                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                self.notifyWirelessChange(false);
+                return;
+            }
+            ++self.receivedFrames_;
+            self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
+                             kCounterPropertyWidthBits);
+            if (self.sendNativeManagementResponse(result, action))
+            {
                 return;
             }
             if (result == simpleath::ieee80211::EngineResult::Ok &&
