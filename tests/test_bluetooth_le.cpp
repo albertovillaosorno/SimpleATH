@@ -304,6 +304,19 @@ namespace
                 fake_.onNextPermit = beginDuringPermit;
             }
 
+            static bool detachDuringPermit(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                detachUsbHci(fixture.transport_);
+                return true;
+            }
+
+            void detachFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = detachDuringPermit;
+            }
+
             static bool stopDuringReport(void *context)
             {
                 auto &fixture = *static_cast<Fixture *>(context);
@@ -521,6 +534,36 @@ namespace
             f.completeParameters() != LeDiscoveryResult::Ok ||
             f.completeEnable() != LeDiscoveryResult::Ok ||
             f.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int permitDetachment()
+    {
+        Fixture passive {};
+        if (!passive.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        passive.detachFromPermit();
+        if (passive.begin() != LeDiscoveryResult::OwnershipLost ||
+            passive.phase() != LeScanPhase::Idle ||
+            passive.fake().commandCount != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture active {};
+        if (!active.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        active.detachFromPermit();
+        if (active.beginActive() != LeDiscoveryResult::OwnershipLost ||
+            active.phase() != LeScanPhase::Idle ||
+            active.fake().activeAuthorizations != 0U ||
+            active.fake().commandCount != 0U)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
@@ -1044,6 +1087,10 @@ namespace
 
 int main()
 {
+    if (const int revoked = permitDetachment())
+    {
+        return revoked;
+    }
     if (const int reentry = policyReentrancy())
     {
         return reentry;

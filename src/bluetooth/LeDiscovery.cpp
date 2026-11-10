@@ -343,9 +343,16 @@ namespace simpleath
             {
                 return LeDiscoveryResult::OwnershipLost;
             }
-            // permit() is an external policy callback. It can synchronously
-            // start another scan while our initial Idle check is suspended.
-            // Do not overwrite that procedure or issue a second HCI command.
+            // permit() can synchronously detach/rebind the USB transport or
+            // start a nested scan while our initial checks are suspended.
+            // A revoked physical transport cannot be used for HCI commands.
+            if (!transport.attached || transport.faulted ||
+                transport.epoch != host.ownerEpoch ||
+                host.ownerEpoch != owner.epoch)
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
+            // Do not overwrite a nested procedure or send its second command.
             if (state.phase != LeScanPhase::Idle)
             {
                 return LeDiscoveryResult::Busy;
@@ -422,6 +429,13 @@ namespace simpleath
             transport.epoch != host.ownerEpoch ||
             host.ownerEpoch != owner.epoch ||
             !owner.permit(owner.context, owner.epoch))
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
+        // A revoked USB owner cannot authorize active controller RF work.
+        if (!transport.attached || transport.faulted ||
+            transport.epoch != host.ownerEpoch ||
+            host.ownerEpoch != owner.epoch)
         {
             return LeDiscoveryResult::OwnershipLost;
         }
