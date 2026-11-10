@@ -60,6 +60,21 @@ namespace simpleath
         constexpr uint32_t kTxIqEnable = 0x80000000;
         constexpr uint32_t kPollingMicros = 10;
         constexpr size_t kMaximumPolls = 100000 / kPollingMicros;
+        // Linux ath9k calib.c: ath9k_hw_start_nfcal(false),
+        // ar9003_phy.c: ar9003_hw_do_getnf(), AR9565 2.4 GHz NF limits;
+        // ar9003_phy.h: AR_PHY_CCA_0 / AR_PHY_EXT_CCA.
+        constexpr uint32_t kNoiseCal = 0x2;
+        constexpr uint32_t kNoiseEnable = 0x8000;
+        constexpr uint32_t kNoiseNoUpdate = 0x20000;
+        constexpr uint32_t kNoisePrimaryCca = 0x9e1c;
+        constexpr uint32_t kNoiseExtensionCca = 0x9830;
+        constexpr uint32_t kNoisePrimaryShift = 20;
+        constexpr uint32_t kNoiseExtensionShift = 16;
+        constexpr uint32_t kNoiseMask = 0x1ff;
+        constexpr uint32_t kNoiseSign = 0x100;
+        constexpr int32_t kNoiseSignModulus = 0x200;
+        constexpr int16_t kNoiseMinimum = -127;
+        constexpr int16_t kNoiseMaximum = -60;
         constexpr uint8_t kChannel14 = 14;
         constexpr uint8_t kHt40Separation = 4;
 
@@ -315,6 +330,103 @@ namespace simpleath
             return true;
         }
 
+        class RxNoiseIo
+        {
+            public:
+                RxNoiseIo(const RxAgcBackend &backend,
+                          RxNoiseProgress &progress)
+                    : backend_(&backend), progress_(&progress)
+                {
+                }
+
+                bool permit()
+                {
+                    if (backend_->io.permitWrite(backend_->io.context,
+                                                 backend_->io.ownerEpoch))
+                    {
+                        return true;
+                    }
+                    progress_->result = RxNoiseResult::OwnershipLost;
+                    return false;
+                }
+
+                bool read(uint32_t offset, uint32_t &value)
+                {
+                    if (!permit())
+                    {
+                        return false;
+                    }
+                    if (!backend_->read32(backend_->io.context, offset, &value))
+                    {
+                        progress_->result = RxNoiseResult::ReadFailed;
+                        return false;
+                    }
+                    ++progress_->completedReads;
+                    return true;
+                }
+
+                bool write(uint32_t offset, uint32_t value)
+                {
+                    if (!permit())
+                    {
+                        return false;
+                    }
+                    // A false callback can follow an actual device write.
+                    progress_->requiresReset = true;
+                    if (!backend_->io.write32(backend_->io.context, offset,
+                                              value))
+                    {
+                        progress_->result = RxNoiseResult::WriteFailed;
+                        return false;
+                    }
+                    ++progress_->completedWrites;
+                    return true;
+                }
+
+                bool awaitCompletion()
+                {
+                    for (size_t count = 0; count < kMaximumPolls; ++count)
+                    {
+                        uint32_t agc = 0;
+                        if (!read(kAgcControl, agc))
+                        {
+                            return false;
+                        }
+                        ++progress_->polls;
+                        if ((agc & kNoiseCal) == 0)
+                        {
+                            return permit();
+                        }
+                        if (count + 1 < kMaximumPolls)
+                        {
+                            backend_->io.delayMicros(backend_->io.context,
+                                                     kPollingMicros);
+                        }
+                    }
+                    progress_->result = RxNoiseResult::Timeout;
+                    return false;
+                }
+
+            private:
+                const RxAgcBackend *backend_;
+                RxNoiseProgress *progress_;
+        };
+
+        int16_t decodeNoise(uint32_t value, uint32_t shift)
+        {
+            const uint32_t raw = (value >> shift) & kNoiseMask;
+            const int32_t signedValue =
+                (raw & kNoiseSign) != 0
+                    ? static_cast<int32_t>(raw) - kNoiseSignModulus
+                    : static_cast<int32_t>(raw);
+            return static_cast<int16_t>(signedValue);
+        }
+
+        bool validNoise(int16_t sample)
+        {
+            return sample >= kNoiseMinimum && sample <= kNoiseMaximum;
+        }
+
     } // namespace
 
     RxAgcProgress
@@ -452,4 +564,87 @@ namespace simpleath
         progress.requiresReset = false;
         return progress;
     }
+
+    RxNoiseProgress runAr9565RxNoiseFloorCalibration(
+        const RfChannelRequest &request,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend)
+    {
+        RxNoiseProgress progress {
+            RxNoiseResult::InvalidBackend, 0, 0, 0, 0, 0, false, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfChannelRequest channel = request;
+        const CalibrationAndRegulatory permissions = authorization;
+        if (!validBackend(stable))
+        {
+            return progress;
+        }
+        progress.result = RxNoiseResult::InvalidChannel;
+        if (!validChannel(channel))
+        {
+            return progress;
+        }
+        progress.result = RxNoiseResult::MissingAuthorization;
+        if (permissions.use != RadioInitialization::ReceiveOnly ||
+            !radioInitializationAuthorized(permissions))
+        {
+            return progress;
+        }
+        progress.result = RxNoiseResult::InvalidBar;
+        if (stable.io.barLengthBytes < kAgcControl + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        RxNoiseIo io(stable, progress);
+        uint32_t agc = 0;
+        if (!io.read(kAgcControl, agc))
+        {
+            return progress;
+        }
+        progress.result = RxNoiseResult::AlreadyBusy;
+        if ((agc & (kAgcCal | kNoiseCal)) != 0)
+        {
+            return progress;
+        }
+        const uint32_t start = agc | kNoiseEnable | kNoiseNoUpdate | kNoiseCal;
+        if (!io.write(kAgcControl, start) || !io.awaitCompletion())
+        {
+            return progress;
+        }
+        uint32_t control = 0;
+        if (!io.read(kNoisePrimaryCca, control))
+        {
+            return progress;
+        }
+        progress.controlDbm = decodeNoise(control, kNoisePrimaryShift);
+        progress.result = RxNoiseResult::InvalidMeasurement;
+        if (!validNoise(progress.controlDbm))
+        {
+            return progress;
+        }
+        if (channel.width == ChannelWidth::Ht40)
+        {
+            uint32_t extension = 0;
+            if (!io.read(kNoiseExtensionCca, extension))
+            {
+                return progress;
+            }
+            progress.extensionDbm =
+                decodeNoise(extension, kNoiseExtensionShift);
+            if (!validNoise(progress.extensionDbm))
+            {
+                return progress;
+            }
+            progress.hasExtension = true;
+        }
+        if (!io.permit())
+        {
+            return progress;
+        }
+        progress.result = RxNoiseResult::Ok;
+        progress.requiresReset = false;
+        return progress;
+    }
+
 } // namespace simpleath

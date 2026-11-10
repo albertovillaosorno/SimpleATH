@@ -18,6 +18,22 @@ namespace
     constexpr uint32_t kAgc = 0xa2c4;
     constexpr uint32_t kCarrier = 0xa2d8;
     constexpr uint32_t kTxIq = 0xa5c4;
+    constexpr uint32_t kNoisePrimary = 0x9e1c;
+    constexpr uint32_t kNoiseExtension = 0x9830;
+    constexpr uint32_t kNoiseCal = 0x2;
+    constexpr uint32_t kNoiseEnable = 0x8000;
+    constexpr uint32_t kNoiseNoUpdate = 0x20000;
+    constexpr uint32_t kNoiseControlSample = 0x19c00000;     // -100 dBm
+    constexpr uint32_t kNoiseExtSample = 0x19a0000;          // -102 dBm
+    constexpr uint32_t kNoiseControlAboveLimit = 0x1e200000; // -30 dBm
+    constexpr uint32_t kNoiseSampleZero = 0;
+    constexpr int16_t kNoiseExpectedControlDbm = -100;
+    constexpr int16_t kNoiseExpectedExtensionDbm = -102;
+    constexpr size_t kNoiseWideReads = 5;
+    constexpr uint8_t kHt40Secondary = 10;
+    constexpr int kFailedNoiseSuccessExit = 7;
+    constexpr int kFailedNoiseAdmissionExit = 8;
+    constexpr int kFailedNoiseFailureExit = 9;
     constexpr uint32_t kIqTiming = 0x980c;
     constexpr uint32_t kIqCalMode = 0xa2c8;
     constexpr uint32_t kIqMeasI = 0x98c0;
@@ -76,6 +92,8 @@ namespace
             uint32_t txIq = kTxIqEnable | kTxIqUnrelated;
             uint32_t carrier = kCarrierEnable | kCarrierUnrelated;
             uint32_t agc = kFilter | kPeak | kAgcUnrelated;
+            uint32_t noiseControl = kNoiseControlSample;
+            uint32_t noiseExtension = kNoiseExtSample;
             uint32_t iqTiming = 0;
             uint32_t iqMode = kIqUnrelated;
             uint32_t iqPowerI = kIqSampleI;
@@ -89,6 +107,8 @@ namespace
             size_t pollReads = 0;
             size_t delayCount = 0;
             size_t completeAfter = 3;
+            size_t noisePollReads = 0;
+            size_t noiseCompleteAfter = 2;
             size_t iqPollReads = 0;
             size_t iqCompleteAfter = kIqExpectedPolls;
 
@@ -96,6 +116,7 @@ namespace
             size_t failWriteAt = 0;
             size_t revokeAt = 0;
             bool triggered = false;
+            bool noiseTriggered = false;
             bool iqTriggered = false;
             bool denied = false;
             bool wrongEpoch = false;
@@ -112,6 +133,10 @@ namespace
                 return &mock.carrier;
             case kTxIq:
                 return &mock.txIq;
+            case kNoisePrimary:
+                return &mock.noiseControl;
+            case kNoiseExtension:
+                return &mock.noiseExtension;
             case kIqTiming:
                 return &mock.iqTiming;
             case kIqCalMode:
@@ -154,6 +179,14 @@ namespace
                 mock.agc &= ~kCal;
             }
         }
+        if (address == kAgc && mock.noiseTriggered)
+        {
+            ++mock.noisePollReads;
+            if (mock.noisePollReads >= mock.noiseCompleteAfter)
+            {
+                mock.agc &= ~kNoiseCal;
+            }
+        }
         if (address == kIqTiming && mock.iqTriggered)
         {
             ++mock.iqPollReads;
@@ -182,6 +215,10 @@ namespace
         if (address == kAgc)
         {
             mock.triggered = true;
+        }
+        if (address == kAgc && (value & kNoiseCal) != 0)
+        {
+            mock.noiseTriggered = true;
         }
         if (address == kIqTiming && (value & kIqDoCal) != 0)
         {
@@ -494,6 +531,163 @@ namespace
                revoked.requiresReset && revoked.completedWrites == 2 &&
                epochLost.writeCount == 2;
     }
+
+    bool testsNoiseSuccess()
+    {
+        Mock primary {};
+        const auto sample = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(primary));
+        if (sample.result != RxNoiseResult::Ok || sample.requiresReset ||
+            sample.controlDbm != kNoiseExpectedControlDbm ||
+            sample.extensionDbm != 0 || sample.hasExtension ||
+            sample.completedWrites != 1 || sample.completedReads != 4 ||
+            sample.polls != 2 || primary.noisePollReads != 2 ||
+            primary.delayCount != 1 || primary.writeCount != 1 ||
+            primary.badDelay || primary.writes.at(0).address != kAgc ||
+            primary.writes.at(0).value !=
+                (kFilter | kPeak | kAgcUnrelated | kNoiseCal | kNoiseEnable |
+                 kNoiseNoUpdate))
+        {
+            return false;
+        }
+        Mock ht40 {};
+        auto req = request();
+        req.width = ChannelWidth::Ht40;
+        req.secondary = kHt40Secondary;
+        const auto wide = runAr9565RxNoiseFloorCalibration(req, authorization(),
+                                                           backend(ht40));
+        return wide.result == RxNoiseResult::Ok && !wide.requiresReset &&
+               wide.controlDbm == kNoiseExpectedControlDbm &&
+               wide.extensionDbm == kNoiseExpectedExtensionDbm &&
+               wide.hasExtension && wide.completedReads == kNoiseWideReads &&
+               ht40.writeCount == 1;
+    }
+
+    bool testsNoiseAdmission()
+    {
+        Mock mock {};
+        auto req = request();
+        auto auth = authorization();
+        auto invalidBackend = backend(mock);
+        invalidBackend.io.permitWrite = nullptr;
+        if (runAr9565RxNoiseFloorCalibration(req, auth, invalidBackend)
+                .result != RxNoiseResult::InvalidBackend)
+        {
+            return false;
+        }
+        if (runAr9565RxNoiseFloorCalibration(req, auth, backend(mock, kAgc))
+                .result != RxNoiseResult::InvalidBar)
+        {
+            return false;
+        }
+        req.control.centerMhz = 0;
+        if (runAr9565RxNoiseFloorCalibration(req, auth, backend(mock)).result !=
+            RxNoiseResult::InvalidChannel)
+        {
+            return false;
+        }
+        req = request();
+        auth.radioKillUnblocked = false;
+        if (runAr9565RxNoiseFloorCalibration(req, auth, backend(mock)).result !=
+            RxNoiseResult::MissingAuthorization)
+        {
+            return false;
+        }
+        auth = authorization();
+        mock.agc |= kCal;
+        const auto busy =
+            runAr9565RxNoiseFloorCalibration(req, auth, backend(mock));
+        if (busy.result != RxNoiseResult::AlreadyBusy || busy.requiresReset ||
+            mock.writeCount != 0)
+        {
+            return false;
+        }
+        mock.agc &= ~kCal;
+        mock.agc |= kNoiseCal;
+        const auto noiseBusy =
+            runAr9565RxNoiseFloorCalibration(req, auth, backend(mock));
+        return noiseBusy.result == RxNoiseResult::AlreadyBusy &&
+               !noiseBusy.requiresReset && mock.writeCount == 0;
+    }
+
+    bool testsNoiseFailures()
+    {
+        Mock denied {};
+        denied.denied = true;
+        const auto unavailable = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(denied));
+        if (unavailable.result != RxNoiseResult::OwnershipLost ||
+            unavailable.requiresReset || denied.writeCount != 0)
+        {
+            return false;
+        }
+        Mock badWrite {};
+        badWrite.failWriteAt = 1;
+        const auto rejected = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(badWrite));
+        if (rejected.result != RxNoiseResult::WriteFailed ||
+            !rejected.requiresReset || badWrite.writeCount != 0)
+        {
+            return false;
+        }
+        Mock readAfterStart {};
+        readAfterStart.failReadAt = 4;
+        const auto unreadable = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(readAfterStart));
+        if (unreadable.result != RxNoiseResult::ReadFailed ||
+            !unreadable.requiresReset || readAfterStart.writeCount != 1)
+        {
+            return false;
+        }
+        Mock strong {};
+        strong.noiseControl = kNoiseControlAboveLimit;
+        const auto invalid = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(strong));
+        if (invalid.result != RxNoiseResult::InvalidMeasurement ||
+            !invalid.requiresReset || strong.writeCount != 1)
+        {
+            return false;
+        }
+        Mock empty {};
+        empty.noiseControl = kNoiseSampleZero;
+        const auto zero = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(empty));
+        if (zero.result != RxNoiseResult::InvalidMeasurement ||
+            !zero.requiresReset)
+        {
+            return false;
+        }
+        Mock ext {};
+        ext.noiseExtension = kNoiseSampleZero;
+        auto wide = request();
+        wide.width = ChannelWidth::Ht40;
+        wide.secondary = kHt40Secondary;
+        const auto badExtension = runAr9565RxNoiseFloorCalibration(
+            wide, authorization(), backend(ext));
+        if (badExtension.result != RxNoiseResult::InvalidMeasurement ||
+            !badExtension.requiresReset || badExtension.hasExtension)
+        {
+            return false;
+        }
+        Mock staleEpoch {};
+        staleEpoch.revokeAt = 4;
+        const auto lost = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(staleEpoch));
+        if (lost.result != RxNoiseResult::OwnershipLost ||
+            !lost.requiresReset || staleEpoch.writeCount != 1)
+        {
+            return false;
+        }
+        Mock neverCompletes {};
+        neverCompletes.noiseCompleteAfter = std::numeric_limits<size_t>::max();
+        const auto timeout = runAr9565RxNoiseFloorCalibration(
+            request(), authorization(), backend(neverCompletes));
+        return timeout.result == RxNoiseResult::Timeout &&
+               timeout.requiresReset && timeout.polls == kPollLimit &&
+               neverCompletes.delayCount == kPollLimit - 1 &&
+               neverCompletes.writeCount == 1 && !neverCompletes.badDelay;
+    }
+
 } // namespace
 
 int main()
@@ -521,6 +715,18 @@ int main()
     if (!testsIqFailures())
     {
         return kFailedIqFailuresExit;
+    }
+    if (!testsNoiseSuccess())
+    {
+        return kFailedNoiseSuccessExit;
+    }
+    if (!testsNoiseAdmission())
+    {
+        return kFailedNoiseAdmissionExit;
+    }
+    if (!testsNoiseFailures())
+    {
+        return kFailedNoiseFailureExit;
     }
     return 0;
 }

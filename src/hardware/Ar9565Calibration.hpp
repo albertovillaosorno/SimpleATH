@@ -99,6 +99,47 @@ namespace simpleath
                              const CalibrationAndRegulatory &authorization,
                              const RxAgcBackend &backend);
 
+    enum class RxNoiseResult : uint8_t
+    {
+        Ok,
+        InvalidBackend,
+        InvalidChannel,
+        MissingAuthorization,
+        InvalidBar,
+        AlreadyBusy,
+        OwnershipLost,
+        ReadFailed,
+        WriteFailed,
+        Timeout,
+        InvalidMeasurement,
+    };
+
+    struct RxNoiseProgress
+    {
+            RxNoiseResult result;
+            size_t completedReads;
+            size_t completedWrites;
+            size_t polls;
+            int16_t controlDbm;
+            int16_t extensionDbm;
+            bool hasExtension;
+            bool requiresReset;
+    };
+
+    // Capture chain-zero primary (and HT40 extension) noise floor from
+    // AR9003 CCA registers. Start a one-shot NF measurement with the
+    // NO_UPDATE_NF bit: this collects a sample without changing the radio's
+    // live CCA threshold or creating an unvalidated NF history. The native
+    // owner must supply a verified one-chain board mask, current channel,
+    // finished AGC/IQ calibration and the same live D0/epoch/PHY gate as
+    // RxIqCalibration. Any uncertain MMIO write or missing result requires
+    // resetting the PHY; the caller must validate board-specific NF/ANI
+    // policy before using the result to activate reception.
+    RxNoiseProgress runAr9565RxNoiseFloorCalibration(
+        const RfChannelRequest &request,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend);
+
 } // namespace simpleath
 
 #endif
