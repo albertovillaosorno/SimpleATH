@@ -1206,6 +1206,179 @@ namespace simpleath
             return AwdlRendezvousStatus::PeerOffChannel;
         }
 
+        namespace
+        {
+            struct SharedCandidate
+            {
+                    uint64_t begin {};
+                    uint64_t end {};
+                    uint64_t next {};
+            };
+
+            // A candidate bounds the guarded channel-six intervals of BOTH
+            // devices, without granting native airtime or radio ownership.
+            AwdlRendezvousStatus
+            nextSharedCandidate(const AwdlNeighbor &local,
+                                const AwdlNeighbor &peer,
+                                const AwdlSharedRendezvousRequest &request,
+                                uint64_t cursor, SharedCandidate &candidate)
+            {
+                const AwdlRendezvousRequest localRequest {
+                    request.localMifUsec,
+                    cursor,
+                    request.frameAirtimeUsec,
+                };
+                const AwdlRendezvousRequest peerRequest {
+                    request.peerMifUsec,
+                    cursor,
+                    request.frameAirtimeUsec,
+                };
+                AwdlRendezvousWindow localWindow {};
+                AwdlRendezvousWindow peerWindow {};
+                const auto localStatus = planNextAwdlChannelSixRendezvous(
+                    local, localRequest, localWindow);
+                if (localStatus != AwdlRendezvousStatus::Candidate)
+                {
+                    return localStatus;
+                }
+                const auto peerStatus = planNextAwdlChannelSixRendezvous(
+                    peer, peerRequest, peerWindow);
+                if (peerStatus != AwdlRendezvousStatus::Candidate)
+                {
+                    return peerStatus;
+                }
+                // Both planners have checked that cursor+wait cannot wrap.
+                const uint64_t localStart = cursor + localWindow.waitUsec;
+                const uint64_t peerStart = cursor + peerWindow.waitUsec;
+                const uint64_t localUsable =
+                    localWindow.remainingEawUsec - kAwdlUnicastGuardUsec;
+                const uint64_t peerUsable =
+                    peerWindow.remainingEawUsec - kAwdlUnicastGuardUsec;
+                if (localStart > UINT64_MAX - localUsable ||
+                    peerStart > UINT64_MAX - peerUsable)
+                {
+                    return AwdlRendezvousStatus::StaleSync;
+                }
+                const uint64_t localEnd = localStart + localUsable;
+                const uint64_t peerEnd = peerStart + peerUsable;
+                candidate.begin =
+                    localStart > peerStart ? localStart : peerStart;
+                candidate.end = localEnd < peerEnd ? localEnd : peerEnd;
+                candidate.next = localEnd < peerEnd ? localEnd : peerEnd;
+                return AwdlRendezvousStatus::Candidate;
+            }
+
+            bool
+            confirmSharedCandidate(const AwdlNeighbor &local,
+                                   const AwdlNeighbor &peer,
+                                   const AwdlSharedRendezvousRequest &request,
+                                   const SharedCandidate &candidate,
+                                   AwdlSharedRendezvousWindow &out)
+            {
+                const AwdlRendezvousRequest localAtStart {
+                    request.localMifUsec,
+                    candidate.begin,
+                    request.frameAirtimeUsec,
+                };
+                const AwdlRendezvousRequest peerAtStart {
+                    request.peerMifUsec,
+                    candidate.begin,
+                    request.frameAirtimeUsec,
+                };
+                AwdlRendezvousWindow observedLocal {};
+                AwdlRendezvousWindow observedPeer {};
+                if (planAwdlChannelSixRendezvous(local, localAtStart,
+                                                 observedLocal) !=
+                        AwdlRendezvousStatus::Candidate ||
+                    planAwdlChannelSixRendezvous(peer, peerAtStart,
+                                                 observedPeer) !=
+                        AwdlRendezvousStatus::Candidate)
+                {
+                    return false;
+                }
+                // The shared guard may extend beyond an MIF's five-second
+                // timestamp authority. Publish only time that is safe from
+                // BOTH epoch expiries, excluding the expiry microsecond.
+                const uint64_t localAge =
+                    candidate.begin - request.localMifUsec;
+                const uint64_t peerAge = candidate.begin - request.peerMifUsec;
+                const uint64_t localFresh = kAwdlPeerExpiryUsec - localAge - 1U;
+                const uint64_t peerFresh = kAwdlPeerExpiryUsec - peerAge - 1U;
+                const uint64_t fresh =
+                    localFresh < peerFresh ? localFresh : peerFresh;
+                const uint64_t untilGuard = candidate.end - candidate.begin;
+                const uint64_t usable = untilGuard < fresh ? untilGuard : fresh;
+                out = {
+                    observedLocal.awSequence,
+                    observedPeer.awSequence,
+                    observedLocal.channelSlot,
+                    observedPeer.channelSlot,
+                    static_cast<uint32_t>(candidate.begin - request.nowUsec),
+                    static_cast<uint32_t>(usable),
+                };
+                return true;
+            }
+
+            bool beyondSharedAnchor(AwdlRendezvousStatus status)
+            {
+                return status == AwdlRendezvousStatus::StaleSync ||
+                       status == AwdlRendezvousStatus::PeerOffChannel;
+            }
+        } // namespace
+
+        AwdlRendezvousStatus planSharedAwdlChannelSixRendezvous(
+            const AwdlNeighbor &local, const AwdlNeighbor &peer,
+            const AwdlSharedRendezvousRequest &request,
+            AwdlSharedRendezvousWindow &out)
+        {
+            if (overlaps(&out, sizeof(out), &local, sizeof(local)) ||
+                overlaps(&out, sizeof(out), &peer, sizeof(peer)) ||
+                overlaps(&out, sizeof(out), &request, sizeof(request)))
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            out = {};
+            if (sameMac(local.source, peer.source) ||
+                request.localMifUsec > request.nowUsec ||
+                request.peerMifUsec > request.nowUsec)
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            // Each 5-second phase contains at most 77 EAWs per device.
+            // Check no more than two per EAW; all loops are source-bounded.
+            constexpr uint64_t kMaxChecks =
+                2U * ((kAwdlPeerExpiryUsec / kAwdlEawUsec) + 2U);
+            uint64_t cursor = request.nowUsec;
+            for (uint64_t check = 0U; check < kMaxChecks; ++check)
+            {
+                SharedCandidate candidate {};
+                const auto status = nextSharedCandidate(local, peer, request,
+                                                        cursor, candidate);
+                if (status != AwdlRendezvousStatus::Candidate)
+                {
+                    return check != 0U && beyondSharedAnchor(status)
+                               ? AwdlRendezvousStatus::NoSharedWindow
+                               : status;
+                }
+                if (candidate.end > candidate.begin &&
+                    candidate.end - candidate.begin >= request.frameAirtimeUsec)
+                {
+                    return confirmSharedCandidate(local, peer, request,
+                                                  candidate, out)
+                               ? AwdlRendezvousStatus::Candidate
+                               : AwdlRendezvousStatus::NoSharedWindow;
+                }
+                // Skip the earlier exhausted EAW rather than re-examine
+                // either device's forbidden final guard.
+                if (candidate.next <= cursor)
+                {
+                    return AwdlRendezvousStatus::NoSharedWindow;
+                }
+                cursor = candidate.next;
+            }
+            return AwdlRendezvousStatus::NoSharedWindow;
+        }
+
         void AwdlNeighbors::clear()
         {
             for (size_t index = 0U; index < kCapacity; ++index)

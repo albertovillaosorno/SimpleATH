@@ -235,6 +235,7 @@ namespace simpleath
             StaleSync,
             PeerOffChannel,
             GuardInterval,
+            NoSharedWindow,
         };
 
         // The peer's last MIF clock milliseconds MUST match mifRxUsec / 1000;
@@ -259,6 +260,41 @@ namespace simpleath
         planNextAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
                                          const AwdlRendezvousRequest &request,
                                          AwdlRendezvousWindow &out);
+
+        // Match independently observed local and peer channel-six schedules.
+        // The native owner supplies both hardware-stamped MIF phase anchors
+        // in one monotonic clock domain (local TX and peer RX respectively),
+        // plus its actual upcoming frame airtime. Neither peer-only presence
+        // nor local channel-six availability can establish an overlap.
+        struct AwdlSharedRendezvousRequest
+        {
+                uint64_t localMifUsec {};
+                uint64_t peerMifUsec {};
+                uint64_t nowUsec {};
+                uint32_t frameAirtimeUsec {};
+        };
+
+        struct AwdlSharedRendezvousWindow
+        {
+                uint16_t localAwSequence {};
+                uint16_t peerAwSequence {};
+                uint8_t localChannelSlot {};
+                uint8_t peerChannelSlot {};
+                uint32_t waitUsec {};
+                // Time until either end-guard or MIF expiry, from start.
+                uint32_t usableUsec {};
+        };
+
+        // Check at most two windows per 64-TU EAW during both five-second
+        // anchors; never schedule beyond the earlier expiry. All returned
+        // windows have at least frameAirtimeUsec within BOTH three-TU guards.
+        // No device/radio/channel reservation, peer trust, RF power approval,
+        // Bluetooth coexistence or macOS AirDrop authorization is granted.
+        // Aliased output is rejected without mutating the caller's inputs.
+        AwdlRendezvousStatus planSharedAwdlChannelSixRendezvous(
+            const AwdlNeighbor &local, const AwdlNeighbor &peer,
+            const AwdlSharedRendezvousRequest &request,
+            AwdlSharedRendezvousWindow &out);
 
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before

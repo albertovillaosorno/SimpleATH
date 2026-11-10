@@ -285,3 +285,23 @@ policy. The malformed frame never becomes a peer observation. A synthetic
 regression keeps the otherwise valid MIF body intact to prove this rejection;
 focused Clang-Tidy, format and C++14/C++17 ASan+UBSan pass. This is only
 input validation, not peer authorization or native AWDL readiness.
+
+## Source progress — 2026-11-10: common channel-six rendezvous
+
+`planSharedAwdlChannelSixRendezvous` intersects independently stamped local
+and neighbor MIF channel-six schedules. Both must advertise a complete
+three-TU-guarded window for the same airtime; disjoint phases never inherit
+permission from an otherwise valid peer-only candidate. It searches at most
+two candidates per EAW during the two five-second anchors, returns the local
+and peer AW sequences and channel slots at the shared start, and bounds its
+reported usable duration by both synchronization expiries. Aliased outputs,
+clock rollback, stale MIF samples, invalid addresses, impossible airtime and
+monotonic-timestamp overflow fail closed.
+
+Synthetic regressions cover current/future overlaps, disjoint slot cycles,
+independent MIF phase anchors, exact five-second expiry, timestamp overflow
+and duration clipping. These are source-only calculations and do not connect
+the MAC to any macOS AWDL interface, operating channel, Bluetooth discovery,
+coexistence lease, DMA transmission or AirDrop peer trust. The P0 TODO remains
+open; real timestamps and actual radio TX authorization still require native
+integration.

@@ -1405,6 +1405,226 @@ namespace
                AwdlRendezvousStatus::InvalidInput;
     }
 
+    bool sharedChannelSixOverlap()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kMifUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kTuUsec = 1024U;
+        constexpr uint64_t kGuardUsec = 3U * kTuUsec;
+        constexpr uint64_t kEawUsec = 64U * kTuUsec;
+        constexpr uint64_t kUntilEawUsec = 16U * kTuUsec;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint16_t kCountdownTu = 16U;
+        constexpr uint16_t kFirstSlot = 0U;
+        constexpr uint16_t kSecondSlot = 1U;
+        constexpr uint8_t kLocalMacLast = 0x56U;
+        const NeighborFixture fixture =
+            makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        AwdlNeighbor peer {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs, peer))
+        {
+            return false;
+        }
+        peer.nextAwSequence = 0U;
+        peer.txDownCounterTu = kCountdownTu;
+        peer.channelSixSlots = uint16_t {1U} << kFirstSlot;
+        AwdlNeighbor local = peer;
+        local.source.bytes[kNeighborMacLast] = kLocalMacLast;
+        const AwdlSharedRendezvousRequest request {
+            kMifUsec,
+            kMifUsec,
+            kMifUsec + kGuardUsec,
+            kAirtimeUsec,
+        };
+        AwdlSharedRendezvousWindow window {};
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.waitUsec != 0U || window.localChannelSlot != kFirstSlot ||
+            window.peerChannelSlot != kFirstSlot ||
+            window.localAwSequence != 3U || window.peerAwSequence != 3U ||
+            window.usableUsec != kUntilEawUsec - (2U * kGuardUsec))
+        {
+            return false;
+        }
+        // A peer-only channel-six candidate is insufficient: the LOCAL
+        // window must overlap within both sides' radio-switch guards.
+        peer.channelSixSlots = uint16_t {1U} << kSecondSlot;
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+                AwdlRendezvousStatus::NoSharedWindow ||
+            window.waitUsec != 0U || window.usableUsec != 0U)
+        {
+            return false;
+        }
+        local.channelSixSlots =
+            static_cast<uint16_t>(static_cast<uint32_t>(local.channelSixSlots) |
+                                  (uint32_t {1U} << kSecondSlot));
+        return planSharedAwdlChannelSixRendezvous(local, peer, request,
+                                                  window) ==
+                   AwdlRendezvousStatus::Candidate &&
+               window.waitUsec == kUntilEawUsec &&
+               window.localChannelSlot == kSecondSlot &&
+               window.peerChannelSlot == kSecondSlot &&
+               window.localAwSequence == 4U && window.peerAwSequence == 4U &&
+               window.usableUsec == kEawUsec - (2U * kGuardUsec);
+    }
+
+    bool sharedWindowIndependentAnchors()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kMifUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kPeerDelayUsec = 2U * kUsecPerMs;
+        constexpr uint64_t kGuardUsec = 3U * 1024ULL;
+        constexpr uint64_t kUntilEawUsec = 16U * 1024ULL;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint16_t kPeriodTu = 16U;
+        constexpr uint8_t kLocalMacLast = 0x56U;
+        AwdlNeighbor local {};
+        local.source = kNeighborBaseSource;
+        local.source.bytes[kNeighborMacLast] = kLocalMacLast;
+        local.lastMifMs = kNeighborFirstSeenMs;
+        local.awPeriodTu = kPeriodTu;
+        local.txDownCounterTu = kPeriodTu;
+        local.channelSixSlots = 1U;
+        AwdlNeighbor peer = local;
+        peer.source = kNeighborBaseSource;
+        peer.lastMifMs += kPeerDelayUsec / kUsecPerMs;
+        const AwdlSharedRendezvousRequest request {
+            kMifUsec,
+            kMifUsec + kPeerDelayUsec,
+            kMifUsec + kPeerDelayUsec + kGuardUsec,
+            kAirtimeUsec,
+        };
+        AwdlSharedRendezvousWindow window {};
+        return planSharedAwdlChannelSixRendezvous(local, peer, request,
+                                                  window) ==
+                   AwdlRendezvousStatus::Candidate &&
+               window.waitUsec == 0U &&
+               window.usableUsec ==
+                   kUntilEawUsec - kPeerDelayUsec - (2U * kGuardUsec) &&
+               window.localChannelSlot == 0U && window.peerChannelSlot == 0U;
+    }
+
+    bool sharedWindowExpiresBeforeGuard()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kUsecPerTu = 1024U;
+        constexpr uint64_t kEawTu = 64U;
+        constexpr uint64_t kGuardTu = 3U;
+        constexpr uint64_t kPastEaws = 76U;
+        constexpr uint64_t kPastTu = kPastEaws * kEawTu;
+        constexpr uint64_t kElapsedTu = kPastTu + kGuardTu;
+        constexpr uint64_t kElapsedUsec = kElapsedTu * kUsecPerTu;
+        constexpr uint64_t kMifUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kExpiryUsec = AwdlNeighbors::kExpiryMs * kUsecPerMs;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint16_t kPeriodTu = 16U;
+        constexpr uint16_t kAllSlots = UINT16_MAX;
+        constexpr uint8_t kLocalMacLast = 0x56U;
+        AwdlNeighbor local {};
+        local.source = kNeighborBaseSource;
+        local.source.bytes[kNeighborMacLast] = kLocalMacLast;
+        local.lastMifMs = kNeighborFirstSeenMs;
+        local.awPeriodTu = kPeriodTu;
+        local.txDownCounterTu = static_cast<uint16_t>(kEawTu);
+        local.channelSixSlots = kAllSlots;
+        AwdlNeighbor peer = local;
+        peer.source = kNeighborBaseSource;
+        const AwdlSharedRendezvousRequest request {
+            kMifUsec,
+            kMifUsec,
+            kMifUsec + kElapsedUsec,
+            kAirtimeUsec,
+        };
+        AwdlSharedRendezvousWindow window {};
+        const uint64_t remaining =
+            kExpiryUsec - (request.nowUsec - request.localMifUsec);
+        return planSharedAwdlChannelSixRendezvous(local, peer, request,
+                                                  window) ==
+                   AwdlRendezvousStatus::Candidate &&
+               window.waitUsec == 0U && window.usableUsec == remaining - 1U;
+    }
+
+    bool rejectUnsafeSharedWindows()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kMifUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kGuardUsec = 3ULL * 1024U;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint8_t kLocalMacLast = 0x56U;
+        constexpr uint16_t kCountdownTu = 16U;
+        AwdlNeighbor local {};
+        local.source = kNeighborBaseSource;
+        local.source.bytes[kNeighborMacLast] = kLocalMacLast;
+        local.lastMifMs = kNeighborFirstSeenMs;
+        local.awPeriodTu = kCountdownTu;
+        local.txDownCounterTu = kCountdownTu;
+        local.channelSixSlots = 1U;
+        AwdlNeighbor peer = local;
+        peer.source = kNeighborBaseSource;
+        AwdlSharedRendezvousRequest request {
+            kMifUsec,
+            kMifUsec,
+            kMifUsec + kGuardUsec,
+            kAirtimeUsec,
+        };
+        AwdlSharedRendezvousWindow window {};
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+            AwdlRendezvousStatus::Candidate)
+        {
+            return false;
+        }
+        request.nowUsec = kMifUsec + (AwdlNeighbors::kExpiryMs * kUsecPerMs);
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            window.waitUsec != 0U)
+        {
+            return false;
+        }
+        request.nowUsec = kMifUsec + kGuardUsec;
+        request.frameAirtimeUsec = 0U;
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+            AwdlRendezvousStatus::InvalidInput)
+        {
+            return false;
+        }
+        request.frameAirtimeUsec = kAirtimeUsec;
+        peer.source = local.source;
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+            AwdlRendezvousStatus::InvalidInput)
+        {
+            return false;
+        }
+        peer.source = kNeighborBaseSource;
+        // An otherwise valid candidate near the monotonic counter ceiling
+        // must not wrap its end time into an apparently earlier interval.
+        constexpr uint64_t kNearOverflowMifUsec = UINT64_MAX - 4000U;
+        constexpr uint64_t kNearOverflowNowOffset = kUsecPerMs;
+        request.localMifUsec = kNearOverflowMifUsec;
+        request.peerMifUsec = kNearOverflowMifUsec;
+        request.nowUsec = UINT64_MAX - kNearOverflowNowOffset;
+        local.lastMifMs = kNearOverflowMifUsec / kUsecPerMs;
+        peer.lastMifMs = local.lastMifMs;
+        if (planSharedAwdlChannelSixRendezvous(local, peer, request, window) !=
+            AwdlRendezvousStatus::StaleSync)
+        {
+            return false;
+        }
+        request.localMifUsec = kMifUsec;
+        request.peerMifUsec = kMifUsec;
+        request.nowUsec = kMifUsec + kGuardUsec;
+        local.lastMifMs = kNeighborFirstSeenMs;
+        peer.lastMifMs = kNeighborFirstSeenMs;
+        // A corrupted timestamp origin cannot grant a shared window.
+        request.peerMifUsec += kUsecPerMs;
+        return planSharedAwdlChannelSixRendezvous(local, peer, request,
+                                                  window) ==
+                   AwdlRendezvousStatus::InvalidInput &&
+               window.usableUsec == 0U;
+    }
+
     bool neighborChannelEncodings()
     {
         AwdlNeighbors peers {};
@@ -1722,6 +1942,26 @@ int main()
     {
         constexpr int kFutureRendezvousFailure = 15;
         return kFutureRendezvousFailure;
+    }
+    if (!sharedChannelSixOverlap())
+    {
+        constexpr int kSharedWindowFailure = 17;
+        return kSharedWindowFailure;
+    }
+    if (!sharedWindowIndependentAnchors())
+    {
+        constexpr int kIndependentAnchorFailure = 19;
+        return kIndependentAnchorFailure;
+    }
+    if (!sharedWindowExpiresBeforeGuard())
+    {
+        constexpr int kSharedExpiryFailure = 20;
+        return kSharedExpiryFailure;
+    }
+    if (!rejectUnsafeSharedWindows())
+    {
+        constexpr int kUnsafeSharedWindowFailure = 18;
+        return kUnsafeSharedWindowFailure;
     }
     if (!serializeChannelSixMif())
     {
