@@ -343,3 +343,18 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   These tests do not attach a real macOS Bluetooth host or verify physical
   USB firmware, controller operation, pairing, coexistence or AirDrop.
   The P0 task remains open.
+
+- **Physical USB identity persistence (2026-11-10):** DCO `c5400ab`
+  retains the initial borrowed `IOUSBHostDevice` object and exact validated
+  vendor/product/revision/interface identity in both AR3012 firmware-boot
+  and post-firmware native HCI sessions. Every later native permission check
+  now verifies that the physical device and active interface still match,
+  including after the owner callback; a same-epoch USB device replacement
+  cannot inherit the original interface's transfer authorization. HCI
+  admission also rechecks this identity after pipe discovery before
+  publishing transport state. Pinned MacKernelSDK x86_64 C++14 strict
+  `-Wall -Wextra -Werror` syntax checking and direct strict Clang-Tidy
+  passed, as did six C++14/C++17 ASan+UBSan Bluetooth firmware/HCI/endpoint
+  host fixture runs. Physical USB lifecycle and Tahoe Bluetooth adoption
+  were not tested: no dedicated native USB mock fixture or on-device run
+  exists, and the P0 host/coexistence work remains open.
