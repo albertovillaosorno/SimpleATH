@@ -1,5 +1,8 @@
 # Local builds, editor data, secrets, and transient reports.
-/.cache/
+/.cache/*
+!/.cache/references/
+/.cache/references/*
+!/.cache/references/ledger.jsonl
 /.dependencies/
 /.logs/
 /.temp/

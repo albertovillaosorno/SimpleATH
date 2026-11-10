@@ -111,15 +111,6 @@ below. It remains open while any required runtime path is absent or disabled.
 
 [docs/todo/open/integration/production-implementation.mdc](docs/todo/open/integration/production-implementation.mdc)
 
-### TODO - Reuse the maximum useful upstream driver code
-
-Copy or adapt every useful compatible implementation from AirPort_RTW89,
-AirportItlwm-BE200 and the independently licensed parts of the NullMoth
-reference to close production gaps faster. Preserve original notices and
-integrate real callers. NullMoth's own noncommercial kext code is not GPL.
-
-[docs/todo/open/integration/upstream-code-reuse.mdc](docs/todo/open/integration/upstream-code-reuse.mdc)
-
 ### TODO - QCA9565 Bluetooth USB/BLE implementation
 
 Implement the combo chip's actual Bluetooth USB HCI/firmware, native macOS

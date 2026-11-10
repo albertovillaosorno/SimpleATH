@@ -315,6 +315,17 @@ all EFI/OpenCore/USB/SSD or PCI/RF work require separate explicit owner
 approval. A successful build does not prove the driver provides working
 Wi-Fi or AirPort on the target machine.
 
+## Upstream source references
+
+Run `python3 -B tools/code-resue/script.py` to download the complete pinned
+AirPort_RTW89, AirportItlwm-BE200 and NullMoth source trees into
+`.cache/references/<repository>/<revision>/`. No upstream code is executed.
+`--offline` checks existing copies without network access. The tracked
+`.cache/references/ledger.jsonl` records hashes, license observations, reuse
+status and destination files; repeated runs preserve existing assessments.
+Only the ledger is included in Git. Source copies retain upstream notices.
+Fetching references does not implement or verify the driver.
+
 ## License and attribution
 
 This is the owner's public personal development and research project.

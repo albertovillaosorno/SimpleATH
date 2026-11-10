@@ -100,3 +100,25 @@ policy tests, strict Darwin SDK syntax for changed native units, scoped Tidy
 for the capture/policy code, and exact-KDK native import inspection passed.
 There is no new whole-tree zero-failure claim, kext build, runtime verification,
 notebook test or authorization change. Keep this P0 umbrella open.
+
+
+## Required upstream reuse — 2026-11-10
+
+The reference acquisition task is complete at the owner's request:
+`docs/todo/completed/integration/upstream-code-reuse.mdc`. Its completion
+means sources/ledger exist, not that the required code is already adapted.
+Continue implementing the driver with as much useful permitted source as
+possible from AirPort_RTW89 and AirportItlwm-BE200, and applicable separately
+licensed components of the NullMoth reference. Personal/public research does
+not replace upstream licensing. Preserve each original notice and apply the
+corresponding license to copied/derived source files.
+
+Use `python3 -B tools/code-resue/script.py` to populate all pinned sources
+under `.cache/references`; `--offline` verifies the existing cache. Maintain
+`.cache/references/ledger.jsonl` (tracked) with exact source SHA-256, scope,
+destination files, original license and honest remaining work for every
+adaptation. Preserve existing records and append status replacements when
+needed. All 3,267 initial records are reference-only; none claims driver
+implementation. Downloaded checkouts/receipts remain ignored. The local Linux
+reference and its existing separate ledger remain required until their own
+retirement acceptance is met.

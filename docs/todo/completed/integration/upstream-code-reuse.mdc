@@ -1,7 +1,7 @@
 ---
 schema: simpleath.todo.v1
 id: upstream-code-reuse
-status: open
+status: completed
 priority: P0
 lane: integration
 phase: source-only
@@ -14,7 +14,7 @@ scope:
   - "tests/"
 ---
 
-# TODO - Reuse the maximum useful upstream driver implementation
+# Completed - Acquire upstream reference trees and reusable-code ledger
 
 ## Owner directive — 2026-11-10
 
@@ -69,24 +69,36 @@ The GPLv2 text is retained separately under licenses/GPL-2.0.txt.
    relevant; do not copy unrelated graphics code. Otherwise use architectural
    facts and public IOKit APIs for an independently authored implementation.
 
-## Acceptance
+## Completed preparation acceptance — owner-directed scope, 2026-11-10
 
-- [ ] Inventory applicable source files and licenses at the pinned revisions.
-      Record concrete destination scopes, changes and retained notices for
-      imports, and precise reasons for portions that cannot apply.
-- [ ] Adapt all useful compatible implementations that close required native
-      control, scan/join/WPA2, data, power/recovery or AWDL/BLE integration gaps.
-      Do not stop after reading READMEs or drafting a reuse plan.
-- [ ] Connect every adapted implementation to real production callers and the
-      Xcode target; remove displaced duplicate or passive paths.
-- [ ] Preserve original authorship and full required notices in copied files
-      and THIRD_PARTY_NOTICES.md. Keep firmware licensing separate.
-- [ ] Check byte layouts, ownership, gate order and real error propagation
-      against the exact target and AR9565 contracts; no copied success stubs,
-      invented capabilities or permanently disabled required functionality.
-- [ ] Run meaningful offline regressions for imported behavior and record
-      their actual scope. Whole-project zero-failure validation follows full
-      implementation; mandatory CI remains before every kernel build.
+The owner requested closing this preparation TODO after fetching all sources
+and creating the ledger. This closure does **not** claim the original maximum
+code-adaptation objective is implemented. That work remains under the open
+`production-implementation` task and each ledger entry's actual status.
+
+- [x] Create `tools/code-resue/script.py` at the owner's requested path.
+- [x] Fetch every tracked file from all three pinned repositories into
+      `.cache/references/<repository>/<revision>/` without running upstream
+      code: 1,584 RTW89 files, 300 BE200 files and 1,383 NullMoth files.
+- [x] Create `.cache/references/ledger.jsonl` if absent, with 3,267 per-file
+      SHA-256 records, exact revisions, source SPDX observations, actual reuse
+      status and destination fields. Existing assessments are preserved.
+- [x] Ignore source checkouts/receipts while explicitly tracking only the
+      ledger through `.gitignore`; retain original downloaded license files.
+- [x] Verify an offline second run adds zero records and checks source hashes.
+      Four offline regressions pass: cached rerun/assessment preservation,
+      traversal rejection, missing offline cache and hash-conflict rejection.
+
+## Outstanding implementation (not checked off by acquisition)
+
+Adapt all useful, permitted source that closes native control, scan/join/WPA2,
+data, power/recovery and AWDL/BLE gaps. Connect imported implementations to
+real callers and the Xcode target. Retain original authorship and license
+texts in each adapted file and THIRD_PARTY_NOTICES.md. Record source work and
+destinations in the ledger; `reference-only` is never whole-file completion.
+Strict lint/type correction remains part of the zero-failure validation
+milestone after full implementation; the initial scoped Ruff check for the
+new Python helper/tests is nonzero and is not reported as a pass.
 
 ## Initial evidence — not completion
 

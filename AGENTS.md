@@ -158,6 +158,17 @@ This division is a coordination aid only. Do not impose hexagonal
 ports/adapters or relocate files merely for a tooling convention.
 Respect ath9k licenses and the origin of third-party materials.
 
+## Additional upstream code references
+
+The owner requested complete pinned sources under `.cache/references/`, fetched
+by `tools/code-resue/script.py`. Only `.cache/references/ledger.jsonl` is
+tracked; preserve its per-file hashes, reuse assessments and destination
+history. Sources are available for maximal useful code reuse in the required
+production target, with every upstream file's original license/notices.
+Reference acquisition is complete; code adaptation and 100% driver integration
+remain in the open production-implementation task. No repository-wide license
+is imposed on independently authored code; this never removes upstream terms.
+
 ## Linux reference and implementation ledger
 
 Maintain `linux-port-ledger.jsonl` when consulting or porting a file under
