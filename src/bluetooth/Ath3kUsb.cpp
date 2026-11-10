@@ -263,7 +263,17 @@ namespace simpleath
             }
             if (!io.loadFirmware(io.context, name, &image))
             {
-                progress.result = Ath3kBootResult::FirmwareUnavailable;
+                progress.result = authorized(io)
+                                      ? Ath3kBootResult::FirmwareUnavailable
+                                      : Ath3kBootResult::IdentityLost;
+                return false;
+            }
+            // The firmware image is borrowed from the native resource owner.
+            // A lookup callback can revoke the USB epoch and invalidate its
+            // storage; never inspect the image after losing that lease.
+            if (!authorized(io))
+            {
+                progress.result = Ath3kBootResult::IdentityLost;
                 return false;
             }
             if (image.data == nullptr ||

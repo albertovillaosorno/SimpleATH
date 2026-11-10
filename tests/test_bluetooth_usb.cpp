@@ -63,6 +63,8 @@ namespace
             bool revokeOnStateRead {};
             bool revokeOnVersionRead {};
             bool revokeOnFirmwareDelay {};
+            bool revokeOnFirmwareLookup {};
+            bool failFirmwareLookupAndRevoke {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -145,17 +147,27 @@ namespace
         {
             return false;
         }
-        if (std::strcmp(fileName, "ar3k/AthrBT_0x11223344.dfu") == 0)
+        if (fake.failFirmwareLookupAndRevoke)
         {
-            *image = {fake.patch.data(), fake.patch.size()};
-            return true;
+            fake.valid = false;
+            return false;
         }
-        if (std::strcmp(fileName, "ar3k/ramps_0x11223344_26.dfu") == 0)
+        const bool patch =
+            std::strcmp(fileName, "ar3k/AthrBT_0x11223344.dfu") == 0;
+        const bool config =
+            std::strcmp(fileName, "ar3k/ramps_0x11223344_26.dfu") == 0;
+        if (!patch && !config)
         {
-            *image = {fake.config.data(), fake.config.size()};
-            return true;
+            return false;
         }
-        return false;
+        *image =
+            patch ? Ath3kFirmwareImage {fake.patch.data(), fake.patch.size()}
+                  : Ath3kFirmwareImage {fake.config.data(), fake.config.size()};
+        if (fake.revokeOnFirmwareLookup)
+        {
+            fake.valid = false;
+        }
+        return true;
     }
 
     void delay(void *context, uint32_t /* micros */)
@@ -322,6 +334,31 @@ namespace
         if (result.result != Ath3kBootResult::IdentityLost ||
             result.phase != Ath3kBootPhase::ReadVersion ||
             fake.firmwareCalls != 0U || fake.vendorWrites != 0U)
+        {
+            return false;
+        }
+
+        // Firmware is a borrowed resource; a revoked loader may already
+        // have discarded it when returning from the callback. Never inspect
+        // its patch trailer or try USB transfer under a stale owner.
+        fake = newFake();
+        fake.revokeOnFirmwareLookup = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::LoadPatch ||
+            fake.firmwareCalls != 1U || fake.vendorWrites != 0U ||
+            fake.bulkWrites != 0U || result.requiresUsbReset)
+        {
+            return false;
+        }
+
+        fake = newFake();
+        fake.failFirmwareLookupAndRevoke = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::LoadPatch ||
+            fake.firmwareCalls != 1U || fake.vendorWrites != 0U ||
+            fake.bulkWrites != 0U || result.requiresUsbReset)
         {
             return false;
         }
