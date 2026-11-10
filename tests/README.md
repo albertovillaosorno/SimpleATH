@@ -23,20 +23,20 @@ forces all tools to run again and refreshes the full-repository cache.
 python3 -B tools/validate.py --no-cache
 ```
 
-The default mode is macOS validation on every host, including Linux: absent
-Apple SDK/KDK headers are Clang-Tidy failures, not skipped checks. For an
-explicit Linux-only source audit, run:
+Validation uses the same strict macOS-compatible rules on every host.
+Missing Apple SDK/KDK headers are Clang-Tidy **failures**, not skips. The
+former `--linux` skip flag is deliberately unsupported. On Fedora, install the
+pinned MacKernelSDK and refresh `compile_commands.json` before validating:
 
 ```sh
-python3 -B tools/validate.py --linux --no-cache
+python3 -B tools/bootstrap_sdk.py
+python3 -B tools/generate_compile_commands.py
+python3 -B tools/validate.py --no-cache
 ```
 
-Only unresolved Apple SDK/KDK includes become explicit `skipped` results in
-this mode; skips still fail the validation gate. A macOS host rejects
-`--linux`. Reports record `validation_mode` as `macos` or `linux`, and neither
-cross-mode cached results nor concurrent completed runs are reused. Native
-macOS CI should use the default command with authentic Apple SDK/KDK headers;
-Linux-mode reports are never proof of a complete macOS native parse.
+The local kernel-header dependency does not provide proprietary Tahoe wireless
+interfaces or userspace CoreWLAN. Any native parse failures stay visible.
+Reports use a single `validation_mode: macos` label regardless of host OS.
 
 Python tests use standard-library unittest: name modules `test_*.py` and add
 `__init__.py` to test packages. The runner launches each module's discovered

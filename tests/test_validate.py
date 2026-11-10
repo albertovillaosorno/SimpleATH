@@ -41,7 +41,8 @@ TESTS_REQUESTED_FRAGMENT = '"tests_requested": true'
 FORBIDDEN_CHECK_OPTIONS = ("--no-tidy", "--no-tests", "--no-json")
 MACOS_MISSING_FIXTURE = "'IOKit/IOLib.h' file not found"
 MACOS_MODE = "macos"
-LINUX_HOST_REJECTION = "--linux requires a Linux host"
+UNKNOWN_FLAG_CODE = 2
+UNKNOWN_LINUX_FLAG = "unrecognized arguments: --linux"
 MISSING_COMPILE_ENTRY = "No matching compile command"
 OUTSIDE = "Outside repository"
 SHORT_TIMEOUT = 0.01
@@ -828,79 +829,14 @@ class ClangTidyDatabase(unittest.TestCase):
             assert not validator.tidy_command_exists(root, file)
 
     @staticmethod
-    def test_unavailable_macos_headers_are_skipped_without_fake_stubs() -> None:
-        """Do not cache or count a missing Apple SDK parse as success."""
+    def test_missing_apple_sdk_headers_are_failures_on_every_host() -> None:
+        """Never disguise a failed native parse as a successful lint result."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
-            file = root / "src/SimpleATH.cpp"
-            _ = file.write_text("#include <IOKit/IOLib.h>\n", encoding="utf-8")
-            for config in validator.CONFIGS["clang-tidy"]:
-                _ = (root / config).write_text("fixture", encoding="utf-8")
-            prefix = "a: error:"
-            missing = validator.Process(
-                1,
-                "",
-                f"{prefix} {MACOS_MISSING_FIXTURE} [clang-diagnostic-error]",
+            source = root / "src/SimpleATH.cpp"
+            _ = source.write_text(
+                "#include <IOKit/IOLib.h>\n", encoding="utf-8"
             )
-            with (
-                mock.patch.object(
-                    validator, "_command", return_value=[sys.executable]
-                ),
-                mock.patch.object(
-                    validator, "tidy_command_exists", return_value=True
-                ),
-                mock.patch.object(
-                    validator, "_version", return_value="fixture"
-                ),
-                mock.patch.object(
-                    validator, "run_process", return_value=missing
-                ),
-            ):
-                lint = validator.LintRun(
-                    root, validator.Options(linux=True), {}
-                )
-                first = lint.check(file, "clang-tidy")
-                second = lint.check(file, "clang-tidy")
-                assert first["status"] == EXPECTED_SKIP
-                assert second["status"] == EXPECTED_SKIP
-                assert not first["cached"]
-                assert not second["cached"]
-                assert validator.MACOS_SDK_REASON in first["diagnostics"]
-                assert lint.entries == {}
-            unexpected = validator.Process(
-                1,
-                "",
-                f"{prefix} 'local.h' file not found [clang-diagnostic-error]",
-            )
-            unexpected = validator.Process(
-                1, "", missing.stderr + "\n" + unexpected.stderr
-            )
-            with (
-                mock.patch.object(
-                    validator, "_command", return_value=[sys.executable]
-                ),
-                mock.patch.object(
-                    validator, "tidy_command_exists", return_value=True
-                ),
-                mock.patch.object(
-                    validator, "_version", return_value="fixture"
-                ),
-                mock.patch.object(
-                    validator, "run_process", return_value=unexpected
-                ),
-            ):
-                result = validator.LintRun(root, validator.Options(), {}).check(
-                    file, "clang-tidy"
-                )
-                assert result["status"] == EXPECTED_FAIL
-
-    @staticmethod
-    def test_default_macos_fails_missing_sdk_and_linux_rechecks_cache() -> None:
-        """An Apple SDK error fails by default, even after a Linux scan."""
-        with tempfile.TemporaryDirectory() as directory:
-            root = _root(directory)
-            file = root / "src/SimpleATH.cpp"
-            _ = file.write_text("int source;", encoding="utf-8")
             for config in validator.CONFIGS["clang-tidy"]:
                 _ = (root / config).write_text("fixture", encoding="utf-8")
             missing = validator.Process(
@@ -923,19 +859,15 @@ class ClangTidyDatabase(unittest.TestCase):
                     validator, "run_process", return_value=missing
                 ) as process,
             ):
-                macos = validator.LintRun(root, validator.Options(), cache)
-                failed = macos.check(file, "clang-tidy")
-                assert failed["status"] == EXPECTED_FAIL
-                assert not failed["cached"]
-                linux = validator.LintRun(
-                    root, validator.Options(linux=True), cache
-                )
-                skipped = linux.check(file, "clang-tidy")
-                assert skipped["status"] == EXPECTED_SKIP
-                assert not skipped["cached"]
-                again = validator.LintRun(root, validator.Options(), cache)
-                assert again.check(file, "clang-tidy")["cached"]
-                assert process.call_count == COMPLETED_HOST_SCANS
+                lint = validator.LintRun(root, validator.Options(), cache)
+                first = lint.check(source, "clang-tidy")
+                second = lint.check(source, "clang-tidy")
+                assert first["status"] == EXPECTED_FAIL
+                assert second["status"] == EXPECTED_FAIL
+                assert not first["cached"]
+                assert second["cached"]
+                assert first["diagnostics"] == second["diagnostics"]
+                process.assert_called_once()
 
     @staticmethod
     def test_unmatched_command_is_skipped_without_running_tidy() -> None:
@@ -1855,27 +1787,22 @@ class DefaultCliOptions(unittest.TestCase):
         assert options.json_output
         assert options.files == ()
         assert not options.no_cache
-        assert not options.linux
 
     @staticmethod
-    def test_linux_flag_is_explicit_and_mac_host_rejects_it() -> None:
-        """Only a deliberate Linux host request may skip Apple SDK checks."""
-        with mock.patch.object(sys, "argv", ["validate.py"]):
-            assert not validator.parse_options().linux
-        with mock.patch.object(sys, "argv", ["validate.py", "--linux"]):
-            assert validator.parse_options().linux
-        with tempfile.TemporaryDirectory() as directory:
-            root = _root(directory)
-            error = io.StringIO()
-            with (
-                mock.patch.object(validator, "ROOT", root),
-                mock.patch.object(sys, "platform", "darwin"),
-                mock.patch.object(sys, "argv", ["validate.py", "--linux"]),
-                redirect_stderr(error),
-            ):
-                assert validator.main() == 1
-            assert LINUX_HOST_REJECTION in error.getvalue()
-            assert not (root / ".cache/validate/report.json").exists()
+    def test_linux_flag_is_rejected_on_every_host() -> None:
+        """The CLI cannot turn missing Apple headers into skipped checks."""
+        stderr = io.StringIO()
+        exit_code: object = None
+        with (
+            mock.patch.object(sys, "argv", ["validate.py", "--linux"]),
+            redirect_stderr(stderr),
+        ):
+            try:
+                _ = validator.parse_options()
+            except SystemExit as error:
+                exit_code = error.code
+        assert exit_code == UNKNOWN_FLAG_CODE
+        assert UNKNOWN_LINUX_FLAG in stderr.getvalue()
 
     @staticmethod
     def test_completed_reports_reject_invalid_validation_modes() -> None:
@@ -1887,8 +1814,8 @@ class DefaultCliOptions(unittest.TestCase):
         assert validator.report_exit_code(json.dumps(report), 0) is None
 
     @staticmethod
-    def test_full_reports_identify_linux_and_macos_modes() -> None:
-        """Full reports label the mode selected by the actual CLI."""
+    def test_full_reports_use_one_strict_macos_mode() -> None:
+        """The full validator produces a single macOS-compatible report mode."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
             source = root / "src/driver.py"
@@ -1920,19 +1847,14 @@ class DefaultCliOptions(unittest.TestCase):
                 redirect_stdout(io.StringIO()),
                 mock.patch.object(sys, "argv", ["validate.py"]),
             ):
-                for argv, mode in (
-                    (["validate.py"], MACOS_MODE),
-                    (["validate.py", "--linux"], "linux"),
-                ):
-                    sys.argv[:] = argv
-                    assert validator.main() == 0
-                    report = cast(
-                        "dict[str, object]",
-                        json.loads(
-                            (root / ".cache/validate/report.json").read_text()
-                        ),
-                    )
-                    assert report["validation_mode"] == mode
+                assert validator.main() == 0
+                report = cast(
+                    "dict[str, object]",
+                    json.loads(
+                        (root / ".cache/validate/report.json").read_text()
+                    ),
+                )
+                assert report["validation_mode"] == MACOS_MODE
 
     @staticmethod
     def test_disabled_mandatory_checks_are_rejected() -> None:

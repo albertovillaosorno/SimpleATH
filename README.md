@@ -24,12 +24,10 @@ It’s just for fun—we’ll see if it works or not.
 I used some "**G**arbage & **P**oop **L**overs" license—I absolutely loathe it.
 I preferred having access to Linux source code to use for this project.
 
-GitHub currently lists this repository as **private**, so hosted macOS
-Actions could incur charges beyond the account's included usage. Standard
-GitHub-hosted runners (including `macos-26-intel`) are free for **public**
-repositories; larger runners and excess artifact storage can cost money.
-The workflows refuse to allocate macOS runners while the repository is
-private, and use one-day artifact retention. Billing details:
+GitHub lists this repository as **public**. Standard GitHub-hosted runners
+(including `macos-26-intel`) are free for public repositories; larger
+runners and excess artifact storage can cost money. The workflows stay
+restricted to public visibility and use one-day artifact retention. Details:
 https://docs.github.com/en/actions/concepts/billing-and-usage
 
 ## Development protocol
@@ -147,12 +145,12 @@ analysis on Fedora (without compiling a kext), run:
 
     python3 -B tools/bootstrap_sdk.py
     python3 -B tools/generate_compile_commands.py
-    python3 -B tools/validate.py --linux --no-cache
+    python3 -B tools/validate.py --no-cache
 
 The SDK stays in the ignored `.research/MacKernelSDK` directory. On Linux,
 the generator sets an x86_64 Darwin parse target and detects an available
 LLVM libc++ header configuration. Genuine missing declarations remain
-Clang-Tidy failures; `--linux` does not convert them to passes. The user-space
+Clang-Tidy failures; no Linux-only skip exists. The user-space
 CoreWLAN probe still needs Apple frameworks and is not fabricated on Fedora.
 
 This generator only inventories source paths and writes JSON; it never invokes
@@ -222,7 +220,7 @@ Homebrew LLVM/Ruff/BasedPyright and Python 3.15. It refreshes the Clang-Tidy
 compilation database for the hosted checkout and uses the project's pinned
 MacKernelSDK compatibility headers. That SDK is not a verified exact Tahoe
 KDK, and a successful static check cannot establish native ABI correctness.
-The default macOS validator **never** uses `--linux` or treats missing Apple
+The strict validator does not support `--linux` or treat missing Apple
 headers as successes. Build artifacts are unsigned and are not installed.
 
 This setup does **not** itself authorize or create any tag, run a CI job,

@@ -40,25 +40,9 @@ COMPLETION_SCHEMA = "simpleath.validate.completed.v1"
 CLANG_TIDY_TOOL = "clang-tidy"
 PYRIGHT_TOOL = "basedpyright"
 REPOSITORY_SCOPE = "repository"
+VALIDATION_MODE = "macos"
 VERSION_WORD = "version"
 MISSING_TIDY_COMMAND = "No matching compile command in compile_commands.json"
-MACOS_SDK_MISSING = re.compile(
-    r"error: '([^']+)' file not found \[clang-diagnostic-error\]"
-)
-MACOS_SDK_PREFIXES = (
-    "IOKit/",
-    "CoreWLAN/",
-    "Foundation/",
-    "SystemConfiguration/",
-    "libkern/",
-    "mach/",
-    "mach-o/",
-    "pexpert/",
-    "dispatch/",
-    "kern/",
-)
-MACOS_SDK_TAG = "[clang-diagnostic-error]"
-MACOS_SDK_REASON = "Apple SDK/KDK headers unavailable; native AST not verified"
 NATIVE = frozenset({
     ".c",
     ".cc",
@@ -178,7 +162,6 @@ class Options:
     tests: bool = True
     json_output: bool = True
     no_cache: bool = False
-    linux: bool = False
 
 
 CONFIGS = {
@@ -503,24 +486,6 @@ def _diagnostics(process: Process) -> list[str]:
         )
     ]
     return (headlines if len(headlines) > 1 else lines)[:DIAGNOSTIC_LIMIT]
-
-
-def _missing_macos_sdk(process: Process) -> bool:
-    """Recognize only Apple SDK errors, never unrelated compiler failures.
-
-    Returns:
-        True if every fatal parser diagnostic is a missing Apple SDK header.
-
-    """
-    if process.code == 0:
-        return False
-    output = process.stdout + "\n" + process.stderr
-    errors = [line for line in output.splitlines() if MACOS_SDK_TAG in line]
-    return bool(errors) and all(
-        (match := MACOS_SDK_MISSING.search(line)) is not None
-        and match.group(1).startswith(MACOS_SDK_PREFIXES)
-        for line in errors
-    )
 
 
 def _finding(
@@ -904,13 +869,7 @@ class LintRun:
             command,
             file,
             self.root,
-            context=(
-                tool,
-                self.dependency_digests.get(tool),
-                self.options.linux,
-            )
-            if tool == CLANG_TIDY_TOOL
-            else (tool, self.dependency_digests.get(tool)),
+            context=(tool, self.dependency_digests.get(tool)),
         )
         key = relative + "::" + tool
         old = self.entries.get(key)
@@ -926,17 +885,6 @@ class LintRun:
             return result
         process = run_process(command, cwd=self.root)
         details = _diagnostics(process)
-        if (
-            tool == CLANG_TIDY_TOOL
-            and self.options.linux
-            and _missing_macos_sdk(process)
-        ):
-            return _finding(
-                relative,
-                tool,
-                SKIPPED,
-                details=[MACOS_SDK_REASON, *details],
-            )
         status: Status = "pass" if process.code == 0 else "fail"
         self.entries[key] = {
             "fingerprint": fingerprint,
@@ -1118,7 +1066,7 @@ def build_report(
     return {
         "schema": CACHE_VERSION,
         "scope": REPOSITORY_SCOPE,
-        "validation_mode": "macos",
+        "validation_mode": VALIDATION_MODE,
         # Offline host tests do not turn a source-only scan into hardware QA.
         "source_only": True,
         "tests_requested": tests,
@@ -1171,11 +1119,6 @@ def parse_options() -> Options:
         default=defaults.json_output,
     )
     _ = parser.add_argument("--no-cache", action="store_true")
-    _ = parser.add_argument(
-        "--linux",
-        action="store_true",
-        help="On Linux, classify unavailable Apple SDK/KDK headers as skips",
-    )
     namespace = parser.parse_args()
     values: dict[str, object] = vars(namespace)
     files = values.get("files")
@@ -1185,7 +1128,6 @@ def parse_options() -> Options:
         values.get("tests") is True,
         values.get("json_output") is True,
         values.get("no_cache") is True,
-        values.get("linux") is True,
     )
 
 
@@ -1271,7 +1213,6 @@ def _run_identity(
             options.tests,
             options.json_output,
             options.no_cache,
-            options.linux,
         ),
         "executables": executables,
         "versions": inputs.versions,
@@ -1458,11 +1399,7 @@ def _report_summary_code(
         True,
     )
     counts = _report_counts(value.get("summary"), source_count)
-    if (
-        header != expected
-        or header[2] not in {"macos", "linux"}
-        or counts is None
-    ):
+    if header != expected or header[2] != VALIDATION_MODE or counts is None:
         return None
     passed, failed, skipped, checks = counts
     consistent = (
@@ -1578,11 +1515,6 @@ def main() -> int:
 
 
 def _check_required_options(options: Options) -> None:
-    if options.linux and not sys.platform.startswith("linux"):
-        message = (
-            "--linux requires a Linux host; macOS runs cannot skip SDK headers"
-        )
-        raise ValueError(message)
     if not options.tidy or not options.tests or not options.json_output:
         message = "All checks and JSON reporting are mandatory"
         raise ValueError(message)
@@ -1625,7 +1557,6 @@ def _validate(options: Options) -> int:
         tests=options.tests,
         tools=lint.versions,
     )
-    report["validation_mode"] = "linux" if options.linux else "macos"
     # Lint may have read a newer revision than its earlier cache key.
     # Never persist results from a mixed-source scan, even when its report
     # correctly fails with source-snapshot drift. Preserve prior good cache.
