@@ -1,0 +1,4 @@
+src/hardware/Ar9565BoardModal.cpp
+src/hardware/Ar9565Eeprom.cpp
+src/hardware/Ar9565InitCatalog.cpp
+src/hardware/Ar9565Core.cpp
