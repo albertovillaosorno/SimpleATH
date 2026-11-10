@@ -1705,6 +1705,148 @@ namespace
                candidate.channelSixSlots == 0U;
     }
 
+    // This fixture advertises a self-rooted MIF with matching v2 election
+    // identity rather than a relay's unverified top-master claim.
+    struct RootScore
+    {
+            uint8_t metric {};
+            uint8_t counter {};
+    };
+
+    void setDirectRoot(NeighborFixture &fixture, RootScore score)
+    {
+        constexpr size_t kMasterCounterOffset = 12U;
+        fixture.frame.at(fixture.electionOffset + kMasterCounterOffset) =
+            score.counter;
+        fixture.frame.at(fixture.electionOffset +
+                         kNeighborElectionMasterMetricOffset) = score.metric;
+        fixture.frame.at(fixture.electionOffset +
+                         kNeighborElectionOwnMetricOffset) = score.metric;
+        fixture.frame.at(fixture.electionOffset +
+                         kNeighborElectionOwnCounterOffset) = score.counter;
+    }
+
+    bool selectDirectRootWithoutInventingElection()
+    {
+        constexpr uint8_t kFirstRoot = 0x40U;
+        constexpr uint8_t kSecondRoot = 0x41U;
+        constexpr uint8_t kThirdRoot = 0x42U;
+        constexpr uint8_t kFourthRoot = 0x43U;
+        constexpr uint8_t kRelay = 0x44U;
+        constexpr uint8_t kOffChannel = 0x45U;
+        constexpr uint8_t kInconsistent = 0x46U;
+        constexpr uint8_t kFirstMetric = 70U;
+        constexpr uint8_t kWinningMetric = 80U;
+        constexpr uint8_t kForgedMetric = 99U;
+        constexpr uint8_t kFirstCounter = 3U;
+        constexpr uint8_t kSecondCounter = 1U;
+        constexpr uint8_t kWinningCounter = 2U;
+        constexpr uint64_t kLaterClockMs = kNeighborFirstSeenMs + 10U;
+        const Mac local = kNeighborBaseSource;
+        AwdlNeighbors peers {};
+        AwdlNeighbor winner {};
+        winner.masterMetric = kForgedMetric;
+        if (peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            winner.masterMetric != 0U)
+        {
+            return false;
+        }
+        auto first = makeNeighborFixture(kFirstRoot);
+        auto second = makeNeighborFixture(kSecondRoot);
+        auto third = makeNeighborFixture(kThirdRoot);
+        auto fourth = makeNeighborFixture(kFourthRoot);
+        setDirectRoot(first, {kFirstMetric, kFirstCounter});
+        setDirectRoot(second, {kWinningMetric, kSecondCounter});
+        setDirectRoot(third, {kWinningMetric, kWinningCounter});
+        setDirectRoot(fourth, {kWinningMetric, kWinningCounter});
+        if (peers.observeMif(kNeighborFirstSeenMs, first.frame.data(),
+                             first.length) != Result::Ok ||
+            !peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            !sameMac(winner.source, first.source) ||
+            peers.observeMif(kNeighborFirstSeenMs, second.frame.data(),
+                             second.length) != Result::Ok ||
+            !peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            !sameMac(winner.source, second.source) ||
+            peers.observeMif(kNeighborFirstSeenMs, third.frame.data(),
+                             third.length) != Result::Ok ||
+            !peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            !sameMac(winner.source, third.source) ||
+            peers.observeMif(kNeighborFirstSeenMs, fourth.frame.data(),
+                             fourth.length) != Result::Ok ||
+            !peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            !sameMac(winner.source, fourth.source))
+        {
+            return false;
+        }
+        // Stronger advertised root metrics without direct-master proof,
+        // matching own counters or any 2.4-GHz social slot are not evidence.
+        auto relay = makeNeighborFixture(kRelay);
+        auto offChannel = makeNeighborFixture(kOffChannel);
+        auto inconsistent = makeNeighborFixture(kInconsistent);
+        setDirectRoot(relay, {kForgedMetric, kFirstCounter});
+        setDirectRoot(offChannel, {kForgedMetric, kFirstCounter});
+        setDirectRoot(inconsistent, {kForgedMetric, kFirstCounter});
+        relay.frame.at(relay.syncOffset + kNeighborSyncMacOffset +
+                       kNeighborMacLast) = kFirstRoot;
+        for (size_t slot = 0U; slot < kNeighborSlotCount; ++slot)
+        {
+            offChannel.frame.at(offChannel.channelOffset +
+                                kNeighborChannelOffset + slot) =
+                kNeighborOtherChannel;
+        }
+        inconsistent.frame.at(inconsistent.electionOffset +
+                              kNeighborElectionOwnMetricOffset) = kFirstMetric;
+        if (peers.observeMif(kNeighborFirstSeenMs, relay.frame.data(),
+                             relay.length) != Result::Ok ||
+            peers.observeMif(kNeighborFirstSeenMs, offChannel.frame.data(),
+                             offChannel.length) != Result::Ok ||
+            peers.observeMif(kNeighborFirstSeenMs, inconsistent.frame.data(),
+                             inconsistent.length) != Result::Ok ||
+            !peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            !sameMac(winner.source, fourth.source))
+        {
+            return false;
+        }
+        peers.expire(kLaterClockMs);
+        if (peers.strongestDirectMaster(local, kNeighborFirstSeenMs, winner) ||
+            winner.masterMetric != 0U ||
+            !peers.strongestDirectMaster(local, kLaterClockMs, winner) ||
+            !sameMac(winner.source, fourth.source))
+        {
+            return false;
+        }
+        // A late data frame may keep an existing peer alive, but cannot
+        // renew the older MIF's synchronization-master clock anchor.
+        std::array<uint8_t, kNeighborIpv6Bytes> ipv6 {};
+        ipv6.at(0U) = kNeighborIpv6Version;
+        const Mac multicast {{0x33U, 0x33U, 0U, 0U, 0U, 1U}};
+        const AwdlIpv6Tx tx {
+            fourth.source, multicast, 0U, 1U, false, ipv6.data(), ipv6.size(),
+        };
+        std::array<uint8_t, kNeighborDataBytes> packet {};
+        size_t written = 0U;
+        if (makeAwdlIpv6Data(tx, packet.data(), packet.size(), written) !=
+                Result::Ok ||
+            peers.observeIpv6(kNeighborJustAliveMs, packet.data(), written) !=
+                Result::Ok)
+        {
+            return false;
+        }
+        peers.expire(kNeighborExpiredMs);
+        if (!peers.find(fourth.source, kNeighborExpiredMs, winner) ||
+            peers.strongestDirectMaster(local, kNeighborExpiredMs, winner) ||
+            winner.masterMetric != 0U)
+        {
+            return false;
+        }
+        // An output containing the local input cannot be clobbered.
+        winner.source = local;
+        winner.masterMetric = kForgedMetric;
+        return !peers.strongestDirectMaster(winner.source, kNeighborExpiredMs,
+                                            winner) &&
+               winner.masterMetric == kForgedMetric;
+    }
+
     bool neighborMifSequenceReplay()
     {
         constexpr uint16_t kInitialSequence = 0xffeU;
@@ -2116,6 +2258,11 @@ int main()
     {
         constexpr int kReplayFailure = 18;
         return kReplayFailure;
+    }
+    if (!selectDirectRootWithoutInventingElection())
+    {
+        constexpr int kDirectRootFailure = 20;
+        return kDirectRootFailure;
     }
     if (!neighborElectionAndExpiry())
     {

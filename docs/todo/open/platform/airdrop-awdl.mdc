@@ -360,3 +360,31 @@ the MAC to any macOS AWDL interface, operating channel, Bluetooth discovery,
 coexistence lease, DMA transmission or AirDrop peer trust. The P0 TODO remains
 open; real timestamps and actual radio TX authorization still require native
 integration.
+
+## Source progress — 2026-11-10: bounded direct-root election candidate
+
+The production `AwdlNeighbors::strongestDirectMaster` now selects a
+**read-only** channel-6 synchronization-root candidate from actual copied,
+MIF-derived peer entries. It accepts only a fresh, self-identified direct
+root whose source, synchronization master and election master agree, and
+whose advertised own/master metric and counter are internally consistent.
+Ranking uses the larger master metric, then counter and deterministic MAC
+order. The independent AWDL reverse-engineering paper documents the master
+metric and synchronization-tree model, while the election-v2 TLV wire fields
+are independently identified by the Wireshark AWDL dissector:
+
+- https://arxiv.org/abs/1808.03156
+- https://www.wireshark.org/docs/dfref/a/awdl_data.html
+
+The bounded selector ignores indirect tree claims without their required
+synchronization-tree path evidence. It ignores unsupported channel slots,
+clock rollback, and expired **MIF** timing even when an AWDL IPv6 packet
+has refreshed a peer's separate presence lease. A synthetic offline fixture
+covers metric/counter/MAC ranking, malformed candidate claims, channel
+exclusion, monotonic clock and data-presence versus MIF expiry. Direct
+Clang-Tidy, Clang-Format and both C++14/C++17 sanitized host fixtures passed.
+
+This is not full Apple election or loop prevention. It never elects the
+local device, authenticates a master, verifies a multi-hop tree, slaves an
+RF clock, schedules a channel dwell, notifies the native AirDrop stack or
+transmits a packet. Those P0 production paths remain open.

@@ -1068,6 +1068,57 @@ namespace simpleath
             return false;
         }
 
+        bool AwdlNeighbors::strongestDirectMaster(const Mac &local,
+                                                  uint64_t nowMs,
+                                                  AwdlNeighbor &out) const
+        {
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), &local, sizeof(local)))
+            {
+                return false;
+            }
+            out = {};
+            if (!validStationMac(local) ||
+                (clockInitialized_ && nowMs < lastClockMs_))
+            {
+                return false;
+            }
+            bool found = false;
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                const Entry &entry = entries_.at(index);
+                const AwdlNeighbor &peer = entry.neighbor;
+                if (!entry.occupied || sameMac(peer.source, local) ||
+                    !validAt(nowMs, peer.lastMifMs) ||
+                    peer.channelSixSlots == 0U ||
+                    !sameMac(peer.source, peer.syncMaster) ||
+                    !sameMac(peer.source, peer.electionMaster) ||
+                    peer.masterMetric == 0U ||
+                    peer.masterMetric != peer.ownMetric ||
+                    peer.masterCounter != peer.ownCounter)
+                {
+                    continue;
+                }
+                // Compare complete, copied MIF attributes. Never let a
+                // non-root relay's claimed top-master score win election
+                // without its synchronization-tree proof.
+                const bool stronger =
+                    !found || peer.masterMetric > out.masterMetric ||
+                    (peer.masterMetric == out.masterMetric &&
+                     peer.masterCounter > out.masterCounter) ||
+                    (peer.masterMetric == out.masterMetric &&
+                     peer.masterCounter == out.masterCounter &&
+                     __builtin_memcmp(&peer.source.bytes, &out.source.bytes,
+                                      kMacAddressBytes) > 0);
+                if (stronger)
+                {
+                    out = peer;
+                    found = true;
+                }
+            }
+            return found;
+        }
+
         void AwdlNeighbors::expire(uint64_t nowMs)
         {
             if (clockInitialized_ && nowMs < lastClockMs_)

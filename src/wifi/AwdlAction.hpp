@@ -195,6 +195,19 @@ namespace simpleath
                                    size_t bytes);
                 bool find(const Mac &source, uint64_t nowMs,
                           AwdlNeighbor &out) const;
+                // Select the strongest currently observed DIRECT
+                // synchronization root on channel 6. A direct root must
+                // identify itself as source, sync master and election master,
+                // with consistent own/master counters and metrics. Indirect
+                // election trees require additional verified tree evidence and
+                // are excluded. Rank by advertised master metric, then counter,
+                // then MAC. An IPv6 refresh cannot extend the MIF's election
+                // lifetime. This read-only hint cannot authorize a clock
+                // switch, RF TX, Bluetooth discovery or macOS AirDrop peer
+                // admission. False clears out except when it aliases an input
+                // or state.
+                bool strongestDirectMaster(const Mac &local, uint64_t nowMs,
+                                           AwdlNeighbor &out) const;
                 void expire(uint64_t nowMs);
                 void clear();
 
