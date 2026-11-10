@@ -140,6 +140,26 @@ Use synthetic keys only; passing vectors is not cryptographic certification.
 
 ## Evidence
 
+- 2026-11-10: DCO `9724869` introduces an explicitly OS-owned WPA2
+  candidate-selection path in `WifiEngine` using an **exact** scan-observed
+  BSSID, SSID, channel, security and supported basic-rate match. This path
+  never instantiates the portable PMK/supplicant; the native PCI owner's EAPOL
+  RX, CCMP key install and data-port authorization callbacks require the
+  OS-owned mode. The offline scan/authentication fixture passes C++14/C++17
+  ASan+UBSan. **Native beginScan/connect and calibrated RF-channel ownership
+  remain unimplemented**, so this is not a verified OS association.
+- 2026-11-10: DCO `9412a84` permits an OS-authenticated GTK rekey into an
+  unused same-epoch group RX slot after controlled-port authorization. Removing
+  the old installed GTK keeps the port open while a new GTK remains and
+  permanently retires the old slot for the physical epoch to prevent PN replay
+  floor rollback. Existing pairwise TK/PN and duplicate-slot guards remain.
+  Direct Darwin C++14 native syntax and `tools/validate.py --tests --tidy
+  --json` completed: **534 passed, 36 existing strict Clang-Tidy failures,
+  zero skipped**. The native key rekey callback has no physical radio fixture
+  or independently validated Tahoe host execution; Group1/Group2 end-to-end
+  dispatch, live RF authorization, constant-time crypto and native AirPort
+  operation are still incomplete. This TODO remains open.
+
 - 2026-11-10: native `src/SimpleATH.cpp` now exposes a gate-serialized
   `WirelessOwnerV1::installKey` software CCMP key consumer for pairwise
   TX/RX and group RX keys bound to the physical epoch and selected AP.
