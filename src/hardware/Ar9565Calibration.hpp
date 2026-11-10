@@ -259,6 +259,27 @@ namespace simpleath
             bool requiresReset;
     };
 
+    struct RfKillReadBackend
+    {
+            void *context;
+            uint64_t ownerEpoch;
+            uint32_t barLengthBytes;
+            // Read-only runtime checks may run with MAC/EDMA active, but
+            // still require the same live D0, board lease and owner epoch.
+            bool (*permitRead)(void *context, uint64_t epoch);
+            bool (*read32)(void *context, uint32_t offset, uint32_t *value);
+            void (*delayMicros)(void *context, uint32_t micros);
+    };
+
+    // Recheck the already configured GPIO without changing its direction.
+    // Two matching physical samples and a final owner lease check are needed
+    // for an Unblocked result. Every failure, unknown board GPIO or switched
+    // level denies runtime TX/RX; no write/reset or RF permission is implied.
+    // The native owner must have configured this input via sampleAr9565RfKill
+    // earlier in the SAME epoch, and must not trust only that old sample.
+    RfKillProgress observeAr9565RfKill(const RfKillBoardConfiguration &board,
+                                       const RfKillReadBackend &backend);
+
     // AR9565 PCIe GPIO RF-kill: EEPROM rfSilent GPIO/polarity, AR9300 input
     // and GPIO OE settings. Configure the specified pin to high-impedance
     // input, verify the write, then sample twice across a short delay. Linux

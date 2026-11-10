@@ -808,6 +808,88 @@ namespace simpleath
         return progress;
     }
 
+    RfKillProgress observeAr9565RfKill(const RfKillBoardConfiguration &board,
+                                       const RfKillReadBackend &backend)
+    {
+        RfKillProgress result {
+            RfKillResult::InvalidBackend, true, 0, 0, 0, false,
+        };
+        const RfKillReadBackend stable = backend;
+        const RfKillBoardConfiguration config = board;
+        if (stable.context == nullptr || stable.ownerEpoch == 0 ||
+            stable.permitRead == nullptr || stable.read32 == nullptr ||
+            stable.delayMicros == nullptr)
+        {
+            return result;
+        }
+        result.result = RfKillResult::NotConfigured;
+        if (!config.configured)
+        {
+            return result;
+        }
+        result.result = RfKillResult::InvalidGpio;
+        if (config.gpio >= kRfKillPins)
+        {
+            return result;
+        }
+        result.result = RfKillResult::InvalidBar;
+        if (stable.barLengthBytes < kRfKillInput + sizeof(uint32_t))
+        {
+            return result;
+        }
+        result.gpio = config.gpio;
+        const auto permit = [&]
+        {
+            if (stable.permitRead(stable.context, stable.ownerEpoch))
+            {
+                return true;
+            }
+            result.result = RfKillResult::OwnershipLost;
+            return false;
+        };
+        uint32_t first = 0;
+        uint32_t second = 0;
+        if (!permit())
+        {
+            return result;
+        }
+        result.result = RfKillResult::ReadFailed;
+        if (!stable.read32(stable.context, kRfKillInput, &first))
+        {
+            return result;
+        }
+        ++result.completedReads;
+        if (!permit())
+        {
+            return result;
+        }
+        stable.delayMicros(stable.context, kRfKillSettleMicros);
+        if (!permit())
+        {
+            return result;
+        }
+        result.result = RfKillResult::ReadFailed;
+        if (!stable.read32(stable.context, kRfKillInput, &second))
+        {
+            return result;
+        }
+        ++result.completedReads;
+        if (!permit())
+        {
+            return result;
+        }
+        result.result = RfKillResult::Unstable;
+        const uint32_t bit = uint32_t {1} << config.gpio;
+        if (((first ^ second) & bit) != 0)
+        {
+            return result;
+        }
+        result.hardwareBlocked = ((second & bit) != 0U) == config.activeHigh;
+        result.result = result.hardwareBlocked ? RfKillResult::Blocked
+                                               : RfKillResult::Unblocked;
+        return result;
+    }
+
     RfKillProgress sampleAr9565RfKill(const RfKillBoardConfiguration &board,
                                       const RfKillBackend &backend)
     {

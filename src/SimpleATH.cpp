@@ -271,11 +271,13 @@ class SimpleATH final : public IOService
                    sizeof(out.permanentMac));
             memcpy(out.currentMac, board->summary.mac, sizeof(out.currentMac));
             const auto link = self.engine_.linkStatus();
+            const bool liveRfKill = self.liveRfKillUnblocked();
             // Association precedes WPA2 key installation. Report only a
             // genuinely received association on the active radio epoch;
             // controlledPortOpen independently gates IP traffic and DHCP.
             out.associated =
-                self.radioOperational_ && self.channelAuthorized_ &&
+                liveRfKill && self.radioOperational_ &&
+                self.channelAuthorized_ &&
                 self.queues_.epoch() == self.epoch_ &&
                 self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
                 link.state == simpleath::ieee80211::LinkState::Associated;
@@ -283,13 +285,14 @@ class SimpleATH final : public IOService
                 memcpy(out.bssid, link.bssid.bytes, sizeof(out.bssid));
             out.powered = self.powered_;
             out.radioAvailable =
-                self.radioOperational_ && self.channelAuthorized_ &&
+                liveRfKill && self.radioOperational_ &&
+                self.channelAuthorized_ &&
                 self.queues_.phase() == simpleath::NativeQueuePhase::Running;
             out.controlledPortOpen =
                 out.associated && self.controlledPortAuthorized_;
             // No country code or current channel is published until the
             // physical/regulatory owner has actually authorized one.
-            out.rfKillBlocked = !self.rfKillKnownUnblocked_;
+            out.rfKillBlocked = !liveRfKill;
             return kIOReturnSuccess;
         }
 
@@ -543,7 +546,7 @@ class SimpleATH final : public IOService
             // owner. Native EAPOL delivery and association control remain
             // separate prerequisites before this path can carry traffic.
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
-                !self.channelAuthorized_ || !self.rfKillKnownUnblocked_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
                 !self.board_.view(self.epoch_) ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
@@ -692,7 +695,7 @@ class SimpleATH final : public IOService
             // channel/queue/RF authorization in this PCI epoch. A key install
             // callback alone cannot advance the controlled port.
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
-                !self.channelAuthorized_ || !self.rfKillKnownUnblocked_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.board_.view(self.epoch_) == nullptr ||
                 self.queues_.epoch() != self.epoch_ ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
@@ -743,7 +746,7 @@ class SimpleATH final : public IOService
         // Connect and every management/data TX share one physical safety
         // predicate. A selected BSSID or OS-owned key cannot confer RF/TPC
         // authority before the native radio owner publishes real evidence.
-        bool canSubmitTransmit() const
+        bool canSubmitTransmit()
         {
             return powered_ && !stopping_ && radioOperational_ &&
                    channelAuthorized_ && rfKillKnownUnblocked_ &&
@@ -755,7 +758,7 @@ class SimpleATH final : public IOService
                    txSafety_.channelRegulatoryAuthorized &&
                    txSafety_.transmitPowerLimitsValidated &&
                    txSafety_.rfKillUnblocked && txSafety_.radioAwake &&
-                   txSafety_.dmaMappingValid;
+                   txSafety_.dmaMappingValid && liveRfKillUnblocked();
         }
 
         // Submit only admitted 802.11 frames from the station engine or
@@ -1144,6 +1147,36 @@ class SimpleATH final : public IOService
             return high != self.rfKillActiveHigh_;
         }
 
+        static bool rfKillRuntimePermit(void *context, uint64_t epoch)
+        {
+            const auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            // Unlike boot-time GPIO configuration, a runtime *read* must
+            // remain legal when EDMA and the 802.11 MAC are active. Never
+            // reuse rfBoardPermit's quiescence prerequisite here.
+            return epoch == self.epoch_ && nvmOwner(context) &&
+                   self.board_.view(epoch) != nullptr &&
+                   self.rfKillPinConfigured_ && self.rfKillKnownUnblocked_;
+        }
+
+        bool liveRfKillUnblocked()
+        {
+            if (!rfKillRuntimePermit(&access_, epoch_))
+            {
+                return false;
+            }
+            const simpleath::RfKillBoardConfiguration board {
+                rfKillPinConfigured_, rfKillGpio_, rfKillActiveHigh_};
+            const simpleath::RfKillReadBackend backend {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                rfKillRuntimePermit,
+                readRegister,
+                delayMicros};
+            return simpleath::observeAr9565RfKill(board, backend).result ==
+                   simpleath::RfKillResult::Unblocked;
+        }
+
         simpleath::RxAgcBackend rfPowerBackend()
         {
             const simpleath::RfIniBackend io {
@@ -1382,7 +1415,8 @@ class SimpleATH final : public IOService
                                   const simpleath::edma::RxStatus &status)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
-            if (!self.radioOperational_ || !self.powered_)
+            if (!self.radioOperational_ || !self.powered_ ||
+                !self.liveRfKillUnblocked())
                 return;
             // An OS-installed TK has a single security owner: data RX must
             // use the matching native CCMP session, not the portable engine's
