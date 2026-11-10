@@ -227,6 +227,13 @@ namespace simpleath
                                        const InputTrust &trust, uint8_t *out,
                                        size_t capacity, EngineAction &action);
 
+                // Copy only the BSS of a genuinely accepted association,
+                // never a provisional candidate or a mutable scan-cache
+                // entry. The native owner independently validates RF/queue
+                // authority before presenting the resulting OS snapshot.
+                // An output overlapping this engine is refused untouched.
+                bool copyAssociatedBss(Bss &out) const;
+
                 const ScanCache &scan() const
                 {
                     return cache_;

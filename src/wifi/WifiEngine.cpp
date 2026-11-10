@@ -216,6 +216,36 @@ namespace simpleath
             scanDeadlineMs_ = 0;
         }
 
+        bool WifiEngine::copyAssociatedBss(Bss &out) const
+        {
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)))
+            {
+                return false;
+            }
+            out = {};
+            const StationState state = station_.state();
+            if (!selected_ ||
+                (state != StationState::AssociatedOpen &&
+                 state != StationState::WaitingForWpa2Keys &&
+                 state != StationState::HardwareKeysInstalled) ||
+                link_.status().state != LinkState::Associated)
+            {
+                return false;
+            }
+            const Bss &candidate = station_.candidate();
+            if (!candidate.occupied ||
+                !sameMac(candidate.beacon.bssid, link_.status().bssid) ||
+                candidate.beacon.ssidLength == 0 ||
+                candidate.beacon.ssidLength > sizeof(candidate.beacon.ssid) ||
+                candidate.beacon.channel == 0 ||
+                candidate.beacon.channel > kMaximum2GhzChannel)
+            {
+                return false;
+            }
+            out = candidate;
+            return true;
+        }
+
         bool WifiEngine::configureKeys(const crypto::KeyHardware &hardware)
         {
             // The adapter checks its own storage, but the provider's opaque

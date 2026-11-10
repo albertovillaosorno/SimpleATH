@@ -21,6 +21,8 @@ namespace
 
     constexpr uint8_t kAp[6] {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
     constexpr uint8_t kStation[6] {0x02, 0x66, 0x77, 0x88, 0x99, 0xaa};
+    constexpr int kAssociatedBssSnapshotFailure = 77;
+    constexpr uint8_t kAssociatedBssTestChannel = 6U;
 
     // These deliberately nonfunctional providers are never invoked; they
     // validate only the adapter's offline callback storage contract.
@@ -2121,6 +2123,14 @@ int main()
     {
         return 5;
     }
+    // The native controller may not expose a selected (but unassociated)
+    // BSS as an OS-visible connection. Failed output is cleared.
+    Bss associatedBss {};
+    associatedBss.occupied = true;
+    if (engine.copyAssociatedBss(associatedBss) || associatedBss.occupied)
+    {
+        return kAssociatedBssSnapshotFailure;
+    }
     uint8_t auth[30] {};
     authenticationResponse(auth);
     // Exact selected-rate capacity must work before authentication is
@@ -2153,6 +2163,17 @@ int main()
         action.nativeInterfaceUsable || engine.hasNativeWifiInterface())
     {
         return 7;
+    }
+
+    if (!engine.copyAssociatedBss(associatedBss) || !associatedBss.occupied ||
+        associatedBss.beacon.channel != kAssociatedBssTestChannel ||
+        associatedBss.beacon.ssidLength != 4U ||
+        associatedBss.beacon.ssid[0] != 'T' ||
+        associatedBss.beacon.ssid[3] != 't' ||
+        std::memcmp(&associatedBss.beacon.bssid.bytes[0], &kAp[0],
+                    sizeof(kAp)) != 0)
+    {
+        return kAssociatedBssSnapshotFailure;
     }
 
     // On RX, a verified but retained FCS is not Ethernet payload. The
@@ -2308,6 +2329,10 @@ int main()
         return 8;
     }
     engine.radioStopped(2000, false);
+    if (engine.copyAssociatedBss(associatedBss) || associatedBss.occupied)
+    {
+        return kAssociatedBssSnapshotFailure;
+    }
     if (engine.encodeOutgoingEthernet(ethernet, sizeof(ethernet), 13,
                                       syntheticTrust, tx, sizeof(tx),
                                       action) != EngineResult::InvalidState ||

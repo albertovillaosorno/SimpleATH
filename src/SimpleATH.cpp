@@ -16,6 +16,7 @@
 #include "wifi/DataPath.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
+#include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
 #include "wifi/crypto/Ccmp.hpp"
@@ -283,7 +284,29 @@ class SimpleATH final : public IOService
                 self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
                 link.state == simpleath::ieee80211::LinkState::Associated;
             if (out.associated)
-                memcpy(out.bssid, link.bssid.bytes, sizeof(out.bssid));
+            {
+                simpleath::ieee80211::Bss selected {};
+                if (!self.engine_.copyAssociatedBss(selected) ||
+                    self.associationGeneration_ == 0 ||
+                    selected.beacon.ssidLength > sizeof(out.ssid))
+                {
+                    // Native UI state must not claim an association without
+                    // the exact BSS chosen by the actual 802.11 handshake.
+                    out.associated = false;
+                }
+                else
+                {
+                    out.associationGeneration = self.associationGeneration_;
+                    memcpy(&out.bssid[0], &link.bssid.bytes[0],
+                           sizeof(out.bssid));
+                    out.ssidLength = selected.beacon.ssidLength;
+                    memcpy(&out.ssid[0], &selected.beacon.ssid[0],
+                           out.ssidLength);
+                    out.channel = selected.beacon.channel;
+                    // Selected scan RSSI is historical, not a live signal
+                    // observation. Do not invent live RSSI/noise/country.
+                }
+            }
             out.powered = self.powered_;
             out.radioAvailable =
                 liveRfKill && self.radioOperational_ &&
@@ -1443,6 +1466,23 @@ class SimpleATH final : public IOService
             }
         }
 
+        void recordNativeAssociation()
+        {
+            if (associationGeneration_ == UINT64_MAX)
+            {
+                // Never wrap an OS-visible association token. Retire the
+                // new link rather than publishing an ambiguous lifetime.
+                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                     false);
+            }
+            else
+            {
+                ++associationGeneration_;
+            }
+            controlledPortAuthorized_ = false;
+            notifyWirelessChange(false);
+        }
+
         static void queueReceived(void *context, const uint8_t *frame,
                                   size_t bytes,
                                   const simpleath::edma::RxStatus &status)
@@ -1574,8 +1614,7 @@ class SimpleATH final : public IOService
                  action.kind == simpleath::ieee80211::ActionKind::
                                     OpenAssociationEstablished))
             {
-                self.controlledPortAuthorized_ = false;
-                self.notifyWirelessChange(false);
+                self.recordNativeAssociation();
                 return;
             }
             if (result == simpleath::ieee80211::EngineResult::Ok &&
@@ -2172,6 +2211,9 @@ class SimpleATH final : public IOService
         simpleath::edma::TxRate txRate_ {};
         uint16_t txSequence_ {0};
         uint64_t nextTransmitToken_ {1};
+        // Increment only after a genuine AP association response. Never
+        // recycle across disconnect, radio stop, sleep or PCI epoch change.
+        uint64_t associationGeneration_ {0};
         uint64_t receivedFrames_ {0};
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};
