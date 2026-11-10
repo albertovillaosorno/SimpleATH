@@ -186,18 +186,28 @@ The runner uses the project's Python 3.14 tool environment.
 
 ## Builds, CI and hardware testing
 
-**Not authorized during source-only development.** Do not produce
-another kext, run an Xcode build, trigger CI, push
-build-v* tags, modify OpenCore/EFI/USB/SSD, or interact with live
-PCI/RF hardware. The GitHub Actions build remains tag-only, and
-ordinary main pushes never trigger a kext build. The separate offline
-host-test authorization above does not authorize these actions.
+The GitHub Actions workflows are **tag-only** and do not run on ordinary
+`main` pushes, pull requests or manual workflow dispatch:
 
-When the owner *later* activates the final TODO, compilation,
-artifact inspection, EFI installation and physical tests require
-their own explicit authorizations. Preserve the known bootable
-OpenCore recovery configuration. A macOS boot, IORegistry match or
-successfully injected passive kext is not working wireless networking.
+- `ci`: run the complete macOS-mode source validator and offline host tests
+  on the latest supported Intel Tahoe runner. **No kext is built.**
+- `build-v*`: invoke that same validator on the exact tag commit first. Only
+  a fully successful validation starts the separate x86_64 Xcode kext build.
+  Failure or skipped validation checks prevent the build entirely.
+
+The CI uses the newest compatible GitHub Actions major versions, current
+Homebrew LLVM/Ruff/BasedPyright and Python 3.15. It refreshes the Clang-Tidy
+compilation database for the hosted checkout and uses the project's pinned
+MacKernelSDK compatibility headers. That SDK is not a verified exact Tahoe
+KDK, and a successful static check cannot establish native ABI correctness.
+The default macOS validator **never** uses `--linux` or treats missing Apple
+headers as successes. Build artifacts are unsigned and are not installed.
+
+This setup does **not** itself authorize or create either tag, run a CI job,
+compile the kext locally, or begin physical testing. Release-build tags and
+all EFI/OpenCore/USB/SSD or PCI/RF work require separate explicit owner
+approval. A successful build does not prove the driver provides working
+Wi-Fi or AirPort on the target machine.
 
 ## License and attribution
 

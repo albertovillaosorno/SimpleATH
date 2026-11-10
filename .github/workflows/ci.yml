@@ -1,0 +1,71 @@
+name: SimpleATH Tahoe Intel source validation
+
+# The ci tag runs validation only; release builds call this same gate.
+on:
+  push:
+    tags:
+      - 'ci'
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simpleath-ci-${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Full macOS source validation
+    runs-on: macos-26-intel
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact requested commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Use current stable Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+
+      - name: Install current Clang and Python lint tools
+        run: |
+          brew update
+          brew install llvm ruff basedpyright
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Intel Tahoe toolchain
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 26
+          sw_vers
+          xcodebuild -version
+          python3 --version
+          clang++ --version
+          clang-format --version
+          clang-tidy --version
+          ruff --version
+          basedpyright --version
+
+      - name: Prepare the checked-in kernel compatibility SDK
+        run: python3 -B tools/bootstrap_sdk.py
+
+      - name: Refresh checkout-local Clang-Tidy commands
+        run: python3 -B tools/generate_compile_commands.py
+
+      - name: Validate every source and offline host test
+        env:
+          CPATH: ${{ github.workspace }}/.research/MacKernelSDK/Headers
+        run: |
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          python3 -B tools/validate.py --no-cache
+
+      - name: Preserve failed or successful validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: SimpleATH-macOS-validation-${{ github.run_id }}
+          path: .cache/validate/report.json
+          if-no-files-found: warn

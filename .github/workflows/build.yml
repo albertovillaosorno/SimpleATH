@@ -1,7 +1,6 @@
-name: SimpleATH v1 x86_64 kernel build
+name: SimpleATH Tahoe Intel gated kernel build
 
-# Exactly one user-authorized build tag starts this workflow.
-# Ordinary branch pushes, PRs and workflow_dispatch do not build anything.
+# Only a user-authorized build-v* tag may compile the kext.
 on:
   push:
     tags:
@@ -10,45 +9,71 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: simpleath-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  validate:
+    name: Required full macOS validation
+    uses: ./.github/workflows/ci.yml
+
   build:
-    if: startsWith(github.ref, 'refs/tags/build-v')
+    name: Build x86_64 kext after successful validation
+    needs: validate
+    if: >-
+      needs.validate.result == 'success' &&
+      startsWith(github.ref, 'refs/tags/build-v')
     runs-on: macos-26-intel
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - name: Display native toolchain
+      - name: Checkout validated commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Verify Intel Tahoe toolchain
         run: |
+          test "$(uname -m)" = x86_64
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 26
           sw_vers
-          uname -m
           xcodebuild -version
-      - name: Prepare pinned kernel SDK
+
+      - name: Prepare checked-in pinned kernel SDK
         run: python3 tools/bootstrap_sdk.py
-      - name: Build SimpleATH v1 kernel extension
+
+      - name: Build unsigned x86_64 kernel extension
         run: |
+          kernel_sdk="$PWD/.research/MacKernelSDK"
           xcodebuild \
             -project src/platform/SimpleATH.xcodeproj \
             -target SimpleATH \
             -configuration Release \
             SYMROOT="$PWD/build/Products" \
             OBJROOT="$PWD/build/Objects" \
-            -arch x86_64 \
+            ARCHS=x86_64 \
+            HEADER_SEARCH_PATHS="$PWD/src $kernel_sdk/Headers" \
+            KERNEL_EXTENSION_HEADER_SEARCH_PATHS="$kernel_sdk/Headers" \
+            KERNEL_FRAMEWORK_HEADERS="$kernel_sdk/Headers" \
+            LIBRARY_SEARCH_PATHS="$kernel_sdk/Library/x86_64" \
             CODE_SIGNING_ALLOWED=NO \
             build > build-xcode.log 2>&1 || {
               tail -n 110 build-xcode.log
               exit 1
             }
           tail -n 18 build-xcode.log
+
       - name: Verify actual build bundle
         run: |
           test -s build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
           file build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
           plutil -p build/Products/Release/SimpleATH.kext/Contents/Info.plist
-      - name: Upload kext and build log
+
+      - name: Preserve kernel build artifacts and failure logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: SimpleATH-v1-Intel
+          name: SimpleATH-Intel-${{ github.ref_name }}
           path: |
             build/Products/Release/SimpleATH.kext/**
             build-xcode.log
