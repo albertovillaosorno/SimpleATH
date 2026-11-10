@@ -27,6 +27,7 @@ namespace simpleath
         Ok,
         Ignored,
         InvalidArgument,
+        Unauthorized,
         Busy,
         NotScanning,
         OwnershipLost,
@@ -65,6 +66,9 @@ namespace simpleath
             uint64_t epoch {};
             LeScanPhase phase {LeScanPhase::Idle};
             bool stopRequested {};
+            // Only an explicitly authorized active scan may deliver
+            // controller SCAN_RSP records to the OS owner.
+            bool active {};
     };
 
     // The native Bluetooth HCI owner serializes all calls. It must arbitrate
@@ -82,6 +86,23 @@ namespace simpleath
                                          const UsbHciHostCallbacks &host,
                                          const LeDiscoveryOwner &owner,
                                          uint16_t interval, uint16_t window);
+
+    // Explicit host authorization for ACTIVE LE scanning. Active scanning
+    // transmits SCAN_REQ frames using the public controller address; owning
+    // USB pipes or accepting passive reports never grants this permission.
+    // The native Bluetooth host must authorize controller-procedure ownership,
+    // radio/privacy/address policy, and the requested timing before any HCI
+    // command is submitted. The callback may revoke the owner epoch.
+    using LeActiveScanAuthorization = bool (*)(void *context, uint64_t epoch,
+                                               uint16_t interval,
+                                               uint16_t window);
+
+    LeDiscoveryResult beginLeActiveScan(LeDiscoveryState &state,
+                                        UsbHciState &transport,
+                                        const UsbHciHostCallbacks &host,
+                                        const LeDiscoveryOwner &owner,
+                                        uint16_t interval, uint16_t window,
+                                        LeActiveScanAuthorization authorize);
 
     // An outstanding enable may complete after a stop request; the state
     // machine then sends a real disable and waits for its acknowledgment.

@@ -56,7 +56,24 @@ namespace
             const LeScanPhase *pendingPhase {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
+            bool allowActiveScan {true};
+            bool revokeOnActiveAuthorization {};
+            size_t activeAuthorizations {};
+            uint8_t expectedEventType {};
     };
+
+    bool authorizeActive(void *context, uint64_t epoch, uint16_t interval,
+                         uint16_t window)
+    {
+        auto &fake = *static_cast<Fake *>(context);
+        ++fake.activeAuthorizations;
+        if (fake.revokeOnActiveAuthorization)
+        {
+            fake.valid = false;
+        }
+        return fake.allowActiveScan && epoch == kEpoch &&
+               interval == kInterval && window == kWindow;
+    }
 
     bool permit(void *context, uint64_t epoch)
     {
@@ -138,7 +155,8 @@ namespace
         if (fake.failAdvertisement || epoch != kEpoch ||
             advertisement.dataBytes != 3U ||
             advertisement.data.at(0U) != kAdByte ||
-            advertisement.eventType != 0U || advertisement.addressType != 1U)
+            advertisement.eventType != fake.expectedEventType ||
+            advertisement.addressType != 1U)
         {
             return false;
         }
@@ -241,6 +259,16 @@ namespace
                                           ownerFor(fake_), interval, window);
             }
 
+            LeDiscoveryResult
+            beginActive(LeActiveScanAuthorization authorize = authorizeActive,
+                        uint16_t interval = kInterval,
+                        uint16_t window = kWindow)
+            {
+                return beginLeActiveScan(scan_, transport_, hostFor(fake_),
+                                         ownerFor(fake_), interval, window,
+                                         authorize);
+            }
+
             LeDiscoveryResult accept(const uint8_t *event, size_t bytes)
             {
                 // Mirror the native owner: HCI credits are accounted before
@@ -299,6 +327,7 @@ namespace
             f.fake().commandCount != 1U ||
             f.fake().commandSizes.at(0U) != kParameterCommandBytes ||
             f.fake().commands.at(0U).at(0U) != kParamsOpcode ||
+            f.fake().commands.at(0U).at(3U) != 0U ||
             f.fake().commands.at(0U).at(4U) != kIntervalLsb ||
             f.fake().commands.at(0U).at(kScanWindowLsbOffset) != kWindowLsb ||
             f.begin() != LeDiscoveryResult::Busy)
@@ -330,6 +359,93 @@ namespace
             f.completeEnable() != LeDiscoveryResult::Ok ||
             f.phase() != LeScanPhase::Idle ||
             f.stop() != LeDiscoveryResult::NotScanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int activeScanAuthorization()
+    {
+        Fixture missing {};
+        if (!missing.attach() ||
+            missing.beginActive(nullptr) !=
+                LeDiscoveryResult::InvalidArgument ||
+            missing.fake().commandCount != 0U ||
+            missing.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture denied {};
+        denied.fake().allowActiveScan = false;
+        if (!denied.attach() ||
+            denied.beginActive() != LeDiscoveryResult::Unauthorized ||
+            denied.fake().activeAuthorizations != 1U ||
+            denied.fake().commandCount != 0U ||
+            denied.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture revoked {};
+        revoked.fake().revokeOnActiveAuthorization = true;
+        if (!revoked.attach() ||
+            revoked.beginActive() != LeDiscoveryResult::OwnershipLost ||
+            revoked.fake().commandCount != 0U ||
+            revoked.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture active {};
+        if (!active.attach() || active.beginActive() != LeDiscoveryResult::Ok ||
+            active.fake().activeAuthorizations != 1U ||
+            active.fake().commands.at(0U).at(3U) != 1U ||
+            active.beginActive() != LeDiscoveryResult::Busy ||
+            active.fake().activeAuthorizations != 1U ||
+            active.completeParameters() != LeDiscoveryResult::Ok ||
+            active.completeEnable() != LeDiscoveryResult::Ok ||
+            active.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Passive policy must not forward unsolicited SCAN_RSP records,
+        // even if a controller emits a syntactically valid response.
+        Fixture passive {};
+        if (!passive.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto unsolicited = kAdvertisement;
+        unsolicited.at(1U) = kEventPayloadBytes;
+        unsolicited.at(4U) = 4U;
+        if (passive.accept(unsolicited.data(), unsolicited.size() - 1U) !=
+                LeDiscoveryResult::Ok ||
+            passive.fake().reports != 0U ||
+            passive.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The active controller can also deliver SCAN_RSP (event type 4).
+        auto scanResponse = kAdvertisement;
+        scanResponse.at(1U) = kEventPayloadBytes;
+        scanResponse.at(4U) = 4U;
+        active.fake().expectedEventType = 4U;
+        if (active.accept(scanResponse.data(), scanResponse.size() - 1U) !=
+                LeDiscoveryResult::Ok ||
+            active.fake().reports != 1U ||
+            active.stop() != LeDiscoveryResult::Ok ||
+            active.fake().commands.at(2U).at(3U) != 0U ||
+            active.completeEnable() != LeDiscoveryResult::Ok ||
+            active.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture interrupted {};
+        if (!interrupted.attach() ||
+            interrupted.beginActive() != LeDiscoveryResult::Ok ||
+            interrupted.stop() != LeDiscoveryResult::Ok ||
+            interrupted.completeParameters() != LeDiscoveryResult::Ok ||
+            interrupted.fake().commandCount != 1U ||
+            interrupted.phase() != LeScanPhase::Idle)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
@@ -545,6 +661,10 @@ int main()
     if (const int normal = normalLifecycle())
     {
         return normal;
+    }
+    if (const int active = activeScanAuthorization())
+    {
+        return active;
     }
     if (const int stopped = cancellation())
     {

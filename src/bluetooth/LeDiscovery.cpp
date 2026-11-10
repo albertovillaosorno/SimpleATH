@@ -242,6 +242,13 @@ namespace simpleath
                 report.rssi = static_cast<int8_t>(*usbByteOffset(
                     event, offset + kReportHeaderBytes + report.dataBytes));
                 offset += kReportHeaderBytes + report.dataBytes + 1U;
+                // A passive scan never solicits SCAN_RSP. Even if another
+                // controller user emits one unexpectedly, do not attribute
+                // the response to our passive discovery procedure.
+                if (report.eventType == 4U && !state.active)
+                {
+                    continue;
+                }
                 if (!owner.onAdvertisement(owner.context, state.epoch, report))
                 {
                     return LeDiscoveryResult::DeliveryFailed;
@@ -253,6 +260,62 @@ namespace simpleath
             }
             return LeDiscoveryResult::Ok;
         }
+
+        LeDiscoveryResult beginLegacyScan(LeDiscoveryState &state,
+                                          UsbHciState &transport,
+                                          const UsbHciHostCallbacks &host,
+                                          const LeDiscoveryOwner &owner,
+                                          uint16_t interval, uint16_t window,
+                                          bool active)
+        {
+            if (interval < kMinScanDuration || interval > kMaxScanDuration ||
+                window < kMinScanDuration || window > interval ||
+                owner.epoch == 0U || owner.context == nullptr ||
+                owner.permit == nullptr || owner.onAdvertisement == nullptr)
+            {
+                return LeDiscoveryResult::InvalidArgument;
+            }
+            if (state.phase != LeScanPhase::Idle)
+            {
+                return LeDiscoveryResult::Busy;
+            }
+            if (!transport.attached || transport.faulted ||
+                transport.epoch != host.ownerEpoch ||
+                host.ownerEpoch != owner.epoch ||
+                !owner.permit(owner.context, owner.epoch))
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
+            // HCI LE Set Scan Parameters (0x200b): passive or active, public
+            // address, unfiltered. Active requests already passed an explicit
+            // host privacy/procedure authorization callback.
+            const uint8_t command[kScanParamsBytes] = {
+                0x0bU,
+                0x20U,
+                0x07U,
+                static_cast<uint8_t>(active ? 1U : 0U),
+                static_cast<uint8_t>(interval & 0xffU),
+                static_cast<uint8_t>(interval >> kBitsPerByte),
+                static_cast<uint8_t>(window & 0xffU),
+                static_cast<uint8_t>(window >> kBitsPerByte),
+                0x00U,
+                0x00U,
+            };
+            state.epoch = owner.epoch;
+            state.active = active;
+            state.phase = LeScanPhase::AwaitParameters;
+            if (sendUsbHciCommand(transport, host, &command[0U],
+                                  kScanParamsBytes) != UsbHciStatus::Ok)
+            {
+                return fault(state, LeDiscoveryResult::TransportFailed);
+            }
+            if (!authorized(state, transport, host, owner))
+            {
+                return fault(state, LeDiscoveryResult::OwnershipLost);
+            }
+            return LeDiscoveryResult::Ok;
+        }
+
     } // namespace
 
     LeDiscoveryResult beginLePassiveScan(LeDiscoveryState &state,
@@ -261,16 +324,31 @@ namespace simpleath
                                          const LeDiscoveryOwner &owner,
                                          uint16_t interval, uint16_t window)
     {
-        if (interval < kMinScanDuration || interval > kMaxScanDuration ||
-            window < kMinScanDuration || window > interval ||
-            owner.epoch == 0U || owner.context == nullptr ||
-            owner.permit == nullptr || owner.onAdvertisement == nullptr)
+        return beginLegacyScan(state, transport, host, owner, interval, window,
+                               false);
+    }
+
+    LeDiscoveryResult beginLeActiveScan(LeDiscoveryState &state,
+                                        UsbHciState &transport,
+                                        const UsbHciHostCallbacks &host,
+                                        const LeDiscoveryOwner &owner,
+                                        uint16_t interval, uint16_t window,
+                                        LeActiveScanAuthorization authorize)
+    {
+        if (authorize == nullptr)
         {
             return LeDiscoveryResult::InvalidArgument;
         }
         if (state.phase != LeScanPhase::Idle)
         {
             return LeDiscoveryResult::Busy;
+        }
+        if (interval < kMinScanDuration || interval > kMaxScanDuration ||
+            window < kMinScanDuration || window > interval ||
+            owner.epoch == 0U || owner.context == nullptr ||
+            owner.permit == nullptr || owner.onAdvertisement == nullptr)
+        {
+            return LeDiscoveryResult::InvalidArgument;
         }
         if (!transport.attached || transport.faulted ||
             transport.epoch != host.ownerEpoch ||
@@ -279,33 +357,14 @@ namespace simpleath
         {
             return LeDiscoveryResult::OwnershipLost;
         }
-        // HCI LE Set Scan Parameters (0x200b): passive, public address,
-        // unfiltered. The native owner must have already determined that
-        // these privacy/advertising policies are permitted by the OS.
-        const uint8_t command[kScanParamsBytes] = {
-            0x0bU,
-            0x20U,
-            0x07U,
-            0x00U,
-            static_cast<uint8_t>(interval & 0xffU),
-            static_cast<uint8_t>(interval >> kBitsPerByte),
-            static_cast<uint8_t>(window & 0xffU),
-            static_cast<uint8_t>(window >> kBitsPerByte),
-            0x00U,
-            0x00U,
-        };
-        state.epoch = owner.epoch;
-        state.phase = LeScanPhase::AwaitParameters;
-        if (sendUsbHciCommand(transport, host, &command[0U],
-                              kScanParamsBytes) != UsbHciStatus::Ok)
+        if (!authorize(owner.context, owner.epoch, interval, window))
         {
-            return fault(state, LeDiscoveryResult::TransportFailed);
+            return LeDiscoveryResult::Unauthorized;
         }
-        if (!authorized(state, transport, host, owner))
-        {
-            return fault(state, LeDiscoveryResult::OwnershipLost);
-        }
-        return LeDiscoveryResult::Ok;
+        // A policy callback can revoke USB ownership or reset the scan
+        // state. Recheck both before sending an active RF command.
+        return beginLegacyScan(state, transport, host, owner, interval, window,
+                               true);
     }
 
     LeDiscoveryResult endLeScan(LeDiscoveryState &state, UsbHciState &transport,
