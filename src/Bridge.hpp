@@ -12,17 +12,21 @@
 #include "Patcher.hpp"
 #include "WirelessABI.hpp"
 #include <IOKit/IOService.h>
+#include <stddef.h>
+#include <stdint.h>
 
 class ATH80211UserClient;
 
 namespace ath
 {
+    constexpr size_t kInterfaceNameCapacity = 16;
+    constexpr size_t kSelectorCount = 9;
 
     enum class InterfaceKind : uint8_t
     {
         Classic,
         Virtual,
-        Skywalk
+        Skywalk,
     };
 
     struct Endpoint
@@ -30,7 +34,7 @@ namespace ath
             IOService *interface;
             IOService *controller;
             InterfaceKind kind;
-            char name[16];
+            char name[kInterfaceNameCapacity];
     };
 
     struct AvailabilityEvent
@@ -65,7 +69,7 @@ namespace ath
             uint32_t lastAssociationEventLength;
             uint32_t lastAssociationEventReadResult;
             uint32_t lastAvailabilityReadResult;
-            uint64_t selectors[9];
+            uint64_t selectors[kSelectorCount];
             uint32_t lastRequest;
             uint32_t lastResult;
             uint32_t lastAssociationResult;

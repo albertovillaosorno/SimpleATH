@@ -8,9 +8,16 @@
 
 #include "Bridge.hpp"
 #include "HardwareIdentity.hpp"
+#include "NativeSkywalk.hpp"
+#include "NativeUserClient.hpp"
+#include "Patcher.hpp"
 #include "Profiles.hpp"
 #include "UserClient.hpp"
+#include "WirelessABI.hpp"
 #include <IOKit/IOLib.h>
+#include <IOKit/IOLocks.h>
+#include <IOKit/IOService.h>
+#include <IOKit/IOUserClient.h>
 #include <IOKit/IOWorkLoop.h>
 #include <cstdint>
 #include <kern/clock.h>
@@ -18,12 +25,41 @@
 #include <libkern/c++/OSData.h>
 #include <mach-o/loader.h>
 #include <mach/mach_time.h>
+#include <mach/mach_types.h>
 #include <mach/thread_act.h>
+#include <stddef.h>
 #include <sys/errno.h>
 #include <sys/systm.h>
 
 namespace ath
 {
+    // Values below are serialized/native selector, instruction and width
+    // contracts; naming them does not change the wire or binary layout.
+    constexpr uint32_t kDisabledStateBit = 0x80000000U;
+    constexpr uint32_t kReadyStateBits = 7;
+    constexpr uint32_t kBroadcomPciVendor = 0x14E4U;
+    constexpr uint32_t kAppleBoardVendor = 0x106BU;
+    constexpr uint32_t kCountryQuerySelector = 0xC03069C9U;
+    constexpr int kCountryQueryType = 28;
+    constexpr size_t kHardwareTextOffset = 6;
+    constexpr size_t kHardwareTextCapacity = 256;
+    constexpr size_t kAssociationAddressBytes = 6;
+    constexpr uint32_t kAssociationStatusSelector = 50;
+    constexpr uint32_t kAssociationResultSelector = 21;
+    constexpr uint32_t kAssociationAddressSelector = 9;
+    constexpr uint32_t kPowerAvailabilitySelector = 19;
+    constexpr size_t kPowerSnapshotWordOffset = 8;
+    constexpr uint32_t kMaximumMachLoadCommands = 512;
+    constexpr uint8_t kJmpRel32Opcode = 0xE9;
+    constexpr uint8_t kJmpIndirectOpcode = 0xFF;
+    constexpr uint8_t kJmpRipRelativeMode = 0x25;
+    constexpr uint8_t kCallRel32Opcode = 0xE8;
+    constexpr size_t kRipRelativeBranchTargetOffset = 6;
+    constexpr uint32_t kRel32CallLength = 5;
+    constexpr uint32_t kCopySiteCapacity = 14;
+    constexpr uint32_t kNumberBits32 = 32;
+    constexpr uint32_t kNumberBits64 = 64;
+    constexpr size_t kMetricNameCapacity = 24;
 
     Counters counters {};
     static uint32_t state;
@@ -31,44 +67,49 @@ namespace ath
     static const char *failure = "WaitingForDependencies";
     static IOSimpleLock *contextLock;
     static IOSimpleLock *hubLock;
-    static ATH80211UserClient *clients[64];
+    static constexpr size_t kClientCapacity = 64;
+    static ATH80211UserClient *clients[kClientCapacity];
     static thread_call_t eventCall;
 
-    struct CopyContext
+    namespace
     {
-            thread_t thread;
-            uintptr_t begin;
-            size_t length;
-            CopyContext *next;
-    };
+        struct CopyContext
+        {
+                thread_t thread;
+                uintptr_t begin;
+                size_t length;
+                CopyContext *next;
+        };
 
-    struct PendingEvent
-    {
-            IOService *controller;
-            IOService *interface;
-            uint64_t serial;
-            char name[16];
-            uint32_t event;
-            uint32_t length;
-            uint64_t seconds;
-            uint64_t microseconds;
-            uint8_t payload[maximumEventPayload];
-    };
+        struct PendingEvent
+        {
+                IOService *controller;
+                IOService *interface;
+                uint64_t serial;
+                char name[kInterfaceNameCapacity];
+                uint32_t event;
+                uint32_t length;
+                uint64_t seconds;
+                uint64_t microseconds;
+                uint8_t payload[maximumEventPayload];
+        };
+    } // namespace
 
     static CopyContext *contexts;
     static PendingEvent *pending;
     static uint32_t pendingRead;
     static uint32_t pendingWrite;
     static uint64_t serial;
-    static constexpr uint32_t PendingCapacity = 64;
+    static constexpr uint32_t kPendingCapacity = 64;
+    static constexpr size_t kAvailabilityCapacity = 16;
 
     static struct
     {
             IOService *controller;
-            char name[16];
+            char name[kInterfaceNameCapacity];
             bool original;
             AvailabilityEvent event;
-    } availability[16];
+    } availability[kAvailabilityCapacity];
 
     using NewClient = IOReturn (*)(IOService *, task_t, void *, uint32_t,
                                    OSDictionary *, IOUserClient **);
@@ -99,13 +140,13 @@ namespace ath
     static void reject(const char *reason)
     {
         __atomic_store_n(&failure, reason, __ATOMIC_RELEASE);
-        __atomic_fetch_or(&state, 0x80000000U, __ATOMIC_RELEASE);
+        __atomic_fetch_or(&state, kDisabledStateBit, __ATOMIC_RELEASE);
         SYSLOG("bridge", "disabled: %s", reason);
     }
 
     bool Bridge::ready()
     {
-        return __atomic_load_n(&state, __ATOMIC_ACQUIRE) == 7;
+        return __atomic_load_n(&state, __ATOMIC_ACQUIRE) == kReadyStateBits;
     }
 
     const UserABI &Bridge::abi()
@@ -115,10 +156,12 @@ namespace ath
 
     bool Bridge::isScalarGet(uint32_t request)
     {
-        for (auto entry : ScalarGetRequests)
+        for (auto const entry : ScalarGetRequests)
         {
             if (entry == request)
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -133,9 +176,10 @@ namespace ath
     static bool isShadow(uintptr_t address, size_t size)
     {
         bool found = false;
-        auto thread = current_thread();
+        auto const *thread = current_thread();
         IOSimpleLockLock(contextLock);
-        for (auto context = contexts; context; context = context->next)
+        for (auto const *context = contexts; context != nullptr;
+             context = context->next)
         {
             if (context->thread == thread &&
                 contains(context->begin, context->length, address, size))
@@ -151,7 +195,9 @@ namespace ath
     static int bridgeCopyIn(user_addr_t address, void *destination, size_t size)
     {
         if (!isShadow(static_cast<uintptr_t>(address), size))
+        {
             return copyin(address, destination, size);
+        }
         memcpy(destination, reinterpret_cast<const void *>(address), size);
         return 0;
     }
@@ -160,7 +206,9 @@ namespace ath
                              size_t size)
     {
         if (!isShadow(static_cast<uintptr_t>(address), size))
+        {
             return copyout(source, address, size);
+        }
         memcpy(reinterpret_cast<void *>(address), source, size);
         return 0;
     }
@@ -168,8 +216,10 @@ namespace ath
     bool Bridge::identify(IOService *interface, InterfaceKind kind,
                           Endpoint &endpoint)
     {
-        if (!interface || !ready())
+        if ((interface == nullptr) || !ready())
+        {
             return false;
+        }
         IOService *controller = nullptr;
         const char *name = nullptr;
         switch (kind)
@@ -183,10 +233,10 @@ namespace ath
                 name = virtualName(interface);
                 break;
             case InterfaceKind::Skywalk:
-                for (IOService *parent = interface->getProvider(); parent;
-                     parent = parent->getProvider())
+                for (IOService *parent = interface->getProvider();
+                     parent != nullptr; parent = parent->getProvider())
                 {
-                    if (parent->metaCast("AirPort_BrcmNIC"))
+                    if (parent->metaCast("AirPort_BrcmNIC") != nullptr)
                     {
                         controller = parent;
                         break;
@@ -195,31 +245,43 @@ namespace ath
                 name = skywalkName(interface);
                 break;
         }
-        if (!controller || !controller->metaCast("AirPort_BrcmNIC") || !name ||
-            !name[0] || strnlen(name, 16) == 16)
-            return false;
-        bool supported = false;
-        for (IOService *parent = controller->getProvider(); parent;
-             parent = parent->getProvider())
+        if ((controller == nullptr) ||
+            (controller->metaCast("AirPort_BrcmNIC") == nullptr) ||
+            (name == nullptr) || (name[0] == 0) ||
+            strnlen(name, kInterfaceNameCapacity) == kInterfaceNameCapacity)
         {
-            auto vendor =
+            return false;
+        }
+        bool supported = false;
+        for (IOService const *parent = controller->getProvider();
+             parent != nullptr; parent = parent->getProvider())
+        {
+            auto const *vendor =
                 OSDynamicCast(OSData, parent->getProperty("vendor-id"));
-            auto device =
+            auto const *device =
                 OSDynamicCast(OSData, parent->getProperty("device-id"));
-            if (!vendor || !device || vendor->getLength() != 4 ||
-                device->getLength() != 4)
+            if ((vendor == nullptr) || (device == nullptr) ||
+                vendor->getLength() != 4 || device->getLength() != 4)
+            {
                 continue;
-            uint32_t v, d;
+            }
+            uint32_t v {};
+            uint32_t d {};
             memcpy(&v, vendor->getBytesNoCopy(), sizeof(v));
             memcpy(&d, device->getBytesNoCopy(), sizeof(d));
-            static constexpr uint32_t ids[] = {0x4331, 0x4353, 0x43BA, 0x43A3,
-                                               0x43A0, 0x4357, 0x43B1, 0x43B2};
-            for (auto id : ids)
-                supported |= v == 0x14E4 && d == id;
+            static constexpr uint32_t ids[] = {
+                0x4331, 0x4353, 0x43BA, 0x43A3, 0x43A0, 0x4357, 0x43B1, 0x43B2,
+            };
+            for (auto const id : ids)
+            {
+                supported |= v == kBroadcomPciVendor && d == id;
+            }
             break;
         }
         if (!supported)
+        {
             return false;
+        }
         endpoint.interface = interface;
         endpoint.controller = controller;
         endpoint.kind = kind;
@@ -242,38 +304,50 @@ namespace ath
     static int getLocale(IOService *controller, OSObject *, LocaleData *output)
     {
         const auto result = originalLocale(controller, nullptr, output);
-        if (result || !output || output->version != 1 ||
+        if ((result != 0) || (output == nullptr) || output->version != 1 ||
             output->locale != localeUnknown)
+        {
             return result;
+        }
         CountryCodeData country {};
-        if (!getCountryCode(controller, nullptr, &country))
+        if (getCountryCode(controller, nullptr, &country) == 0)
+        {
             resolveLocale(*output, country);
+        }
         return result;
     }
 
     static IOReturn updateCountryProperties(OSObject *target, void *argument,
                                             void *logging, void *, void *)
     {
-        auto controller = static_cast<IOService *>(target);
-        auto interface = static_cast<IOService *>(argument);
+        auto *controller = static_cast<IOService *>(target);
+        auto *interface = static_cast<IOService *>(argument);
         originalCountryProperty(interface, *static_cast<bool *>(logging));
         LocaleData locale {};
         if (interface->isInactive() || controller->isInactive() ||
-            !interface->getProperty("IO80211CountryCode") ||
-            classicRequest(controller, 0xC03069C9, 28, interface, &locale) ||
+            (interface->getProperty("IO80211CountryCode") == nullptr) ||
+            (classicRequest(controller, kCountryQuerySelector,
+                            kCountryQueryType, interface, &locale) != 0) ||
             locale.version != 1)
+        {
             interface->removeProperty("IO80211Locale");
+        }
         else
+        {
             interface->setProperty("IO80211Locale",
                                    localeString(locale.locale));
+        }
         return kIOReturnSuccess;
     }
 
     static void updateCountryProperty(IOService *interface, bool logging)
     {
-        auto controller = classicController(interface);
-        auto loop = controller ? controller->getWorkLoop() : nullptr;
-        if (!controller || !controller->metaCast("AirPort_BrcmNIC") || !loop)
+        auto *controller = classicController(interface);
+        auto *loop =
+            (controller != nullptr) ? controller->getWorkLoop() : nullptr;
+        if ((controller == nullptr) ||
+            (controller->metaCast("AirPort_BrcmNIC") == nullptr) ||
+            (loop == nullptr))
         {
             originalCountryProperty(interface, logging);
             return;
@@ -292,25 +366,37 @@ namespace ath
     static IOReturn getHardwareVersion(IOService *controller,
                                        OSObject *interface, void *output)
     {
-        auto result = originalHardwareVersion(controller, interface, output);
-        if (result != kIOReturnSuccess || !output)
+        auto const result =
+            originalHardwareVersion(controller, interface, output);
+        if (result != kIOReturnSuccess || (output == nullptr))
+        {
             return result;
-        auto bytes = static_cast<uint8_t *>(output);
-        uint16_t length;
+        }
+        auto *bytes = static_cast<uint8_t *>(output);
+        uint16_t length = 0;
         memcpy(&length, bytes + 4, sizeof(length));
-        auto text = reinterpret_cast<char *>(bytes + 6);
+        auto *text = reinterpret_cast<char *>(bytes + kHardwareTextOffset);
         HardwareIdentity identity {};
-        if (readUInt32(bytes) != 1 || length >= 256 || text[length] != '\0' ||
+        if (readUInt32(bytes) != 1 || length >= kHardwareTextCapacity ||
+            text[length] != '\0' ||
             !decodeHardwareIdentity(text, length, identity))
+        {
             return result;
+        }
         controller->setProperty("SimpleATHOriginalHardwareVersion", text);
-        int count;
-        if (identity.boardVendor == 0x106b)
-            count = snprintf(text, 256, "AirPort Extreme (0x%X, 0x%X)",
-                             identity.vendor, identity.board);
+        int count = 0;
+        if (identity.boardVendor == kAppleBoardVendor)
+        {
+            count = snprintf(text, kHardwareTextCapacity,
+                             "AirPort Extreme (0x%X, 0x%X)", identity.vendor,
+                             identity.board);
+        }
         else
-            count = snprintf(text, 256, "Broadcom ATH%u (%04x:%04x)",
-                             identity.chip, identity.vendor, identity.device);
+        {
+            count = snprintf(text, kHardwareTextCapacity,
+                             "Broadcom ATH%u (%04x:%04x)", identity.chip,
+                             identity.vendor, identity.device);
+        }
         length = static_cast<uint16_t>(count);
         memcpy(bytes + 4, &length, sizeof(length));
         return result;
@@ -320,8 +406,8 @@ namespace ath
                                      uint32_t type, OSDictionary *properties,
                                      IOUserClient **result)
     {
-        auto status =
-            type || !Bridge::ready()
+        auto const status =
+            (type != 0U) || !Bridge::ready()
                 ? originalClassicClient(self, task, token, type, properties,
                                         result)
                 : ATH80211UserClient::create(self, task, token, properties,
@@ -334,8 +420,8 @@ namespace ath
                                      uint32_t type, OSDictionary *properties,
                                      IOUserClient **result)
     {
-        auto status =
-            type || !Bridge::ready()
+        auto const status =
+            (type != 0U) || !Bridge::ready()
                 ? originalVirtualClient(self, task, token, type, properties,
                                         result)
                 : ATH80211UserClient::create(self, task, token, properties,
@@ -348,8 +434,9 @@ namespace ath
                                      uint32_t type, OSDictionary *properties,
                                      IOUserClient **result)
     {
-        auto status =
-            type || !Bridge::ready() || !self->metaCast("ATHLegacyInterface")
+        auto const status =
+            (type != 0U) || !Bridge::ready() ||
+                    (self->metaCast("ATHLegacyInterface") == nullptr)
                 ? originalSkywalkClient(self, task, token, type, properties,
                                         result)
                 : ATH80211UserClient::create(self, task, token, properties,
@@ -367,7 +454,7 @@ namespace ath
 
     void Bridge::enableNativeSkywalk()
     {
-        originalSkywalkClient = nativeSkywalkUserClient;
+        originalSkywalkClient = createSkywalkUserClient;
         __atomic_fetch_or(&state, 2U, __ATOMIC_RELEASE);
     }
 
@@ -377,7 +464,7 @@ namespace ath
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
         for (auto &entry : clients)
         {
-            if (!entry)
+            if (entry == nullptr)
             {
                 client->retain();
                 entry = client;
@@ -391,7 +478,7 @@ namespace ath
 
     void Bridge::removeClient(ATH80211UserClient *client)
     {
-        ATH80211UserClient *removed = nullptr;
+        ATH80211UserClient const *removed = nullptr;
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
         for (auto &entry : clients)
         {
@@ -403,8 +490,10 @@ namespace ath
             }
         }
         IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
-        if (removed)
+        if (removed != nullptr)
+        {
             removed->release();
+        }
     }
 
     static int readEventValue(const Endpoint &endpoint, uint32_t type,
@@ -417,35 +506,50 @@ namespace ath
         request.request.type = static_cast<int32_t>(type);
         request.request.length = static_cast<uint32_t>(length);
         request.request.data = reinterpret_cast<uint64_t>(buffer);
-        request.pointerSize = 8;
+        request.pointerSize = sizeof(uint64_t);
         const auto result =
             Bridge::command(endpoint, false, request, buffer, length);
-        if (!result && !value && request.request.length != length)
+        if ((result == 0) && (value == nullptr) &&
+            request.request.length != length)
+        {
             return EINVAL;
-        if (!result && value)
+        }
+        if ((result == 0) && (value != nullptr))
+        {
             *value = static_cast<uint32_t>(request.request.value);
+        }
         return result;
     }
 
     static IOReturn captureJoinEvent(OSObject *, void *argument, void *, void *,
                                      void *)
     {
-        auto event = static_cast<PendingEvent *>(argument);
+        auto *event = static_cast<PendingEvent *>(argument);
         Endpoint endpoint {
-            event->interface, event->controller, InterfaceKind::Classic, {}};
+            event->interface,
+            event->controller,
+            InterfaceKind::Classic,
+            {},
+        };
         strlcpy(endpoint.name, event->name, sizeof(endpoint.name));
-        uint8_t buffer[6] {};
-        uint32_t status {}, result {};
-        auto error =
-            readEventValue(endpoint, 50, buffer, sizeof(uint32_t), &status);
-        if (!error)
-            error =
-                readEventValue(endpoint, 21, buffer, sizeof(uint32_t), &result);
-        if (!error && result == 1)
-            error = readEventValue(endpoint, 9, buffer, sizeof(buffer));
+        uint8_t buffer[kAssociationAddressBytes] {};
+        uint32_t status {};
+        uint32_t result {};
+        auto error = readEventValue(endpoint, kAssociationStatusSelector,
+                                    buffer, sizeof(uint32_t), &status);
+        if (error == 0)
+        {
+            error = readEventValue(endpoint, kAssociationResultSelector, buffer,
+                                   sizeof(uint32_t), &result);
+        }
+        if ((error == 0) && result == 1)
+        {
+            error = readEventValue(endpoint, kAssociationAddressSelector,
+                                   buffer, sizeof(buffer));
+        }
         __atomic_store_n(&counters.lastAssociationEventReadResult,
                          static_cast<uint32_t>(error), __ATOMIC_RELAXED);
-        if (error)
+        if (error != 0)
         {
             __atomic_fetch_add(&counters.associationEventReadErrors, 1ULL,
                                __ATOMIC_RELAXED);
@@ -467,7 +571,7 @@ namespace ath
         PendingEvent event;
         for (;;)
         {
-            ATH80211UserClient *targets[64];
+            ATH80211UserClient *targets[kClientCapacity];
             size_t count = 0;
             const auto interruptState =
                 IOSimpleLockLockDisableInterrupt(hubLock);
@@ -477,21 +581,23 @@ namespace ath
                 return;
             }
             memcpy(&event, &pending[pendingRead], sizeof(event));
-            pendingRead = (pendingRead + 1) % PendingCapacity;
-            for (auto client : clients)
+            pendingRead = (pendingRead + 1) % kPendingCapacity;
+            for (auto *client : clients)
             {
-                if (client)
+                if (client != nullptr)
                 {
                     client->retain();
                     targets[count++] = client;
                 }
             }
             IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
-            if (event.interface)
+            if (event.interface != nullptr)
             {
-                auto loop = event.controller->getWorkLoop();
-                if (loop)
+                auto *loop = event.controller->getWorkLoop();
+                if (loop != nullptr)
+                {
                     loop->runAction(captureJoinEvent, event.controller, &event);
+                }
                 event.interface->release();
             }
             for (size_t index = 0; index < count; ++index)
@@ -511,9 +617,12 @@ namespace ath
                            bool powerSnapshot = false)
     {
         if (!Bridge::ready())
+        {
             return;
+        }
         Endpoint endpoint {};
-        if (length > maximumEventPayload || (length && !payload) ||
+        if (length > maximumEventPayload ||
+            ((length != 0U) && (payload == nullptr)) ||
             !Bridge::identify(self, kind, endpoint))
         {
             __atomic_fetch_add(&counters.dropped, 1ULL, __ATOMIC_RELAXED);
@@ -522,8 +631,8 @@ namespace ath
         const auto &abi = Bridge::abi();
         const auto outputLength =
             static_cast<uint32_t>(eventPayloadSize(message, length, abi));
-        clock_sec_t seconds;
-        clock_usec_t microseconds;
+        clock_sec_t seconds = 0;
+        clock_usec_t microseconds = 0;
         clock_get_calendar_microtime(&seconds, &microseconds);
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
         const auto eventSerial =
@@ -533,17 +642,19 @@ namespace ath
             size_t slot = arrsize(availability);
             for (size_t index = 0; index < arrsize(availability); ++index)
             {
-                if (availability[index].controller &&
+                if ((availability[index].controller != nullptr) &&
                     availability[index].controller == endpoint.controller &&
-                    !strncmp(availability[index].name, endpoint.name,
-                             sizeof(endpoint.name)))
+                    (strncmp(availability[index].name, endpoint.name,
+                             sizeof(endpoint.name)) == 0))
                 {
                     slot = index;
                     break;
                 }
-                if (!availability[index].controller &&
+                if ((availability[index].controller == nullptr) &&
                     slot == arrsize(availability))
+                {
                     slot = index;
+                }
             }
             if (powerSnapshot && slot == arrsize(availability))
             {
@@ -556,13 +667,15 @@ namespace ath
                 if (powerSnapshot &&
                     (saved.original ||
                      (saved.event.length == abi.driverAvailableSize &&
-                      readUInt32(saved.event.payload + 8) ==
-                          readUInt32(static_cast<uint8_t *>(payload) + 8))))
+                      readUInt32(saved.event.payload +
+                                 kPowerSnapshotWordOffset) ==
+                          readUInt32(static_cast<uint8_t *>(payload) +
+                                     kPowerSnapshotWordOffset))))
                 {
                     IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
                     return;
                 }
-                if (!saved.controller)
+                if (saved.controller == nullptr)
                 {
                     saved.controller = endpoint.controller;
                     saved.controller->retain();
@@ -592,7 +705,7 @@ namespace ath
             __atomic_store_n(&counters.lastAssociationEventLength,
                              static_cast<uint32_t>(length), __ATOMIC_RELAXED);
         }
-        const auto next = (pendingWrite + 1) % PendingCapacity;
+        const auto next = (pendingWrite + 1) % kPendingCapacity;
         if (next == pendingRead)
         {
             IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
@@ -604,12 +717,15 @@ namespace ath
         entry.controller = endpoint.controller;
         entry.controller->retain();
         entry.interface = abi.joinEventPolicy != JoinEventPolicy::Passthrough &&
-                                  message == associationDoneEvent && !length &&
+                                  message == associationDoneEvent &&
+                                  (length == 0U) &&
                                   kind == InterfaceKind::Classic
                               ? self
                               : nullptr;
-        if (entry.interface)
+        if (entry.interface != nullptr)
+        {
             entry.interface->retain();
+        }
         strlcpy(entry.name, endpoint.name, sizeof(entry.name));
         entry.event = message;
         entry.length = outputLength;
@@ -621,17 +737,22 @@ namespace ath
         IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
         __atomic_fetch_add(&counters.events, 1ULL, __ATOMIC_RELAXED);
         if (message == scanDoneEvent)
+        {
             __atomic_fetch_add(&counters.scanDoneEvents, 1ULL,
                                __ATOMIC_RELAXED);
+        }
         thread_call_enter(eventCall);
     }
 
     int Bridge::refreshAvailability(const Endpoint &endpoint)
     {
         if (endpoint.kind != InterfaceKind::Classic)
+        {
             return ENOTSUP;
+        }
         uint8_t power[powerDataSize] {};
-        return readEventValue(endpoint, 19, power, sizeof(power));
+        return readEventValue(endpoint, kPowerAvailabilitySelector, power,
+                              sizeof(power));
     }
 
     uint64_t Bridge::copyAvailability(const Endpoint &endpoint,
@@ -643,7 +764,8 @@ namespace ath
         for (const auto &saved : availability)
         {
             if (saved.controller == endpoint.controller &&
-                !strncmp(saved.name, endpoint.name, sizeof(endpoint.name)))
+                (strncmp(saved.name, endpoint.name, sizeof(endpoint.name)) ==
+                 0))
             {
                 event = saved.event;
                 break;
@@ -679,22 +801,33 @@ namespace ath
     {
         // Reject incomplete or forged endpoints before dereferencing a
         // controller or selecting an unrelated native ioctl callback.
-        if (!endpoint.interface || !endpoint.controller ||
-            (size != 0 && !shadow) ||
+        if ((endpoint.interface == nullptr) ||
+            (endpoint.controller == nullptr) ||
+            (size != 0 && (shadow == nullptr)) ||
             (endpoint.kind != InterfaceKind::Classic &&
              endpoint.kind != InterfaceKind::Virtual &&
              endpoint.kind != InterfaceKind::Skywalk))
+        {
             return EINVAL;
+        }
         if (!ready() || endpoint.interface->isInactive() ||
             endpoint.controller->isInactive())
+        {
             return ENXIO;
-        if ((endpoint.kind == InterfaceKind::Classic && !classicCommand) ||
+        }
+        if ((endpoint.kind == InterfaceKind::Classic &&
+             (classicCommand == nullptr)) ||
             (endpoint.kind != InterfaceKind::Classic &&
-             !(set ? setRequest : getRequest)))
+             ((set ? setRequest : getRequest) == nullptr)))
+        {
             return ENXIO;
-        CopyContext context {current_thread(),
-                             reinterpret_cast<uintptr_t>(shadow), size,
-                             nullptr};
+        }
+        CopyContext context {
+            current_thread(),
+            reinterpret_cast<uintptr_t>(shadow),
+            size,
+            nullptr,
+        };
         IOSimpleLockLock(contextLock);
         context.next = contexts;
         contexts = &context;
@@ -710,7 +843,8 @@ namespace ath
                       endpoint.kind == InterfaceKind::Skywalk ? endpoint.interface : nullptr,
                       &request);
         IOSimpleLockLock(contextLock);
-        for (auto cursor = &contexts; *cursor; cursor = &(*cursor)->next)
+        for (auto *cursor = &contexts; (*cursor) != nullptr;
+             cursor = &(*cursor)->next)
         {
             if (*cursor == &context)
             {
@@ -719,20 +853,22 @@ namespace ath
             }
         }
         IOSimpleLockUnlock(contextLock);
-        if (!set && request.request.type == 19 &&
+        if (!set && request.request.type == kPowerAvailabilitySelector &&
             endpoint.kind == InterfaceKind::Classic)
         {
             __atomic_store_n(&counters.lastAvailabilityReadResult,
                              static_cast<uint32_t>(result), __ATOMIC_RELAXED);
             uint8_t event[nativeDriverAvailableSize];
-            if (!result && size >= powerDataSize &&
+            if ((result == 0) && size >= powerDataSize &&
                 request.request.length == powerDataSize &&
                 encodePowerAvailability(static_cast<const uint8_t *>(shadow),
                                         powerDataSize, event, sizeof(event),
                                         abi()))
+            {
                 queueEvent(endpoint.interface, endpoint.kind,
                            driverAvailableEvent, event,
                            abi().driverAvailableSize, true);
+            }
         }
         return result;
     }
@@ -741,21 +877,30 @@ namespace ath
                          const ByteGuard *guards, size_t count)
     {
         if (size < sizeof(mach_header_64))
+        {
             return false;
-        auto header = reinterpret_cast<const mach_header_64 *>(address);
+        }
+        const auto *header = reinterpret_cast<const mach_header_64 *>(address);
         if (header->magic != MH_MAGIC_64 ||
-            header->cputype != CPU_TYPE_X86_64 || header->ncmds > 512 ||
+            header->cputype != CPU_TYPE_X86_64 ||
+            header->ncmds > kMaximumMachLoadCommands ||
             header->sizeofcmds > size - sizeof(*header))
+        {
             return false;
+        }
         const auto end = address + sizeof(*header) + header->sizeofcmds;
         auto cursor = address + sizeof(*header);
         for (uint32_t index = 0; index < header->ncmds; ++index)
         {
             if (cursor > end || end - cursor < sizeof(load_command))
+            {
                 return false;
-            auto cmd = reinterpret_cast<const load_command *>(cursor);
+            }
+            const auto *cmd = reinterpret_cast<const load_command *>(cursor);
             if (cmd->cmdsize < sizeof(*cmd) || cmd->cmdsize > end - cursor)
+            {
                 return false;
+            }
             cursor += cmd->cmdsize;
         }
         for (size_t i = 0; i < count; ++i)
@@ -763,14 +908,18 @@ namespace ath
             const auto &guard = guards[i];
             if (!contains(address, size, address + guard.offset,
                           sizeof(guard.bytes)))
+            {
                 return false;
-            auto actual =
+            }
+            const auto *actual =
                 reinterpret_cast<const uint8_t *>(address + guard.offset);
             for (size_t byte = 0; byte < sizeof(guard.bytes); ++byte)
             {
                 if ((actual[byte] & guard.mask[byte]) !=
                     (guard.bytes[byte] & guard.mask[byte]))
+                {
                     return false;
+                }
             }
         }
         return true;
@@ -780,17 +929,20 @@ namespace ath
     {
         for (unsigned i = 0; i < 3; ++i)
         {
-            auto bytes = reinterpret_cast<const uint8_t *>(address);
-            int32_t offset;
-            if (bytes[0] == 0xE9)
+            const auto *bytes = reinterpret_cast<const uint8_t *>(address);
+            int32_t offset = 0;
+            if (bytes[0] == kJmpRel32Opcode)
             {
                 memcpy(&offset, bytes + 1, sizeof(offset));
-                address += 5 + offset;
+                address += kRel32CallLength + offset;
             }
-            else if (bytes[0] == 0xFF && bytes[1] == 0x25)
+            else if (bytes[0] == kJmpIndirectOpcode &&
+                     bytes[1] == kJmpRipRelativeMode)
             {
                 memcpy(&offset, bytes + 2, sizeof(offset));
-                memcpy(&address, bytes + 6 + offset, sizeof(address));
+                memcpy(&address,
+                       bytes + kRipRelativeBranchTargetOffset + offset,
+                       sizeof(address));
             }
             else
             {
@@ -803,44 +955,57 @@ namespace ath
     static bool patchCopies(KernelPatcher &patcher, mach_vm_address_t address,
                             size_t size, const CopySite *sites, size_t count)
     {
-        if (count > 14)
+        if (count > kCopySiteCapacity)
+        {
             return false;
+        }
         const auto input =
             patcher.solveSymbol(KernelPatcher::KernelID, "_copyin");
         const auto output =
             patcher.solveSymbol(KernelPatcher::KernelID, "_copyout");
-        if (!input || !output)
+        if ((input == 0U) || (output == 0U))
         {
             patcher.clearError();
             return false;
         }
-        int32_t offsets[14];
+        int32_t offsets[kCopySiteCapacity];
         for (size_t i = 0; i < count; ++i)
         {
             const auto &site = sites[i];
-            auto call = address + site.offset;
-            if (!contains(address, size, call, 5) ||
-                *reinterpret_cast<uint8_t *>(call) != 0xE8)
+            auto const call = address + site.offset;
+            if (!contains(address, size, call, kRel32CallLength) ||
+                *reinterpret_cast<uint8_t *>(call) != kCallRel32Opcode)
+            {
                 return false;
-            int32_t old;
+            }
+            int32_t old = 0;
             memcpy(&old, reinterpret_cast<void *>(call + 1), sizeof(old));
-            if (followBranch(call + 5 + old) !=
+            if (followBranch(call + kRel32CallLength + old) !=
                 followBranch(site.output ? output : input))
+            {
                 return false;
+            }
             auto target =
                 site.output ? reinterpret_cast<mach_vm_address_t>(bridgeCopyOut)
                             : reinterpret_cast<mach_vm_address_t>(bridgeCopyIn);
-            target = patcher.branchTarget(target, call + 5);
-            if (!target)
+            target = patcher.branchTarget(target, call + kRel32CallLength);
+            if (target == 0U)
+            {
                 return false;
-            auto delta = static_cast<int64_t>(target - (call + 5));
+            }
+            auto const delta =
+                static_cast<int64_t>(target - (call + kRel32CallLength));
             if (delta < INT32_MIN || delta > INT32_MAX)
+            {
                 return false;
+            }
             offsets[i] = static_cast<int32_t>(delta);
         }
         for (size_t i = 0; i < count; ++i)
+        {
             memcpy(reinterpret_cast<void *>(address + sites[i].offset + 1),
                    &offsets[i], sizeof(offsets[i]));
+        }
         return true;
     }
 
@@ -851,18 +1016,24 @@ namespace ath
 
     bool Bridge::prepareImage(LinkedImage &image, size_t index)
     {
-        if (index >= 2 || !image.editable || !activeABI)
+        if (index >= 2 || !image.editable || (activeABI == nullptr))
+        {
             return false;
+        }
         KernelPatcher patcher(image);
         patchImage(patcher, index, image.address, image.payload->mappedSize);
-        return !(__atomic_load_n(&state, __ATOMIC_ACQUIRE) & 0x80000000U);
+        return (__atomic_load_n(&state, __ATOMIC_ACQUIRE) &
+                kDisabledStateBit) == 0U;
     }
 
     void Bridge::patchImage(KernelPatcher &patcher, size_t index,
                             mach_vm_address_t address, size_t size)
     {
-        if (__atomic_load_n(&state, __ATOMIC_ACQUIRE) & 0x80000000U)
+        if ((__atomic_load_n(&state, __ATOMIC_ACQUIRE) & kDisabledStateBit) !=
+            0U)
+        {
             return;
+        }
         if (index == 0)
         {
             if (!validate(address, size, LegacyGuards, arrsize(LegacyGuards)))
@@ -899,33 +1070,56 @@ namespace ath
                     index, "__"
                            "ZN17IO80211Controller22apple80211RequestIoctlEjiP16"
                            "IO80211InterfacePv"));
-            if (!getRequest || !setRequest || !classicController ||
-                !virtualController || !classicName || !virtualName ||
-                !skywalkName || !classicCommand || !classicRequest)
+            if ((getRequest == nullptr) || (setRequest == nullptr) ||
+                (classicController == nullptr) ||
+                (virtualController == nullptr) || (classicName == nullptr) ||
+                (virtualName == nullptr) || (skywalkName == nullptr) ||
+                (classicCommand == nullptr) || (classicRequest == nullptr))
             {
                 patcher.clearError();
                 reject("LegacySymbolsMissing");
                 return;
             }
             KernelPatcher::RouteRequest routes[] = {
-                {"__"
-                 "ZN16IO80211Interface13newUserClientEP4taskPvjP12OSDictionaryP"
-                 "P12IOUserClient",
-                 newClassicClient, originalClassicClient},
-                {"__"
-                 "ZN23IO80211VirtualInterface13newUserClientEP4taskPvjP12OSDict"
-                 "ionaryPP12IOUserClient",
-                 newVirtualClient, originalVirtualClient},
-                {"__ZN16IO80211Interface27IO80211InterfacePostMessageEjPvm",
-                 postClassic, originalClassicEvent},
-                {"__"
-                 "ZN23IO80211VirtualInterface27IO80211InterfacePostMessageEjPv"
-                 "m",
-                 postVirtual, originalVirtualEvent},
-                {"__ZN21IO80211InfraInterface19postMessageInternalEjPvm",
-                 postInfra, originalInfraEvent},
-                {"__ZN16IO80211Interface25updateCountryCodePropertyEb",
-                 updateCountryProperty, originalCountryProperty},
+                {
+                    "__"
+                    "ZN16IO80211Interface13newUserClientEP4taskPvjP12OSDictiona"
+                    "ryP"
+                    "P12IOUserClient",
+                    newClassicClient,
+                    originalClassicClient,
+                },
+                {
+                    "__"
+                    "ZN23IO80211VirtualInterface13newUserClientEP4taskPvjP12OSD"
+                    "ict"
+                    "ionaryPP12IOUserClient",
+                    newVirtualClient,
+                    originalVirtualClient,
+                },
+                {
+                    "__ZN16IO80211Interface27IO80211InterfacePostMessageEjPvm",
+                    postClassic,
+                    originalClassicEvent,
+                },
+                {
+                    "__"
+                    "ZN23IO80211VirtualInterface27IO80211InterfacePostMessageEj"
+                    "Pv"
+                    "m",
+                    postVirtual,
+                    originalVirtualEvent,
+                },
+                {
+                    "__ZN21IO80211InfraInterface19postMessageInternalEjPvm",
+                    postInfra,
+                    originalInfraEvent,
+                },
+                {
+                    "__ZN16IO80211Interface25updateCountryCodePropertyEb",
+                    updateCountryProperty,
+                    originalCountryProperty,
+                },
             };
             if (!patcher.routeMultipleLong(index, routes, address, size) ||
                 !patchCopies(patcher, address, size, LegacyCopySites,
@@ -940,11 +1134,11 @@ namespace ath
         else if (index == 1)
         {
             const bool original = abi().backend == AirPortBackend::Original;
-            const auto guards =
+            const auto *const guards =
                 original ? AirPortOriginalGuards : AirPortGuards;
             const auto guardCount = original ? arrsize(AirPortOriginalGuards)
                                              : arrsize(AirPortGuards);
-            const auto copies =
+            const auto *const copies =
                 original ? AirPortOriginalCopySites : AirPortCopySites;
             const auto copyCount = original ? arrsize(AirPortOriginalCopySites)
                                             : arrsize(AirPortCopySites);
@@ -964,19 +1158,25 @@ namespace ath
                 reinterpret_cast<CountryCodeQuery>(patcher.solveSymbol(
                     index, "__ZN15AirPort_BrcmNIC15getCOUNTRY_"
                            "CODEEP8OSObjectP28apple80211_country_code_data"));
-            if (!getCountryCode)
+            if (getCountryCode == nullptr)
             {
                 patcher.clearError();
                 reject("CountryCodeSymbolMissing");
                 return;
             }
             KernelPatcher::RouteRequest routes[] = {
-                {"__ZN15AirPort_BrcmNIC19getHARDWARE_"
-                 "VERSIONEP8OSObjectP23apple80211_version_data",
-                 getHardwareVersion, originalHardwareVersion},
-                {"__ZN15AirPort_BrcmNIC9getLOCALEEP8OSObjectP22apple80211_"
-                 "locale_data",
-                 getLocale, originalLocale},
+                {
+                    "__ZN15AirPort_BrcmNIC19getHARDWARE_"
+                    "VERSIONEP8OSObjectP23apple80211_version_data",
+                    getHardwareVersion,
+                    originalHardwareVersion,
+                },
+                {
+                    "__ZN15AirPort_BrcmNIC9getLOCALEEP8OSObjectP22apple80211_"
+                    "locale_data",
+                    getLocale,
+                    originalLocale,
+                },
             };
             if (!patcher.routeMultipleLong(index, routes, address, size))
             {
@@ -997,7 +1197,7 @@ namespace ath
     void Bridge::initialize()
     {
         activeABI = userABIForKernel(static_cast<uint32_t>(getKernelVersion()));
-        if (!activeABI)
+        if (activeABI == nullptr)
         {
             reject("UnsupportedKernel");
             return;
@@ -1005,11 +1205,12 @@ namespace ath
         contextLock = IOSimpleLockAlloc();
         hubLock = IOSimpleLockAlloc();
         pending = static_cast<PendingEvent *>(
-            IOMalloc(sizeof(PendingEvent) * PendingCapacity));
+            IOMalloc(sizeof(PendingEvent) * kPendingCapacity));
         eventCall = thread_call_allocate_with_options(
             drainEvents, nullptr, THREAD_CALL_PRIORITY_KERNEL,
             THREAD_CALL_OPTIONS_ONCE);
-        if (!contextLock || !hubLock || !pending || !eventCall)
+        if ((contextLock == nullptr) || (hubLock == nullptr) ||
+            (pending == nullptr) || (eventCall == nullptr))
         {
             reject("AllocationFailed");
             return;
@@ -1018,10 +1219,12 @@ namespace ath
 
     void Bridge::trackController(IOService *controller)
     {
-        if (!controller || !hubLock)
+        if ((controller == nullptr) || (hubLock == nullptr))
+        {
             return;
+        }
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
-        if (!observedController)
+        if (observedController == nullptr)
         {
             controller->retain();
             observedController = controller;
@@ -1034,39 +1237,47 @@ namespace ath
         service->setProperty("Status",
                              __atomic_load_n(&failure, __ATOMIC_ACQUIRE));
         service->setProperty("PatchState",
-                             __atomic_load_n(&state, __ATOMIC_ACQUIRE), 32);
+                             __atomic_load_n(&state, __ATOMIC_ACQUIRE),
+                             kNumberBits32);
         service->setProperty("SupportedKernel", "23.x / 24.x / 25.x");
         service->setProperty("AdapterVersion", "1.2.0");
         service->setProperty("NativePowerDomainPatched", false);
-        IOService *controller = nullptr;
-        if (hubLock)
+        IOService const *controller = nullptr;
+        if (hubLock != nullptr)
         {
             const auto interruptState =
                 IOSimpleLockLockDisableInterrupt(hubLock);
             controller = observedController;
-            if (controller)
+            if (controller != nullptr)
+            {
                 controller->retain();
+            }
             IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
         }
-        if (controller)
+        if (controller != nullptr)
         {
-            service->setProperty("WirelessControllerIdentity",
-                                 controller->metaCast("AirPortDriver")
-                                     ? "AirPortDriver"
-                                     : "Unrecognized");
+            service->setProperty(
+                "WirelessControllerIdentity",
+                (controller->metaCast("AirPortDriver") != nullptr)
+                    ? "AirPortDriver"
+                    : "Unrecognized");
             // A metaCast is not a layout or object-size contract. The old
             // fixed-offset power fields could read past an unknown Tahoe
             // controller allocation; publish no unverified raw snapshot.
             service->setProperty("BrcmPowerSnapshotAvailable", false);
             controller->release();
         }
-        service->setProperty("ActiveABI",
-                             activeABI ? activeABI->name : "Unsupported");
-        service->setProperty("AirPortBackend",
-                             !activeABI ? "Unsupported"
-                             : activeABI->backend == AirPortBackend::Original
-                                 ? "Original"
-                                 : "Tahoe");
+        service->setProperty("ActiveABI", (activeABI != nullptr)
+                                              ? activeABI->name
+                                              : "Unsupported");
+        const char *backendName = "Unsupported";
+        if (activeABI != nullptr)
+        {
+            backendName = activeABI->backend == AirPortBackend::Original
+                              ? "Original"
+                              : "Tahoe";
+        }
+        service->setProperty("AirPortBackend", backendName);
         service->setProperty("DriverKitBackend", false);
 
         struct Metric
@@ -1090,51 +1301,59 @@ namespace ath
             {"DriverAvailabilityEvents", &counters.availabilityEvents},
             {"DriverAvailabilityReplays", &counters.availabilityReplays},
             {"AssociationEvents", &counters.associationEvents},
-            {"AssociationEventConversions",
-             &counters.associationEventConversions},
-            {"AssociationEventReadErrors",
-             &counters.associationEventReadErrors},
+            {
+                "AssociationEventConversions",
+                &counters.associationEventConversions,
+            },
+            {
+                "AssociationEventReadErrors",
+                &counters.associationEventReadErrors,
+            },
             {"PowerAvailabilityEvents", &counters.powerAvailabilityEvents},
         };
 
         for (const auto &metric : metrics)
+        {
             service->setProperty(
                 metric.name, __atomic_load_n(metric.value, __ATOMIC_RELAXED),
-                64);
+                kNumberBits64);
+        }
         for (size_t i = 0; i < arrsize(counters.selectors); ++i)
         {
-            char name[24];
+            char name[kMetricNameCapacity];
             snprintf(name, sizeof(name), "Selector%u",
                      static_cast<unsigned>(i));
             service->setProperty(
                 name, __atomic_load_n(&counters.selectors[i], __ATOMIC_RELAXED),
-                64);
+                kNumberBits64);
         }
         service->setProperty(
             "LastRequest",
-            __atomic_load_n(&counters.lastRequest, __ATOMIC_RELAXED), 32);
+            __atomic_load_n(&counters.lastRequest, __ATOMIC_RELAXED),
+            kNumberBits32);
         service->setProperty(
             "LastResult",
-            __atomic_load_n(&counters.lastResult, __ATOMIC_RELAXED), 32);
+            __atomic_load_n(&counters.lastResult, __ATOMIC_RELAXED),
+            kNumberBits32);
         service->setProperty(
             "LastAssociationResult",
             __atomic_load_n(&counters.lastAssociationResult, __ATOMIC_RELAXED),
-            32);
+            kNumberBits32);
         service->setProperty(
             "LastAssociationEventLength",
             __atomic_load_n(&counters.lastAssociationEventLength,
                             __ATOMIC_RELAXED),
-            32);
+            kNumberBits32);
         service->setProperty(
             "LastAssociationEventReadResult",
             __atomic_load_n(&counters.lastAssociationEventReadResult,
                             __ATOMIC_RELAXED),
-            32);
+            kNumberBits32);
         service->setProperty(
             "LastAvailabilityReadResult",
             __atomic_load_n(&counters.lastAvailabilityReadResult,
                             __ATOMIC_RELAXED),
-            32);
+            kNumberBits32);
     }
 
 } // namespace ath
