@@ -281,6 +281,161 @@ namespace
         return 0;
     }
 
+    // Independent OpenSSL 3.5 EVP_aes_128_ccm vector: nonce priority 3,
+    // 24-byte QoS AAD, 19-byte LLC/SNAP+data, PN=1 and MIC=8.
+    constexpr std::array<uint8_t, 27U> kExpectedQosCipherAndTag {
+        0x91U, 0xc0U, 0xccU, 0x67U, 0x38U, 0x57U, 0x88U, 0x8cU, 0x48U,
+        0x8fU, 0x25U, 0xa3U, 0xa3U, 0xd9U, 0x7fU, 0x44U, 0xeeU, 0x6eU,
+        0x20U, 0x22U, 0x66U, 0x3eU, 0xf1U, 0x18U, 0x5bU, 0xe9U, 0xaaU,
+    };
+
+    std::array<uint8_t, 45U> qosPlain(uint8_t tid)
+    {
+        std::array<uint8_t, 45U> frame {};
+        std::memcpy(frame.data(), kPlain.data(), 24U);
+        frame.at(0U) = 0x88U; // QoS Data, ToDS, non-aggregated.
+        frame.at(24U) = tid;
+        frame.at(25U) = 0U;
+        std::memcpy(&frame.at(26U), &kPlain.at(24U), kPlain.size() - 24U);
+        return frame;
+    }
+
+    int testQosIndependentVector()
+    {
+        CcmpSession tx {};
+        CcmpSession rx {};
+        if (!fresh(tx) || !fresh(rx))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        const auto plain = qosPlain(3U);
+        std::array<uint8_t, kCcmpMaximumMpduBytes> wire {};
+        size_t encrypted = 0U;
+        if (tx.protect(kEpoch, plain.data(), plain.size(), wire.data(),
+                       wire.size(), encrypted) != CcmpResult::Ok ||
+            encrypted != plain.size() + 16U || wire.at(0U) != 0x88U ||
+            wire.at(1U) != 0x41U || wire.at(26U) != 1U ||
+            wire.at(29U) != 0x20U ||
+            std::memcmp(&wire.at(34U), kExpectedQosCipherAndTag.data(),
+                        kExpectedQosCipherAndTag.size()) != 0)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        std::array<uint8_t, kCcmpMaximumMpduBytes> output {};
+        output.fill(0xa5U);
+        const auto untouched = output;
+        size_t written = 777U;
+        const auto original = wire;
+        wire.at(24U) = 2U; // TID is covered by AAD and CCM nonce.
+        if (rx.unprotect(kEpoch, wire.data(), encrypted, output.data(),
+                         output.size(), written) != CcmpResult::MicMismatch ||
+            output != untouched || written != 777U || rx.receiveFloor() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        wire = original;
+        // EOSP, Ack Policy and TXOP bits are masked out of CCMP AAD.
+        wire.at(24U) |= 0x30U;
+        wire.at(25U) = 0x5aU;
+        if (rx.unprotect(kEpoch, wire.data(), encrypted, output.data(),
+                         output.size(), written) != CcmpResult::Ok ||
+            written != plain.size() || output.at(24U) != 0x33U ||
+            output.at(25U) != 0x5aU ||
+            std::memcmp(&output.at(26U), &plain.at(26U), plain.size() - 26U) !=
+                0 ||
+            rx.receiveFloor() != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return rx.unprotect(kEpoch, original.data(), encrypted, output.data(),
+                            output.size(),
+                            written) == CcmpResult::ReplayDetected
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
+    int testQosReplayAndMalformedFrames()
+    {
+        CcmpSession tx {};
+        CcmpSession rx {};
+        if (!fresh(tx) || !fresh(rx))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto tid3 = qosPlain(3U);
+        auto tid4 = qosPlain(4U);
+        auto tid0 = qosPlain(0U);
+        std::array<uint8_t, kCcmpMaximumMpduBytes> first {};
+        std::array<uint8_t, kCcmpMaximumMpduBytes> second {};
+        std::array<uint8_t, kCcmpMaximumMpduBytes> third {};
+        std::array<uint8_t, kCcmpMaximumMpduBytes> fourth {};
+        std::array<uint8_t, kCcmpMaximumMpduBytes> output {};
+        size_t a = 0U;
+        size_t b = 0U;
+        size_t c = 0U;
+        size_t d = 0U;
+        size_t written = 0U;
+        if (tx.protect(kEpoch, tid3.data(), tid3.size(), first.data(),
+                       first.size(), a) != CcmpResult::Ok ||
+            tx.protect(kEpoch, tid4.data(), tid4.size(), second.data(),
+                       second.size(), b) != CcmpResult::Ok ||
+            rx.unprotect(kEpoch, second.data(), b, output.data(), output.size(),
+                         written) != CcmpResult::Ok ||
+            rx.unprotect(kEpoch, first.data(), a, output.data(), output.size(),
+                         written) != CcmpResult::Ok ||
+            rx.receiveFloor() != 2U ||
+            rx.unprotect(kEpoch, first.data(), a, output.data(), output.size(),
+                         written) != CcmpResult::ReplayDetected ||
+            rx.unprotect(kEpoch, second.data(), b, output.data(), output.size(),
+                         written) != CcmpResult::ReplayDetected)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The legacy (non-QoS) stream and QoS TID 0 both use nonce
+        // priority zero, so they MUST share a replay floor.
+        if (tx.protect(kEpoch, kPlain.data(), kPlain.size(), third.data(),
+                       third.size(), c) != CcmpResult::Ok ||
+            tx.protect(kEpoch, tid0.data(), tid0.size(), fourth.data(),
+                       fourth.size(), d) != CcmpResult::Ok ||
+            rx.unprotect(kEpoch, fourth.data(), d, output.data(), output.size(),
+                         written) != CcmpResult::Ok ||
+            rx.unprotect(kEpoch, third.data(), c, output.data(), output.size(),
+                         written) != CcmpResult::ReplayDetected)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        size_t untouchedWritten = 999U;
+        tid3.at(24U) |= 0x80U; // A-MSDU not supported.
+        if (tx.protect(kEpoch, tid3.data(), tid3.size(), output.data(),
+                       output.size(),
+                       untouchedWritten) != CcmpResult::UnsupportedFrame ||
+            untouchedWritten != 999U || tx.lastTransmittedPn() != 4U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        tid3 = qosPlain(3U);
+        tid3.at(1U) |= 0x80U; // +HT Control not supported.
+        if (tx.protect(kEpoch, tid3.data(), tid3.size(), output.data(),
+                       output.size(),
+                       untouchedWritten) != CcmpResult::UnsupportedFrame)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        tid3 = qosPlain(3U);
+        if (tx.protect(kEpoch, tid3.data(), 25U, output.data(), output.size(),
+                       untouchedWritten) != CcmpResult::UnsupportedFrame)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Reject A-MSDU on RX even when the 802.11 MIC matches prior data.
+        fourth.at(24U) |= 0x80U;
+        return rx.unprotect(kEpoch, fourth.data(), d, output.data(),
+                            output.size(),
+                            untouchedWritten) == CcmpResult::UnsupportedFrame
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
     // NOLINTEND(readability-suspicious-call-argument)
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 } // namespace
@@ -299,5 +454,13 @@ int main()
     {
         return result;
     }
-    return testPacketNumberAndLargeFrames();
+    if (const int result = testPacketNumberAndLargeFrames())
+    {
+        return result;
+    }
+    if (const int result = testQosIndependentVector())
+    {
+        return result;
+    }
+    return testQosReplayAndMalformedFrames();
 }

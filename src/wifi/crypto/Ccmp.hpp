@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// 802.11 CCMP-128 for unfragmented, three-address non-QoS data frames.
+// 802.11 CCMP-128 for unfragmented, three-address data and QoS data.
 // Pure source implementation; native key/PN ownership still requires wiring.
 #ifndef SIMPLEATH_WIFI_CCMP_HPP
 #define SIMPLEATH_WIFI_CCMP_HPP
@@ -15,6 +15,7 @@ namespace simpleath
         {
             constexpr size_t kCcmpTemporalKeyBytes = 16U;
             constexpr size_t kCcmpMacBytes = 6U;
+            constexpr size_t kCcmpTidCount = 16U;
             constexpr size_t kCcmpMaximumMpduBytes = 2346U;
             constexpr uint64_t kCcmpMaximumPacketNumber = 0xffffffffffffULL;
 
@@ -76,6 +77,8 @@ namespace simpleath
                         return txPn_;
                     }
 
+                    // Diagnostic high watermark across TIDs; NEVER use this
+                    // to authorize packets from a different priority stream.
                     uint64_t receiveFloor() const
                     {
                         return rxFloor_;
@@ -86,7 +89,11 @@ namespace simpleath
                     uint8_t transmitter_[kCcmpMacBytes] {};
                     uint64_t epoch_ {};
                     uint64_t txPn_ {};
+                    // Largest authenticated RX PN is diagnostic only. Replay
+                    // admission is per 802.11 QoS TID; legacy non-QoS and
+                    // QoS TID 0 share a nonce-priority/replay domain.
                     uint64_t rxFloor_ {};
+                    uint64_t rxTidFloors_[kCcmpTidCount] {};
                     uint8_t keyId_ {};
                     bool installed_ {};
             };

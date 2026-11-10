@@ -20,17 +20,25 @@ namespace simpleath
             namespace
             {
                 constexpr size_t kHeaderBytes = 24U;
+                constexpr size_t kQosHeaderBytes = 26U;
+                constexpr size_t kQosControlOffset = 24U;
                 constexpr size_t kExtIvBytes = 8U;
                 constexpr size_t kMicBytes = 8U;
                 constexpr size_t kBlockBytes = 16U;
                 constexpr size_t kExpandedKeyBytes = 176U;
                 constexpr size_t kAesRounds = 10U;
                 constexpr size_t kNonceBytes = 13U;
-                constexpr size_t kAadBytes = 22U;
+                constexpr size_t kLegacyAadBytes = 22U;
+                constexpr size_t kQosAadBytes = 24U;
                 constexpr uint8_t kProtected = 0x40U;
                 constexpr uint8_t kExtendedIv = 0x20U;
                 constexpr uint8_t kCcmB0Flags = 0x59U;
                 constexpr uint8_t kCcmCtrFlags = 0x01U;
+                constexpr uint8_t kLegacyDataSubtype = 0x08U;
+                constexpr uint8_t kQosDataSubtype = 0x88U;
+                constexpr uint8_t kQosAmsduPresent = 0x80U;
+                constexpr uint8_t kQosTidMask = 0x0fU;
+                constexpr uint8_t kHtControlPresent = 0x80U;
                 constexpr uint8_t kToDs = 0x01U;
                 constexpr uint8_t kFromDs = 0x02U;
                 constexpr uint8_t kFragmentFlag = 0x04U;
@@ -221,8 +229,16 @@ namespace simpleath
                     secureWipe(&state, sizeof(state));
                 }
 
+                struct FrameHeader
+                {
+                        size_t bytes = 0U;
+                        uint8_t priority = 0U;
+                        bool qos = false;
+                };
+
                 bool validHeader(const uint8_t *frame, size_t bytes,
-                                 bool encrypted, const uint8_t transmitter[6U])
+                                 bool encrypted, const uint8_t transmitter[6U],
+                                 FrameHeader &header)
                 {
                     if (frame == nullptr || bytes < kHeaderBytes + 1U ||
                         bytes > kCcmpMaximumMpduBytes)
@@ -232,22 +248,43 @@ namespace simpleath
                     const uint8_t control0 = *byteAt(frame, 0U);
                     const uint8_t control1 = *byteAt(frame, 1U);
                     const uint8_t direction = control1 & (kToDs | kFromDs);
-                    if (control0 != 0x08U ||
+                    const bool qos = control0 == kQosDataSubtype;
+                    const size_t headerBytes =
+                        qos ? kQosHeaderBytes : kHeaderBytes;
+                    if ((control0 != kLegacyDataSubtype && !qos) ||
+                        bytes < headerBytes + 1U ||
                         (direction != kToDs && direction != kFromDs) ||
-                        (control1 & (kFragmentFlag | kProtected)) !=
+                        (control1 &
+                         (kFragmentFlag | kProtected | kHtControlPresent)) !=
                             (encrypted ? kProtected : 0U) ||
-                        (*byteAt(frame, 22U) & 0x0fU) != 0U)
+                        (*byteAt(frame, 22U) & 0x0fU) != 0U ||
+                        __builtin_memcmp(byteAt(frame, 10U), transmitter,
+                                         kCcmpMacBytes) != 0)
                     {
                         return false;
                     }
-                    return __builtin_memcmp(byteAt(frame, 10U), transmitter,
-                                            kCcmpMacBytes) == 0;
+                    uint8_t priority = 0U;
+                    if (qos)
+                    {
+                        const uint8_t qosControl =
+                            *byteAt(frame, kQosControlOffset);
+                        if ((qosControl & kQosAmsduPresent) != 0U)
+                        {
+                            // A-MSDU subframes need a separate authenticated
+                            // demultiplexer before native Ethernet delivery.
+                            return false;
+                        }
+                        priority = qosControl & kQosTidMask;
+                    }
+                    header = {headerBytes, priority, qos};
+                    return true;
                 }
 
                 void buildNonce(Bytes<kNonceBytes> &nonce,
-                                const uint8_t *header, uint64_t pn)
+                                const uint8_t *header, uint64_t pn,
+                                const FrameHeader &frame)
                 {
-                    nonce.at(0U) = 0U; // Legacy non-QoS priority.
+                    nonce.at(0U) = frame.priority;
                     __builtin_memcpy(&nonce.at(1U), byteAt(header, 10U),
                                      kCcmpMacBytes);
                     for (size_t i = 0U; i < 6U; ++i)
@@ -257,13 +294,21 @@ namespace simpleath
                     }
                 }
 
-                void buildAad(Bytes<kAadBytes> &aad, const uint8_t *header)
+                void buildAad(Bytes<kQosAadBytes> &aad, const uint8_t *header,
+                              const FrameHeader &frame)
                 {
                     aad.at(0U) = *byteAt(header, 0U) & 0x8fU;
                     aad.at(1U) = *byteAt(header, 1U) & 0xc7U;
                     __builtin_memcpy(&aad.at(2U), byteAt(header, 4U), 18U);
                     aad.at(20U) = *byteAt(header, 22U) & 0x0fU;
                     aad.at(21U) = 0U;
+                    if (frame.qos)
+                    {
+                        // Only TID is authenticated from QoS Control. EOSP,
+                        // Ack Policy and TXOP are mutable 802.11 fields.
+                        aad.at(22U) = frame.priority;
+                        aad.at(23U) = 0U;
+                    }
                 }
 
                 void macBlock(Bytes<kBlockBytes> &chain,
@@ -295,8 +340,8 @@ namespace simpleath
                     // Header carries the masked AAD; plain is
                     // authenticated message content, never IV.
                     // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-                    const uint8_t *header, const uint8_t *plain, size_t length,
-                    Bytes<kMicBytes> &tag)
+                    const uint8_t *header, const FrameHeader &frame,
+                    const uint8_t *plain, size_t length, Bytes<kMicBytes> &tag)
                 {
                     Bytes<kBlockBytes> block {};
                     Bytes<kBlockBytes> chain {};
@@ -306,15 +351,18 @@ namespace simpleath
                     block.at(15U) = static_cast<uint8_t>(length);
                     macBlock(chain, block, key);
 
-                    Bytes<kAadBytes> aad {};
-                    buildAad(aad, header);
+                    Bytes<kQosAadBytes> aad {};
+                    buildAad(aad, header, frame);
+                    const size_t aadBytes =
+                        frame.qos ? kQosAadBytes : kLegacyAadBytes;
                     block = {};
                     block.at(0U) = 0U;
-                    block.at(1U) = static_cast<uint8_t>(kAadBytes);
+                    block.at(1U) = static_cast<uint8_t>(aadBytes);
                     __builtin_memcpy(&block.at(2U), aad.data(), 14U);
                     macBlock(chain, block, key);
                     block = {};
-                    __builtin_memcpy(block.data(), &aad.at(14U), 8U);
+                    __builtin_memcpy(block.data(), &aad.at(14U),
+                                     aadBytes - 14U);
                     macBlock(chain, block, key);
                     for (size_t offset = 0U; offset < length;
                          offset += kBlockBytes)
@@ -382,6 +430,23 @@ namespace simpleath
                                     sizeof(written));
                 }
 
+                uint64_t &replayFloor(uint64_t (&floors)[kCcmpTidCount],
+                                      uint8_t tid)
+                {
+                    // Iterate over the fixed hardware TID set without
+                    // unchecked native-array indexing or dynamic allocation.
+                    uint8_t current = 0U;
+                    for (auto &floor : floors)
+                    {
+                        if (current == tid)
+                        {
+                            return floor;
+                        }
+                        ++current;
+                    }
+                    __builtin_trap();
+                }
+
                 bool constantTimeMic(const Bytes<kMicBytes> &tag,
                                      const uint8_t *wire)
                 {
@@ -406,6 +471,7 @@ namespace simpleath
                 epoch_ = 0U;
                 txPn_ = 0U;
                 rxFloor_ = 0U;
+                secureWipe(rxTidFloors_, sizeof(rxTidFloors_));
                 keyId_ = 0U;
                 installed_ = false;
             }
@@ -443,6 +509,10 @@ namespace simpleath
                 epoch_ = epoch;
                 txPn_ = lastTransmittedPn;
                 rxFloor_ = receiveFloor;
+                for (auto &floor : rxTidFloors_)
+                {
+                    floor = receiveFloor;
+                }
                 keyId_ = keyId;
                 installed_ = true;
                 return CcmpResult::Ok;
@@ -467,8 +537,9 @@ namespace simpleath
                 {
                     return CcmpResult::OverlappingBuffers;
                 }
+                FrameHeader header {};
                 if (keyId_ != 0U ||
-                    !validHeader(frame, bytes, false, transmitter_))
+                    !validHeader(frame, bytes, false, transmitter_, header))
                 {
                     return CcmpResult::UnsupportedFrame;
                 }
@@ -487,27 +558,28 @@ namespace simpleath
                 }
                 const uint64_t pn = txPn_ + 1U;
                 Bytes<kCcmpMaximumMpduBytes> result {};
-                __builtin_memcpy(result.data(), frame, kHeaderBytes);
+                __builtin_memcpy(result.data(), frame, header.bytes);
                 result.at(1U) |= kProtected;
-                result.at(24U) = static_cast<uint8_t>(pn);
-                result.at(25U) = static_cast<uint8_t>(pn >> 8U);
-                result.at(26U) = 0U;
-                result.at(27U) =
+                result.at(header.bytes) = static_cast<uint8_t>(pn);
+                result.at(header.bytes + 1U) = static_cast<uint8_t>(pn >> 8U);
+                result.at(header.bytes + 2U) = 0U;
+                result.at(header.bytes + 3U) =
                     static_cast<uint8_t>(kExtendedIv | (keyId_ << kKeyIdShift));
                 for (size_t i = 2U; i < 6U; ++i)
                 {
-                    result.at(26U + i) = static_cast<uint8_t>(pn >> (8U * i));
+                    result.at(header.bytes + 2U + i) =
+                        static_cast<uint8_t>(pn >> (8U * i));
                 }
                 Bytes<kExpandedKeyBytes> expanded {};
                 expandKey(key_, expanded);
                 Bytes<kNonceBytes> nonce {};
-                buildNonce(nonce, frame, pn);
-                const size_t payloadBytes = bytes - kHeaderBytes;
+                buildNonce(nonce, frame, pn, header);
+                const size_t payloadBytes = bytes - header.bytes;
                 Bytes<kMicBytes> tag {};
-                computeTag(expanded, nonce, result.data(),
-                           byteAt(frame, kHeaderBytes), payloadBytes, tag);
-                cryptPayload(expanded, nonce, byteAt(frame, kHeaderBytes),
-                             &result.at(kHeaderBytes + kExtIvBytes),
+                computeTag(expanded, nonce, result.data(), header,
+                           byteAt(frame, header.bytes), payloadBytes, tag);
+                cryptPayload(expanded, nonce, byteAt(frame, header.bytes),
+                             &result.at(header.bytes + kExtIvBytes),
                              payloadBytes);
                 __builtin_memcpy(&result.at(resultBytes - kMicBytes),
                                  tag.data(), kMicBytes);
@@ -540,19 +612,20 @@ namespace simpleath
                 {
                     return CcmpResult::OverlappingBuffers;
                 }
-                if (bytes < kHeaderBytes + kExtIvBytes + kMicBytes + 1U ||
-                    !validHeader(frame, bytes, true, transmitter_))
+                FrameHeader header {};
+                if (!validHeader(frame, bytes, true, transmitter_, header) ||
+                    bytes < header.bytes + kExtIvBytes + kMicBytes + 1U)
                 {
                     return CcmpResult::UnsupportedFrame;
                 }
                 const size_t payloadBytes =
-                    bytes - kHeaderBytes - kExtIvBytes - kMicBytes;
-                const size_t resultBytes = kHeaderBytes + payloadBytes;
+                    bytes - header.bytes - kExtIvBytes - kMicBytes;
+                const size_t resultBytes = header.bytes + payloadBytes;
                 if (capacity < resultBytes)
                 {
                     return CcmpResult::BufferTooSmall;
                 }
-                const uint8_t *iv = byteAt(frame, kHeaderBytes);
+                const uint8_t *iv = byteAt(frame, header.bytes);
                 if (*byteAt(iv, 2U) != 0U ||
                     *byteAt(iv, 3U) !=
                         static_cast<uint8_t>(kExtendedIv |
@@ -567,30 +640,32 @@ namespace simpleath
                     pn |= static_cast<uint64_t>(*byteAt(iv, 2U + i))
                           << (8U * i);
                 }
-                if (pn == 0U || pn <= rxFloor_)
+                if (header.priority >= kCcmpTidCount || pn == 0U ||
+                    pn <= replayFloor(rxTidFloors_, header.priority))
                 {
                     return CcmpResult::ReplayDetected;
                 }
                 Bytes<kExpandedKeyBytes> expanded {};
                 expandKey(key_, expanded);
                 Bytes<kNonceBytes> nonce {};
-                buildNonce(nonce, frame, pn);
+                buildNonce(nonce, frame, pn, header);
                 Bytes<kCcmpMaximumMpduBytes> result {};
-                __builtin_memcpy(result.data(), frame, kHeaderBytes);
+                __builtin_memcpy(result.data(), frame, header.bytes);
                 result.at(1U) &= static_cast<uint8_t>(~kProtected);
                 cryptPayload(expanded, nonce,
-                             byteAt(frame, kHeaderBytes + kExtIvBytes),
-                             &result.at(kHeaderBytes), payloadBytes);
+                             byteAt(frame, header.bytes + kExtIvBytes),
+                             &result.at(header.bytes), payloadBytes);
                 Bytes<kMicBytes> tag {};
-                computeTag(expanded, nonce, frame, &result.at(kHeaderBytes),
-                           payloadBytes, tag);
+                computeTag(expanded, nonce, frame, header,
+                           &result.at(header.bytes), payloadBytes, tag);
                 const bool authenticated =
                     constantTimeMic(tag, byteAt(frame, bytes - kMicBytes));
                 if (authenticated)
                 {
                     __builtin_memcpy(output, result.data(), resultBytes);
                     written = resultBytes;
-                    rxFloor_ = pn;
+                    replayFloor(rxTidFloors_, header.priority) = pn;
+                    rxFloor_ = pn > rxFloor_ ? pn : rxFloor_;
                 }
                 secureWipe(&tag, sizeof(tag));
                 secureWipe(&nonce, sizeof(nonce));
