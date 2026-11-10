@@ -75,6 +75,19 @@ namespace
             size_t length;
     };
 
+    // The native command gate may wait for an earlier radio operation. A
+    // synchronously borrowed OS packet or key is not immutable during that
+    // wait, so callbacks take an owned snapshot and erase it on return.
+    void scrubRequest(void *storage, size_t bytes)
+    {
+        auto *clear = static_cast<volatile uint8_t *>(storage);
+        for (size_t index = 0; index < bytes; ++index)
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            clear[index] = 0;
+        }
+    }
+
     constexpr unsigned int kRfPropertyWidthBits = 32;
     constexpr uint32_t kRfKillInputRegister = 0x404c;
     // IOService copies this table when registering the power driver.
@@ -715,10 +728,15 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<SimpleATH *>(context);
             if (!self.gate_)
                 return kIOReturnNotReady;
-            // Borrowed material remains valid through synchronous runAction.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-            auto *request = const_cast<simpleath::tahoe::NativeCcmpKey *>(key);
-            return self.gate_->runAction(ownerInstallKeyAction, request);
+            // The caller retains key storage only until this operation
+            // completes, and may change it while waiting for the gate. Never
+            // let an OS-owned pointer supply a torn CCMP key or replay floor.
+            simpleath::tahoe::NativeCcmpKey stable {};
+            __builtin_memcpy(&stable, key, sizeof(stable));
+            const IOReturn result =
+                self.gate_->runAction(ownerInstallKeyAction, &stable);
+            scrubRequest(&stable, sizeof(stable));
+            return result;
         }
 
         static IOReturn ownerAuthorizePortAction(OSObject *object,
@@ -1028,8 +1046,16 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            NativeTransmitRequest request {bytes, length};
-            return self.gate_->runAction(ownerTransmitEthernetAction, &request);
+            // The owner gate may block behind reset/IRQ handling. Copy the
+            // complete bounded Ethernet/EAPOL request before entering it;
+            // a mutable OS packet must not change after preflight inspection.
+            uint8_t stable[kNativeEthernetCapacity] {};
+            __builtin_memcpy(&stable[0], bytes, length);
+            NativeTransmitRequest request {&stable[0], length};
+            const IOReturn result =
+                self.gate_->runAction(ownerTransmitEthernetAction, &request);
+            scrubRequest(&stable[0], sizeof(stable));
+            return result;
         }
 
         static IOReturn ownerSubscribe(
