@@ -94,6 +94,57 @@ namespace simpleath
         constexpr uint8_t kLastTwoGigahertzPierBin = 184;
         constexpr uint16_t kPierFrequencyBaseMhz = 2300;
 
+        constexpr uint8_t kLastTwoGigahertzChannel = 14U;
+
+        // EEPROM byte spans are validated at the caller boundary. Compute
+        // offsets without integer wrap or an out-of-range C++ pointer add.
+        // A malformed external span cannot cause an address to wrap around.
+        template <typename Byte> Byte *byteOffset(Byte *base, size_t offset)
+        {
+            static_assert(sizeof(base) == sizeof(uintptr_t),
+                          "EEPROM pointer size must equal address size");
+            if (base == nullptr)
+            {
+                return nullptr;
+            }
+            uintptr_t address = 0;
+            __builtin_memcpy(&address, static_cast<const void *>(&base),
+                             sizeof(base));
+            if (offset > UINTPTR_MAX - address)
+            {
+                return nullptr;
+            }
+            address += offset;
+            Byte *result = nullptr;
+            __builtin_memcpy(static_cast<void *>(&result), &address,
+                             sizeof(result));
+            return result;
+        }
+
+        template <typename Item, size_t N>
+        Item &arrayElement(Item (&array)[N], size_t index)
+        {
+            for (Item &entry : array)
+            {
+                if (index == 0U)
+                {
+                    return entry;
+                }
+                --index;
+            }
+            __builtin_trap(); // All callers bound indexes to the array size.
+        }
+
+        uintptr_t addressOf(const void *pointer)
+        {
+            static_assert(sizeof(pointer) == sizeof(uintptr_t),
+                          "EEPROM pointer width must match uintptr_t");
+            uintptr_t address = 0;
+            __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                             sizeof(pointer));
+            return address;
+        }
+
         const uint8_t *findPinnedTemplate(void * /*unused*/, uint8_t reference,
                                           size_t *length)
         {
@@ -113,6 +164,18 @@ namespace simpleath
             return nullptr;
         }
 
+        int16_t widenCalibrationCorrection(int8_t value)
+        {
+            // Convert through the encoded unsigned octet so a negative
+            // correction is sign-extended without signed-char promotion.
+            const auto byte = static_cast<uint8_t>(value);
+            const int signedValue =
+                byte < kUnsignedByteSignBit
+                    ? static_cast<int>(byte)
+                    : static_cast<int>(byte) - kUnsignedByteSpan;
+            return static_cast<int16_t>(signedValue);
+        }
+
         int8_t signedByte(uint8_t value)
         {
             return static_cast<int8_t>(value < kUnsignedByteSignBit
@@ -124,14 +187,15 @@ namespace simpleath
         uint16_t readLittle16(const uint8_t *bytes)
         {
             return static_cast<uint16_t>(
-                static_cast<uint32_t>(bytes[0]) |
-                (static_cast<uint32_t>(bytes[1]) << kBitsPerByte));
+                static_cast<uint32_t>(*byteOffset(bytes, 0U)) |
+                (static_cast<uint32_t>(*byteOffset(bytes, 1U))
+                 << kBitsPerByte));
         }
 
         uint32_t readLittle32(const uint8_t *bytes)
         {
             return static_cast<uint32_t>(readLittle16(bytes)) |
-                   (static_cast<uint32_t>(readLittle16(bytes + 2))
+                   (static_cast<uint32_t>(readLittle16(byteOffset(bytes, 2U)))
                     << kBitsPerHalfword);
         }
 
@@ -140,15 +204,15 @@ namespace simpleath
         {
             for (size_t i = 0; i < length; ++i)
             {
-                destination[i] = source[i];
+                *byteOffset(destination, i) = *byteOffset(source, i);
             }
         }
 
         bool overlaps(const void *source, size_t length,
                       const void *destination, size_t destinationLength)
         {
-            const auto src = reinterpret_cast<uintptr_t>(source);
-            const auto dst = reinterpret_cast<uintptr_t>(destination);
+            const auto src = addressOf(source);
+            const auto dst = addressOf(destination);
             return (length != 0U) && (destinationLength != 0U) &&
                    (src >= dst ? src - dst < destinationLength
                                : dst - src < length);
@@ -174,7 +238,9 @@ namespace simpleath
                 bool matches = true;
                 for (size_t i = 0; i < kPermanentMacBytes; ++i)
                 {
-                    matches = matches && mac[i] == entry.bytes[kMacOffset + i];
+                    matches =
+                        matches && *byteOffset(mac, i) ==
+                                       *byteOffset(entry.bytes, kMacOffset + i);
                 }
                 if (matches)
                 {
@@ -191,13 +257,15 @@ namespace simpleath
             // caller must verify the raw frequency bins and pier records.
             for (size_t i = 0; i < kCalibrationPiers; ++i)
             {
-                const uint8_t bin = board.calibrationFrequencyBins2G[i];
+                const uint8_t bin =
+                    arrayElement(board.calibrationFrequencyBins2G, i);
                 const BoardCalibrationPier2G &pier =
-                    board.calibrationPiers2G[i];
+                    arrayElement(board.calibrationPiers2G, i);
                 if (bin < kFirstTwoGigahertzPierBin ||
                     bin > kLastTwoGigahertzPierBin ||
                     (i != 0 &&
-                     bin <= board.calibrationFrequencyBins2G[i - 1]) ||
+                     bin <= arrayElement(board.calibrationFrequencyBins2G,
+                                         i - 1U)) ||
                     pier.frequencyBin != bin ||
                     pier.centerMhz !=
                         static_cast<uint16_t>(kPierFrequencyBaseMhz + bin))
@@ -235,8 +303,8 @@ namespace simpleath
                 {
                     return false;
                 }
-                const size_t skip = payload[cursor++];
-                const size_t count = payload[cursor++];
+                const size_t skip = *byteOffset(payload, cursor++);
+                const size_t count = *byteOffset(payload, cursor++);
                 if (skip > kAr9300EepromImageBytes - spot)
                 {
                     return false;
@@ -252,6 +320,123 @@ namespace simpleath
             }
             return true;
         }
+
+        struct ValidatedDeltaFrame
+        {
+                const uint8_t *frame;
+                const uint8_t *payload;
+                size_t frameBytes;
+                size_t length;
+                uint32_t validatedHeader;
+                uint16_t checksum;
+        };
+
+        EepromResult applyValidatedDelta(const ValidatedDeltaFrame &view,
+                                         const EepromTemplates &templates,
+                                         EepromImage &image,
+                                         EepromBlockInfo &info)
+        {
+            const uint8_t *const frame = view.frame;
+            const uint8_t *const payload = view.payload;
+            const size_t frameBytes = view.frameBytes;
+            const size_t length = view.length;
+            const uint32_t validatedHeader = view.validatedHeader;
+            const uint16_t checksum = view.checksum;
+            if (!validDelta(payload, length))
+            {
+                return EepromResult::InvalidDelta;
+            }
+            const uint8_t *base = nullptr;
+            if (info.reference != 0U)
+            {
+                const EepromBlockInfo parsedInfo = info;
+                const uint16_t previousBlocks = image.appliedBlocks;
+                const bool previouslyRestored = image.restored;
+                size_t baseLength = 0;
+                if (templates.find != nullptr)
+                {
+                    base = templates.find(templates.context, info.reference,
+                                          &baseLength);
+                }
+                // A callback retaining unrelated output pointers must not
+                // replace the verified reference or forge restoration state.
+                if (info.compression != parsedInfo.compression ||
+                    info.reference != parsedInfo.reference ||
+                    info.payloadBytes != parsedInfo.payloadBytes ||
+                    info.major != parsedInfo.major ||
+                    info.minor != parsedInfo.minor ||
+                    image.appliedBlocks != previousBlocks ||
+                    image.restored != previouslyRestored)
+                {
+                    info = parsedInfo;
+                    discardEepromImage(image);
+                    return EepromResult::InvalidArgument;
+                }
+                if ((base == nullptr) || baseLength != sizeof(image.bytes))
+                {
+                    return EepromResult::MissingTemplate;
+                }
+                // The callback's returned base is separately borrowed from
+                // its context. A forged 1088-byte length cannot turn a short
+                // verified delta or our own metadata into trusted template
+                // data, nor let its copy read beyond those allocations.
+                // Check known aliases before even reading the template ID.
+                if (overlaps(base, baseLength, frame, frameBytes) ||
+                    overlaps(base, baseLength, &templates, sizeof(templates)) ||
+                    overlaps(base, baseLength, &info, sizeof(info)) ||
+                    overlapsImage(base, baseLength, image))
+                {
+                    return EepromResult::InvalidArgument;
+                }
+                if (*byteOffset(base, 1U) != info.reference)
+                {
+                    return EepromResult::MissingTemplate;
+                }
+            }
+            else if (!image.restored)
+            {
+                return EepromResult::MissingBaseImage;
+            }
+            // The external dictionary provider has just run after our first
+            // checksum and delta-bounds pass. It may violate its borrowed
+            // frame's const contract using a separate retained pointer.
+            // Revalidate BEFORE applying its return value, so a rewritten
+            // skip/count cannot overrun the image or read past the frame.
+            if (readLittle32(frame) != validatedHeader ||
+                !validDelta(payload, length))
+            {
+                return EepromResult::InvalidDelta;
+            }
+            uint16_t checkedChecksum = 0;
+            for (size_t i = 0; i < length; ++i)
+            {
+                checkedChecksum = static_cast<uint16_t>(
+                    checkedChecksum + (*byteOffset(payload, i)));
+            }
+            if (checkedChecksum != checksum ||
+                checkedChecksum !=
+                    readLittle16(byteOffset(frame, kFrameHeaderBytes + length)))
+            {
+                return EepromResult::BadChecksum;
+            }
+            if (base != nullptr)
+            {
+                copyBytes(&image.bytes[0], base, sizeof(image.bytes));
+            }
+            size_t cursor = 0;
+            size_t spot = 0;
+            while (cursor < length)
+            {
+                spot += *byteOffset(payload, cursor++);
+                const size_t count = *byteOffset(payload, cursor++);
+                copyBytes(byteOffset(&image.bytes[0], spot),
+                          byteOffset(payload, cursor), count);
+                spot += count;
+                cursor += count;
+            }
+            return EepromResult::Ok;
+        }
+
     } // namespace
 
     void discardEepromImage(EepromImage &image)
@@ -310,19 +495,22 @@ namespace simpleath
         {
             return EepromResult::EmptyHeader;
         }
-        info.compression =
-            (static_cast<uint32_t>(frame[0]) >> kCompressionShift) &
-            kCompressionMask;
+        info.compression = (static_cast<uint32_t>((*byteOffset(frame, 0))) >>
+                            kCompressionShift) &
+                           kCompressionMask;
         info.reference =
-            (static_cast<uint32_t>(frame[0]) & kReferenceMask) |
-            ((static_cast<uint32_t>(frame[1]) >> kReferenceHighShift) &
+            (static_cast<uint32_t>((*byteOffset(frame, 0))) & kReferenceMask) |
+            ((static_cast<uint32_t>((*byteOffset(frame, 1))) >>
+              kReferenceHighShift) &
              kReferenceHighMask);
         info.payloadBytes = static_cast<uint16_t>(
-            ((static_cast<uint32_t>(frame[1]) << kHighNibbleShift) &
+            ((static_cast<uint32_t>((*byteOffset(frame, 1)))
+              << kHighNibbleShift) &
              kPayloadLengthMask) |
-            (static_cast<uint32_t>(frame[2]) >> kHighNibbleShift));
-        info.major = frame[2] & kHeaderMajorMask;
-        info.minor = frame[3];
+            (static_cast<uint32_t>((*byteOffset(frame, 2))) >>
+             kHighNibbleShift));
+        info.major = (*byteOffset(frame, 2)) & kHeaderMajorMask;
+        info.minor = (*byteOffset(frame, 3));
         const size_t length = info.payloadBytes;
         const uint32_t validatedHeader = readLittle32(frame);
         if (frameBytes != length + kFrameOverheadBytes)
@@ -340,114 +528,33 @@ namespace simpleath
         uint16_t checksum = 0;
         for (size_t i = 0; i < length; ++i)
         {
-            checksum =
-                static_cast<uint16_t>(checksum + frame[kFrameHeaderBytes + i]);
+            checksum = static_cast<uint16_t>(
+                checksum + (*byteOffset(frame, kFrameHeaderBytes + i)));
         }
-        if (checksum != readLittle16(frame + kFrameHeaderBytes + length))
+        if (checksum !=
+            readLittle16(byteOffset(frame, kFrameHeaderBytes + length)))
         {
             return EepromResult::BadChecksum;
         }
-        const uint8_t *payload = frame + kFrameHeaderBytes;
+        const uint8_t *payload = byteOffset(frame, kFrameHeaderBytes);
         if (info.compression == 0)
         {
             if (length != sizeof(image.bytes))
             {
                 return EepromResult::WrongImageSize;
             }
-            copyBytes(image.bytes, payload, length);
+            copyBytes(&image.bytes[0], payload, length);
         }
         else if (info.compression == 3)
         {
-            if (!validDelta(payload, length))
+            const ValidatedDeltaFrame view {
+                frame, payload, frameBytes, length, validatedHeader, checksum,
+            };
+            const EepromResult result =
+                applyValidatedDelta(view, templates, image, info);
+            if (result != EepromResult::Ok)
             {
-                return EepromResult::InvalidDelta;
-            }
-            const uint8_t *base = nullptr;
-            if (info.reference != 0U)
-            {
-                const EepromBlockInfo parsedInfo = info;
-                const uint16_t previousBlocks = image.appliedBlocks;
-                const bool previouslyRestored = image.restored;
-                size_t baseLength = 0;
-                if (templates.find != nullptr)
-                {
-                    base = templates.find(templates.context, info.reference,
-                                          &baseLength);
-                }
-                // A callback retaining unrelated output pointers must not
-                // replace the verified reference or forge restoration state.
-                if (info.compression != parsedInfo.compression ||
-                    info.reference != parsedInfo.reference ||
-                    info.payloadBytes != parsedInfo.payloadBytes ||
-                    info.major != parsedInfo.major ||
-                    info.minor != parsedInfo.minor ||
-                    image.appliedBlocks != previousBlocks ||
-                    image.restored != previouslyRestored)
-                {
-                    info = parsedInfo;
-                    discardEepromImage(image);
-                    return EepromResult::InvalidArgument;
-                }
-                if ((base == nullptr) || baseLength != sizeof(image.bytes))
-                {
-                    return EepromResult::MissingTemplate;
-                }
-                // The callback's returned base is separately borrowed from
-                // its context. A forged 1088-byte length cannot turn a short
-                // verified delta or our own metadata into trusted template
-                // data, nor let its copy read beyond those allocations.
-                // Check known aliases before even reading the template ID.
-                if (overlaps(base, baseLength, frame, frameBytes) ||
-                    overlaps(base, baseLength, &templates, sizeof(templates)) ||
-                    overlaps(base, baseLength, &info, sizeof(info)) ||
-                    overlapsImage(base, baseLength, image))
-                {
-                    return EepromResult::InvalidArgument;
-                }
-                if (base[1] != info.reference)
-                {
-                    return EepromResult::MissingTemplate;
-                }
-            }
-            else if (!image.restored)
-            {
-                return EepromResult::MissingBaseImage;
-            }
-            // The external dictionary provider has just run after our first
-            // checksum and delta-bounds pass. It may violate its borrowed
-            // frame's const contract using a separate retained pointer.
-            // Revalidate BEFORE applying its return value, so a rewritten
-            // skip/count cannot overrun the image or read past the frame.
-            if (readLittle32(frame) != validatedHeader ||
-                !validDelta(payload, length))
-            {
-                return EepromResult::InvalidDelta;
-            }
-            uint16_t checkedChecksum = 0;
-            for (size_t i = 0; i < length; ++i)
-            {
-                checkedChecksum =
-                    static_cast<uint16_t>(checkedChecksum + payload[i]);
-            }
-            if (checkedChecksum != checksum ||
-                checkedChecksum !=
-                    readLittle16(frame + kFrameHeaderBytes + length))
-            {
-                return EepromResult::BadChecksum;
-            }
-            if (base != nullptr)
-            {
-                copyBytes(image.bytes, base, sizeof(image.bytes));
-            }
-            size_t cursor = 0;
-            size_t spot = 0;
-            while (cursor < length)
-            {
-                spot += payload[cursor++];
-                const size_t count = payload[cursor++];
-                copyBytes(image.bytes + spot, payload + cursor, count);
-                spot += count;
-                cursor += count;
+                return result;
             }
         }
         else
@@ -516,7 +623,8 @@ namespace simpleath
             }
             for (size_t i = 0; i < kFrameHeaderBytes; ++i)
             {
-                scratch[i] = storage[remaining - 1 - i];
+                (*byteOffset(scratch, i)) =
+                    (*byteOffset(storage, remaining - 1 - i));
             }
             const uint32_t header = readLittle32(scratch);
             if (header == 0 || header == kErasedHeader)
@@ -530,9 +638,11 @@ namespace simpleath
                 return status.result = EepromResult::EmptyHeader;
             }
             const size_t payloadBytes =
-                ((static_cast<size_t>(scratch[1]) << kHighNibbleShift) &
+                ((static_cast<size_t>((*byteOffset(scratch, 1)))
+                  << kHighNibbleShift) &
                  kPayloadLengthMask) |
-                (static_cast<uint32_t>(scratch[2]) >> kHighNibbleShift);
+                (static_cast<uint32_t>((*byteOffset(scratch, 2))) >>
+                 kHighNibbleShift);
             const size_t frameBytes = payloadBytes + kFrameOverheadBytes;
             // ath9k's non-AR9485 (including AR9565) storage-chain limit is
             // <1024. Do not resynchronize past corrupt headers into arbitrary
@@ -545,7 +655,8 @@ namespace simpleath
             }
             for (size_t i = kFrameHeaderBytes; i < frameBytes; ++i)
             {
-                scratch[i] = storage[remaining - 1 - i];
+                (*byteOffset(scratch, i)) =
+                    (*byteOffset(storage, remaining - 1 - i));
             }
             const EepromResult result = applyEepromBlock(
                 scratch, frameBytes, templates, image, status.lastBlock);
@@ -575,12 +686,12 @@ namespace simpleath
         {
             return EepromResult::MissingBaseImage;
         }
-        const auto *const bytes = image.bytes;
+        const uint8_t *const bytes = &image.bytes[0];
         // ar9300_eeprom packed layout: prefix 28, base header 25, 2G modal 71,
         // base extension 14, 2G pier frequencies at 138. Never cast packed
         // data.
-        if (bytes[kVersionOffset] != kSupportedFormat ||
-            ((static_cast<uint32_t>(bytes[kMiscFlagsOffset]) &
+        if ((*byteOffset(bytes, kVersionOffset)) != kSupportedFormat ||
+            ((static_cast<uint32_t>((*byteOffset(bytes, kMiscFlagsOffset))) &
               kMiscBigEndianFlag) != 0U))
         {
             return EepromResult::UnsupportedFormat;
@@ -588,47 +699,54 @@ namespace simpleath
         // AR9565 has one TX/RX chain. Generic 0x77 template masks are not a
         // recovered AR9565 board identity. This is still only a structural
         // check.
-        if (!validatePermanentMac(bytes + kMacOffset) ||
-            bytes[kChainMaskOffset] != kSingleChainMask ||
-            ((static_cast<uint32_t>(bytes[kOperatingFlagsOffset]) &
+        if (!validatePermanentMac(byteOffset(bytes, kMacOffset)) ||
+            (*byteOffset(bytes, kChainMaskOffset)) != kSingleChainMask ||
+            ((static_cast<uint32_t>(
+                  (*byteOffset(bytes, kOperatingFlagsOffset))) &
               kTwoGigahertzOperation) == 0U))
         {
             return EepromResult::InvalidBoardIdentity;
         }
-        out.eepromVersion = bytes[kVersionOffset];
-        out.templateVersion = bytes[kTemplateVersionOffset];
-        copyBytes(out.mac, bytes + kMacOffset, sizeof(out.mac));
+        out.eepromVersion = (*byteOffset(bytes, kVersionOffset));
+        out.templateVersion = (*byteOffset(bytes, kTemplateVersionOffset));
+        copyBytes(&out.mac[0], byteOffset(bytes, kMacOffset), sizeof(out.mac));
         out.regulatoryDomains[0] =
-            readLittle16(bytes + kRegulatoryDomain0Offset);
+            readLittle16(byteOffset(bytes, kRegulatoryDomain0Offset));
         out.regulatoryDomains[1] =
-            readLittle16(bytes + kRegulatoryDomain1Offset);
-        out.txChainMask = bytes[kChainMaskOffset] >> kHighNibbleShift;
-        out.rxChainMask = bytes[kChainMaskOffset] & kHeaderMajorMask;
-        out.operationFlags = bytes[kOperatingFlagsOffset];
-        out.rfSilent = bytes[kRfSilentOffset];
+            readLittle16(byteOffset(bytes, kRegulatoryDomain1Offset));
+        out.txChainMask =
+            (*byteOffset(bytes, kChainMaskOffset)) >> kHighNibbleShift;
+        out.rxChainMask =
+            (*byteOffset(bytes, kChainMaskOffset)) & kHeaderMajorMask;
+        out.operationFlags = (*byteOffset(bytes, kOperatingFlagsOffset));
+        out.rfSilent = (*byteOffset(bytes, kRfSilentOffset));
         out.rfKillConfigured = (out.rfSilent & 1U) != 0;
         out.rfKillPolarity = (out.rfSilent & 2U) != 0;
         out.rfKillGpio =
             (static_cast<uint32_t>(out.rfSilent) & kRfSilentGpioMask) >>
             kRfSilentGpioShift;
-        out.bluetoothOptions = bytes[kBluetoothOptionsOffset];
-        out.wlanDisableGpio = bytes[kWlanDisableGpioOffset];
-        out.txGainIndex = bytes[kGainIndexOffset] >> kHighNibbleShift;
-        out.rxGainIndex = bytes[kGainIndexOffset] & kHeaderMajorMask;
+        out.bluetoothOptions = (*byteOffset(bytes, kBluetoothOptionsOffset));
+        out.wlanDisableGpio = (*byteOffset(bytes, kWlanDisableGpioOffset));
+        out.txGainIndex =
+            (*byteOffset(bytes, kGainIndexOffset)) >> kHighNibbleShift;
+        out.rxGainIndex =
+            (*byteOffset(bytes, kGainIndexOffset)) & kHeaderMajorMask;
         out.antennaControlCommon =
-            readLittle32(bytes + kAntennaControlCommonOffset);
+            readLittle32(byteOffset(bytes, kAntennaControlCommonOffset));
         out.antennaControlCommon2 =
-            readLittle32(bytes + kAntennaControlCommon2Offset);
+            readLittle32(byteOffset(bytes, kAntennaControlCommon2Offset));
         out.antennaControlChain0 =
-            readLittle16(bytes + kAntennaControlChain0Offset);
+            readLittle16(byteOffset(bytes, kAntennaControlChain0Offset));
         // Explicit sign extension avoids implementation-defined
         // uint8_t->int8_t.
-        out.antennaGainDb = signedByte(bytes[kAntennaGainOffset]);
-        out.storedAntennaDiversity = bytes[kStoredAntennaDiversityOffset];
+        out.antennaGainDb =
+            signedByte((*byteOffset(bytes, kAntennaGainOffset)));
+        out.storedAntennaDiversity =
+            (*byteOffset(bytes, kStoredAntennaDiversityOffset));
         // ath9k EEP_ANT_DIV_CTL1 overrides the EEPROM value for AR9565.
         out.ar9565AntennaDiversity = kAntennaDiversityOverride;
-        copyBytes(out.calibrationFrequencyBins2G,
-                  bytes + kCalibrationFrequencyBinsOffset,
+        copyBytes(&out.calibrationFrequencyBins2G[0],
+                  byteOffset(bytes, kCalibrationFrequencyBinsOffset),
                   sizeof(out.calibrationFrequencyBins2G));
         // The packed AR9300 layout places the single AR9565 chain's three
         // six-byte op-loop calibration records at byte 141. The Linux source
@@ -636,10 +754,10 @@ namespace simpleath
         // noise floor on rxTempMeas; report them without applying TPC values.
         for (size_t i = 0; i < kCalibrationPiers; ++i)
         {
-            const uint8_t bin = out.calibrationFrequencyBins2G[i];
-            const uint8_t *pier =
-                bytes + kCalibrationPiersOffset + (i * kCalibrationPierBytes);
-            auto &entry = out.calibrationPiers2G[i];
+            const uint8_t bin = arrayElement(out.calibrationFrequencyBins2G, i);
+            const uint8_t *pier = byteOffset(
+                bytes, kCalibrationPiersOffset + (i * kCalibrationPierBytes));
+            auto &entry = arrayElement(out.calibrationPiers2G, i);
             entry.frequencyBin = bin;
             // Legal 2.4 GHz channel center frequencies span 2412..2484 MHz.
             // This is a structural bin sanity check, not regulatory approval.
@@ -647,13 +765,15 @@ namespace simpleath
                                       bin <= kLastTwoGigahertzPierBin
                                   ? kPierFrequencyBaseMhz + bin
                                   : 0;
-            entry.referencePower = signedByte(pier[0]);
-            entry.voltageMeasurement = pier[1];
-            entry.temperatureMeasurement = pier[2];
-            entry.noiseFloorCalibrationRaw = signedByte(pier[3]);
-            entry.noiseFloorPowerRaw = signedByte(pier[4]);
-            entry.noiseTemperatureMeasurement = pier[kNoiseTemperatureOffset];
-            entry.noiseMeasurementsPresent = pier[kNoiseTemperatureOffset] != 0;
+            entry.referencePower = signedByte((*byteOffset(pier, 0)));
+            entry.voltageMeasurement = (*byteOffset(pier, 1));
+            entry.temperatureMeasurement = (*byteOffset(pier, 2));
+            entry.noiseFloorCalibrationRaw = signedByte((*byteOffset(pier, 3)));
+            entry.noiseFloorPowerRaw = signedByte((*byteOffset(pier, 4)));
+            entry.noiseTemperatureMeasurement =
+                (*byteOffset(pier, kNoiseTemperatureOffset));
+            entry.noiseMeasurementsPresent =
+                (*byteOffset(pier, kNoiseTemperatureOffset)) != 0;
         }
         out.calibrationPierBinsPlausible = plausiblePierGeometry(out);
         // No calibration, regulatory authority, power limit, RF-kill GPIO
@@ -684,8 +804,8 @@ namespace simpleath
         // This only checks structural provenance; it does not establish that
         // the NVM was acquired from the physical board or calibrated.
         if (board.eepromVersion != kSupportedFormat ||
-            !validatePermanentMac(board.mac) ||
-            isPinnedPlaceholderMac(board.mac) || board.txChainMask != 1 ||
+            !validatePermanentMac(&board.mac[0]) ||
+            isPinnedPlaceholderMac(&board.mac[0]) || board.txChainMask != 1 ||
             board.rxChainMask != 1 ||
             ((static_cast<uint32_t>(board.operationFlags) &
               kTwoGigahertzOperation) == 0U))
@@ -745,7 +865,7 @@ namespace simpleath
         // 5-GHz samples. The country/regulatory owner must still approve the
         // chosen channel and the radio must remain silent until then.
         bool supportedChannel = false;
-        for (uint8_t number = 1; number <= 14; ++number)
+        for (uint8_t number = 1; number <= kLastTwoGigahertzChannel; ++number)
         {
             Channel channel {};
             if (mapChannel(number, channel) == Result::Ok &&
@@ -760,57 +880,62 @@ namespace simpleath
             return EepromResult::UnsupportedChannel;
         }
 
-        const auto *const piers = board.calibrationPiers2G;
+        const auto &piers = board.calibrationPiers2G;
         size_t lower = 0;
         size_t upper = kCalibrationPiers - 1;
         for (size_t i = 0; i < kCalibrationPiers; ++i)
         {
-            if (piers[i].centerMhz <= channelMhz)
+            if (arrayElement(piers, i).centerMhz <= channelMhz)
             {
                 lower = i;
             }
-            if (piers[i].centerMhz >= channelMhz)
+            if (arrayElement(piers, i).centerMhz >= channelMhz)
             {
                 upper = i;
                 break;
             }
         }
-        if (channelMhz <= piers[0].centerMhz)
+        if (channelMhz <= arrayElement(piers, 0U).centerMhz)
         {
             lower = upper = 0;
         }
-        else if (channelMhz >= piers[kCalibrationPiers - 1].centerMhz)
+        else if (channelMhz >=
+                 arrayElement(piers, kCalibrationPiers - 1U).centerMhz)
         {
             lower = upper = kCalibrationPiers - 1;
         }
 
         BoardChannelCalibration2G result {};
         result.channelMhz = channelMhz;
-        result.lowerPierMhz = piers[lower].centerMhz;
-        result.upperPierMhz = piers[upper].centerMhz;
+        result.lowerPierMhz = arrayElement(piers, lower).centerMhz;
+        result.upperPierMhz = arrayElement(piers, upper).centerMhz;
         result.interpolated = lower != upper;
         if (result.interpolated)
         {
             const auto correction = interpolatePier(
                 channelMhz, result.lowerPierMhz, result.upperPierMhz,
-                piers[lower].referencePower, piers[upper].referencePower);
+                arrayElement(piers, lower).referencePower,
+                arrayElement(piers, upper).referencePower);
             const auto voltage = interpolatePier(
                 channelMhz, result.lowerPierMhz, result.upperPierMhz,
-                piers[lower].voltageMeasurement,
-                piers[upper].voltageMeasurement);
+                arrayElement(piers, lower).voltageMeasurement,
+                arrayElement(piers, upper).voltageMeasurement);
             const auto temperature = interpolatePier(
                 channelMhz, result.lowerPierMhz, result.upperPierMhz,
-                piers[lower].temperatureMeasurement,
-                piers[upper].temperatureMeasurement);
+                arrayElement(piers, lower).temperatureMeasurement,
+                arrayElement(piers, upper).temperatureMeasurement);
             result.referenceCorrection = static_cast<int16_t>(correction);
             result.voltageMeasurement = static_cast<uint8_t>(voltage);
             result.temperatureMeasurement = static_cast<uint8_t>(temperature);
         }
         else
         {
-            result.referenceCorrection = piers[lower].referencePower;
-            result.voltageMeasurement = piers[lower].voltageMeasurement;
-            result.temperatureMeasurement = piers[lower].temperatureMeasurement;
+            result.referenceCorrection = widenCalibrationCorrection(
+                arrayElement(piers, lower).referencePower);
+            result.voltageMeasurement =
+                arrayElement(piers, lower).voltageMeasurement;
+            result.temperatureMeasurement =
+                arrayElement(piers, lower).temperatureMeasurement;
         }
         out = result;
         return EepromResult::Ok;

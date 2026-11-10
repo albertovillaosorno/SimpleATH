@@ -31,7 +31,7 @@ import re
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-ATH9K = ROOT / "linux/drivers/net/wireless/ath/ath9k"
+ATH9K = ROOT / ".references/linux/drivers/net/wireless/ath/ath9k"
 PINNED = {
     "ar9003_eeprom.c": (
         "9af461f68c73fdbe553619534f0474dca637a7c5191729251fa479af2ad75dc6"
@@ -554,6 +554,16 @@ def _template_images(layout: Layout, source: str) -> dict[str, bytearray]:
     return images
 
 
+def _cpp_template_symbol(name: str) -> str:
+    """Map pinned upstream EEPROM labels to C++ constant identifiers.
+
+    Returns:
+        Deterministic camel-back constant symbol for generated C++.
+
+    """
+    return "k" + "".join(part.title() for part in name.split("_"))
+
+
 def render_header(
     sources: dict[str, str], images: dict[str, bytearray]
 ) -> list[str]:
@@ -586,10 +596,13 @@ def render_header(
         "struct Template { uint8_t id; const uint8_t *bytes; size_t length; };",
     ]
     for name in TEMPLATES:
-        lines.extend(_template_lines(name, images[name]))
+        lines.extend(_template_lines(_cpp_template_symbol(name), images[name]))
     lines.append("static const Template kCatalog[] = {")
     for name in TEMPLATES:
-        lines.append(f"    {{{images[name][1]}, {name}, sizeof({name})}},")
+        symbol = _cpp_template_symbol(name)
+        lines.append(
+            f"    {{{images[name][1]}, &{symbol}[0], sizeof({symbol})}},"
+        )
     lines += [
         "};",
         "} } // namespace simpleath::eeprom_templates",

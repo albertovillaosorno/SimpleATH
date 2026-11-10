@@ -189,5 +189,5 @@ class Ar9300TemplateParserTests(TestCase):
         assert not lines[-1]
         assert lines.count("static const Template kCatalog[] = {") == 1
         assert sum(
-            line.startswith("static const uint8_t ar9300_") for line in lines
+            line.startswith("static const uint8_t kAr9300") for line in lines
         ) == len(generator.TEMPLATES)
