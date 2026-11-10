@@ -56,9 +56,12 @@ namespace simpleath
             bool opened {};
     };
 
+    // The caller holds the OPEN USB interface under exclusive, serialized
+    // ownership. Endpoints are discovered from its active descriptors;
+    // callers must not guess addresses. closeNativeUsbHciIo releases pipes,
+    // not the caller's open interface session.
     bool openNativeUsbHciIo(NativeUsbHciIo &native,
-                            IOUSBHostInterface *interface,
-                            const UsbHciEndpoints &endpoints, void *context,
+                            IOUSBHostInterface *interface, void *context,
                             uint64_t epoch, bool (*permit)(void *, uint64_t),
                             bool (*deliver)(void *, UsbHciPacketKind,
                                             const uint8_t *, size_t));

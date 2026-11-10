@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "NativeAth3kIo.hpp"
 #include "bluetooth/Ath3kUsb.hpp"
+#include "bluetooth/UsbBytes.hpp"
 #include "bluetooth/UsbHci.hpp"
+#include "bluetooth/UsbHciEndpointSelector.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +32,55 @@ namespace simpleath
         constexpr uint16_t kUsbMaxControl = UINT16_MAX;
         constexpr uint32_t kUsbTimeoutMs = 5000U;
         constexpr size_t kHciReadChunkBytes = 512U;
+        constexpr size_t kHciMaxEndpoints = 32U;
+        constexpr uint8_t kUsbEndpointMinSize = 7U;
+
+        bool discoverHciEndpoints(IOUSBHostInterface *interface,
+                                  UsbHciEndpoints &endpoints)
+        {
+            if (interface == nullptr)
+            {
+                return false;
+            }
+            const auto *interfaceDescriptor =
+                interface->getInterfaceDescriptor();
+            const auto *configuration = interface->getConfigurationDescriptor();
+            if (interfaceDescriptor == nullptr || configuration == nullptr ||
+                interfaceDescriptor->bNumEndpoints < 3U ||
+                interfaceDescriptor->bNumEndpoints > kHciMaxEndpoints)
+            {
+                return false;
+            }
+            UsbBytes<UsbHciEndpointDescriptor, kHciMaxEndpoints> found {};
+            const StandardUSB::Descriptor *cursor = nullptr;
+            size_t count = 0U;
+            while (true)
+            {
+                const auto *candidate = StandardUSB::getNextEndpointDescriptor(
+                    configuration, interfaceDescriptor, cursor);
+                if (candidate == nullptr)
+                {
+                    break;
+                }
+                if (candidate->bLength < kUsbEndpointMinSize ||
+                    count >= kHciMaxEndpoints)
+                {
+                    return false;
+                }
+                found.at(count) = {
+                    candidate->bEndpointAddress,
+                    static_cast<uint8_t>(candidate->bmAttributes &
+                                         kEndpointTypeMask),
+                };
+                ++count;
+                cursor = candidate;
+            }
+            // Reject inconsistent bNumEndpoints and truncated alternate
+            // descriptors rather than borrowing a pipe from another setting.
+            return count == interfaceDescriptor->bNumEndpoints &&
+                   selectUsbHciEndpoints(found.data(), count, endpoints) ==
+                       UsbHciEndpointResult::Ok;
+        }
 
         bool validPipe(IOUSBHostPipe *pipe, uint8_t address, uint8_t type)
         {
@@ -331,8 +382,7 @@ namespace simpleath
     }
 
     bool openNativeUsbHciIo(NativeUsbHciIo &native,
-                            IOUSBHostInterface *interface,
-                            const UsbHciEndpoints &endpoints, void *context,
+                            IOUSBHostInterface *interface, void *context,
                             uint64_t epoch, bool (*permit)(void *, uint64_t),
                             bool (*deliver)(void *, UsbHciPacketKind,
                                             const uint8_t *, size_t))
@@ -349,6 +399,11 @@ namespace simpleath
             descriptor->bInterfaceClass != kBluetoothUsbClass ||
             descriptor->bInterfaceSubClass != 0x01U ||
             descriptor->bInterfaceProtocol != 0x01U)
+        {
+            return false;
+        }
+        UsbHciEndpoints endpoints {};
+        if (!discoverHciEndpoints(interface, endpoints))
         {
             return false;
         }
