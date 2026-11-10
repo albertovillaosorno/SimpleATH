@@ -71,6 +71,8 @@ namespace
             bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
+            void *reportContext {};
+            bool (*onFirstReport)(void *) {};
             bool allowActiveScan {true};
             bool revokeOnActiveAuthorization {};
             size_t activeAuthorizations {};
@@ -209,6 +211,10 @@ namespace
         {
             fake.valid = false;
         }
+        if (fake.reports == 1U && fake.onFirstReport != nullptr)
+        {
+            return fake.onFirstReport(fake.reportContext);
+        }
         return true;
     }
 
@@ -265,6 +271,31 @@ namespace
             LeDiscoveryState scan_ {};
 
         public:
+            static bool stopDuringReport(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                return fixture.stop() == LeDiscoveryResult::Ok;
+            }
+
+            static bool revokeDuringReport(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                fixture.revoke();
+                return true;
+            }
+
+            void stopFromFirstReport()
+            {
+                fake_.reportContext = this;
+                fake_.onFirstReport = stopDuringReport;
+            }
+
+            void revokeFromFirstReport()
+            {
+                fake_.reportContext = this;
+                fake_.onFirstReport = revokeDuringReport;
+            }
+
             static bool deliverInline(void *context, const uint8_t *event,
                                       size_t bytes)
             {
@@ -801,6 +832,39 @@ namespace
         if (valid.accept(packet.data(), packet.size()) !=
                 LeDiscoveryResult::Ok ||
             valid.fake().reports != kTwoReports)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The owner can cancel from the first report callback. The second
+        // already-validated report must not escape the canceled scan.
+        Fixture canceled {};
+        if (!canceled.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        canceled.stopFromFirstReport();
+        if (canceled.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::Ok ||
+            canceled.fake().reports != 1U ||
+            canceled.phase() != LeScanPhase::AwaitDisable ||
+            canceled.fake().commandCount != 3U ||
+            canceled.completeEnable() != LeDiscoveryResult::Ok ||
+            canceled.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // A synchronous reset from the observer revokes this scan. It must
+        // remain Idle rather than being faulted by the outer dispatch.
+        Fixture reset {};
+        if (!reset.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        reset.revokeFromFirstReport();
+        if (reset.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::Ok ||
+            reset.fake().reports != 1U || reset.phase() != LeScanPhase::Idle ||
+            reset.epoch() != 0U)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }

@@ -293,6 +293,20 @@ namespace simpleath
                 {
                     return LeDiscoveryResult::DeliveryFailed;
                 }
+                // Delivery is an external callback: it may synchronously
+                // cancel the scan or revoke the USB session. Do not publish
+                // remaining reports from this HCI event into a stopped scan,
+                // nor turn an intentional revocation into a Faulted session.
+                if (state.phase == LeScanPhase::Idle ||
+                    state.phase == LeScanPhase::AwaitDisable ||
+                    state.stopRequested)
+                {
+                    return LeDiscoveryResult::Ok;
+                }
+                if (state.phase != LeScanPhase::Scanning)
+                {
+                    return LeDiscoveryResult::Faulted;
+                }
                 if (!authorized(state, transport, host, owner))
                 {
                     return LeDiscoveryResult::OwnershipLost;

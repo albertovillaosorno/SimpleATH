@@ -177,3 +177,14 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   verified Bluetooth function USB identity, and implement RF coexistence and
   reset/sleep recovery. The portable advertising producer is **not invoked by
   a native Bluetooth host yet**. The acceptance checklist stays open.
+
+- The LE legacy scan event dispatcher now stops publishing the remainder of a
+  multi-report HCI advertising event when its first report observer cancels
+  the scan or revokes the state synchronously. A valid in-callback cancellation
+  keeps the pending controller disable and a deliberate revoke stays Idle; an
+  independently revoked owner during active scanning still faults closed. The
+  synthetic two-report fixture reproduces the old canceled-delivery bug
+  (unpatched source exits 105) and covers synchronous stop and revoke.
+  Both modified translation units passed direct strict Clang-Tidy/format;
+  C++14 and C++17 host runs passed ASan+UBSan. This changes only portable HCI
+  consumer behavior, not the missing native Bluetooth host or AirDrop linkage.
