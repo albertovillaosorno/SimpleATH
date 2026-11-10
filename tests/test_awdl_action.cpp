@@ -645,6 +645,115 @@ namespace
                words.at(0U) == kCountSentinel;
     }
 
+    bool serializeAwdlAction()
+    {
+        constexpr uint16_t kNonzeroMacSequence = 0x0abcU;
+        constexpr uint8_t kUnsupportedActionSubtype = 0x04U;
+        constexpr uint8_t kInvalidSourceFirstOctet = 0x03U;
+        constexpr uint8_t kBadTlvLength = 0xffU;
+        constexpr uint8_t kUntouchedByte = 0xa5U;
+        constexpr size_t kAdditionalSpace = 2U;
+        constexpr size_t kActionTlvsBytes = kFirstTlvBytes + kSecondTlvBytes;
+        const Packet expected = makeAwdl();
+        const Mac source {{0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U}};
+        const Mac broadcast {{0xffU, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU}};
+        std::array<uint8_t, kActionTlvsBytes> tlvs {};
+        __builtin_memcpy(tlvs.data(),
+                         usbByteOffset(expected.data(), kPayloadStart),
+                         tlvs.size());
+        AwdlActionTx tx {
+            source,   broadcast,   0U,          0U,
+            kPhyTime, kTargetTime, tlvs.data(), tlvs.size(),
+        };
+        std::array<uint8_t, kPacketBytes + kAdditionalSpace> output {};
+        output.fill(kUntouchedByte);
+        size_t written = 0U;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != expected.size() ||
+            std::memcmp(output.data(), expected.data(), expected.size()) != 0 ||
+            output.at(written) != kUntouchedByte)
+        {
+            return false;
+        }
+        tx.subtype = kMifSubtype;
+        tx.macSequence = kNonzeroMacSequence;
+        AwdlAction parsed {};
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+                Result::Ok ||
+            parseAwdlAction(output.data(), written, parsed) != Result::Ok ||
+            parsed.subtype != kMifSubtype ||
+            parsed.header.sequence != kNonzeroMacSequence ||
+            parsed.phyTransmitUsec != kPhyTime ||
+            parsed.targetTransmitUsec != kTargetTime || parsed.tlvCount != 2U ||
+            !sameMac(parsed.header.source, source) ||
+            !sameMac(parsed.header.destination, broadcast))
+        {
+            return false;
+        }
+        output.fill(kUntouchedByte);
+        if (makeAwdlAction(tx, output.data(), written - 1U, written) !=
+                Result::BufferTooSmall ||
+            written != 0U || output.at(0U) != kUntouchedByte)
+        {
+            return false;
+        }
+        tx.subtype = kUnsupportedActionSubtype;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        tx.subtype = kMifSubtype;
+        tx.source.bytes[0U] = kInvalidSourceFirstOctet;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::InvalidAddress)
+        {
+            return false;
+        }
+        tx.source = source;
+        tx.destination = {};
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::InvalidAddress)
+        {
+            return false;
+        }
+        tx.destination = broadcast;
+        tlvs.at(1U) = kBadTlvLength;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::InvalidElement)
+        {
+            return false;
+        }
+        tlvs.at(1U) = kFirstTlvBytes - 3U;
+        tx.tlvBytes = 0U;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::InvalidElement)
+        {
+            return false;
+        }
+        tx.tlvBytes = tlvs.size();
+        tx.tlvs = nullptr;
+        if (makeAwdlAction(tx, output.data(), output.size(), written) !=
+            Result::NullBuffer)
+        {
+            return false;
+        }
+        tx.tlvs = tlvs.data();
+        constexpr size_t kAliasedCountSentinel = 123U;
+        written = kAliasedCountSentinel;
+        if (makeAwdlAction(tx, tlvs.data(), tlvs.size(), written) !=
+                Result::OverlappingBuffers ||
+            written != kAliasedCountSentinel || tlvs.at(0U) != kFirstTlvType)
+        {
+            return false;
+        }
+        const size_t originalTlvSize = tx.tlvBytes;
+        return makeAwdlAction(tx, output.data(), output.size(), tx.tlvBytes) ==
+                   Result::OverlappingBuffers &&
+               tx.tlvBytes == originalTlvSize;
+    }
+
 } // namespace
 
 int main()
@@ -678,6 +787,11 @@ int main()
     {
         constexpr int kTxBoundaryFailure = 7;
         return kTxBoundaryFailure;
+    }
+    if (!serializeAwdlAction())
+    {
+        constexpr int kActionTxFailure = 8;
+        return kActionTxFailure;
     }
     return 0;
 }

@@ -94,6 +94,28 @@ namespace simpleath
         Result makeAwdlIpv6Data(const AwdlIpv6Tx &request, uint8_t *output,
                                 size_t capacity, size_t &written);
 
+        // Outbound PSF (subtype 0) or MIF (subtype 3) envelope. Semantic
+        // election/channel/synchronization TLVs must come from an authorized
+        // native AWDL scheduler, not from this byte serializer. The entire
+        // opaque TLV stream must be structurally valid before any output.
+        struct AwdlActionTx
+        {
+                Mac source {};
+                Mac destination {};
+                uint16_t macSequence {};
+                uint8_t subtype {};
+                uint32_t phyTransmitUsec {};
+                uint32_t targetTransmitUsec {};
+                const uint8_t *tlvs {};
+                size_t tlvBytes {};
+        };
+
+        // Generates a complete FCS-free vendor action MPDU. No radio TX,
+        // synchronization, peer election or AirDrop authorization is implied.
+        // Alias rejection preserves both the caller's input and output.
+        Result makeAwdlAction(const AwdlActionTx &request, uint8_t *output,
+                              size_t capacity, size_t &written);
+
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before
         // publishing a value snapshot. Unknown TLV types remain opaque.

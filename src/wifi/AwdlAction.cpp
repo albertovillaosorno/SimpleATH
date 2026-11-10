@@ -45,6 +45,8 @@ namespace simpleath
             constexpr uint16_t kMacSequenceMax = 0x0fffU;
             constexpr uint8_t kMacSequenceShift = 4U;
             constexpr uint8_t kDataFrameControl = 0x08U;
+            constexpr uint8_t kActionFrameControl = 0xd0U;
+            constexpr size_t kTimestampBytes = 4U;
             constexpr uint8_t kQosDataFrameControl = 0x88U;
             constexpr size_t kDestinationOffset = 4U;
             constexpr size_t kSourceOffset = 10U;
@@ -145,6 +147,105 @@ namespace simpleath
             };
             offset_ += static_cast<size_t>(valueLength) + kTlvHeaderBytes;
             return AwdlTlvStatus::Element;
+        }
+
+        Result makeAwdlAction(const AwdlActionTx &request, uint8_t *output,
+                              size_t capacity, size_t &written)
+        {
+            if (overlaps(output, capacity, &request, sizeof(request)) ||
+                overlaps(output, capacity, &written, sizeof(written)) ||
+                overlaps(output, capacity, request.tlvs, request.tlvBytes) ||
+                overlaps(&written, sizeof(written), &request,
+                         sizeof(request)) ||
+                overlaps(&written, sizeof(written), request.tlvs,
+                         request.tlvBytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            written = 0U;
+            if (output == nullptr || request.tlvs == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            if (!validStationMac(request.source))
+            {
+                return Result::InvalidAddress;
+            }
+            uint8_t destinationAggregate = 0U;
+            for (const uint8_t octet : request.destination.bytes)
+            {
+                destinationAggregate |= octet;
+            }
+            if (destinationAggregate == 0U)
+            {
+                return Result::InvalidAddress;
+            }
+            if (request.macSequence > kMacSequenceMax ||
+                (request.subtype != 0U &&
+                 request.subtype != kMasterIndicationSubtype))
+            {
+                return Result::UnsupportedFrame;
+            }
+            constexpr size_t kHeaderBytes =
+                kDataMacHeaderBytes + kActionBodyBytes;
+            if (request.tlvBytes > kMaxMpduWithFcs - kFcsBytes - kHeaderBytes)
+            {
+                return Result::InvalidFrame;
+            }
+            AwdlTlvs tlvs(request.tlvs, request.tlvBytes);
+            AwdlTlv value {};
+            size_t count = 0U;
+            for (;;)
+            {
+                const AwdlTlvStatus status = tlvs.next(value);
+                if (status == AwdlTlvStatus::End)
+                {
+                    break;
+                }
+                if (status == AwdlTlvStatus::Truncated)
+                {
+                    return Result::InvalidElement;
+                }
+                ++count;
+            }
+            if (count == 0U)
+            {
+                return Result::InvalidElement;
+            }
+            const size_t needed = kHeaderBytes + request.tlvBytes;
+            if (capacity < needed)
+            {
+                return Result::BufferTooSmall;
+            }
+            __builtin_memset(output, 0, kHeaderBytes);
+            *usbByteOffset(output, 0U) = kActionFrameControl;
+            __builtin_memcpy(usbByteOffset(output, kDestinationOffset),
+                             &request.destination.bytes, kMacAddressBytes);
+            __builtin_memcpy(usbByteOffset(output, kSourceOffset),
+                             &request.source.bytes, kMacAddressBytes);
+            __builtin_memcpy(usbByteOffset(output, kBssidOffset), &kAwdlBssid,
+                             kMacAddressBytes);
+            const auto sequenceControl =
+                static_cast<uint16_t>(request.macSequence << kMacSequenceShift);
+            *usbByteOffset(output, kMacSequenceOffset) =
+                static_cast<uint8_t>(sequenceControl);
+            *usbByteOffset(output, kMacSequenceOffset + 1U) =
+                static_cast<uint8_t>(sequenceControl >> kBitsPerByte);
+            uint8_t *const body = usbByteOffset(output, kDataMacHeaderBytes);
+            __builtin_memcpy(body, &kVendorPrefix, sizeof(kVendorPrefix));
+            *usbByteOffset(body, kAwdlSubtypeOffset) = request.subtype;
+            for (size_t octet = 0U; octet < kTimestampBytes; ++octet)
+            {
+                const auto shift = static_cast<uint32_t>(octet * kBitsPerByte);
+                *usbByteOffset(body, kPhyTimeOffset + octet) =
+                    static_cast<uint8_t>(request.phyTransmitUsec >> shift);
+                *usbByteOffset(body, kTargetTimeOffset + octet) =
+                    static_cast<uint8_t>(request.targetTransmitUsec >> shift);
+            }
+            __builtin_memcpy(usbByteOffset(output, kHeaderBytes), request.tlvs,
+                             request.tlvBytes);
+            written = needed;
+            return Result::Ok;
         }
 
         Result makeAwdlIpv6Data(const AwdlIpv6Tx &request, uint8_t *output,

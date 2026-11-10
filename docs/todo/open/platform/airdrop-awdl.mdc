@@ -114,3 +114,20 @@ These are offline source tests only. No native AWDL host interface, peer
 scheduler, real radio TX, encryption or AirDrop traffic has been connected;
 peer/channel/keys/regulatory authority remain mandatory outside the
 serializer. This P0 task remains open.
+
+## Source progress — 2026-11-10: bounded PSF/MIF TX envelopes
+
+`makeAwdlAction` now emits the documented vendor action-frame envelope for
+PSF or MIF, with Apple AWDL BSSID/OUI, subtype/version, caller-supplied
+transmit/target timestamps and bounded, structurally validated opaque TLVs.
+It rejects malformed or missing TLVs, wrong subtype, invalid station/peer
+addresses, a wrapped MAC sequence, oversized MPDUs and overlapping output,
+input or length storage. A test compares its exact PSF frame bytes with an
+independently constructed on-air fixture and round-trips a MIF through the
+RX parser, including rejection cases. C++14/C++17 ASan+UBSan, strict
+Clang-Tidy and Clang-Format pass for the modified source/tests.
+
+This only produces the outer MPDU framing. The required scheduler still has
+to construct semantically correct election, availability and service TLVs,
+and independently obtain native AWDL host, timing, peer, channel and RF TX
+authorization. This does not grant actual peer discovery or AirDrop readiness.
