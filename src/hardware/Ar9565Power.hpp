@@ -159,5 +159,23 @@ namespace simpleath
                                  const CalibrationAndRegulatory &authorization,
                                  const TxPowerBackend &backend);
 
+    // AR9565 chain-zero open-loop TPC correction from ath9k
+    // ar9003_hw_power_control_override(): 8-bit signed gain delta,
+    // error-estimator mode, signed thermal slope and factory temperature
+    // reference. The channel calibration and modal slope are derived from
+    // the physically restored EEPROM by calculatePowerCandidates, but are
+    // NOT a substitute for live temperature/voltage compensation, PAPRD,
+    // calibrated descriptor power indices or regulatory permission.
+    //
+    // Requires a stable, serialized D0 PCI owner with MAC/EDMA and automatic
+    // responses fully quiesced. permitWrite rechecks the real board, current
+    // channel, country, RF-kill, BT coexistence, owner epoch and TX policy
+    // on every MMIO access. No transmitter is enabled here. Once a write is
+    // attempted, any failure requires a radio reset before retry.
+    TxPowerProgramProgress programAr9565TxOpenLoopCalibration(
+        const PowerCandidates &candidate,
+        const CalibrationAndRegulatory &authorization,
+        const TxPowerBackend &backend);
+
 } // namespace simpleath
 #endif

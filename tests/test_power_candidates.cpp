@@ -171,6 +171,13 @@ namespace
         TxRateReadFailed = 37,
         TxRateHt40Pack = 38,
         TxRateReadMismatch = 39,
+        OlpcRegisters = 40,
+        OlpcInvalidCandidate = 41,
+        OlpcUnauthorized = 42,
+        OlpcEpochLost = 43,
+        OlpcReadFailed = 44,
+        OlpcWriteFailed = 45,
+        OlpcReadbackMismatch = 46,
     };
 
     struct RateFixture
@@ -894,6 +901,196 @@ namespace
         return 0;
     }
 
+    // Four real AR9565 chain-zero TPC register offsets from ath9k's
+    // ar9003_hw_power_control_override() and AR_SM_BASE (0xa200).
+    constexpr std::array<uint32_t, 4> kOlpcOffsets {
+        0xa420U,
+        0xa40cU,
+        0xa440U,
+        0xa43cU,
+    };
+    constexpr std::array<uint32_t, 4> kOlpcOriginal {
+        0xa5001234U,
+        0xc0102030U,
+        0xab112233U,
+        0xbeef2211U,
+    };
+    constexpr std::array<uint32_t, 4> kOlpcExpected {
+        0xa5f81234U,
+        0xc3102030U,
+        0xab1122e8U,
+        0xbeef2228U,
+    };
+    constexpr int16_t kOlpcOutOfRangeCorrection = -129;
+    constexpr size_t kOlpcWrites = 4U;
+    constexpr size_t kOlpcReads = 8U;
+
+    struct OlpcRegisters
+    {
+            std::array<uint32_t, 4> values {kOlpcOriginal};
+            size_t reads {};
+            size_t writes {};
+            size_t denyAfterWrites {kOlpcWrites + 1U};
+            bool failFirstRead {};
+            bool failFirstWrite {};
+            bool alterReadback {};
+    };
+
+    bool olpcPermit(void *context, uint64_t epoch)
+    {
+        const auto &state = *static_cast<OlpcRegisters *>(context);
+        return epoch == kTxEpoch && state.writes < state.denyAfterWrites;
+    }
+
+    bool olpcRead(void *context, uint32_t offset, uint32_t *value)
+    {
+        auto &state = *static_cast<OlpcRegisters *>(context);
+        ++state.reads;
+        if (state.failFirstRead && state.reads == 1U)
+        {
+            return false;
+        }
+        if (value == nullptr)
+        {
+            return false;
+        }
+        for (size_t index = 0; index < kOlpcOffsets.size(); ++index)
+        {
+            if (offset == kOlpcOffsets.at(index))
+            {
+                *value = state.values.at(index);
+                if (state.alterReadback && state.reads == 2U)
+                {
+                    *value ^= 1U;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Required fixed order by TxPowerBackend's native MMIO callback ABI.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    bool olpcWrite(void *context, uint32_t offset, uint32_t value)
+    {
+        auto &state = *static_cast<OlpcRegisters *>(context);
+        ++state.writes;
+        for (size_t index = 0; index < kOlpcOffsets.size(); ++index)
+        {
+            if (offset == kOlpcOffsets.at(index))
+            {
+                state.values.at(index) = value;
+                return !state.failFirstWrite || state.writes != 1U;
+            }
+        }
+        return false;
+    }
+
+    int verifyOpenLoopCalibration(const BoardFixture &fixture)
+    {
+        const PowerCandidates &candidate = fixture.output;
+        OlpcRegisters fake {};
+        const TxPowerBackend backend {
+            &fake, kTxEpoch, kTxBarBytes, olpcPermit, olpcWrite, olpcRead,
+        };
+        CalibrationAndRegulatory authority {};
+        authority.use = RadioInitialization::TransmitReceive;
+        if (programAr9565TxOpenLoopCalibration(candidate, authority, backend)
+                    .result != TxPowerProgramResult::MissingAuthorization ||
+            fake.writes != 0U || fake.reads != 0U)
+        {
+            return static_cast<int>(Failure::OlpcUnauthorized);
+        }
+        authority.eepromContentsVerified = true;
+        authority.boardAntennaConfigurationVerified = true;
+        authority.localCountryRulesAvailable = true;
+        authority.channelPermitted = true;
+        authority.txPowerLimitsVerified = true;
+        authority.radioKillUnblocked = true;
+        authority.coexistenceConfigurationVerified = true;
+        const auto valid =
+            programAr9565TxOpenLoopCalibration(candidate, authority, backend);
+        if (valid.result != TxPowerProgramResult::Ok || valid.requiresReset ||
+            valid.completedWrites != kOlpcWrites ||
+            valid.completedReads != kOlpcReads ||
+            fake.values != kOlpcExpected || fake.writes != kOlpcWrites)
+        {
+            return static_cast<int>(Failure::OlpcRegisters);
+        }
+        auto invalid = candidate;
+        invalid.channelCalibration.channelMhz = kChannelSixMhz;
+        fake = {};
+        if (programAr9565TxOpenLoopCalibration(invalid, authority, backend)
+                    .result != TxPowerProgramResult::InvalidCandidate ||
+            fake.writes != 0U || fake.reads != 0U)
+        {
+            return static_cast<int>(Failure::OlpcInvalidCandidate);
+        }
+        invalid = candidate;
+        invalid.channelCalibration.referenceCorrection =
+            kOlpcOutOfRangeCorrection;
+        if (programAr9565TxOpenLoopCalibration(invalid, authority, backend)
+                    .result != TxPowerProgramResult::InvalidCandidate ||
+            fake.writes != 0U)
+        {
+            return static_cast<int>(Failure::OlpcInvalidCandidate);
+        }
+        invalid = candidate;
+        invalid.channelCalibration.lowerPierMhz = kChannelFourteenMhz;
+        invalid.channelCalibration.upperPierMhz = kChannelOneMhz;
+        if (programAr9565TxOpenLoopCalibration(invalid, authority, backend)
+                    .result != TxPowerProgramResult::InvalidCandidate ||
+            fake.writes != 0U)
+        {
+            return static_cast<int>(Failure::OlpcInvalidCandidate);
+        }
+        TxPowerBackend badBar = backend;
+        badBar.barLengthBytes = kOlpcOffsets.at(2U) + 3U;
+        if (programAr9565TxOpenLoopCalibration(candidate, authority, badBar)
+                    .result != TxPowerProgramResult::InvalidBar ||
+            fake.writes != 0U)
+        {
+            return static_cast<int>(Failure::OlpcInvalidCandidate);
+        }
+        fake.denyAfterWrites = 1U;
+        const auto revoked =
+            programAr9565TxOpenLoopCalibration(candidate, authority, backend);
+        if (revoked.result != TxPowerProgramResult::OwnershipLost ||
+            !revoked.requiresReset || revoked.completedWrites != 1U ||
+            fake.writes != 1U)
+        {
+            return static_cast<int>(Failure::OlpcEpochLost);
+        }
+        fake = {};
+        fake.failFirstRead = true;
+        const auto unreadable =
+            programAr9565TxOpenLoopCalibration(candidate, authority, backend);
+        if (unreadable.result != TxPowerProgramResult::ReadFailed ||
+            unreadable.requiresReset || fake.writes != 0U)
+        {
+            return static_cast<int>(Failure::OlpcReadFailed);
+        }
+        fake = {};
+        fake.failFirstWrite = true;
+        const auto failed =
+            programAr9565TxOpenLoopCalibration(candidate, authority, backend);
+        if (failed.result != TxPowerProgramResult::WriteFailed ||
+            !failed.requiresReset || fake.writes != 1U)
+        {
+            return static_cast<int>(Failure::OlpcWriteFailed);
+        }
+        fake = {};
+        fake.alterReadback = true;
+        const auto mismatch =
+            programAr9565TxOpenLoopCalibration(candidate, authority, backend);
+        if (mismatch.result != TxPowerProgramResult::ReadbackMismatch ||
+            !mismatch.requiresReset || fake.writes != 1U)
+        {
+            return static_cast<int>(Failure::OlpcReadbackMismatch);
+        }
+        return 0;
+    }
+
 } // namespace
 
 int main()
@@ -917,6 +1114,10 @@ int main()
         return failure;
     }
     if (const int failure = verifyTxRateProgramming(board))
+    {
+        return failure;
+    }
+    if (const int failure = verifyOpenLoopCalibration(board))
     {
         return failure;
     }

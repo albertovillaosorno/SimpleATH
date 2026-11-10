@@ -73,6 +73,18 @@ namespace simpleath
         constexpr uint32_t kTxRateStride = 4U;
         constexpr uint32_t kTxForcedGain = 0xa458U;
         constexpr uint32_t kAutoResponseTpc = 0x80e8U;
+        // ath9k ar9003_hw_power_control_override (chain zero only),
+        // ar9003_phy.h AR_SM_BASE=0xa200 and AR_PHY_TPC_{6,11,18,19}.
+        constexpr uint32_t kOlpcErrorEstimator = 0xa40cU;
+        constexpr uint32_t kOlpcGainDelta = 0xa420U;
+        constexpr uint32_t kOlpcThermalCalibration = 0xa43cU;
+        constexpr uint32_t kOlpcThermalSlope = 0xa440U;
+        constexpr uint32_t kOlpcErrorModeMask = 0x03000000U;
+        constexpr uint32_t kOlpcGainDeltaMask = 0x00ff0000U;
+        constexpr uint32_t kOlpcTempReferenceMask = 0xffU;
+        constexpr uint32_t kOlpcTempSlopeMask = 0xffU;
+        constexpr uint32_t kOlpcMaxCorrection = 127U;
+        constexpr int32_t kOlpcMinCorrection = -128;
         constexpr uint32_t kAckCtsMask = 0x00003f3fU;
         constexpr uint32_t kAckCtsShift = 8U;
         constexpr uint32_t kPowerByteShift = 8U;
@@ -697,6 +709,35 @@ namespace simpleath
             return true;
         }
 
+        struct TxRegisterField
+        {
+                uint32_t offset;
+                uint32_t mask;
+                uint32_t bits;
+        };
+
+        bool txWriteMasked(const TxPowerBackend &backend,
+                           TxPowerProgramProgress &progress,
+                           const TxRegisterField &field)
+        {
+            progress.lastOffset = field.offset;
+            if (!txPermit(backend, progress))
+            {
+                return false;
+            }
+            uint32_t before = 0;
+            if (!backend.read32(backend.context, field.offset, &before))
+            {
+                progress.result = TxPowerProgramResult::ReadFailed;
+                return false;
+            }
+            ++progress.completedReads;
+            const uint32_t desired =
+                (before & ~field.mask) | (field.bits & field.mask);
+            // A failed or ambiguous posted write retains a reset obligation.
+            return txWriteVerified(backend, progress, field.offset, desired);
+        }
+
     } // namespace
 
     PowerResult calculatePowerCandidates(const EepromImage &image,
@@ -951,6 +992,81 @@ namespace simpleath
         image.ackCtsHalfDbm = at(candidate.cck, 0U);
         out = image;
         return TxPowerProgramResult::Ok;
+    }
+
+    TxPowerProgramProgress programAr9565TxOpenLoopCalibration(
+        const PowerCandidates &candidate,
+        const CalibrationAndRegulatory &authorization,
+        const TxPowerBackend &backend)
+    {
+        TxPowerProgramProgress progress {};
+        const TxPowerBackend stable = backend;
+        const PowerCandidates source = candidate;
+        if (stable.context == nullptr || stable.ownerEpoch == 0U ||
+            stable.permitWrite == nullptr || stable.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::MissingAuthorization;
+        if (authorization.use != RadioInitialization::TransmitReceive ||
+            !radioInitializationAuthorized(authorization))
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::InvalidBar;
+        if (stable.barLengthBytes < kOlpcThermalSlope + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::InvalidCandidate;
+        TxPowerRegisterImage rates {};
+        const BoardChannelCalibration2G &cal = source.channelCalibration;
+        if (makeAr9565TxRateRegisters(source, rates) !=
+                TxPowerProgramResult::Ok ||
+            cal.channelMhz != source.controlMhz ||
+            cal.lowerPierMhz < kFirstChannelMhz ||
+            cal.upperPierMhz > kCckOnlyChannelMhz ||
+            cal.lowerPierMhz > cal.upperPierMhz ||
+            (cal.lowerPierMhz != cal.upperPierMhz) != cal.interpolated ||
+            (cal.interpolated && (source.controlMhz < cal.lowerPierMhz ||
+                                  source.controlMhz > cal.upperPierMhz)) ||
+            cal.referenceCorrection < kOlpcMinCorrection ||
+            cal.referenceCorrection > static_cast<int32_t>(kOlpcMaxCorrection))
+        {
+            return progress;
+        }
+        const uint32_t gainDelta =
+            static_cast<uint32_t>(static_cast<uint8_t>(cal.referenceCorrection))
+            << 16U;
+        const auto temperatureSlope = static_cast<uint32_t>(
+            static_cast<uint8_t>(source.txModal.temperatureSlope));
+        const uint32_t temperatureReference = cal.temperatureMeasurement;
+        progress.result = TxPowerProgramResult::OwnershipLost;
+        const TxRegisterField fields[] {
+            {kOlpcGainDelta, kOlpcGainDeltaMask, gainDelta},
+            {kOlpcErrorEstimator, kOlpcErrorModeMask, kOlpcErrorModeMask},
+            {kOlpcThermalSlope, kOlpcTempSlopeMask, temperatureSlope},
+            {
+                kOlpcThermalCalibration,
+                kOlpcTempReferenceMask,
+                temperatureReference,
+            },
+        };
+        for (const TxRegisterField &field : fields)
+        {
+            if (!txWriteMasked(stable, progress, field))
+            {
+                return progress;
+            }
+        }
+        if (!txPermit(stable, progress))
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::Ok;
+        progress.requiresReset = false;
+        return progress;
     }
 
     TxPowerProgramProgress
