@@ -1,0 +1,2 @@
+src/hardware/Ar9565Channel.cpp
+src/hardware/Ar9565Core.cpp
