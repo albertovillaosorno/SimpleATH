@@ -70,6 +70,30 @@ namespace ath
     constexpr uint32_t kNumberBits64 = 64;
     constexpr size_t kMetricNameCapacity = 24;
 
+    // Decode native kernel addresses without aliasing a function or object
+    // pointer as an integer. The target is x86_64 with equal address widths.
+    template <typename Pointer>
+    static Pointer pointerFromAddress(uintptr_t address)
+    {
+        static_assert(
+            sizeof(Pointer) == sizeof(address),
+            "kernel address and native function pointer widths differ");
+        Pointer symbol = nullptr;
+        __builtin_memcpy(static_cast<void *>(&symbol),
+                         static_cast<const void *>(&address), sizeof(Pointer));
+        return symbol;
+    }
+
+    template <typename Pointer> static uintptr_t pointerAddress(Pointer pointer)
+    {
+        static_assert(sizeof(Pointer) == sizeof(uintptr_t),
+                      "kernel pointer and address widths differ");
+        uintptr_t address = 0U;
+        __builtin_memcpy(static_cast<void *>(&address),
+                         static_cast<const void *>(&pointer), sizeof(address));
+        return address;
+    }
+
     Counters counters {};
     static uint32_t state;
     static IOService *observedController;
@@ -207,7 +231,7 @@ namespace ath
         {
             return copyin(address, destination, size);
         }
-        memcpy(destination, reinterpret_cast<const void *>(address), size);
+        memcpy(destination, pointerFromAddress<const void *>(address), size);
         return 0;
     }
 
@@ -218,7 +242,7 @@ namespace ath
         {
             return copyout(source, address, size);
         }
-        memcpy(reinterpret_cast<void *>(address), source, size);
+        memcpy(pointerFromAddress<void *>(address), source, size);
         return 0;
     }
 
@@ -387,7 +411,8 @@ namespace ath
         auto *bytes = static_cast<uint8_t *>(output);
         uint16_t length = 0;
         memcpy(&length, bytes + 4, sizeof(length));
-        auto *text = reinterpret_cast<char *>(bytes + kHardwareTextOffset);
+        auto *text = pointerFromAddress<char *>(
+            pointerAddress(bytes + kHardwareTextOffset));
         HardwareIdentity identity {};
         if (readUInt32(bytes) != 1 || length >= kHardwareTextCapacity ||
             text[length] != '\0' ||
@@ -518,7 +543,7 @@ namespace ath
                 sizeof(request.request.interfaceName));
         request.request.type = static_cast<int32_t>(type);
         request.request.length = static_cast<uint32_t>(length);
-        request.request.data = reinterpret_cast<uint64_t>(buffer);
+        request.request.data = pointerAddress(buffer);
         request.pointerSize = sizeof(uint64_t);
         const auto result =
             Bridge::command(endpoint, false, request, buffer, length);
@@ -589,7 +614,7 @@ namespace ath
     static void drainEvents(thread_call_param_t /*unused*/,
                             thread_call_param_t /*unused*/)
     {
-        PendingEvent event;
+        PendingEvent event {};
         for (;;)
         {
             ATH80211UserClient *targets[kClientCapacity];
@@ -854,7 +879,7 @@ namespace ath
         }
         CopyContext context {
             current_thread(),
-            reinterpret_cast<uintptr_t>(shadow),
+            pointerAddress(shadow),
             size,
             nullptr,
         };
@@ -906,11 +931,15 @@ namespace ath
     static bool validate(mach_vm_address_t address, size_t size,
                          const ByteGuard *guards, size_t count)
     {
-        if (size < sizeof(mach_header_64))
+        // A malformed mapped span must not wrap the native address space or
+        // authorize guard-table access through a missing descriptor pointer.
+        if (address == 0U || size < sizeof(mach_header_64) ||
+            size > UINTPTR_MAX - address || (count != 0U && guards == nullptr))
         {
             return false;
         }
-        const auto *header = reinterpret_cast<const mach_header_64 *>(address);
+        const auto *header =
+            pointerFromAddress<const mach_header_64 *>(address);
         if (header->magic != MH_MAGIC_64 ||
             header->cputype != CPU_TYPE_X86_64 ||
             header->ncmds > kMaximumMachLoadCommands ||
@@ -926,7 +955,7 @@ namespace ath
             {
                 return false;
             }
-            const auto *cmd = reinterpret_cast<const load_command *>(cursor);
+            const auto *cmd = pointerFromAddress<const load_command *>(cursor);
             if (cmd->cmdsize < sizeof(*cmd) || cmd->cmdsize > end - cursor)
             {
                 return false;
@@ -942,7 +971,7 @@ namespace ath
                 return false;
             }
             const auto *actual =
-                reinterpret_cast<const uint8_t *>(address + guard.offset);
+                pointerFromAddress<const uint8_t *>(address + guard.offset);
             for (size_t byte = 0; byte < sizeof(guard.bytes); ++byte)
             {
                 if ((actual[byte] & guard.mask[byte]) !=
@@ -959,7 +988,7 @@ namespace ath
     {
         for (unsigned i = 0; i < 3; ++i)
         {
-            const auto *bytes = reinterpret_cast<const uint8_t *>(address);
+            const auto *bytes = pointerFromAddress<const uint8_t *>(address);
             int32_t offset = 0;
             if (bytes[0] == kJmpRel32Opcode)
             {
@@ -1004,20 +1033,19 @@ namespace ath
             const auto &site = sites[i];
             auto const call = address + site.offset;
             if (!contains(address, size, call, kRel32CallLength) ||
-                *reinterpret_cast<uint8_t *>(call) != kCallRel32Opcode)
+                *pointerFromAddress<uint8_t *>(call) != kCallRel32Opcode)
             {
                 return false;
             }
             int32_t old = 0;
-            memcpy(&old, reinterpret_cast<void *>(call + 1), sizeof(old));
+            memcpy(&old, pointerFromAddress<void *>(call + 1), sizeof(old));
             if (followBranch(call + kRel32CallLength + old) !=
                 followBranch(site.output ? output : input))
             {
                 return false;
             }
-            auto target =
-                site.output ? reinterpret_cast<mach_vm_address_t>(bridgeCopyOut)
-                            : reinterpret_cast<mach_vm_address_t>(bridgeCopyIn);
+            auto target = site.output ? pointerAddress(bridgeCopyOut)
+                                      : pointerAddress(bridgeCopyIn);
             target = patcher.branchTarget(target, call + kRel32CallLength);
             if (target == 0U)
             {
@@ -1033,7 +1061,7 @@ namespace ath
         }
         for (size_t i = 0; i < count; ++i)
         {
-            memcpy(reinterpret_cast<void *>(address + sites[i].offset + 1),
+            memcpy(pointerFromAddress<void *>(address + sites[i].offset + 1),
                    &offsets[i], sizeof(offsets[i]));
         }
         return true;
@@ -1073,32 +1101,32 @@ namespace ath
                 reject("LegacyBinaryMismatch");
                 return;
             }
-            getRequest = reinterpret_cast<Ioctl>(patcher.solveSymbol(
+            getRequest = pointerFromAddress<Ioctl>(patcher.solveSymbol(
                 index, "__ZN17IO80211Controller20apple80211_ioctl_"
                        "getEP16IO80211InterfaceP23IO80211VirtualInterfaceP23IO8"
                        "0211SkywalkInterfacePv"));
-            setRequest = reinterpret_cast<Ioctl>(patcher.solveSymbol(
+            setRequest = pointerFromAddress<Ioctl>(patcher.solveSymbol(
                 index, "__ZN17IO80211Controller20apple80211_ioctl_"
                        "setEP16IO80211InterfaceP23IO80211VirtualInterfaceP23IO8"
                        "0211SkywalkInterfacePv"));
             classicController =
-                reinterpret_cast<Controller>(patcher.solveSymbol(
+                pointerFromAddress<Controller>(patcher.solveSymbol(
                     index, "__ZN16IO80211Interface13getControllerEv"));
             virtualController =
-                reinterpret_cast<Controller>(patcher.solveSymbol(
+                pointerFromAddress<Controller>(patcher.solveSymbol(
                     index, "__ZN23IO80211VirtualInterface13getControllerEv"));
-            classicName = reinterpret_cast<BSDName>(patcher.solveSymbol(
+            classicName = pointerFromAddress<BSDName>(patcher.solveSymbol(
                 index, "__ZN16IO80211Interface10getBSDNameEv"));
-            virtualName = reinterpret_cast<BSDName>(patcher.solveSymbol(
+            virtualName = pointerFromAddress<BSDName>(patcher.solveSymbol(
                 index, "__ZN23IO80211VirtualInterface10getBSDNameEv"));
-            skywalkName = reinterpret_cast<BSDName>(patcher.solveSymbol(
+            skywalkName = pointerFromAddress<BSDName>(patcher.solveSymbol(
                 index, "__ZN23IO80211SkywalkInterface10getBSDNameEv"));
-            classicCommand = reinterpret_cast<PerformCommand>(
+            classicCommand = pointerFromAddress<PerformCommand>(
                 patcher.solveSymbol(index, "__"
                                            "ZN16IO80211Interface14performComman"
                                            "dEP19IONetworkControllermPvS2_"));
             classicRequest =
-                reinterpret_cast<DriverRequest>(patcher.solveSymbol(
+                pointerFromAddress<DriverRequest>(patcher.solveSymbol(
                     index, "__"
                            "ZN17IO80211Controller22apple80211RequestIoctlEjiP16"
                            "IO80211InterfacePv"));
@@ -1192,7 +1220,7 @@ namespace ath
                 return;
             }
             getCountryCode =
-                reinterpret_cast<CountryCodeQuery>(patcher.solveSymbol(
+                pointerFromAddress<CountryCodeQuery>(patcher.solveSymbol(
                     index, "__ZN15AirPort_BrcmNIC15getCOUNTRY_"
                            "CODEEP8OSObjectP28apple80211_country_code_data"));
             if (getCountryCode == nullptr)
@@ -1321,7 +1349,7 @@ namespace ath
         {
                 const char *name;
                 uint64_t *value;
-        } metrics[] = {
+        } const metrics[] = {
             {"Opens", &counters.opens},
             {"DeniedOpens", &counters.denied},
             {"Commands", &counters.commands},
