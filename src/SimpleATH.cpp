@@ -363,11 +363,98 @@ class SimpleATH final : public IOService
             return kIOReturnNotReady;
         }
 
+        static IOReturn ownerConnectAction(OSObject *object, void *argument,
+                                           void * /*unused1*/,
+                                           void * /*unused2*/,
+                                           void * /*unused3*/)
+        {
+            // This command gate was installed by exactly this provider.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto &request =
+                *static_cast<const simpleath::tahoe::NativeConnectRequest *>(
+                    argument);
+            const auto *board = self.board_.view(self.epoch_);
+            // A scan-cache candidate is not RF authority. An OS join must
+            // follow a real authorized channel tune and complete TX policy;
+            // otherwise do not consume the candidate/handshake state.
+            if (board == nullptr || !self.canSubmitTransmit())
+            {
+                return kIOReturnNotReady;
+            }
+            if (!self.queues_.hasTransmitSpace())
+            {
+                return kIOReturnNoResources;
+            }
+            simpleath::ieee80211::Mac station {};
+            simpleath::ieee80211::Mac bssid {};
+            __builtin_memcpy(&station.bytes[0], &board->summary.mac[0],
+                             sizeof(station.bytes));
+            __builtin_memcpy(&bssid.bytes[0], &request.bssid[0],
+                             sizeof(bssid.bytes));
+            // Only a BSSID really observed in this radio epoch, with an
+            // exact SSID/channel/security match, can start OS-owned WPA2.
+            const auto chosen = self.engine_.chooseNetworkForOsSupplicant(
+                station, bssid, &request.ssid[0], request.ssidLength,
+                request.channel, request.wpa2Personal);
+            self.setProperty("SimpleATHNativeJoinSelectionResult",
+                             static_cast<uint32_t>(chosen),
+                             kRfPropertyWidthBits);
+            if (chosen != simpleath::ieee80211::EngineResult::Ok)
+            {
+                return chosen ==
+                               simpleath::ieee80211::EngineResult::InvalidInput
+                           ? kIOReturnBadArgument
+                           : kIOReturnNotReady;
+            }
+            simpleath::ieee80211::EngineAction frame {};
+            const auto prepared = self.engine_.requestAuthentication(
+                self.txSequence_, &self.managementReply_[0],
+                sizeof(self.managementReply_), frame);
+            IOReturn sent = kIOReturnNotReady;
+            if (prepared == simpleath::ieee80211::EngineResult::Ok &&
+                frame.kind ==
+                    simpleath::ieee80211::ActionKind::TransmitAuthentication &&
+                frame.bytes >= kMinimumMpduBytes &&
+                frame.bytes <= sizeof(self.managementReply_))
+            {
+                sent = self.submitPreparedTransmit(&self.managementReply_[0],
+                                                   frame.bytes);
+            }
+            if (sent != kIOReturnSuccess)
+            {
+                // Never retain a selected/authenticating station when its
+                // initial on-air request failed or was not actually queued.
+                self.engine_.radioStopped(
+                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                self.controlledPortAuthorized_ = false;
+                return sent;
+            }
+            self.txSequence_ =
+                static_cast<uint16_t>((self.txSequence_ + 1U) & kSequenceMask);
+            return kIOReturnSuccess;
+        }
+
         static IOReturn
-        ownerConnect(void *,
+        ownerConnect(void *context,
                      const simpleath::tahoe::NativeConnectRequest *request)
         {
-            return request ? kIOReturnNotReady : kIOReturnBadArgument;
+            if (context == nullptr || request == nullptr ||
+                request->ssidLength == 0 ||
+                request->ssidLength > simpleath::tahoe::kWirelessSsidBytes ||
+                request->channel == 0)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            // The gate may wait while the native client changes its request;
+            // use an owned value, not a borrowed mutable OS buffer.
+            simpleath::tahoe::NativeConnectRequest stable = *request;
+            return self.gate_->runAction(ownerConnectAction, &stable);
         }
 
         static IOReturn ownerDisconnect(void *, uint16_t)
@@ -587,6 +674,24 @@ class SimpleATH final : public IOService
             return false;
         }
 
+        // Connect and every management/data TX share one physical safety
+        // predicate. A selected BSSID or OS-owned key cannot confer RF/TPC
+        // authority before the native radio owner publishes real evidence.
+        bool canSubmitTransmit() const
+        {
+            return powered_ && !stopping_ && radioOperational_ &&
+                   channelAuthorized_ && rfKillKnownUnblocked_ &&
+                   board_.view(epoch_) != nullptr &&
+                   queues_.epoch() == epoch_ &&
+                   queues_.phase() == simpleath::NativeQueuePhase::Running &&
+                   txSafety_.siliconIdentified &&
+                   txSafety_.boardCalibrationValidated &&
+                   txSafety_.channelRegulatoryAuthorized &&
+                   txSafety_.transmitPowerLimitsValidated &&
+                   txSafety_.rfKillUnblocked && txSafety_.radioAwake &&
+                   txSafety_.dmaMappingValid;
+        }
+
         // Submit only admitted 802.11 frames from the station engine or
         // the strict OS EAPOL/CCMP serializers. The RF owner must first
         // publish independently verified channel/rate/TPC authorization; no
@@ -596,17 +701,7 @@ class SimpleATH final : public IOService
                                         bool softwareProtected = false)
         {
             if (frame == nullptr || bytes < kMinimumMpduBytes ||
-                bytes > kMaximumMpduBytes || !powered_ || stopping_ ||
-                !radioOperational_ || !channelAuthorized_ ||
-                !rfKillKnownUnblocked_ || board_.view(epoch_) == nullptr ||
-                queues_.epoch() != epoch_ ||
-                queues_.phase() != simpleath::NativeQueuePhase::Running ||
-                !txSafety_.siliconIdentified ||
-                !txSafety_.boardCalibrationValidated ||
-                !txSafety_.channelRegulatoryAuthorized ||
-                !txSafety_.transmitPowerLimitsValidated ||
-                !txSafety_.rfKillUnblocked || !txSafety_.radioAwake ||
-                !txSafety_.dmaMappingValid)
+                bytes > kMaximumMpduBytes || !canSubmitTransmit())
             {
                 return kIOReturnNotReady;
             }
