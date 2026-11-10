@@ -37,6 +37,7 @@ namespace
     constexpr uint16_t kAtherosUsbVendor = 0x0cf3U;
     constexpr uint16_t kAtherosUsbProduct = 0x0036U;
     constexpr size_t kEventBytes = 7U;
+    constexpr size_t kExpectedPackets = 5U;
 
     struct UsbFake
     {
@@ -336,6 +337,158 @@ namespace
         return {&fake, kEpoch, permit, writeCommand, writeAcl, deliver};
     }
 
+    constexpr std::array<uint8_t, 6U> kResetComplete {
+        0x0eU, 4U, 1U, 0x03U, 0x0cU, 0U,
+    };
+    constexpr std::array<uint8_t, 3U> kReadBufferSize {
+        0x05U,
+        0x10U,
+        0U,
+    };
+    constexpr std::array<uint8_t, 13U> kBufferSizeResponse {
+        0x0eU, 0x0bU, 0x01U, 0x05U, 0x10U, 0x00U, 0x05U,
+        0x00U, 0x00U, 0x02U, 0x00U, 0x00U, 0x00U,
+    };
+
+    bool negotiateAclCredits(UsbHciState &state, UsbFake &fake)
+    {
+        return sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                                 kReadBufferSize.size()) == UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), kBufferSizeResponse.data(),
+                                  kBufferSizeResponse.size()) ==
+                   UsbHciStatus::Ok &&
+               state.aclWindow.availableCredits == 2U;
+    }
+
+    bool testAclCredits()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> kFirst {1U, 0x20U, 1U, 0U, 0x7fU};
+        constexpr std::array<uint8_t, 5U> kSecond {2U, 0x20U, 1U, 0U, 0x7fU};
+        constexpr std::array<uint8_t, 7U> kCompleteOne {
+            0x13U, 5U, 1U, 1U, 0U, 1U, 0U,
+        };
+        constexpr std::array<uint8_t, 11U> kDoubleComplete {
+            0x13U, 9U, 2U, 1U, 0U, 1U, 0U, 2U, 0U, 2U, 0U,
+        };
+        constexpr std::array<uint8_t, 6U> kDisconnected {
+            5U, 4U, 0U, 2U, 0U, 0x13U,
+        };
+        constexpr std::array<uint8_t, 7U> kCompleteTwo {
+            0x13U, 5U, 1U, 2U, 0U, 1U, 0U,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            !negotiateAclCredits(state, fake) ||
+            sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                              kReadBufferSize.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kSecond.data(), kSecond.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::NoControllerCredits ||
+            state.aclWindow.availableCredits != 0U)
+        {
+            return false;
+        }
+        if (receiveUsbHciEvent(state, host(fake), kCompleteOne.data(),
+                               kCompleteOne.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kDisconnected.data(),
+                               kDisconnected.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 0U ||
+            receiveUsbHciEvent(state, host(fake), kCompleteTwo.data(),
+                               kCompleteTwo.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U)
+        {
+            return false;
+        }
+        // There are now two outstanding packets on handle 1, none on 2.
+        // A second handle completion in one event must not grant any credit.
+        if (receiveUsbHciEvent(state, host(fake), kDoubleComplete.data(),
+                               kDoubleComplete.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || state.aclWindow.availableCredits != 1U ||
+            receiveUsbHciEvent(state, host(fake), kCompleteOne.data(),
+                               kCompleteOne.size()) != UsbHciStatus::Faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            state.aclWindow.configured || !negotiateAclCredits(state, fake))
+        {
+            return false;
+        }
+        // Malformed connection handles and oversized controller packets must
+        // be refused before consuming a credit or touching the USB pipe.
+        constexpr std::array<uint8_t, 5U> kReserved {
+            0xffU, 0x2fU, 1U, 0U, 0x7fU,
+        };
+        constexpr std::array<uint8_t, 10U> kTooLarge {
+            1U, 0x20U, 6U, 0U, 1U, 2U, 3U, 4U, 5U, 6U,
+        };
+        if (sendUsbHciAcl(state, host(fake), kReserved.data(),
+                          kReserved.size()) != UsbHciStatus::MalformedPacket ||
+            sendUsbHciAcl(state, host(fake), kTooLarge.data(),
+                          kTooLarge.size()) != UsbHciStatus::FrameTooLarge ||
+            state.aclWindow.availableCredits != 2U)
+        {
+            return false;
+        }
+        // Controller Reset invalidates every negotiated packet slot even if
+        // an earlier HCI connection had outstanding ACL completions.
+        constexpr std::array<uint8_t, 3U> kControllerReset {
+            0x03U,
+            0x0cU,
+            0U,
+        };
+        if (sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kControllerReset.data(),
+                              kControllerReset.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.configured ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                              kReadBufferSize.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kResetComplete.data(),
+                               kResetComplete.size()) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake))
+        {
+            return false;
+        }
+        // Command Status rejection permits retry but never invents credits.
+        detachUsbHci(state);
+        constexpr std::array<uint8_t, 6U> kRejected {
+            0x0fU, 4U, 0x0cU, 1U, 0x05U, 0x10U,
+        };
+        return attachUsbHci(state, kEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                                 kReadBufferSize.size()) == UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), kRejected.data(),
+                                  kRejected.size()) == UsbHciStatus::Ok &&
+               !state.aclWindow.configured &&
+               !state.aclWindow.readBufferPending &&
+               sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) ==
+                   UsbHciStatus::FlowControlUnavailable &&
+               sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                                 kReadBufferSize.size()) == UsbHciStatus::Ok;
+    }
+
     bool testHci()
     {
         UsbFake fake = newFake();
@@ -363,6 +516,9 @@ namespace
         if (sendUsbHciCommand(state, host(fake), kReset.data(),
                               kReset.size()) != UsbHciStatus::Ok ||
             fake.transmitted.at(0U) != kReset.at(0U) ||
+            receiveUsbHciEvent(state, host(fake), kResetComplete.data(),
+                               kResetComplete.size()) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
             sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
                 UsbHciStatus::Ok ||
             fake.lastEndpoint != kBulkOutEndpoint)
@@ -374,10 +530,13 @@ namespace
         };
         if (receiveUsbHciEvent(state, host(fake), kEvents.data(), 1U) !=
                 UsbHciStatus::Ok ||
-            fake.delivered != 0U ||
+            fake.delivered != 2U ||
             receiveUsbHciEvent(state, host(fake), std::next(kEvents.data(), 1U),
                                kEvents.size() - 1U) != UsbHciStatus::Ok ||
-            fake.delivered != 2U || fake.deliveredEventBytes != kEventBytes)
+            fake.delivered != 4U ||
+            fake.deliveredEventBytes != kEventBytes +
+                                            kBufferSizeResponse.size() +
+                                            kResetComplete.size())
         {
             return false;
         }
@@ -385,7 +544,8 @@ namespace
                 UsbHciStatus::Ok ||
             receiveUsbHciAcl(state, host(fake), std::next(kAcl.data(), 3U),
                              2U) != UsbHciStatus::Ok ||
-            fake.delivered != 3U || fake.deliveredAclBytes != kAcl.size())
+            fake.delivered != kExpectedPackets ||
+            fake.deliveredAclBytes != kAcl.size())
         {
             return false;
         }
@@ -408,7 +568,8 @@ namespace
             return false;
         }
         fake.shortBulk = true;
-        if (sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
+        if (!negotiateAclCredits(state, fake) ||
+            sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
                 UsbHciStatus::TransferFailed ||
             !state.faulted)
         {
@@ -439,5 +600,9 @@ int main()
     {
         return 1;
     }
-    return testHci() ? 0 : 2;
+    if (!testHci())
+    {
+        return 2;
+    }
+    return testAclCredits() ? 0 : 3;
 }

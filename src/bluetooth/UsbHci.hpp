@@ -11,6 +11,7 @@ namespace simpleath
     constexpr size_t kUsbHciMaxEventBytes = 257U;
     constexpr size_t kUsbHciMaxAclBytes = 4096U;
     constexpr size_t kUsbHciMaxCommandBytes = 258U;
+    constexpr size_t kUsbHciTrackedAclHandles = 16U;
 
     enum class UsbHciPacketKind : uint8_t
     {
@@ -27,6 +28,9 @@ namespace simpleath
         OwnershipLost,
         MalformedPacket,
         FrameTooLarge,
+        FlowControlUnavailable,
+        NoControllerCredits,
+        TooManyConnections,
         CallbackFailed,
         TransferFailed,
         Faulted,
@@ -63,10 +67,28 @@ namespace simpleath
             size_t expected {};
     };
 
+    struct UsbHciAclHandle
+    {
+            uint16_t handle {};
+            uint16_t outstanding {};
+    };
+
+    struct UsbHciAclWindow
+    {
+            UsbBytes<UsbHciAclHandle, kUsbHciTrackedAclHandles> connections {};
+            uint16_t packetBytes {};
+            uint16_t totalCredits {};
+            uint16_t availableCredits {};
+            bool readBufferPending {};
+            bool resetPending {};
+            bool configured {};
+    };
+
     struct UsbHciState
     {
             UsbHciStream events {};
             UsbHciStream acl {};
+            UsbHciAclWindow aclWindow {};
             UsbHciEndpoints endpoints {};
             uint64_t epoch {};
             bool attached {};
@@ -87,6 +109,20 @@ namespace simpleath
     UsbHciStatus sendUsbHciCommand(UsbHciState &state,
                                    const UsbHciHostCallbacks &host,
                                    const uint8_t *command, size_t bytes);
+    // Controller ACL credits are learned ONLY from a matching successful
+    // HCI Read Buffer Size (0x1005) command-complete event. No bulk ACL TX
+    // is accepted before that handshake. The owner must serialize these
+    // operations and its HCI event callbacks under one USB epoch.
+    //
+    // This is the BR/EDR buffer pool only. An independently provisioned LE
+    // buffer pool (LE Read Buffer Size) needs connection-type attribution and
+    // is not conflated with these credits. Controller Number Of Completed
+    // Packets events retire exact per-handle outstanding packets;
+    // false or duplicate credits latch a fault instead of allowing overflow.
+    // A disconnect event alone does NOT confirm buffer completion; all
+    // outstanding slots require controller completion or transport reset.
+    // HCI Reset invalidates all credits immediately and blocks renegotiation
+    // until its successful Command Complete; USB transfer ACK is not enough.
     UsbHciStatus sendUsbHciAcl(UsbHciState &state,
                                const UsbHciHostCallbacks &host,
                                const uint8_t *packet, size_t bytes);
