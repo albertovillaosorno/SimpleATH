@@ -323,6 +323,29 @@
   },
   {
     "directory": ".",
+    "file": "src/hardware/Ar9565Coexistence.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-DKERNEL=1",
+      "-target",
+      "x86_64-apple-macosx14.0",
+      "-isystem",
+      "/opt/LLVM-23.1.2-Linux-X64/include/c++/v1",
+      "-isystem",
+      "/opt/LLVM-23.1.2-Linux-X64/include/x86_64-unknown-linux-gnu/c++/v1",
+      "-isystem",
+      "./.research/MacKernelSDK/Headers",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565Coexistence.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "src/hardware/Ar9565Core.cpp",
     "arguments": [
       "clang++",
@@ -996,6 +1019,20 @@
       "c++",
       "-fsyntax-only",
       "tests/test_ar9565_channel.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_ar9565_coexistence.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_ar9565_coexistence.cpp"
     ]
   },
   {
