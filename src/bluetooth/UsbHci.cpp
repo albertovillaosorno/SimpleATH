@@ -21,6 +21,9 @@ namespace simpleath
         constexpr uint8_t kHciCommandComplete = 0x0eU;
         constexpr uint8_t kHciCommandStatus = 0x0fU;
         constexpr uint8_t kHciCompletedPackets = 0x13U;
+        constexpr uint8_t kHciHardwareError = 0x10U;
+        constexpr uint8_t kHciDataBufferOverflow = 0x1aU;
+        constexpr size_t kControllerFaultBytes = 3U;
         constexpr size_t kReadBufferCompleteBytes = 13U;
         constexpr size_t kCommandStatusBytes = 6U;
         constexpr size_t kResetCompleteBytes = 6U;
@@ -165,6 +168,17 @@ namespace simpleath
                 bytes != kEventHeaderBytes + *usbByteOffset(packet, 1U))
             {
                 return UsbHciStatus::MalformedPacket;
+            }
+            const uint8_t eventCode = *usbByteOffset(packet, 0U);
+            if (eventCode == kHciHardwareError ||
+                eventCode == kHciDataBufferOverflow)
+            {
+                // The controller has lost hardware or packet-buffer
+                // integrity. No old ACL credits/handles remain trustworthy;
+                // the native owner must detach/reset before further traffic.
+                return bytes == kControllerFaultBytes
+                           ? UsbHciStatus::Faulted
+                           : UsbHciStatus::MalformedPacket;
             }
             UsbHciAclWindow &window = state.aclWindow;
             if (window.resetPending &&

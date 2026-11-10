@@ -558,6 +558,51 @@ namespace
                state.faulted && state.aclWindow.availableCredits == 1U;
     }
 
+    bool testControllerFaults()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> kAcl {
+            1U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        constexpr std::array<uint8_t, 3U> kHardwareError {
+            0x10U,
+            1U,
+            0x01U,
+        };
+        constexpr std::array<uint8_t, 3U> kBufferOverflow {
+            0x1aU,
+            1U,
+            0x01U,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), kHardwareError.data(),
+                               kHardwareError.size()) !=
+                UsbHciStatus::Faulted ||
+            !state.faulted ||
+            sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
+                UsbHciStatus::Faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        return attachUsbHci(state, kEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               !state.faulted && negotiateAclCredits(state, fake) &&
+               receiveUsbHciEvent(state, host(fake), kBufferOverflow.data(),
+                                  kBufferOverflow.size()) ==
+                   UsbHciStatus::Faulted &&
+               state.faulted &&
+               sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) ==
+                   UsbHciStatus::Faulted;
+    }
+
     bool testHci()
     {
         UsbFake fake = newFake();
@@ -677,5 +722,10 @@ int main()
     {
         return 3;
     }
-    return testAclHandlePressure() ? 0 : 4;
+    if (!testAclHandlePressure())
+    {
+        return 4;
+    }
+    constexpr int kControllerFaultTestFailure = 5;
+    return testControllerFaults() ? 0 : kControllerFaultTestFailure;
 }
