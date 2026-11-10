@@ -123,6 +123,21 @@ not yet execute the RF sequence**, and no runtime PHY-error sampling/ANI
 scheduler, channel lease or complete spur policy exists. The source stage
 cannot grant RX/TX, country, antenna, coexistence or operational readiness.
 
+Source commit `f7e04a7` adds the separate, chain-zero 2.4 GHz open-loop
+transmit calibration register stage in the **existing normal Xcode target**.
+It adapts ath9k `ar9003_hw_power_control_override` to program the AR9565
+OLPC gain-delta field, error-estimator mode, thermal-slope and factory
+calibration temperature reference. The stage uses a restored EEPROM-derived
+`PowerCandidates` snapshot, enforces explicit TX authorization and an
+owner-epoch check on every MMIO read/write, masks unrelated bits, verifies
+posted writes and retains a reset obligation after any partial write or
+readback uncertainty. Synthetic C++14/C++17 ASan+UBSan, direct strict
+Clang-Tidy for source and test and Clang-Format checks passed. **Native PCI
+code does not invoke this stage** and it is not sufficient for live
+voltage/temperature tracking, true calibrated per-rate descriptor power,
+country/antenna/BT permission, physical RF transmission or Wi-Fi readiness.
+The RF/PHY/regulatory TODO stays open.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.
