@@ -291,7 +291,9 @@ namespace simpleath
             // length above the legacy on-air MPDU ceiling before IE walking.
             if (type == FrameType::Management &&
                 length > kMaximumLegacyMpduBytesIncludingFcs)
+            {
                 return Result::InvalidFrame;
+            }
 
             size_t headerLength = 24;
             if (type == FrameType::Data)
