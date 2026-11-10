@@ -16,8 +16,8 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV2";
-        constexpr uint32_t kWirelessOwnerAbi = 2;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV3";
+        constexpr uint32_t kWirelessOwnerAbi = 3;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
@@ -93,7 +93,7 @@ namespace simpleath
                 bool remove;
         };
 
-        struct WirelessOwnerV2
+        struct WirelessOwnerV3
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;
@@ -122,8 +122,9 @@ namespace simpleath
                 IOReturn (*subscribe)(void *, void *observer,
                                       void (*notify)(void *, WirelessEvent,
                                                      uint64_t epoch),
-                                      void (*receive)(void *, const uint8_t *,
-                                                      size_t));
+                                      void (*receive)(void *, uint64_t epoch,
+                                                      uint64_t association,
+                                                      const uint8_t *, size_t));
                 void (*unsubscribe)(void *, void *observer);
         };
     } // namespace tahoe

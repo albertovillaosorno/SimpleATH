@@ -120,7 +120,8 @@ namespace
     {
             void *observer;
             void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t);
-            void (*receive)(void *, const uint8_t *, size_t);
+            void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
+                            size_t);
     };
 
     // The native command gate may wait for an earlier radio operation. A
@@ -342,7 +343,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV2 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV3 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
             {
@@ -377,10 +378,10 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV2 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV2 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV3 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV3 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV2),
+                sizeof(simpleath::tahoe::WirelessOwnerV3),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -1800,7 +1801,8 @@ class SimpleATH final : public IOService
         static IOReturn ownerSubscribe(
             void *context, void *observer,
             void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t),
-            void (*receive)(void *, const uint8_t *, size_t))
+            void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
+                            size_t))
         {
             if (context == nullptr || observer == nullptr ||
                 notify == nullptr || receive == nullptr)
@@ -2304,7 +2306,8 @@ class SimpleATH final : public IOService
                 radioOperational_ && channelAuthorized_ &&
                 (controlledPortAuthorized_ || handshake))
             {
-                wirelessReceive_(wirelessObserver_, &ethernetRx_[0],
+                wirelessReceive_(wirelessObserver_, epoch_,
+                                 associationGeneration_, &ethernetRx_[0],
                                  ethernetBytes);
             }
             IOLockUnlock(observerLock_);
@@ -3652,7 +3655,8 @@ class SimpleATH final : public IOService
         void *wirelessObserver_ {nullptr};
         void (*wirelessNotify_)(void *, simpleath::tahoe::WirelessEvent,
                                 uint64_t) {nullptr};
-        void (*wirelessReceive_)(void *, const uint8_t *, size_t) {nullptr};
+        void (*wirelessReceive_)(void *, uint64_t, uint64_t, const uint8_t *,
+                                 size_t) {nullptr};
         bool controlledPortAuthorized_ {false};
         // Credential-free, epoch-bound WCL progress. Never retain a PMK or
         // borrowed join packet after the synchronous command-gate call.

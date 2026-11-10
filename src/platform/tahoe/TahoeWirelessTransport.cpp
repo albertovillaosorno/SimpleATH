@@ -1,4 +1,5 @@
 #include "TahoeWirelessTransport.hpp"
+#include "platform/tahoe/NativeWirelessEpoch.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "wifi/LegacyScanBridge.hpp"
 #include <IOKit/IOLocks.h>
@@ -62,10 +63,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV2 &owner)
+            bool validContract(const WirelessOwnerV3 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV2) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV3) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -173,6 +174,7 @@ namespace simpleath
             receiveHead_ = receiveCount_ = 0;
             scanGeneration_ = 0;
             previousScanGeneration_ = 0;
+            associationGeneration_ = 0;
             memset(&events_[0], 0, sizeof(events_));
             memset(&frames_[0], 0, sizeof(frames_));
         }
@@ -189,7 +191,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV2 candidate {};
+            WirelessOwnerV3 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -214,6 +216,9 @@ namespace simpleath
             owner_ = candidate;
             mailboxLock_ = lock;
             epoch_ = snapshotValue.epoch;
+            associationGeneration_ = snapshotValue.associated
+                                         ? snapshotValue.associationGeneration
+                                         : 0U;
             providerStopped_ = false;
             IOLockLock(lock);
             eapolReceiveAuthorized_ =
@@ -234,6 +239,7 @@ namespace simpleath
                 provider_ = nullptr;
                 mailboxLock_ = nullptr;
                 epoch_ = 0;
+                associationGeneration_ = 0;
                 providerStopped_ = false;
                 IOLockFree(lock);
                 provider->release();
@@ -305,11 +311,23 @@ namespace simpleath
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotReady;
             }
+            const uint64_t currentAssociation =
+                current.associated ? current.associationGeneration : 0U;
             if (current.epoch != epoch_)
             {
-                epoch_ = current.epoch;
+                // PCI replacement invalidates both events and scan tickets.
                 invalidateMailboxes();
+                epoch_ = current.epoch;
             }
+            else if (currentAssociation != associationGeneration_)
+            {
+                // A new AP within the same PCI epoch retires *RX only*.
+                // Keep the queued association events and scan results so
+                // the native controller can observe the real transition.
+                receiveHead_ = receiveCount_ = 0;
+                memset(&frames_[0], 0, sizeof(frames_));
+            }
+            associationGeneration_ = currentAssociation;
             eapolReceiveAuthorized_ = current.radioAvailable &&
                                       current.powered && current.associated &&
                                       !current.rfKillBlocked;
@@ -476,6 +494,7 @@ namespace simpleath
             IOLockLock(mailboxLock_);
             receiveAuthorized_ = false;
             eapolReceiveAuthorized_ = false;
+            associationGeneration_ = 0;
             receiveHead_ = receiveCount_ = 0;
             memset(&frames_[0], 0, sizeof(frames_));
             IOLockUnlock(mailboxLock_);
@@ -499,6 +518,7 @@ namespace simpleath
             // end of association only after this native callback returns.
             receiveAuthorized_ = false;
             eapolReceiveAuthorized_ = false;
+            associationGeneration_ = 0;
             receiveHead_ = receiveCount_ = 0;
             memset(&frames_[0], 0, sizeof(frames_));
             IOLockUnlock(mailboxLock_);
@@ -632,6 +652,7 @@ namespace simpleath
             {
                 self.receiveAuthorized_ = false;
                 self.eapolReceiveAuthorized_ = false;
+                self.associationGeneration_ = 0;
                 self.receiveCount_ = 0;
                 self.receiveHead_ = 0;
                 memset(&self.frames_[0], 0, sizeof(self.frames_));
@@ -667,7 +688,8 @@ namespace simpleath
             IOLockUnlock(lock);
         }
 
-        void TahoeWirelessTransport::receive(void *observer,
+        void TahoeWirelessTransport::receive(void *observer, uint64_t epoch,
+                                             uint64_t associationGeneration,
                                              const uint8_t *bytes,
                                              size_t length)
         {
@@ -683,7 +705,10 @@ namespace simpleath
             }
             IOLockLock(lock);
             if ((bytes == nullptr) || length < kMinEthernetFrame ||
-                length > kMaxEthernetFrame || (self.epoch_ == 0U) ||
+                length > kMaxEthernetFrame ||
+                !acceptWirelessReceiveIdentity(
+                    epoch, self.epoch_, associationGeneration,
+                    self.associationGeneration_, self.providerStopped_) ||
                 (!self.receiveAuthorized_ &&
                  !(self.eapolReceiveAuthorized_ &&
                    isEapolEthernet(bytes, length))) ||
@@ -703,7 +728,8 @@ namespace simpleath
                 }
                 else
                 {
-                    packet->epoch = self.epoch_;
+                    packet->epoch = epoch;
+                    packet->associationGeneration = associationGeneration;
                     packet->length = length;
                     memcpy(&packet->bytes[0], bytes, length);
                     ++self.receiveCount_;
@@ -777,7 +803,9 @@ namespace simpleath
                 return kIOReturnNotReady;
             }
             ReceiveRecord &packet = *slot;
-            if (packet.epoch != epoch_)
+            if (!acceptWirelessReceiveIdentity(
+                    packet.epoch, epoch_, packet.associationGeneration,
+                    associationGeneration_, providerStopped_))
             {
                 memset(&packet, 0, sizeof(packet));
                 receiveHead_ = (receiveHead_ + 1) % kRxCapacity;

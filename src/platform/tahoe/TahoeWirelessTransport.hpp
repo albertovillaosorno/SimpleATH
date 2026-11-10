@@ -69,14 +69,16 @@ namespace simpleath
                 struct ReceiveRecord
                 {
                         uint64_t epoch;
+                        uint64_t associationGeneration;
                         size_t length;
                         uint8_t bytes[kMaxEthernetFrame];
                 };
 
                 static void notify(void *observer, WirelessEvent event,
                                    uint64_t epoch);
-                static void receive(void *observer, const uint8_t *bytes,
-                                    size_t length);
+                static void receive(void *observer, uint64_t epoch,
+                                    uint64_t associationGeneration,
+                                    const uint8_t *bytes, size_t length);
                 void invalidateMailboxes();
                 bool bound() const;
                 // Walk small fixed rings rather than unchecked arithmetic on
@@ -86,10 +88,11 @@ namespace simpleath
 
                 // Lifecycle methods run only on the controller's own gate;
                 // the mailbox lock is never held across provider callbacks.
-                WirelessOwnerV2 owner_ {};
+                WirelessOwnerV3 owner_ {};
                 IOService *provider_ {nullptr};
                 IOLock *mailboxLock_ {nullptr};
                 uint64_t epoch_ {0};
+                uint64_t associationGeneration_ {0};
                 uint64_t scanGeneration_ {0};
                 uint64_t previousScanGeneration_ {0};
                 bool subscribed_ {false};

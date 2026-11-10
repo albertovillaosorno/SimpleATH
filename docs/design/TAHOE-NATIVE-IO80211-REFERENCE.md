@@ -302,7 +302,7 @@ notebook-readiness claim.
 The production WCL associate slot now decodes the fixed 0x2cc native request,
 including exact BSSID/SSID/channel and either a supplied PMK or bounded
 passphrase-to-PMK derivation. `NativeConnectRequest` carries a provider epoch,
-monotonic request ID and an owned 32-byte PMK. `SimpleATHWirelessOwnerV2`
+monotonic request ID and an owned 32-byte PMK. `SimpleATHWirelessOwnerV3`
 negotiates this changed shape explicitly. Transport and physical provider
 make short-lived copies and erase them after their gates return. The provider
 uses the driver-owned `WifiEngine` open/WPA2 selection paths; a macOS-owned
@@ -385,3 +385,25 @@ syntax and strict test-unit Tidy passed. The larger preexisting
 CI/kernel operation is not established. The actual RF/channel calibration,
 real 802.11 power save, supported regulatory channels and AWDL/Bluetooth
 coexistence remain separate P0 implementation work.
+
+## Epoch-bound native receive callbacks — 2026-11-10
+
+The physical PCI owner and Tahoe wireless transport now negotiate the internal
+`SimpleATHWirelessOwnerV3` provider function and version 3 callback table.
+A copied Ethernet receive callback carries both the physical-owner epoch and
+association generation. The transport checks both against its most recently
+verified live snapshot under the mailbox lock *before* accepting payload bytes.
+Old-generation or premature next-generation callbacks are dropped, including
+old associations on the same PCI epoch. A changed association invalidates
+queued packets before a new session can be authorized. Only the existing
+serialized `RadioChanged`/`ProviderStopped` notification or an explicit live
+snapshot can advance the consumer epoch and association identity. Provider termination
+revokes all callbacks. This prevents a delayed old-epoch Ethernet/EAPOL frame
+from being relabeled with a freshly associated epoch merely because the
+consumer mailbox is open. Provider-unsubscribe still joins callbacks before
+releasing mailbox storage; this change does not manufacture physical RX or
+native Wi-Fi readiness.
+
+The portable `tests/test_native_wireless_epoch.cpp` covers zero and matching epochs, stale/premature PCI and association
+generations, terminal epochs and stopped providers. Native source and exact-target linking still require validation
+on an authorized macOS build; this test is a host policy check only.
