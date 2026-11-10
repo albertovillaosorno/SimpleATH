@@ -5,6 +5,7 @@
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"
 #include "Ar9565OfdmTiming.hpp"
+#include "Ar9565PhyMode.hpp"
 #include "Ar9565Pll.hpp"
 #include "Ar9565RfBus.hpp"
 #include "Ar9565RfIni.hpp"
@@ -15,6 +16,7 @@ namespace simpleath
     {
         Preflight,
         IniTables,
+        PhyMode,
         BoardModal,
         RfBusRequest,
         Pll,
@@ -52,6 +54,7 @@ namespace simpleath
             RadioSequenceStage stage {RadioSequenceStage::Preflight};
             RadioSequenceResult result {RadioSequenceResult::InvalidBackend};
             RfIniProgress ini {};
+            PhyModeProgress phyMode {};
             BoardModalProgress board {};
             RfBusProgress bus {};
             RfPllProgress pll {};
@@ -62,11 +65,11 @@ namespace simpleath
     };
 
     // Execute the complete existing RX-only RF table/channel/calibration
-    // sequence, including a real RF bus request/release. The native owner
-    // must already have performed reset/RTC, NVM provenance, PMU/XTAL,
-    // RF-kill and coexistence setup and must maintain all proofs throughout
-    // this serialized epoch. This function never enables RX, TX, automatic
-    // MAC responses, or claims complete ANI/board/radio readiness.
+    // sequence, including HT20/40 PHY/MAC mode and RF bus request/release. The
+    // native owner must already have performed reset/RTC, NVM provenance,
+    // PMU/XTAL, RF-kill and coexistence setup and must maintain all proofs
+    // throughout this serialized epoch. This function never enables RX, TX,
+    // automatic MAC responses, or claims complete ANI/board/radio readiness.
     //
     // The three backends MUST refer to the same physical BAR and epoch;
     // distinct permitWrite callbacks implement the lease-specific gates.

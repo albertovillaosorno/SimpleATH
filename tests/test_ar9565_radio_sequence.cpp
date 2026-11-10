@@ -7,6 +7,7 @@
 #include "hardware/Ar9565Eeprom.hpp"
 #include "hardware/Ar9565InitCatalog.hpp"
 #include "hardware/Ar9565OfdmTiming.hpp"
+#include "hardware/Ar9565PhyMode.hpp"
 #include "hardware/Ar9565Pll.hpp"
 #include "hardware/Ar9565RadioSequence.hpp"
 #include "hardware/Ar9565RfBus.hpp"
@@ -36,6 +37,7 @@ namespace
         JapanAllowed = 12,
         Ht40 = 13,
         Revocation = 14,
+        Mode = 15,
     };
 
     constexpr uint64_t kEpoch = 69;
@@ -48,6 +50,11 @@ namespace
     constexpr uint32_t kRfRequest = 0xa23c;
     constexpr uint32_t kRfGrant = 0xa240;
     constexpr uint32_t kBbDpll2 = 0x16184;
+    constexpr uint32_t kPhyGenControl = 0xa204;
+    constexpr uint32_t kJoinedMacCca = 0x8318;
+    constexpr uint32_t kPhyHt = 0x40;
+    constexpr uint32_t kPhyDynamic40 = 4;
+    constexpr uint32_t kPhyUpperPrimary = 0x10;
     constexpr uint32_t kTiming3 = 0x9808;
     constexpr uint32_t kAgc = 0xa2c4;
     constexpr uint32_t kIqTiming = 0x980c;
@@ -314,7 +321,9 @@ namespace
         Fake japanKnown {};
         if (run(japanKnown, channel(kJapanChannel), knownJapan).result !=
                 RadioSequenceResult::Ok ||
-            japanKnown.rfGranted)
+            japanKnown.rfGranted ||
+            (japanKnown.registers.at(kPhyGenControl / sizeof(uint32_t)) &
+             kPhyHt) != 0)
         {
             return static_cast<int>(TestExit::JapanAllowed);
         }
@@ -322,7 +331,11 @@ namespace
         const auto wide =
             run(ht40, channel(kChannel6, ChannelWidth::Ht40, kSecondary10));
         if (wide.result != RadioSequenceResult::Ok || ht40.rfGranted ||
-            !wide.calibration.noise.hasExtension)
+            !wide.calibration.noise.hasExtension ||
+            (ht40.registers.at(kPhyGenControl / sizeof(uint32_t)) &
+             (kPhyHt | kPhyDynamic40 | kPhyUpperPrimary)) !=
+                (kPhyHt | kPhyDynamic40 | kPhyUpperPrimary) ||
+            (ht40.registers.at(kJoinedMacCca / sizeof(uint32_t)) & 1U) == 0)
         {
             return static_cast<int>(TestExit::Ht40);
         }
@@ -347,6 +360,10 @@ int main()
         ok.stage != RadioSequenceStage::Completed || ok.requiresReset ||
         ok.ini.completedWrites < kMinIniWrites ||
         ok.board.result != BoardModalResult::Ok ||
+        ok.phyMode.result != PhyModeResult::Ok ||
+        ok.phyMode.completedWrites != 4 ||
+        (good.registers.at(kPhyGenControl / sizeof(uint32_t)) & kPhyHt) == 0 ||
+        (good.registers.at(kJoinedMacCca / sizeof(uint32_t)) & 1U) != 0 ||
         ok.pll.result != RfPllResult::Ok ||
         ok.synthesizer.result != RfChannelResult::Ok ||
         ok.ofdm.result != OfdmTimingResult::Ok ||
@@ -371,8 +388,19 @@ int main()
     {
         return static_cast<int>(TestExit::Ini);
     }
+    Fake modeFailure {};
+    modeFailure.failedWriteAt = ok.ini.completedWrites + 1;
+    const auto failedMode = run(modeFailure);
+    if (failedMode.stage != RadioSequenceStage::PhyMode ||
+        !failedMode.requiresReset ||
+        failedMode.phyMode.result != PhyModeResult::WriteFailed ||
+        modeFailure.rfGranted)
+    {
+        return static_cast<int>(TestExit::Mode);
+    }
     Fake boardFailure {};
-    boardFailure.failedWriteAt = ok.ini.completedWrites + 1;
+    boardFailure.failedWriteAt =
+        ok.ini.completedWrites + ok.phyMode.completedWrites + 1;
     const auto modal = run(boardFailure);
     if (modal.stage != RadioSequenceStage::BoardModal || !modal.requiresReset ||
         modal.board.result != BoardModalResult::WriteFailed)

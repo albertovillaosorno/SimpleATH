@@ -6,6 +6,7 @@ src/hardware/Ar9565Pll.cpp
 src/hardware/Ar9565RfBus.cpp
 src/hardware/Ar9565RfIni.cpp
 src/hardware/Ar9565OfdmTiming.cpp
+src/hardware/Ar9565PhyMode.cpp
 src/hardware/Ar9565InitCatalog.cpp
 src/hardware/Ar9565Core.cpp
 src/hardware/Ar9565Eeprom.cpp

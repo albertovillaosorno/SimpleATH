@@ -7,6 +7,7 @@
 #include "Ar9565Eeprom.hpp"
 #include "Ar9565InitCatalog.hpp"
 #include "Ar9565OfdmTiming.hpp"
+#include "Ar9565PhyMode.hpp"
 #include "Ar9565Pll.hpp"
 #include "Ar9565RfBus.hpp"
 #include "Ar9565RfIni.hpp"
@@ -142,6 +143,13 @@ namespace simpleath
         // The first successful INI write makes every later failure a reset
         // obligation, even when the failing stage itself wrote nothing.
         progress.requiresReset = true;
+        progress.stage = RadioSequenceStage::PhyMode;
+        progress.phyMode =
+            programAr9565ReceiveOnlyPhyMode(channel, allowed, stable.baseband);
+        if (progress.phyMode.result != PhyModeResult::Ok)
+        {
+            return progress;
+        }
         progress.stage = RadioSequenceStage::BoardModal;
         progress.board = programAr9565BoardModal2G(physicalBoard, allowed,
                                                    diversity, stable.baseband);
