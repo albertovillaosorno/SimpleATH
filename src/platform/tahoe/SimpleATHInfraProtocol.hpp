@@ -8,6 +8,7 @@
 #include "TahoeScanCodec.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <stddef.h>
 class SimpleATHTahoeController;
 
 class SimpleATHInfraProtocol final : public IO80211InfraProtocol
@@ -27,6 +28,12 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
         } gMetaClass;
         friend class SimpleATHInfraProtocol::MetaClass;
         const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        // Tahoe OSDefineDefaultStructors emits these allocation methods.
+        // Keep the SDK-defined allocation/free implementation paired
+        // with its declarations; this does not alter the vtable.
+        void *operator new(size_t size);
+        void operator delete(void *memory, size_t size);
+
         SimpleATHInfraProtocol();
         SimpleATHInfraProtocol(const SimpleATHInfraProtocol &) = delete;
         SimpleATHInfraProtocol &

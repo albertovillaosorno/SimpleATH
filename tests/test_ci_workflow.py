@@ -54,6 +54,7 @@ BUILD_REQUIREMENTS = (
     "KERNEL_FRAMEWORK_HEADERS",
     "python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi",
     "python3 -B -m unittest -q tests.test_tahoe_apple80211_sdk_headers",
+    "python3 -B -m unittest -q tests.test_native_metaclass_allocation",
     "actions/upload-artifact@v7",
 )
 # The Apple kernel header tree must take precedence over macOS usr/include.
@@ -130,8 +131,18 @@ class WorkflowContract(unittest.TestCase):
         private_headers = content.index(
             "Reject unavailable Apple80211 private SDK headers"
         )
+        metaclass = content.index(
+            "Verify native metaclass allocator signatures and SDK syntax"
+        )
         compilation = content.index("Build unsigned x86_64 kernel extension")
-        assert first < second < preflight < private_headers < compilation
+        assert (
+            first
+            < second
+            < preflight
+            < private_headers
+            < metaclass
+            < compilation
+        )
 
     @staticmethod
     def test_build_kernel_header_search_never_selects_userspace_first() -> None:

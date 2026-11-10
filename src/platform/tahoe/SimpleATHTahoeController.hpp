@@ -28,6 +28,12 @@ class SimpleATHTahoeController final : public IO80211Controller
         } gMetaClass;
         friend class SimpleATHTahoeController::MetaClass;
         const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        // Tahoe OSDefineDefaultStructors emits these allocation methods.
+        // Keep the SDK-defined allocation/free implementation paired
+        // with its declarations; this does not alter the vtable.
+        void *operator new(size_t size);
+        void operator delete(void *memory, size_t size);
+
         SimpleATHTahoeController();
         SimpleATHTahoeController(const SimpleATHTahoeController &) = delete;
         SimpleATHTahoeController &

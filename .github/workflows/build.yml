@@ -75,6 +75,11 @@ jobs:
         # required and compiled with freestanding Clang in this regression.
         run: python3 -B -m unittest -q tests.test_tahoe_apple80211_sdk_headers
 
+      - name: Verify native metaclass allocator signatures and SDK syntax
+        # XNU OSDefineDefaultStructors emits class-specific new/delete;
+        # compile the actual native translation units before Xcode begins.
+        run: python3 -B -m unittest -q tests.test_native_metaclass_allocation
+
       - name: Build unsigned x86_64 kernel extension
         run: |
           sdk="${{ steps.native_headers.outputs.sdk }}"

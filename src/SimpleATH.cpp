@@ -161,6 +161,11 @@ class SimpleATH final : public IOService
         } gMetaClass;
         friend class SimpleATH::MetaClass;
         const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        // Tahoe OSDefineDefaultStructors emits these allocation methods.
+        // Keep the SDK-defined allocation/free implementation paired
+        // with its declarations; this does not alter the vtable.
+        void *operator new(size_t size);
+        void operator delete(void *memory, size_t size);
 
     protected:
         explicit SimpleATH(const OSMetaClass *meta);
