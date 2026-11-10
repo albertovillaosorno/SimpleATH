@@ -533,6 +533,23 @@ namespace simpleath
                     return processed;
                 }
             }
+            else
+            {
+                // USB bulk-IN can outlive a controller disconnect or even
+                // carry a stale handle from a previous HCI Reset. Events
+                // from the controller, not incoming ACL bytes, establish
+                // active connection ownership in this USB epoch.
+                const uint16_t handle =
+                    little16(stream.packet.data(), 0U) & kHciHandleMask;
+                const UsbHciAclHandle *entry =
+                    findHandle(state.aclWindow, handle, false);
+                if (handle > kHciMaximumHandle || entry == nullptr ||
+                    !entry->classified || !entry->connected || entry->retired)
+                {
+                    state.faulted = true;
+                    return UsbHciStatus::MalformedPacket;
+                }
+            }
             if (!host.deliver(host.context, kind, stream.packet.data(),
                               stream.used))
             {
@@ -770,22 +787,16 @@ namespace simpleath
             return UsbHciStatus::MalformedPacket;
         }
         UsbHciAclHandle *entry = findHandle(window, handle, false);
-        // Once an LE pool exists, only the controller may establish which
-        // credits are applicable to a connection handle.
-        if (state.leAclWindow.configured &&
-            (entry == nullptr || !entry->classified || !entry->connected))
+        // A Read Buffer Size reply establishes capacity, not a link. For
+        // BOTH classic and LE, only a successful controller Connection
+        // Complete may authorize this exact ACL handle. Never send to a
+        // phantom/reused handle merely because a shared pool has credits.
+        if (entry == nullptr || !entry->classified || !entry->connected ||
+            entry->retired || (entry->le && !state.leAclWindow.configured))
         {
             return UsbHciStatus::FlowControlUnavailable;
         }
-        if (entry != nullptr &&
-            (entry->retired || (entry->classified && !entry->connected) ||
-             (entry->le && !state.leAclWindow.configured)))
-        {
-            return UsbHciStatus::FlowControlUnavailable;
-        }
-        UsbHciAclCredits &pool =
-            entry == nullptr ? static_cast<UsbHciAclCredits &>(window)
-                             : creditPool(window, state.leAclWindow, *entry);
+        UsbHciAclCredits &pool = creditPool(window, state.leAclWindow, *entry);
         if (!pool.configured)
         {
             return UsbHciStatus::FlowControlUnavailable;
@@ -797,14 +808,6 @@ namespace simpleath
         if (pool.availableCredits == 0U)
         {
             return UsbHciStatus::NoControllerCredits;
-        }
-        if (entry == nullptr)
-        {
-            entry = findHandle(window, handle, true);
-        }
-        if (entry == nullptr)
-        {
-            return UsbHciStatus::TooManyConnections;
         }
         // The native controller still owns packet completion. Account before
         // the callback because it may synchronously deliver a completion.

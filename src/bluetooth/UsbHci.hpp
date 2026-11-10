@@ -163,9 +163,11 @@ namespace simpleath
     // separate buffer pools. A successful physical LE Connection Complete
     // classifies an LE handle. LE credits stay segregated when advertised;
     // a zero-sized dedicated LE pool instead shares BR/EDR credits as the
-    // HCI spec requires. Unclassified handles are not accepted once LE pool
-    // negotiation has begun. Controller Number Of Completed Packets events
-    // retire exact per-handle outstanding packets from the correct pool;
+    // HCI spec requires. Every classic or LE handle must be confirmed by
+    // a successful controller Connection Complete before ACL TX or RX;
+    // unclassified, disconnected and retired handles are rejected. Controller
+    // Number Of Completed Packets events retire exact per-handle outstanding
+    // packets from the correct pool;
     // false or duplicate credits latch a fault instead of allowing overflow.
     // A disconnect event alone does NOT confirm buffer completion; all
     // outstanding slots require controller completion or transport reset.

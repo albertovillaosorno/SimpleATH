@@ -37,7 +37,7 @@ namespace
     constexpr uint16_t kAtherosUsbVendor = 0x0cf3U;
     constexpr uint16_t kAtherosUsbProduct = 0x0036U;
     constexpr size_t kEventBytes = 7U;
-    constexpr size_t kExpectedPackets = 5U;
+    constexpr size_t kExpectedPackets = 6U;
 
     struct UsbFake
     {
@@ -443,6 +443,12 @@ namespace
         0x00U, 0x00U, 0x02U, 0x00U, 0x00U, 0x00U,
     };
 
+    // Classic ACL ownership must originate from a controller Connection
+    // Complete, not a host-chosen handle in a packet or a buffer-size reply.
+    constexpr std::array<uint8_t, 13U> kClassicConnected {
+        3U, 11U, 0U, 2U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U, 0U,
+    };
+
     bool negotiateAclCredits(UsbHciState &state, UsbFake &fake)
     {
         return sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
@@ -476,6 +482,8 @@ namespace
         constexpr std::array<uint8_t, 7U> kCompleteTwo {
             0x13U, 5U, 1U, 2U, 0U, 1U, 0U,
         };
+        auto firstConnection = kClassicConnected;
+        firstConnection.at(3U) = 1U;
         if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
                 UsbHciStatus::FlowControlUnavailable ||
@@ -483,6 +491,13 @@ namespace
             sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
                               kReadBufferSize.size()) !=
                 UsbHciStatus::FlowControlUnavailable ||
+            sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            state.aclWindow.availableCredits != 2U ||
+            receiveUsbHciEvent(state, host(fake), firstConnection.data(),
+                               firstConnection.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), kFirst.data(), kFirst.size()) !=
                 UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), kSecond.data(), kSecond.size()) !=
@@ -534,7 +549,9 @@ namespace
         constexpr std::array<uint8_t, 10U> kTooLarge {
             1U, 0x20U, 6U, 0U, 1U, 2U, 3U, 4U, 5U, 6U,
         };
-        if (sendUsbHciAcl(state, host(fake), kReserved.data(),
+        if (receiveUsbHciEvent(state, host(fake), firstConnection.data(),
+                               firstConnection.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kReserved.data(),
                           kReserved.size()) != UsbHciStatus::MalformedPacket ||
             sendUsbHciAcl(state, host(fake), kTooLarge.data(),
                           kTooLarge.size()) != UsbHciStatus::FrameTooLarge ||
@@ -614,11 +631,15 @@ namespace
             1U, 0x20U, 1U, 0U, 0x7fU,
         };
         auto acl = kExampleAcl;
+        auto connected = kClassicConnected;
         for (size_t index = 0; index < kUsbHciTrackedAclHandles; ++index)
         {
             acl.at(0U) = static_cast<uint8_t>(index + 1U);
-            if (sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
-                UsbHciStatus::Ok)
+            connected.at(3U) = acl.at(0U);
+            if (receiveUsbHciEvent(state, host(fake), connected.data(),
+                                   connected.size()) != UsbHciStatus::Ok ||
+                sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
+                    UsbHciStatus::Ok)
             {
                 return false;
             }
@@ -626,15 +647,26 @@ namespace
         acl.at(0U) = static_cast<uint8_t>(kUsbHciTrackedAclHandles + 1U);
         if (state.aclWindow.availableCredits != 1U ||
             sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
-                UsbHciStatus::TooManyConnections)
+                UsbHciStatus::FlowControlUnavailable)
         {
             return false;
         }
+        // An in-flight handle cannot be reused. Once the controller returns
+        // its credit AND reports a disconnection, its retired slot is free
+        // for a separately confirmed new connection.
         constexpr std::array<uint8_t, 7U> kCompleteFirst {
             0x13U, 5U, 1U, 1U, 0U, 1U, 0U,
         };
+        constexpr std::array<uint8_t, 6U> kDisconnectedFirst {
+            0x05U, 4U, 0U, 1U, 0U, 0x13U,
+        };
+        connected.at(3U) = acl.at(0U);
         if (receiveUsbHciEvent(state, host(fake), kCompleteFirst.data(),
                                kCompleteFirst.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kDisconnectedFirst.data(),
+                               kDisconnectedFirst.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), connected.data(),
+                               connected.size()) != UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
                 UsbHciStatus::Ok ||
             state.aclWindow.availableCredits != 1U)
@@ -651,6 +683,55 @@ namespace
                                   kDuplicate.size()) ==
                    UsbHciStatus::MalformedPacket &&
                state.faulted && state.aclWindow.availableCredits == 1U;
+    }
+
+    bool testAclInboundHandleAdmission()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> kInboundAcl {
+            1U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        constexpr std::array<uint8_t, 6U> kDisconnected {
+            0x05U, 4U, 0U, 1U, 0U, 0x13U,
+        };
+        auto connected = kClassicConnected;
+        connected.at(3U) = 1U;
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            receiveUsbHciAcl(state, host(fake), kInboundAcl.data(),
+                             kInboundAcl.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || fake.deliveredAclBytes != 0U)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), connected.data(),
+                               connected.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciAcl(state, host(fake), kInboundAcl.data(),
+                             kInboundAcl.size()) != UsbHciStatus::Ok ||
+            fake.deliveredAclBytes != kInboundAcl.size() ||
+            receiveUsbHciEvent(state, host(fake), kDisconnected.data(),
+                               kDisconnected.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciAcl(state, host(fake), kInboundAcl.data(),
+                             kInboundAcl.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || fake.deliveredAclBytes != kInboundAcl.size())
+        {
+            return false;
+        }
+        // Invalid RX never escapes to the host after link loss; ownership
+        // can only restart following a new USB/HCI epoch and connection.
+        return receiveUsbHciAcl(state, host(fake), kInboundAcl.data(),
+                                kInboundAcl.size()) == UsbHciStatus::Faulted;
     }
 
     bool testCommandCredits()
@@ -788,9 +869,6 @@ namespace
     constexpr std::array<uint8_t, 21U> kLeConnected {
         0x3eU, 19U, 1U, 0U,    1U, 0U, 0U, 0U,    0U, 0U, 0U,
         0U,    0U,  0U, 0x18U, 0U, 0U, 0U, 0x48U, 0U, 0U,
-    };
-    constexpr std::array<uint8_t, 13U> kClassicConnected {
-        3U, 11U, 0U, 2U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U, 0U,
     };
     constexpr std::array<uint8_t, 5U> kLeAcl {
         1U, 0x20U, 1U, 0U, 0x7fU,
@@ -1036,9 +1114,14 @@ namespace
         detachUsbHci(state);
         // A physical connection event must never switch an in-flight classic
         // handle into the dedicated LE credit pool.
+        auto classicConnected = kClassicConnected;
+        classicConnected.at(3U) = 1U;
         return attachUsbHci(state, kLeEndpoints, host(fake)) ==
                    UsbHciStatus::Ok &&
                negotiateAclCredits(state, fake) &&
+               receiveUsbHciEvent(state, host(fake), classicConnected.data(),
+                                  classicConnected.size()) ==
+                   UsbHciStatus::Ok &&
                sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) ==
                    UsbHciStatus::Ok &&
                receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
@@ -1115,6 +1198,8 @@ namespace
             return false;
         }
         constexpr std::array<uint8_t, 3U> kReset {0x03U, 0x0cU, 0U};
+        auto connected = kClassicConnected;
+        connected.at(3U) = 1U;
         constexpr std::array<uint8_t, 5U> kAcl {0x01U, 0x20U, 1U, 0U, 0x7fU};
         if (sendUsbHciCommand(state, host(fake), kReset.data(),
                               kReset.size()) != UsbHciStatus::Ok ||
@@ -1122,6 +1207,8 @@ namespace
             receiveUsbHciEvent(state, host(fake), kResetComplete.data(),
                                kResetComplete.size()) != UsbHciStatus::Ok ||
             !negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), connected.data(),
+                               connected.size()) != UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
                 UsbHciStatus::Ok ||
             fake.lastEndpoint != kBulkOutEndpoint)
@@ -1135,13 +1222,13 @@ namespace
         };
         if (receiveUsbHciEvent(state, host(fake), kEvents.data(), 1U) !=
                 UsbHciStatus::Ok ||
-            fake.delivered != 2U ||
+            fake.delivered != 3U ||
             receiveUsbHciEvent(state, host(fake), std::next(kEvents.data(), 1U),
                                kEvents.size() - 1U) != UsbHciStatus::Ok ||
-            fake.delivered != 4U ||
-            fake.deliveredEventBytes != kEventBytes +
-                                            kBufferSizeResponse.size() +
-                                            kResetComplete.size())
+            fake.delivered != kExpectedPackets - 1U ||
+            fake.deliveredEventBytes !=
+                kEventBytes + kBufferSizeResponse.size() +
+                    kResetComplete.size() + kClassicConnected.size())
         {
             return false;
         }
@@ -1174,6 +1261,8 @@ namespace
         }
         fake.shortBulk = true;
         if (!negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), connected.data(),
+                               connected.size()) != UsbHciStatus::Ok ||
             sendUsbHciAcl(state, host(fake), kAcl.data(), kAcl.size()) !=
                 UsbHciStatus::TransferFailed ||
             !state.faulted)
@@ -1226,6 +1315,11 @@ int main()
     if (!testAclHandlePressure())
     {
         return 4;
+    }
+    if (!testAclInboundHandleAdmission())
+    {
+        constexpr int kInboundAdmissionFailure = 11;
+        return kInboundAdmissionFailure;
     }
     if (!testControllerFaults())
     {
