@@ -1,0 +1,2 @@
+# Manual diagnostics stay local; they can contain device/network identifiers.
+SimpleATH-debug-*.log

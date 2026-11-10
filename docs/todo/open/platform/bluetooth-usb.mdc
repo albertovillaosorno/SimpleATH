@@ -1,0 +1,50 @@
+---
+schema: simpleath.todo.v1
+id: bluetooth-usb
+status: open
+priority: P0
+lane: platform
+phase: source-only
+hardware_required: false
+dependencies: []
+scope:
+  - "src/"
+  - "src/Info.plist"
+  - "src/platform/SimpleATH.xcodeproj/"
+---
+
+# TODO - Implement QCA9565 Bluetooth USB support
+
+## Owner directive
+
+The project must implement Wi-Fi, Bluetooth and AirDrop. QCA9565/DW1707 is a
+combined Wi-Fi/Bluetooth 4.0 chip, not an assumed separate Bluetooth chipset.
+Shared silicon does not replace the Bluetooth USB HCI/firmware driver path.
+
+## Acceptance
+
+- [ ] Implement source-backed USB identity matching, HCI transport and any
+      required firmware bootstrap for the target QCA9565 Bluetooth function.
+      Never infer an exact USB VID/PID from the WLAN PCI ID alone.
+- [ ] Research the target Tahoe Bluetooth host/USB contracts and firmware
+      ROM/build matching. Use licensed firmware with correct notices; never
+      substitute unrelated firmware or advertise readiness without startup.
+- [ ] Integrate Bluetooth start/stop, reset, ownership, error reporting,
+      sleep/resume and Wi-Fi/Bluetooth coexistence in the production target.
+- [ ] Connect BLE discovery/advertising and the macOS Bluetooth stack needed
+      by the required AirDrop implementation; no fabricated adapter/state.
+- [ ] Verify protocol behavior with offline source-backed fixtures and record
+      remaining platform assumptions. No physical log, EEPROM dump or pairing
+      test is a prerequisite for completing this source implementation.
+
+## Evidence
+
+Qualcomm describes QCA9565 as a combined WLAN/Bluetooth 4 solution; Dell G66T8
+provides both driver functions and lists Inspiron 5567 support:
+https://www.qualcomm.com/networking-infrastructure/products/qca9565
+https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=g66t8
+
+Linux's independent Bluetooth USB/firmware implementations are useful source
+references, not macOS implementations or evidence of the notebook's USB ID:
+https://github.com/torvalds/linux/blob/v6.12/drivers/bluetooth/ath3k.c
+https://github.com/torvalds/linux/blob/v6.12/drivers/bluetooth/btusb.c

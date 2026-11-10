@@ -1,8 +1,8 @@
 # SimpleATH
 
-**Native Wi-Fi kernel extension for Intel macOS
-Tahoe, targeting the Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036)
-in the Dell Inspiron 5567.**
+**Native Wi-Fi, Bluetooth and AirDrop project for Intel macOS Tahoe,
+targeting the Qualcomm Atheros AR9565 / QCA9565 combo chip (WLAN PCI
+168c:0036) in the Dell Inspiron 5567.**
 
 **Not yet a functional, physically verified Wi-Fi driver.** The last
 authorized binary was a passive device-matching prototype; the substantial
@@ -117,6 +117,39 @@ Implement and integrate those required paths; shared silicon is neither
 proof of automatic support nor evidence that support is impossible.
 Bluetooth/coexistence and AirDrop remain required project goals, with
 observed notebook results recorded in the owner-controlled final test cycle.
+
+## Manual macOS debugging
+
+Open `tools/debug/SimpleATH-debug.command` in Finder, or run it in Terminal:
+
+```sh
+./tools/debug/SimpleATH-debug.command
+```
+
+The launcher uses Python 3.9+ from the macOS development setup. Administrator
+access is mandatory: the collector relaunches through `sudo` and cannot
+collect as an ordinary user. It always creates a new private
+`SimpleATH-debug-YYYYMMDD-HHMMSS-*.log` **beside the tool**, even when launched
+from another directory. The sudo caller owns the log. Reproduce the problem,
+then run it and share that log in this chat. For a longer history:
+
+```sh
+./tools/debug/SimpleATH-debug.command --minutes 30 --timeout 60
+```
+
+The report includes OS/kernel/build identity, loaded kexts, available driver
+file hashes, PCI/USB and AirPort/Bluetooth registry entries, hardware profiles,
+interfaces/routing/DNS, AWDL, power state, recent network crash reports and
+filtered Wi-Fi/Bluetooth/AirDrop/kernel logs. Commands have deadlines and
+output limits; missing commands/devices, errors and truncation remain explicit.
+Logs can contain device/network identifiers and stay excluded from Git.
+The collector does not install/load drivers, change settings, scan radio
+channels, export pairing/password keys or capture network packets. A finished
+report means evidence was collected, not that the driver passed its tests.
+
+The pending run/log-review task is part of the single owner-controlled final
+acceptance TODO. Bluetooth USB/BLE and AirDrop/AWDL source implementation are
+also explicit production TODOs; both must be integrated before source closure.
 
 ## Build for macOS testing
 

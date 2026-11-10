@@ -30,6 +30,8 @@ lint-only cleanup, speculative hardening and conflicting older hold language.
 - [ ] Actual DMA rings, packet buffers, interrupts, completion and recovery.
 - [ ] Native Tahoe Wi-Fi controller/interface and OS packet/event contracts.
 - [ ] Real scan, authentication, association, WPA2/CCMP/key lifecycle and traffic.
+- [ ] QCA9565 Bluetooth USB HCI/firmware/BLE and Wi-Fi coexistence.
+- [ ] Native AWDL/peer-to-peer Wi-Fi plus BLE integration required for AirDrop.
 - [ ] Suspend/resume, disconnect/reconnect, partial failure and teardown.
 - [ ] All required paths are connected to real callers and included in the
       normal production target, without experimental opt-ins, empty methods,

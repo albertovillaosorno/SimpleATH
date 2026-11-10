@@ -21,6 +21,8 @@ dependencies:
   - "native-tahoe-airport"
   - "full-wifi-pipeline"
   - "validator-findings"
+  - "bluetooth-usb"
+  - "airdrop-awdl"
 ---
 
 # TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
@@ -60,6 +62,10 @@ unobserved result or a promise that static review proves first-run success.
 - [ ] Verify the QCA9565 combo chip's Bluetooth USB HCI/firmware integration
       and Wi-Fi/Bluetooth coexistence; record the actual USB identity.
 - [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible Apple devices.
+- [ ] Run `tools/debug/SimpleATH-debug.command` with mandatory sudo on macOS;
+      reproduce the issue, then share the adjacent `SimpleATH-debug-*.log`
+      here. Inspect missing devices, command failures, timestamps and loaded
+      driver identity rather than treating collection completion as success.
 - [ ] Owner posts actual results here; agents coordinate code fixes in their chat
       and commit directly to main, iterating only with new owner permission.
 - [ ] Record real logs/results and remaining limits, never equating theory with success.

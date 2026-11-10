@@ -1,0 +1,50 @@
+---
+schema: simpleath.todo.v1
+id: airdrop-awdl
+status: open
+priority: P0
+lane: platform
+phase: source-only
+hardware_required: false
+dependencies:
+  - "bluetooth-usb"
+  - "native-tahoe-airport"
+scope:
+  - "src/"
+  - "src/Info.plist"
+  - "src/platform/SimpleATH.xcodeproj/"
+---
+
+# TODO - Implement and integrate the AirDrop Wi-Fi/BLE path
+
+## Owner directive
+
+AirDrop is a required project outcome alongside native Wi-Fi and Bluetooth.
+It uses BLE discovery and Apple's peer-to-peer Wi-Fi technology, rather than
+being a file transfer implemented solely by the Bluetooth radio. The combo
+chip must be integrated with the required native macOS protocols.
+
+## Acceptance
+
+- [ ] Research the exact Tahoe native AWDL/interface/packet/event contracts
+      and independently implement the required control and data paths.
+- [ ] Implement peer discovery, action-frame handling, timing and permitted
+      off-channel scheduling appropriate to the single-chain 2.4 GHz AR9565.
+      Do not advertise unavailable 5 GHz or unsupported radio capabilities.
+- [ ] Integrate the Bluetooth BLE and native macOS AirDrop/Continuity paths,
+      including IPv6/multicast discovery and packet ownership where required.
+- [ ] Preserve normal associated Wi-Fi, Bluetooth coexistence, channel/power
+      policy, key lifetimes and suspend/recovery during peer-to-peer work.
+- [ ] Use source-backed offline packet/state fixtures; document actual
+      implemented capabilities and remaining assumptions without synthesizing
+      AirDrop success from an awdl0 name, a registry property or DHCP alone.
+
+All source acceptance above is independent of physical device tests. Actual
+nearby discovery and bidirectional transfer belong to the single final
+owner-controlled acceptance TODO, which remains open until the owner closes it.
+
+## Primary references
+
+https://support.apple.com/en-ie/guide/security-pdf/sec2261183f4/web
+https://github.com/seemoo-lab/owl
+https://arxiv.org/abs/1812.06743

@@ -1,7 +1,8 @@
 # SimpleATH — mandatory instructions for every agent
 
-**Target:** Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036) native Wi-Fi
-for Intel macOS Tahoe on Dell Inspiron 5567.
+**Target:** Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036) native Wi-Fi,
+its combined Bluetooth USB/BLE function, and AirDrop integration for Intel
+macOS Tahoe on Dell Inspiron 5567.
 **Owner:** albertovillaosorno.
 **Development priority:** production implementation and integration first; correction follows real, reproducible failures. Runtime verification is reported separately.
 Read TODO.md, README.md and relevant docs/design/ records before editing.
@@ -34,6 +35,12 @@ be replaced by a passive property publisher or deferred behind hardening.
 
 Continuous hardening runs alongside authorized notebook testing after the
 implementation/validation milestones; it is never an indefinite testing hold.
+
+Wi-Fi, QCA9565 Bluetooth USB/HCI/firmware/BLE and AirDrop/AWDL are required
+source implementation scope. They are not deferred solely to final testing.
+The manual `tools/debug/SimpleATH-debug.command` requires sudo and writes its
+log beside the tool. Implement/test this collector offline; only the owner
+runs it against macOS during the final diagnostic cycle and shares logs here.
 
 Required implementations belong in the normal production target. Do not
 hide them behind experimental feature flags, permanently false readiness

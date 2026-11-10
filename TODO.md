@@ -23,7 +23,8 @@ Owner directive, 2026-11-09. This is the project's highest-priority order:
 1. **Implement the complete production driver, 100%.** Finish and connect
    every required runtime path in the normal build target. Missing PCI,
    RF/PHY/calibration, DMA/interrupts, native AirPort, scan/connect, WPA2,
-   packet delivery, power and recovery behavior takes precedence over
+   packet delivery, Bluetooth USB/BLE, AirDrop/AWDL, power and recovery
+   behavior takes precedence over
    lint-only work or speculative hardening. No passive substitutes, empty
    callbacks, experimental opt-ins or permanently disabled required features.
 2. **Then validate the linters and reach zero failures.** Resolve every
@@ -94,6 +95,20 @@ all required ABI, PCI, NVM, radio, DMA, Wi-Fi and full-pipeline deliverables
 below. It remains open while any required runtime path is absent or disabled.
 
 [docs/todo/open/integration/production-implementation.mdc](docs/todo/open/integration/production-implementation.mdc)
+
+### TODO - QCA9565 Bluetooth USB/BLE implementation
+
+Implement the combo chip's actual Bluetooth USB HCI/firmware, native macOS
+stack integration, power lifecycle and Wi-Fi coexistence in source.
+
+[docs/todo/open/platform/bluetooth-usb.mdc](docs/todo/open/platform/bluetooth-usb.mdc)
+
+### TODO - AirDrop Wi-Fi/BLE implementation
+
+Integrate native AWDL/peer-to-peer Wi-Fi, BLE discovery and the required
+macOS AirDrop packet/event behavior; ordinary WLAN connectivity is insufficient.
+
+[docs/todo/open/platform/airdrop-awdl.mdc](docs/todo/open/platform/airdrop-awdl.mdc)
 
 ### TODO - Tahoe ABI
 
@@ -228,6 +243,11 @@ Every subsequent kernel build still requires successful CI.
 ## P5 — FINAL TODO: owner-controlled physical testing
 
 ### TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
+
+- [ ] Run `tools/debug/SimpleATH-debug.command` on the target Mac with its
+      mandatory sudo elevation. Reproduce the issue, preserve the generated
+      `SimpleATH-debug-*.log` beside the tool and share it in this chat for
+      Wi-Fi/Bluetooth/AirDrop diagnosis and source fixes.
 
 The owner starts separately authorized Dell experiments only after all
 required implementation, zero-failure validation and successful CI, then
