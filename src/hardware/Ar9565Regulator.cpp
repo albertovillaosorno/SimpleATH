@@ -28,6 +28,14 @@ namespace simpleath
     namespace
     {
         constexpr uint32_t kAr9565Pmu1 = 0x16340;
+        constexpr uint32_t kAr9565Xtal = 0x16298;
+        constexpr uint32_t kFeatureTuningCaps = 0x40;
+        constexpr size_t kTuningCapsOffset = 40;
+        constexpr uint32_t kCapMask = 0x7f;
+        constexpr uint32_t kCapInField = 0x7f000000;
+        constexpr uint32_t kCapOutField = 0x00fe0000;
+        constexpr uint32_t kCapInShift = 24;
+        constexpr uint32_t kCapOutShift = 17;
         constexpr uint32_t kPmu1PowerDown = 0x1;
         constexpr uint32_t kFeatureRegulator = 0x10;
         constexpr size_t kFeatureEnableOffset = 42;
@@ -142,6 +150,101 @@ namespace simpleath
             return status;
         }
         if (!allowed(io, status))
+        {
+            return status;
+        }
+        status.result = RegulatorResult::Ok;
+        status.requiresReset = false;
+        return status;
+    }
+
+    XtalTuneProgress
+    configureAr9565XtalCapacitors(const EepromImage &image,
+                                  const RegulatorEvidence &evidence,
+                                  const RxAgcBackend &backend)
+    {
+        XtalTuneProgress status {
+            RegulatorResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0 ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return status;
+        }
+        BoardDataSummary board {};
+        status.result = RegulatorResult::InvalidBoard;
+        if (!image.restored || image.appliedBlocks == 0 ||
+            summarizeBoardData(image, board) != EepromResult::Ok ||
+            board.txChainMask != kOneChain || board.rxChainMask != kOneChain ||
+            !board.calibrationPierBinsPlausible)
+        {
+            return status;
+        }
+        status.result = RegulatorResult::MissingAuthority;
+        if (!evidence.physicalBoardVerified ||
+            !evidence.macAndAutomaticTxQuiesced)
+        {
+            return status;
+        }
+        status.result = RegulatorResult::InvalidBar;
+        if (io.barLengthBytes < kAr9565Xtal + sizeof(uint32_t))
+        {
+            return status;
+        }
+        if ((image.bytes[kFeatureEnableOffset] & kFeatureTuningCaps) == 0)
+        {
+            // No EEPROM XTAL tuning: keep factory PLL analog state.
+            status.result = RegulatorResult::Ok;
+            return status;
+        }
+        const uint32_t cap = image.bytes[kTuningCapsOffset] & kCapMask;
+        status.result = RegulatorResult::OwnershipLost;
+        if (!io.permitWrite(io.context, io.ownerEpoch))
+        {
+            return status;
+        }
+        uint32_t previous = 0;
+        if (!stable.read32(io.context, kAr9565Xtal, &previous))
+        {
+            status.result = RegulatorResult::ReadFailed;
+            return status;
+        }
+        ++status.completedReads;
+        const uint32_t expected = (previous & ~(kCapInField | kCapOutField)) |
+                                  (cap << kCapInShift) | (cap << kCapOutShift);
+        if (!io.permitWrite(io.context, io.ownerEpoch))
+        {
+            return status;
+        }
+        status.programmedXtal = expected;
+        status.requiresReset = true;
+        if (!io.write32(io.context, kAr9565Xtal, expected))
+        {
+            status.result = RegulatorResult::WriteFailed;
+            return status;
+        }
+        ++status.completedWrites;
+        if (!io.permitWrite(io.context, io.ownerEpoch))
+        {
+            return status;
+        }
+        uint32_t observed = 0;
+        if (!stable.read32(io.context, kAr9565Xtal, &observed))
+        {
+            status.result = RegulatorResult::ReadFailed;
+            return status;
+        }
+        ++status.completedReads;
+        if ((observed & (kCapInField | kCapOutField)) !=
+            (expected & (kCapInField | kCapOutField)))
+        {
+            status.result = RegulatorResult::ReadbackMismatch;
+            return status;
+        }
+        if (!io.permitWrite(io.context, io.ownerEpoch))
         {
             return status;
         }

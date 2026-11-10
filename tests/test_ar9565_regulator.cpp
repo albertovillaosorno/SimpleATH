@@ -15,6 +15,16 @@ namespace
 {
     constexpr uint64_t kEpoch = 15;
     constexpr uint32_t kPmu1 = 0x16340;
+    constexpr uint32_t kXtal = 0x16298;
+    constexpr uint32_t kCapMask = 0x7f;
+    constexpr uint32_t kCapInShift = 24;
+    constexpr uint32_t kCapOutShift = 17;
+    constexpr uint32_t kCapInField = 0x7f000000;
+    constexpr uint32_t kCapOutField = 0x00fe0000;
+    constexpr uint8_t kTuningFeature = 0x40;
+    constexpr uint8_t kTuningValue = 0x5a;
+    constexpr size_t kTuningValueOffset = 40;
+    constexpr int kBadTuning = 5;
     constexpr uint32_t kBar = 0x20000;
     constexpr uint32_t kInitial = 0xa0;
     constexpr uint32_t kSwreg = 0x12345678;
@@ -53,6 +63,7 @@ namespace
     struct Mock
     {
             uint32_t pmu1 = kInitial;
+            uint32_t xtal = kInitial;
             size_t reads {};
             size_t writes {};
             size_t permits {};
@@ -75,11 +86,12 @@ namespace
     {
         auto &mock = *static_cast<Mock *>(context);
         ++mock.reads;
-        if (mock.failRead || offset != kPmu1 || result == nullptr)
+        if (mock.failRead || (offset != kPmu1 && offset != kXtal) ||
+            result == nullptr)
         {
             return false;
         }
-        *result = mock.pmu1;
+        *result = offset == kPmu1 ? mock.pmu1 : mock.xtal;
         return true;
     }
 
@@ -88,13 +100,20 @@ namespace
     {
         auto &mock = *static_cast<Mock *>(context);
         ++mock.writes;
-        if (mock.failWrite || offset != kPmu1)
+        if (mock.failWrite || (offset != kPmu1 && offset != kXtal))
         {
             return false;
         }
         if (!mock.skipWrite)
         {
-            mock.pmu1 = value;
+            if (offset == kPmu1)
+            {
+                mock.pmu1 = value;
+            }
+            else
+            {
+                mock.xtal = value;
+            }
         }
         return true;
     }
@@ -137,6 +156,69 @@ namespace
     RegulatorEvidence authorized()
     {
         return {true, true};
+    }
+
+    int testTuningCaps(EepromImage board, RegulatorEvidence evidence)
+    {
+        // EEPROM may disable tuning caps; untouched XTAL means no guessed
+        // analog values. Bit6 selects identical input/output caps, preserving
+        // other bits.
+        {
+            Mock mock {};
+            const XtalTuneProgress untuned =
+                configureAr9565XtalCapacitors(board, evidence, backend(mock));
+            if (untuned.result != RegulatorResult::Ok ||
+                untuned.requiresReset || mock.writes != 0 || mock.reads != 0)
+            {
+                return kBadTuning;
+            }
+            board.bytes[kEnableOffset] = kTuningFeature;
+            board.bytes[kTuningValueOffset] = kTuningValue;
+            const XtalTuneProgress tuned =
+                configureAr9565XtalCapacitors(board, evidence, backend(mock));
+            const uint32_t cap = kTuningValue & kCapMask;
+            const uint32_t expected =
+                (kInitial & ~(kCapInField | kCapOutField)) |
+                (cap << kCapInShift) | (cap << kCapOutShift);
+            if (tuned.result != RegulatorResult::Ok || tuned.requiresReset ||
+                tuned.completedWrites != 1 || tuned.completedReads != 2 ||
+                tuned.programmedXtal != expected || mock.xtal != expected ||
+                mock.pmu1 != kInitial)
+            {
+                return kBadTuning;
+            }
+        }
+        {
+            Mock mock {};
+            auto tooShort = backend(mock);
+            tooShort.io.barLengthBytes = kXtal;
+            if (configureAr9565XtalCapacitors(board, evidence, tooShort)
+                        .result != RegulatorResult::InvalidBar ||
+                mock.writes != 0)
+            {
+                return kBadTuning;
+            }
+            mock.skipWrite = true;
+            const XtalTuneProgress mismatch =
+                configureAr9565XtalCapacitors(board, evidence, backend(mock));
+            if (mismatch.result != RegulatorResult::ReadbackMismatch ||
+                !mismatch.requiresReset || mock.writes != 1)
+            {
+                return kBadTuning;
+            }
+        }
+        {
+            Mock mock {};
+            mock.revokeAfterWrite = true;
+            const XtalTuneProgress revoked =
+                configureAr9565XtalCapacitors(board, evidence, backend(mock));
+            if (revoked.result != RegulatorResult::OwnershipLost ||
+                !revoked.requiresReset || mock.writes != 1)
+            {
+                return kBadTuning;
+            }
+        }
+        return 0;
     }
 } // namespace
 
@@ -226,6 +308,11 @@ int main()
         {
             return kBadFailure;
         }
+    }
+    const int tuneResult = testTuningCaps(board, evidence);
+    if (tuneResult != 0)
+    {
+        return tuneResult;
     }
     return 0;
 }

@@ -51,5 +51,21 @@ namespace simpleath
     configureAr9565InternalRegulator(const EepromImage &image,
                                      const RegulatorEvidence &evidence,
                                      const RxAgcBackend &backend);
+
+    // ath9k ar9003_hw_apply_tuning_caps: EEPROM bit6 selects the physical
+    // 7-bit IN/OUT XTAL load-cap DAC value. Unset means no hardware writes.
+    struct XtalTuneProgress
+    {
+            RegulatorResult result;
+            uint32_t programmedXtal;
+            size_t completedReads;
+            size_t completedWrites;
+            bool requiresReset;
+    };
+
+    XtalTuneProgress
+    configureAr9565XtalCapacitors(const EepromImage &image,
+                                  const RegulatorEvidence &evidence,
+                                  const RxAgcBackend &backend);
 } // namespace simpleath
 #endif
