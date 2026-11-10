@@ -56,6 +56,7 @@ namespace
         Recache = 15,
         Readback = 16,
         InvalidChip = 17,
+        RevokedAfterWrite = 18,
     };
     constexpr uint32_t kBar = 0xa000U;
     constexpr uint32_t kFirstStep = 0x9e10U;
@@ -81,6 +82,7 @@ namespace
             std::array<uint32_t, kBar / sizeof(uint32_t)> registers {};
             size_t reads {};
             size_t writes {};
+            size_t revokeAtWrite {};
             bool live {true};
             uint32_t failedRead {};
             uint32_t failedWrite {};
@@ -118,6 +120,10 @@ namespace
             return false;
         }
         fake.registers.at(offset / 4U) = value;
+        if (fake.revokeAtWrite != 0U && fake.writes >= fake.revokeAtWrite)
+        {
+            fake.changedEpoch = true;
+        }
         return true;
     }
 
@@ -404,6 +410,27 @@ static int checkReadWriteFailures()
         !mismatch.requiresReset || old.initialized)
     {
         return static_cast<int>(TestExit::Readback);
+    }
+    // A posted first write may revoke RF ownership before its readback:
+    // stop immediately, require reset and never export a valid baseline.
+    Fake revoked {};
+    setIni(revoked);
+    Ar9565AniState revokedState {};
+    if (cacheAr9565AniIniDefaults(channel(), permitted(), backend(revoked),
+                                  revokedState)
+            .result != AniResult::Ok)
+    {
+        return static_cast<int>(TestExit::RevokedAfterWrite);
+    }
+    revoked.revokeAtWrite = 1U;
+    const auto midWriteRevoke = programAr9565AniLevels(
+        channel(), permitted(), backend(revoked), revokedState,
+        kFirstLevelOnFailure, kSpurLevelOnFailure);
+    if (midWriteRevoke.result != AniResult::OwnershipLost ||
+        midWriteRevoke.completedWrites != 1U || !midWriteRevoke.requiresReset ||
+        revokedState.initialized || revoked.writes != 1U)
+    {
+        return static_cast<int>(TestExit::RevokedAfterWrite);
     }
     return 0;
 }
