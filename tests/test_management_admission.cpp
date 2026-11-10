@@ -6,6 +6,173 @@
 
 namespace
 {
+    // Exact synthetic over-the-air bytes, corrupted input sizes and expected
+    // fixture statuses are named, not inferred from untrusted frame lengths.
+    constexpr auto kFixtureInt5 = 5;
+    constexpr auto kFixtureInt6 = 6;
+    constexpr auto kFixtureInt7 = 7;
+    constexpr auto kFixtureHex08 = 0x08;
+    constexpr auto kFixtureInt8 = 8;
+    constexpr auto kFixtureInt9 = 9;
+    constexpr auto kFixtureInt10 = 10;
+    constexpr auto kFixtureInt11 = 11;
+    constexpr auto kFixtureHex0c = 0x0c;
+    constexpr auto kFixtureInt12 = 12;
+    constexpr auto kFixtureInt13 = 13;
+    constexpr auto kFixtureInt14 = 14;
+    constexpr auto kFixtureInt15 = 15;
+    constexpr auto kFixtureHex10 = 0x10;
+    constexpr auto kFixtureInt16 = 16;
+    constexpr auto kFixtureHex11 = 0x11;
+    constexpr auto kFixtureHex11U = 0x11U;
+    constexpr auto kFixtureInt17 = 17;
+    constexpr auto kFixtureHex12 = 0x12;
+    constexpr auto kFixtureInt18 = 18;
+    constexpr auto kFixtureInt19 = 19;
+    constexpr auto kFixtureInt20 = 20;
+    constexpr auto kFixtureInt21 = 21;
+    constexpr auto kFixtureInt22 = 22;
+    constexpr auto kFixtureInt23 = 23;
+    constexpr auto kFixtureInt24 = 24;
+    constexpr auto kFixtureInt25 = 25;
+    constexpr auto kFixtureInt26 = 26;
+    constexpr auto kFixtureInt28 = 28;
+    constexpr auto kFixtureInt29 = 29;
+    constexpr auto kFixtureInt30 = 30;
+    constexpr auto kFixtureInt31 = 31;
+    constexpr auto kFixtureInt32 = 32;
+    constexpr auto kFixtureInt33 = 33;
+    constexpr auto kFixtureHex22 = 0x22;
+    constexpr auto kFixtureInt34 = 34;
+    constexpr auto kFixtureInt35 = 35;
+    constexpr auto kFixtureInt36 = 36;
+    constexpr auto kFixtureInt37 = 37;
+    constexpr auto kFixtureInt38 = 38;
+    constexpr auto kFixtureInt39 = 39;
+    constexpr auto kFixtureInt40 = 40;
+    constexpr auto kFixtureInt41 = 41;
+    constexpr auto kFixtureInt42 = 42;
+    constexpr auto kFixtureInt43 = 43;
+    constexpr auto kFixtureInt44 = 44;
+    constexpr auto kFixtureInt45 = 45;
+    constexpr auto kFixtureInt46 = 46;
+    constexpr auto kFixtureInt47 = 47;
+    constexpr auto kFixtureInt48 = 48;
+    constexpr auto kFixtureInt50 = 50;
+    constexpr auto kFixtureInt55 = 55;
+    constexpr auto kFixtureInt61 = 61;
+    constexpr auto kFixtureHex40 = 0x40;
+    constexpr auto kFixtureInt64 = 64;
+    constexpr auto kFixtureHex44 = 0x44;
+    constexpr auto kFixtureInt77 = 77;
+    constexpr auto kFixtureHex50 = 0x50;
+    constexpr auto kFixtureHex55 = 0x55;
+    constexpr auto kFixtureInt88 = 88;
+    constexpr auto kFixtureHex5a = 0x5a;
+    constexpr auto kFixtureInt96 = 96;
+    constexpr auto kFixtureInt99 = 99;
+    constexpr auto kFixtureInt100 = 100;
+    constexpr auto kFixtureInt123 = 123;
+    constexpr auto kFixtureHex7f = 0x7f;
+    constexpr auto kFixtureHex80 = 0x80;
+    constexpr auto kFixtureInt128 = 128;
+    constexpr auto kFixtureHex82 = 0x82;
+    constexpr auto kFixtureHex84 = 0x84;
+    constexpr auto kFixtureHex8c = 0x8c;
+    constexpr auto kFixtureHexa5 = 0xa5;
+    constexpr auto kFixtureHexb0 = 0xb0;
+    constexpr auto kFixtureHexc0 = 0xc0;
+    constexpr auto kFixtureHexdd = 0xdd;
+    constexpr auto kFixtureInt221 = 221;
+    constexpr auto kFixtureHexfe = 0xfe;
+    constexpr auto kFixtureHexff = 0xff;
+    constexpr auto kFixtureInt321 = 321;
+    constexpr auto kFixtureInt456 = 456;
+    constexpr auto kFixtureInt543 = 543;
+    constexpr auto kFixtureInt777 = 777;
+    constexpr auto kFixtureInt789 = 789;
+    constexpr auto kFixtureInt888 = 888;
+    constexpr auto kFixtureInt999 = 999;
+    constexpr auto kFixtureHexffff = 0xffff;
+    constexpr auto kFixtureHexffffU = 0xffffU;
+    constexpr auto kFixtureHex11223344U = 0x11223344U;
+
+    template <typename T, size_t N> T *arrayData(T (&array)[N])
+    {
+        return &array[0U];
+    }
+
+    template <typename T, size_t N> T &arrayAt(T (&array)[N], size_t index)
+    {
+        for (T &item : array)
+        {
+            if (index == 0U)
+            {
+                return item;
+            }
+            --index;
+        }
+        __builtin_trap();
+    }
+
+    // These tests intentionally alias an output object with hostile input
+    // bytes; copy the pointer representation rather than type-punning it.
+    // Byte-preserving pointer conversion is required when the fixture
+    // deliberately aliases raw input and the corresponding output object.
+    template <typename T> uint8_t *byteView(T &object)
+    {
+        const T *const original = &object;
+        uintptr_t address = 0U;
+        static_assert(sizeof(const T *) == sizeof(address),
+                      "Host pointer width required for alias regression");
+        __builtin_memcpy(static_cast<void *>(&address),
+                         static_cast<const void *>(&original), sizeof(address));
+        uint8_t *result = nullptr;
+        __builtin_memcpy(static_cast<void *>(&result),
+                         static_cast<const void *>(&address), sizeof(result));
+        return result;
+    }
+
+    template <typename T> const uint8_t *byteView(const T &object)
+    {
+        const T *const original = &object;
+        uintptr_t address = 0U;
+        static_assert(sizeof(const T *) == sizeof(address),
+                      "Host pointer width required for alias regression");
+        __builtin_memcpy(static_cast<void *>(&address),
+                         static_cast<const void *>(&original), sizeof(address));
+        const uint8_t *result = nullptr;
+        __builtin_memcpy(static_cast<void *>(&result),
+                         static_cast<const void *>(&address), sizeof(result));
+        return result;
+    }
+
+    uint8_t *byteAt(uint8_t *base, size_t extent, size_t index)
+    {
+        if (base == nullptr || index >= extent)
+        {
+            __builtin_trap();
+        }
+        uintptr_t address = 0U;
+        static_assert(sizeof(uint8_t *) == sizeof(address),
+                      "Host byte pointer must fit an address");
+        __builtin_memcpy(static_cast<void *>(&address),
+                         static_cast<const void *>(&base), sizeof(address));
+        if (index == 0U)
+        {
+            return base;
+        }
+        if (index > UINTPTR_MAX - address)
+        {
+            __builtin_trap();
+        }
+        address += index;
+        uint8_t *result = nullptr;
+        __builtin_memcpy(static_cast<void *>(&result),
+                         static_cast<const void *>(&address), sizeof(result));
+        return result;
+    }
+
     using namespace simpleath::ieee80211;
 
     constexpr size_t kBeaconBytes = 49;
@@ -13,50 +180,52 @@ namespace
     constexpr uint8_t kAp[6] {0x02, 0x11, 0x22, 0x33, 0x44, 0x55};
     constexpr uint8_t kStation[6] {0x02, 0x66, 0x77, 0x88, 0x99, 0xaa};
 
-    void makeBeacon(uint8_t out[kBeaconBytes])
+    template <size_t N> void makeBeacon(uint8_t (&out)[N])
     {
-        std::memset(out, 0, kBeaconBytes);
-        out[0] = 0x80; // Beacon management subtype.
-        std::memset(out + 4, 0xff, 6);
-        std::memcpy(out + 10, kAp, 6);
-        std::memcpy(out + 16, kAp, 6);
-        out[32] = 100; // Beacon interval.
-        out[34] = 1;   // Infrastructure BSS.
-        out[36] = 0;   // SSID element.
-        out[37] = 4;
-        std::memcpy(out + 38, "Test", 4);
-        out[42] = 1; // Supported Rates.
-        out[43] = 2;
-        out[44] = 0x82;
-        out[45] = 0x84;
-        out[46] = 3; // DS parameter set.
-        out[47] = 1;
-        out[48] = 6;
+        static_assert(N >= kBeaconBytes, "Beacon fixture capacity");
+        std::memset(arrayData(out), 0, kBeaconBytes);
+        out[0] = kFixtureHex80; // Beacon management subtype.
+        std::memset(&arrayAt(out, 4), kFixtureHexff, kFixtureInt6);
+        std::memcpy(&arrayAt(out, kFixtureInt10), arrayData(kAp), kFixtureInt6);
+        std::memcpy(&arrayAt(out, kFixtureInt16), arrayData(kAp), kFixtureInt6);
+        out[kFixtureInt32] = kFixtureInt100; // Beacon interval.
+        out[kFixtureInt34] = 1;              // Infrastructure BSS.
+        out[kFixtureInt36] = 0;              // SSID element.
+        out[kFixtureInt37] = 4;
+        std::memcpy(&arrayAt(out, kFixtureInt38), "Test", 4);
+        out[kFixtureInt42] = 1; // Supported Rates.
+        out[kFixtureInt43] = 2;
+        out[kFixtureInt44] = kFixtureHex82;
+        out[kFixtureInt45] = kFixtureHex84;
+        out[kFixtureInt46] = 3; // DS parameter set.
+        out[kFixtureInt47] = 1;
+        out[kFixtureInt48] = kFixtureInt6;
     }
 
-    void makeAssoc(uint8_t out[kAssocBytes])
+    template <size_t N> void makeAssoc(uint8_t (&out)[N])
     {
-        std::memset(out, 0, kAssocBytes);
-        out[0] = 0x10; // Association response.
-        std::memcpy(out + 4, kStation, 6);
-        std::memcpy(out + 10, kAp, 6);
-        std::memcpy(out + 16, kAp, 6);
-        out[24] = 1;    // Infrastructure capability.
-        out[28] = 0x01; // AID 1, with required top two bits set.
-        out[29] = 0xc0;
-        out[30] = 1; // Supported rates IE.
-        out[31] = 2;
-        out[32] = 0x82;
-        out[33] = 0x84;
+        static_assert(N >= kAssocBytes, "Assoc fixture capacity");
+        std::memset(arrayData(out), 0, kAssocBytes);
+        out[0] = kFixtureHex10; // Association response.
+        std::memcpy(&arrayAt(out, 4), arrayData(kStation), kFixtureInt6);
+        std::memcpy(&arrayAt(out, kFixtureInt10), arrayData(kAp), kFixtureInt6);
+        std::memcpy(&arrayAt(out, kFixtureInt16), arrayData(kAp), kFixtureInt6);
+        out[kFixtureInt24] = 1;    // Infrastructure capability.
+        out[kFixtureInt28] = 0x01; // AID 1, with required top two bits set.
+        out[kFixtureInt29] = kFixtureHexc0;
+        out[kFixtureInt30] = 1; // Supported rates IE.
+        out[kFixtureInt31] = 2;
+        out[kFixtureInt32] = kFixtureHex82;
+        out[kFixtureInt33] = kFixtureHex84;
     }
 
     bool rejectStaleElementCursorViews()
     {
         uint8_t valid[] {0, 1, 'A'};
-        Elements cursor(valid, sizeof(valid));
+        Elements cursor(arrayData(valid), sizeof(valid));
         Element item {};
         if (cursor.next(item) != CursorStatus::Element || item.id != 0 ||
-            item.length != 1 || item.data != valid + 2)
+            item.length != 1 || item.data != &arrayAt(valid, 2))
         {
             return false;
         }
@@ -69,9 +238,9 @@ namespace
         }
 
         uint8_t truncated[] {0, 1, 'B', 2, 3, 'C'};
-        Elements malformed(truncated, sizeof(truncated));
+        Elements malformed(arrayData(truncated), sizeof(truncated));
         if (malformed.next(item) != CursorStatus::Element ||
-            item.data != truncated + 2)
+            item.data != &arrayAt(truncated, 2))
         {
             return false;
         }
@@ -89,22 +258,22 @@ namespace
         struct Storage
         {
                 Element output;
-                uint8_t tail[16];
+                uint8_t tail[kFixtureInt16];
         } storage {};
 
-        auto *frame = reinterpret_cast<uint8_t *>(&storage);
-        frame[0] = 0;
-        frame[1] = 0;
+        auto *frame = byteView(storage);
+        *byteAt(frame, sizeof(storage), 0U) = 0U;
+        *byteAt(frame, sizeof(storage), 1U) = 0U;
         uint8_t original[sizeof(storage)] {};
-        std::memcpy(original, frame, sizeof(storage));
+        std::memcpy(arrayData(original), frame, sizeof(storage));
         Elements aliased(frame, sizeof(storage));
         if (aliased.next(storage.output) != CursorStatus::Truncated ||
-            std::memcmp(original, frame, sizeof(storage)) != 0)
+            std::memcmp(arrayData(original), frame, sizeof(storage)) != 0)
         {
             return false;
         }
         if (aliased.next(item) != CursorStatus::Element || item.id != 0 ||
-            item.length != 0 || item.data != frame + 2)
+            item.length != 0 || item.data != byteAt(frame, sizeof(storage), 2U))
         {
             return false;
         }
@@ -120,26 +289,30 @@ namespace
         uint8_t frame[kMaximumMpduBytes + 1] {};
         makeBeacon(frame);
         Frame header {};
-        if (parseFrame(frame, kMaximumMpduBytes, header) != Result::Ok ||
+        if (parseFrame(arrayData(frame), kMaximumMpduBytes, header) !=
+                Result::Ok ||
             header.type != FrameType::Management)
         {
             return false;
         }
-        if (parseFrame(frame, sizeof(frame), header) != Result::InvalidFrame ||
+        if (parseFrame(arrayData(frame), sizeof(frame), header) !=
+                Result::InvalidFrame ||
             (header.headerLength != 0U) || (header.subtype != 0U))
         {
             return false;
         }
         Beacon beacon {};
-        if (parseBeacon(frame, sizeof(frame), beacon) != Result::InvalidFrame ||
+        if (parseBeacon(arrayData(frame), sizeof(frame), beacon) !=
+                Result::InvalidFrame ||
             (beacon.ssidLength != 0U) ||
             beacon.rsn.security != Security::UnsupportedRsn)
         {
             return false;
         }
         // Data MPDUs keep their own, stricter admission/fragmentation gates.
-        frame[0] = 0x08;
-        return parseFrame(frame, sizeof(frame), header) == Result::Ok &&
+        frame[0] = kFixtureHex08;
+        return parseFrame(arrayData(frame), sizeof(frame), header) ==
+                   Result::Ok &&
                header.type == FrameType::Data;
     }
 
@@ -148,18 +321,22 @@ namespace
         uint8_t frame[kBeaconBytes] {};
         makeBeacon(frame);
         Beacon parsed {};
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok ||
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+                Result::Ok ||
             !parsed.infrastructure || parsed.hiddenSsid ||
-            parsed.channel != 6 || parsed.intervalTu != 100 ||
-            parsed.rateCount != 2 || parsed.rates[0] != 0x82 ||
-            parsed.ssidLength != 4 || parsed.ssid[0] != 'T')
+            parsed.channel != kFixtureInt6 ||
+            parsed.intervalTu != kFixtureInt100 || parsed.rateCount != 2 ||
+            parsed.rates[0] != kFixtureHex82 || parsed.ssidLength != 4 ||
+            parsed.ssid[0] != 'T')
         {
             return false;
         }
         Frame header {};
-        return parseFrame(frame, sizeof(frame), header) == Result::Ok &&
-               header.type == FrameType::Management && header.subtype == 8 &&
-               !header.moreFragments && header.fragment == 0;
+        return parseFrame(arrayData(frame), sizeof(frame), header) ==
+                   Result::Ok &&
+               header.type == FrameType::Management &&
+               header.subtype == kFixtureInt8 && !header.moreFragments &&
+               header.fragment == 0;
     }
 
     bool rejectZeroBeaconInterval()
@@ -170,13 +347,14 @@ namespace
         uint8_t frame[kBeaconBytes] {};
         makeBeacon(frame);
         Beacon parsed {};
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok)
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) != Result::Ok)
         {
             return false;
         }
-        frame[32] = 0;
-        frame[33] = 0;
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::InvalidFrame ||
+        frame[kFixtureInt32] = 0;
+        frame[kFixtureInt33] = 0;
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+                Result::InvalidFrame ||
             parsed.intervalTu != 0 || parsed.ssidLength != 0 ||
             parsed.bssid.bytes[0] != 0 ||
             parsed.rsn.security != Security::UnsupportedRsn)
@@ -184,10 +362,11 @@ namespace
             return false;
         }
         makeBeacon(frame);
-        frame[0] = 0x50; // A directed Probe Response has the same fixed fields.
-        std::memcpy(frame + 4, kStation, 6);
-        frame[32] = 0;
-        return parseBeacon(frame, sizeof(frame), parsed) ==
+        frame[0] = kFixtureHex50; // A directed Probe Response has the same
+                                  // fixed fields.
+        std::memcpy(&arrayAt(frame, 4), arrayData(kStation), kFixtureInt6);
+        frame[kFixtureInt32] = 0;
+        return parseBeacon(arrayData(frame), sizeof(frame), parsed) ==
                    Result::InvalidFrame &&
                parsed.intervalTu == 0 && parsed.ssidLength == 0;
     }
@@ -198,37 +377,41 @@ namespace
         makeBeacon(frame);
         // A hidden AP can advertise a fixed-length, entirely zero SSID.
         // It must not be serialized into an association as a visible name.
-        std::memset(frame + 38, 0, 4);
+        std::memset(&arrayAt(frame, kFixtureInt38), 0, 4);
         Beacon hidden {};
-        if (parseBeacon(frame, sizeof(frame), hidden) != Result::Ok ||
+        if (parseBeacon(arrayData(frame), sizeof(frame), hidden) !=
+                Result::Ok ||
             !hidden.hiddenSsid || hidden.ssidLength != 4)
         {
             return false;
         }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[96] {};
-        std::memset(output, 0xa5, sizeof(output));
-        size_t written = 77;
-        if (makeAssociationRequest(station, hidden, 1, output, sizeof(output),
+        uint8_t output[kFixtureInt96] {};
+        std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
+        size_t written = kFixtureInt77;
+        if (makeAssociationRequest(station, hidden, 1, arrayData(output),
+                                   sizeof(output),
                                    written) != Result::InvalidSsid ||
-            written != 0 || output[0] != 0xa5)
+            written != 0 || output[0] != kFixtureHexa5)
         {
             return false;
         }
         // A forged Beacon may lie about its hidden flag. Only a genuinely
         // nonzero visible name should be eligible for serialization.
         hidden.hiddenSsid = false;
-        written = 77;
-        if (makeAssociationRequest(station, hidden, 2, output, sizeof(output),
+        written = kFixtureInt77;
+        if (makeAssociationRequest(station, hidden, 2, arrayData(output),
+                                   sizeof(output),
                                    written) != Result::InvalidSsid ||
-            written != 0 || output[0] != 0xa5)
+            written != 0 || output[0] != kFixtureHexa5)
         {
             return false;
         }
         makeBeacon(frame);
         Beacon visible {};
-        return parseBeacon(frame, sizeof(frame), visible) == Result::Ok &&
-               makeAssociationRequest(station, visible, 3, output,
+        return parseBeacon(arrayData(frame), sizeof(frame), visible) ==
+                   Result::Ok &&
+               makeAssociationRequest(station, visible, 3, arrayData(output),
                                       sizeof(output), written) == Result::Ok &&
                written != 0 && output[0] == 0;
     }
@@ -238,40 +421,42 @@ namespace
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
         Beacon network {};
-        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
-            Result::Ok)
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        network) != Result::Ok)
         {
             return false;
         }
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[128] {};
-        std::memset(output, 0xa5, sizeof(output));
-        size_t written = 77;
+        uint8_t output[kFixtureInt128] {};
+        std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
+        size_t written = kFixtureInt77;
         // Public serializers can be called without Station::select.
         // Refuse a self-AP identity before publishing any on-air bytes.
-        if (makeOpenAuthenticationRequest(ap, ap, 1, output, sizeof(output),
+        if (makeOpenAuthenticationRequest(ap, ap, 1, arrayData(output),
+                                          sizeof(output),
                                           written) != Result::InvalidAddress ||
-            written != 0 || output[0] != 0xa5)
+            written != 0 || output[0] != kFixtureHexa5)
         {
             return false;
         }
-        written = 77;
-        if (makeAssociationRequest(ap, network, 2, output, sizeof(output),
+        written = kFixtureInt77;
+        if (makeAssociationRequest(ap, network, 2, arrayData(output),
+                                   sizeof(output),
                                    written) != Result::InvalidAddress ||
-            written != 0 || output[0] != 0xa5)
+            written != 0 || output[0] != kFixtureHexa5)
         {
             return false;
         }
         // Ordinary distinct station/AP addresses remain accepted.
-        if (makeOpenAuthenticationRequest(station, ap, 3, output,
+        if (makeOpenAuthenticationRequest(station, ap, 3, arrayData(output),
                                           sizeof(output),
                                           written) != Result::Ok ||
-            written != 30)
+            written != kFixtureInt30)
         {
             return false;
         }
-        return makeAssociationRequest(station, network, 4, output,
+        return makeAssociationRequest(station, network, 4, arrayData(output),
                                       sizeof(output), written) == Result::Ok &&
                written != 0;
     }
@@ -281,45 +466,61 @@ namespace
         uint8_t frame[kBeaconBytes] {};
         makeBeacon(frame);
         Beacon out {};
-        frame[1] |= 0x04; // More Fragments on initial fragment.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::UnsupportedFrame)
+        frame[1] = static_cast<uint8_t>(
+            static_cast<unsigned>(frame[1]) |
+            static_cast<unsigned>(0x04)); // More Fragments on initial fragment.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::UnsupportedFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[22] = 0x01; // Nonzero fragment index.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::UnsupportedFrame)
+        frame[kFixtureInt22] = 0x01; // Nonzero fragment index.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::UnsupportedFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[15] ^= 0x02; // AP's source differs from BSSID.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
+        frame[kFixtureInt15] = static_cast<uint8_t>(
+            static_cast<unsigned>(frame[kFixtureInt15]) ^
+            static_cast<unsigned>(0x02)); // AP's source differs from BSSID.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::InvalidFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        std::memcpy(frame + 4, kStation, 6); // Beacon must be broadcast.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
+        std::memcpy(&arrayAt(frame, 4), arrayData(kStation),
+                    kFixtureInt6); // Beacon must be broadcast.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::InvalidFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[4] = 0xfe; // Other group-addressed beacons are not broadcast.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidFrame)
+        frame[4] =
+            kFixtureHexfe; // Other group-addressed beacons are not broadcast.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::InvalidFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[0] = 0x50; // A Probe Response may be directed to our station.
-        std::memcpy(frame + 4, kStation, 6);
-        if (parseBeacon(frame, sizeof(frame), out) != Result::Ok)
+        frame[0] =
+            kFixtureHex50; // A Probe Response may be directed to our station.
+        std::memcpy(&arrayAt(frame, 4), arrayData(kStation), kFixtureInt6);
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) != Result::Ok)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[1] |= 0x40; // Protected management frame without decrypt.
-        return parseBeacon(frame, sizeof(frame), out) == Result::InvalidFrame;
+        frame[1] = static_cast<uint8_t>(
+            static_cast<unsigned>(frame[1]) |
+            static_cast<unsigned>(
+                kFixtureHex40)); // Protected management frame without decrypt.
+        return parseBeacon(arrayData(frame), sizeof(frame), out) ==
+               Result::InvalidFrame;
     }
 
     bool rejectConflictingBssModes()
@@ -329,20 +530,24 @@ namespace
         Beacon parsed {};
         // IEEE 802.11 ESS and IBSS are mutually exclusive. A forged
         // advertisement setting both must not be selected as infrastructure.
-        frame[34] = 3;
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::InvalidFrame)
+        frame[kFixtureInt34] = 3;
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+            Result::InvalidFrame)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[34] = 2; // A legitimate IBSS remains non-infrastructure.
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok ||
+        frame[kFixtureInt34] =
+            2; // A legitimate IBSS remains non-infrastructure.
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+                Result::Ok ||
             parsed.infrastructure)
         {
             return false;
         }
         makeBeacon(frame);
-        return parseBeacon(frame, sizeof(frame), parsed) == Result::Ok &&
+        return parseBeacon(arrayData(frame), sizeof(frame), parsed) ==
+                   Result::Ok &&
                parsed.infrastructure;
     }
 
@@ -351,22 +556,23 @@ namespace
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
         Beacon network {};
-        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
-            Result::Ok)
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        network) != Result::Ok)
         {
             return false;
         }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[128] {};
+        uint8_t output[kFixtureInt128] {};
         const auto rejected = [&]() -> bool
         {
-            std::memset(output, 0xa5, sizeof(output));
-            size_t written = 47;
+            std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
+            size_t written = kFixtureInt47;
             const size_t needed = associationRequestLength(network);
-            const Result result = makeAssociationRequest(
-                station, network, 1, output, sizeof(output), written);
+            const Result result =
+                makeAssociationRequest(station, network, 1, arrayData(output),
+                                       sizeof(output), written);
             return needed == 0 && result == Result::InvalidFrame &&
-                   written == 0 && output[0] == 0xa5;
+                   written == 0 && output[0] == kFixtureHexa5;
         };
 
         // Public clients can synthesize Beacon metadata without parseBeacon
@@ -377,21 +583,21 @@ namespace
         {
             return false;
         }
-        network.intervalTu = 100;
+        network.intervalTu = kFixtureInt100;
         network.channel = 0;
         if (!rejected())
         {
             return false;
         }
-        network.channel = 15;
+        network.channel = kFixtureInt15;
         if (!rejected())
         {
             return false;
         }
-        network.channel = 6;
+        network.channel = kFixtureInt6;
         size_t written = 0;
         return associationRequestLength(network) != 0 &&
-               makeAssociationRequest(station, network, 2, output,
+               makeAssociationRequest(station, network, 2, arrayData(output),
                                       sizeof(output), written) == Result::Ok &&
                written != 0 && output[0] == 0;
     }
@@ -401,25 +607,25 @@ namespace
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
         Beacon network {};
-        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
-            Result::Ok)
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        network) != Result::Ok)
         {
             return false;
         }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[128] {};
-        std::memset(output, 0xa5, sizeof(output));
+        uint8_t output[kFixtureInt128] {};
+        std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
         // A caller-built Beacon can forge the infrastructure flag. The
         // serializer must independently enforce ESS-only capabilities.
         const uint16_t invalidModes[] {0U, 2U, 3U};
         for (const uint16_t mode : invalidModes)
         {
             network.capabilities = mode;
-            size_t written = 77;
+            size_t written = kFixtureInt77;
             if (makeAssociationRequest(station, network, 1, output,
                                        sizeof(output),
                                        written) != Result::InvalidFrame ||
-                written != 0 || output[0] != 0xa5)
+                written != 0 || output[0] != kFixtureHexa5)
             {
                 return false;
             }
@@ -427,7 +633,7 @@ namespace
         // Correct infrastructure metadata still produces a request.
         network.capabilities = 1U;
         size_t written = 0;
-        return makeAssociationRequest(station, network, 2, output,
+        return makeAssociationRequest(station, network, 2, arrayData(output),
                                       sizeof(output), written) == Result::Ok &&
                written != 0 && output[0] == 0;
     }
@@ -437,27 +643,27 @@ namespace
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
         Beacon network {};
-        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
-            Result::Ok)
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        network) != Result::Ok)
         {
             return false;
         }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[128] {};
+        uint8_t output[kFixtureInt128] {};
         const auto rejected = [&]() -> bool
         {
-            std::memset(output, 0xa5, sizeof(output));
-            size_t written = 37;
-            return makeAssociationRequest(station, network, 1, output,
-                                          sizeof(output),
+            std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
+            size_t written = kFixtureInt37;
+            return makeAssociationRequest(station, network, 1,
+                                          arrayData(output), sizeof(output),
                                           written) == Result::InvalidSecurity &&
-                   written == 0 && output[0] == 0xa5;
+                   written == 0 && output[0] == kFixtureHexa5;
         };
 
         // Beacon::rsn.security and RSN suite flags are caller-controlled.
         // Neither an Open downgrade of a privacy BSS, nor a forged WPA2
         // upgrade without a real matching RSNE, may emit association bytes.
-        network.capabilities = 0x11U; // Privacy on but labeled Open.
+        network.capabilities = kFixtureHex11U; // Privacy on but labeled Open.
         if (!rejected())
         {
             return false;
@@ -473,7 +679,7 @@ namespace
         { // Privacy off, RSNE absent.
             return false;
         }
-        network.capabilities = 0x11U;
+        network.capabilities = kFixtureHex11U;
         if (!rejected())
         { // Privacy on, RSNE still absent.
             return false;
@@ -482,16 +688,17 @@ namespace
             48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
             0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
         };
-        std::memcpy(network.rsnIe, rsnIe, sizeof(rsnIe));
+        std::memcpy(arrayData(network.rsnIe), arrayData(rsnIe), sizeof(rsnIe));
         network.rsnIeLength = sizeof(rsnIe);
-        network.rsnIe[7] = 2; // Fake metadata says CCMP; RSNE says TKIP.
+        network.rsnIe[kFixtureInt7] =
+            2; // Fake metadata says CCMP; RSNE says TKIP.
         if (!rejected())
         {
             return false;
         }
-        network.rsnIe[7] = 4;
+        network.rsnIe[kFixtureInt7] = 4;
         size_t written = 0;
-        return makeAssociationRequest(station, network, 2, output,
+        return makeAssociationRequest(station, network, 2, arrayData(output),
                                       sizeof(output), written) == Result::Ok &&
                written != 0 && output[0] == 0;
     }
@@ -501,20 +708,24 @@ namespace
         uint8_t frame[kBeaconBytes] {};
         makeBeacon(frame);
         Beacon out {};
-        frame[42] = 50; // Extended rates alone cannot replace base rates.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidElement)
+        frame[kFixtureInt42] =
+            kFixtureInt50; // Extended rates alone cannot replace base rates.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::InvalidElement)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[44] = 0x80; // Invalid zero-valued basic rate.
-        if (parseBeacon(frame, sizeof(frame), out) != Result::InvalidElement)
+        frame[kFixtureInt44] = kFixtureHex80; // Invalid zero-valued basic rate.
+        if (parseBeacon(arrayData(frame), sizeof(frame), out) !=
+            Result::InvalidElement)
         {
             return false;
         }
         makeBeacon(frame);
-        frame[48] = 15; // Unsupported 2.4 GHz channel.
-        return parseBeacon(frame, sizeof(frame), out) == Result::InvalidElement;
+        frame[kFixtureInt48] = kFixtureInt15; // Unsupported 2.4 GHz channel.
+        return parseBeacon(arrayData(frame), sizeof(frame), out) ==
+               Result::InvalidElement;
     }
 
     bool rejectRsnDowngradeAndDuplicates()
@@ -526,15 +737,17 @@ namespace
         };
         uint8_t frame[kBeaconBytes + (2 * sizeof(rsnIe))] {};
         makeBeacon(frame);
-        frame[34] = 0x11;
-        std::memcpy(frame + kBeaconBytes, rsnIe, sizeof(rsnIe));
+        frame[kFixtureInt34] = kFixtureHex11;
+        std::memcpy(&arrayAt(frame, kBeaconBytes), arrayData(rsnIe),
+                    sizeof(rsnIe));
         Beacon parsed {};
-        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
-                Result::Ok ||
+        if (parseBeacon(arrayData(frame), kBeaconBytes + sizeof(rsnIe),
+                        parsed) != Result::Ok ||
             parsed.rsn.security != Security::Wpa2Personal ||
             !parsed.rsn.pairwiseCcmp || !parsed.rsn.akmPsk ||
             parsed.rsnIeLength != sizeof(rsnIe) ||
-            std::memcmp(parsed.rsnIe, rsnIe, sizeof(rsnIe)) != 0)
+            std::memcmp(arrayData(parsed.rsnIe), arrayData(rsnIe),
+                        sizeof(rsnIe)) != 0)
         {
             return false;
         }
@@ -542,63 +755,70 @@ namespace
         // Pairwise CCMP and PSK do not make a group-TKIP (or unknown group)
         // advertisement usable by this CCMP-only station. Preserve the
         // parsed suite metadata, but classify it as unsupported for scanning.
-        frame[kBeaconBytes + 7] = 2; // Group cipher TKIP.
-        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
-                Result::Ok ||
+        frame[kBeaconBytes + kFixtureInt7] = 2; // Group cipher TKIP.
+        if (parseBeacon(arrayData(frame), kBeaconBytes + sizeof(rsnIe),
+                        parsed) != Result::Ok ||
             parsed.rsn.security != Security::UnsupportedRsn ||
             parsed.rsn.groupCcmp || !parsed.rsn.pairwiseCcmp ||
             !parsed.rsn.akmPsk)
         {
             return false;
         }
-        frame[kBeaconBytes + 7] = 0x7f; // Unknown group cipher.
-        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
-                Result::Ok ||
+        frame[kBeaconBytes + kFixtureInt7] =
+            kFixtureHex7f; // Unknown group cipher.
+        if (parseBeacon(arrayData(frame), kBeaconBytes + sizeof(rsnIe),
+                        parsed) != Result::Ok ||
             parsed.rsn.security != Security::UnsupportedRsn)
         {
             return false;
         }
-        frame[kBeaconBytes + 7] = 4; // Restore compatible CCMP group.
-        frame[34] = 0x01;            // Forged RSN on an Open capability BSS.
-        if (parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) !=
-            Result::InvalidSecurity)
+        frame[kBeaconBytes + kFixtureInt7] =
+            4;                       // Restore compatible CCMP group.
+        frame[kFixtureInt34] = 0x01; // Forged RSN on an Open capability BSS.
+        if (parseBeacon(arrayData(frame), kBeaconBytes + sizeof(rsnIe),
+                        parsed) != Result::InvalidSecurity)
         {
             return false;
         }
-        frame[34] = 0x11;
-        std::memcpy(frame + kBeaconBytes + sizeof(rsnIe), rsnIe, sizeof(rsnIe));
-        if (parseBeacon(frame, sizeof(frame), parsed) !=
+        frame[kFixtureInt34] = kFixtureHex11;
+        std::memcpy(&arrayAt(frame, kBeaconBytes + sizeof(rsnIe)),
+                    arrayData(rsnIe), sizeof(rsnIe));
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
             Result::InvalidSecurity)
         {
             return false;
         }
         // Unsupported AKM must not silently change the advertised BSS to Open.
-        frame[kBeaconBytes + 19] = 0x7f;
-        return parseBeacon(frame, kBeaconBytes + sizeof(rsnIe), parsed) ==
-                   Result::Ok &&
+        frame[kBeaconBytes + kFixtureInt19] = kFixtureHex7f;
+        return parseBeacon(arrayData(frame), kBeaconBytes + sizeof(rsnIe),
+                           parsed) == Result::Ok &&
                parsed.rsn.security == Security::UnsupportedRsn;
     }
 
     bool enforceDsHtConsistency()
     {
-        uint8_t frame[kBeaconBytes + 24] {};
+        uint8_t frame[kBeaconBytes + kFixtureInt24] {};
         makeBeacon(frame);
-        frame[kBeaconBytes] = 61;     // HT Operation.
-        frame[kBeaconBytes + 1] = 22; // Fixed HT Operation IE length.
-        frame[kBeaconBytes + 2] = 11; // Conflicts with DS channel 6.
+        frame[kBeaconBytes] = kFixtureInt61; // HT Operation.
+        frame[kBeaconBytes + 1] =
+            kFixtureInt22; // Fixed HT Operation IE length.
+        frame[kBeaconBytes + 2] = kFixtureInt11; // Conflicts with DS channel 6.
         Beacon parsed {};
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::InvalidElement)
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+            Result::InvalidElement)
         {
             return false;
         }
-        frame[kBeaconBytes + 2] = 6;
-        if (parseBeacon(frame, sizeof(frame), parsed) != Result::Ok ||
-            parsed.channel != 6)
+        frame[kBeaconBytes + 2] = kFixtureInt6;
+        if (parseBeacon(arrayData(frame), sizeof(frame), parsed) !=
+                Result::Ok ||
+            parsed.channel != kFixtureInt6)
         {
             return false;
         }
-        frame[kBeaconBytes + 1] = 21; // Truncated/malformed HT Operation.
-        return parseBeacon(frame, sizeof(frame), parsed) ==
+        frame[kBeaconBytes + 1] =
+            kFixtureInt21; // Truncated/malformed HT Operation.
+        return parseBeacon(arrayData(frame), sizeof(frame), parsed) ==
                Result::InvalidElement;
     }
 
@@ -606,23 +826,25 @@ namespace
     {
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        size_t written = 123;
+        size_t written = kFixtureInt123;
 
         // A caller-owned SSID inside the output buffer must survive a failed
         // probe request unchanged, even though normal serialization zeroes
         // its output before copying the SSID.
-        uint8_t probe[96] {};
-        std::memset(probe, 0x5a, sizeof(probe));
-        probe[40] = 'T';
-        probe[41] = 'e';
-        probe[42] = 's';
-        probe[43] = 't';
+        uint8_t probe[kFixtureInt96] {};
+        std::memset(arrayData(probe), kFixtureHex5a, sizeof(probe));
+        probe[kFixtureInt40] = 'T';
+        probe[kFixtureInt41] = 'e';
+        probe[kFixtureInt42] = 's';
+        probe[kFixtureInt43] = 't';
         uint8_t previousProbe[sizeof(probe)] {};
-        std::memcpy(previousProbe, probe, sizeof(probe));
-        if (makeProbeRequest(station, probe + 40, 4, 1, probe, sizeof(probe),
+        std::memcpy(arrayData(previousProbe), arrayData(probe), sizeof(probe));
+        if (makeProbeRequest(station, &arrayAt(probe, kFixtureInt40), 4, 1,
+                             arrayData(probe), sizeof(probe),
                              written) != Result::OverlappingBuffers ||
-            written != 123 ||
-            std::memcmp(probe, previousProbe, sizeof(probe)) != 0)
+            written != kFixtureInt123 ||
+            std::memcmp(arrayData(probe), arrayData(previousProbe),
+                        sizeof(probe)) != 0)
         {
             return false;
         }
@@ -630,18 +852,18 @@ namespace
         struct StationBuffer
         {
                 Mac input;
-                uint8_t spare[64];
+                uint8_t spare[kFixtureInt64];
         } stationBuffer {station, {}};
 
         uint8_t previousStation[sizeof(stationBuffer)] {};
-        std::memcpy(previousStation, &stationBuffer, sizeof(stationBuffer));
-        written = 456;
+        std::memcpy(arrayData(previousStation), &stationBuffer,
+                    sizeof(stationBuffer));
+        written = kFixtureInt456;
         if (makeOpenAuthenticationRequest(
-                stationBuffer.input, ap, 2,
-                reinterpret_cast<uint8_t *>(&stationBuffer),
+                stationBuffer.input, ap, 2, byteView(stationBuffer),
                 sizeof(stationBuffer), written) != Result::OverlappingBuffers ||
-            written != 456 ||
-            std::memcmp(&stationBuffer, previousStation,
+            written != kFixtureInt456 ||
+            std::memcmp(&stationBuffer, arrayData(previousStation),
                         sizeof(stationBuffer)) != 0)
         {
             return false;
@@ -651,16 +873,17 @@ namespace
         network.bssid = ap;
         network.infrastructure = true;
         network.ssidLength = 4;
-        std::memcpy(network.ssid, "Test", 4);
+        std::memcpy(arrayData(network.ssid), "Test", 4);
         network.rsn.security = Security::Open;
         uint8_t previousNetwork[sizeof(network)] {};
-        std::memcpy(previousNetwork, &network, sizeof(network));
-        written = 789;
-        if (makeAssociationRequest(
-                station, network, 3, reinterpret_cast<uint8_t *>(&network),
-                sizeof(network), written) != Result::OverlappingBuffers ||
-            written != 789 ||
-            std::memcmp(&network, previousNetwork, sizeof(network)) != 0)
+        std::memcpy(arrayData(previousNetwork), &network, sizeof(network));
+        written = kFixtureInt789;
+        if (makeAssociationRequest(station, network, 3, byteView(network),
+                                   sizeof(network),
+                                   written) != Result::OverlappingBuffers ||
+            written != kFixtureInt789 ||
+            std::memcmp(byteView(network), arrayData(previousNetwork),
+                        sizeof(network)) != 0)
         {
             return false;
         }
@@ -670,17 +893,18 @@ namespace
         struct CountBuffer
         {
                 size_t count;
-                uint8_t spare[96];
-        } countBuffer {321, {}};
+                uint8_t spare[kFixtureInt96];
+        } countBuffer {kFixtureInt321, {}};
 
         uint8_t previousCount[sizeof(countBuffer)] {};
-        std::memcpy(previousCount, &countBuffer, sizeof(countBuffer));
+        std::memcpy(arrayData(previousCount), &countBuffer,
+                    sizeof(countBuffer));
         const uint8_t ssid[4] {'T', 'e', 's', 't'};
-        if (makeProbeRequest(station, ssid, sizeof(ssid), 4,
-                             reinterpret_cast<uint8_t *>(&countBuffer),
-                             sizeof(countBuffer),
+        if (makeProbeRequest(station, arrayData(ssid), sizeof(ssid), 4,
+                             byteView(countBuffer), sizeof(countBuffer),
                              countBuffer.count) != Result::OverlappingBuffers ||
-            std::memcmp(&countBuffer, previousCount, sizeof(countBuffer)) != 0)
+            std::memcmp(&countBuffer, arrayData(previousCount),
+                        sizeof(countBuffer)) != 0)
         {
             return false;
         }
@@ -688,24 +912,20 @@ namespace
         // An absent TX buffer must not bypass alias safety: written may also
         // contain a borrowed SSID source, and clearing it before rejecting
         // the missing buffer would silently mutate the caller's input.
-        size_t aliasedLength = 0x11223344U;
-        const auto *borrowedSsid =
-            reinterpret_cast<const uint8_t *>(&aliasedLength);
-        if (makeProbeRequest(station, borrowedSsid, sizeof(aliasedLength), 5,
-                             nullptr, 0,
+        size_t aliasedLength = kFixtureHex11223344U;
+        const auto *borrowedSsid = byteView(aliasedLength);
+        if (makeProbeRequest(station, borrowedSsid, sizeof(aliasedLength),
+                             kFixtureInt5, nullptr, 0,
                              aliasedLength) != Result::OverlappingBuffers ||
-            aliasedLength != 0x11223344U)
+            aliasedLength != kFixtureHex11223344U)
         {
             return false;
         }
-        aliasedLength = 99;
-        if (makeProbeRequest(station, ssid, sizeof(ssid), 5, nullptr, 0,
-                             aliasedLength) != Result::NullBuffer ||
-            aliasedLength != 0)
-        {
-            return false;
-        }
-        return true;
+        aliasedLength = kFixtureInt99;
+        return makeProbeRequest(station, arrayData(ssid), sizeof(ssid),
+                                kFixtureInt5, nullptr, 0,
+                                aliasedLength) == Result::NullBuffer &&
+               aliasedLength == 0;
     }
 
     bool revokeRejectedRsnSecurity()
@@ -718,34 +938,38 @@ namespace
             0xac, 4, 1, 0,    0,    0x0f, 0xac, 2, 0, 0,
         };
         Rsn parsed {};
-        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok ||
+        if (parseRsn(arrayData(validRsn), sizeof(validRsn), parsed) !=
+                Result::Ok ||
             !parsed.valid || parsed.security != Security::Wpa2Personal)
         {
             return false;
         }
         const uint8_t truncated[2] {1, 0};
-        if (parseRsn(truncated, sizeof(truncated), parsed) !=
+        if (parseRsn(arrayData(truncated), sizeof(truncated), parsed) !=
                 Result::InvalidSecurity ||
             parsed.valid || parsed.present ||
             parsed.security != Security::UnsupportedRsn)
         {
             return false;
         }
-        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
+        if (parseRsn(arrayData(validRsn), sizeof(validRsn), parsed) !=
+            Result::Ok)
         {
             return false;
         }
         uint8_t incorrectVersion[sizeof(validRsn)] {};
-        std::memcpy(incorrectVersion, validRsn, sizeof(validRsn));
+        std::memcpy(arrayData(incorrectVersion), arrayData(validRsn),
+                    sizeof(validRsn));
         incorrectVersion[0] = 2;
-        if (parseRsn(incorrectVersion, sizeof(incorrectVersion), parsed) !=
-                Result::InvalidSecurity ||
+        if (parseRsn(arrayData(incorrectVersion), sizeof(incorrectVersion),
+                     parsed) != Result::InvalidSecurity ||
             parsed.valid || parsed.present ||
             parsed.security != Security::UnsupportedRsn)
         {
             return false;
         }
-        if (parseRsn(validRsn, sizeof(validRsn), parsed) != Result::Ok)
+        if (parseRsn(arrayData(validRsn), sizeof(validRsn), parsed) !=
+            Result::Ok)
         {
             return false;
         }
@@ -762,33 +986,37 @@ namespace
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
         Frame parsed {};
-        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
-                Result::Ok ||
-            parsed.headerLength != 24 || parsed.source.bytes[0] != kAp[0])
+        if (parseFrame(arrayData(advertisement), sizeof(advertisement),
+                       parsed) != Result::Ok ||
+            parsed.headerLength != kFixtureInt24 ||
+            parsed.source.bytes[0] != kAp[0])
         {
             return false;
         }
-        advertisement[0] |= 1; // Nonzero 802.11 protocol version.
-        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
-                Result::UnsupportedFrame ||
+        advertisement[0] = static_cast<uint8_t>(
+            static_cast<unsigned>(advertisement[0]) |
+            static_cast<unsigned>(1)); // Nonzero 802.11 protocol version.
+        if (parseFrame(arrayData(advertisement), sizeof(advertisement),
+                       parsed) != Result::UnsupportedFrame ||
             parsed.headerLength != 0 || parsed.source.bytes[0] != 0 ||
             parsed.bssid.bytes[0] != 0)
         {
             return false;
         }
         makeBeacon(advertisement);
-        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
-            Result::Ok)
+        if (parseFrame(arrayData(advertisement), sizeof(advertisement),
+                       parsed) != Result::Ok)
         {
             return false;
         }
-        if (parseFrame(advertisement, 1, parsed) != Result::Truncated ||
+        if (parseFrame(arrayData(advertisement), 1, parsed) !=
+                Result::Truncated ||
             parsed.headerLength != 0 || parsed.bssid.bytes[0] != 0)
         {
             return false;
         }
-        if (parseFrame(advertisement, sizeof(advertisement), parsed) !=
-            Result::Ok)
+        if (parseFrame(arrayData(advertisement), sizeof(advertisement),
+                       parsed) != Result::Ok)
         {
             return false;
         }
@@ -807,13 +1035,16 @@ namespace
         };
         uint8_t advertisement[kBeaconBytes + sizeof(rsnIe)] {};
         makeBeacon(advertisement);
-        advertisement[34] |= 0x10; // Privacy bit.
-        std::memcpy(advertisement + kBeaconBytes, rsnIe, sizeof(rsnIe));
+        advertisement[kFixtureInt34] = static_cast<uint8_t>(
+            static_cast<unsigned>(advertisement[kFixtureInt34]) |
+            static_cast<unsigned>(kFixtureHex10)); // Privacy bit.
+        std::memcpy(&arrayAt(advertisement, kBeaconBytes), arrayData(rsnIe),
+                    sizeof(rsnIe));
         Beacon parsed {};
-        const auto accepted = [&]()
+        const auto accepted = [&]
         {
-            return parseBeacon(advertisement, sizeof(advertisement), parsed) ==
-                       Result::Ok &&
+            return parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                               parsed) == Result::Ok &&
                    parsed.rsn.security == Security::Wpa2Personal &&
                    parsed.rsnIeLength == sizeof(rsnIe) &&
                    parsed.ssidLength == 4 && parsed.bssid.bytes[0] == kAp[0];
@@ -822,9 +1053,10 @@ namespace
         {
             return false;
         }
-        advertisement[0] = 0x40; // Probe request is not an advertisement.
-        if (parseBeacon(advertisement, sizeof(advertisement), parsed) !=
-                Result::UnsupportedFrame ||
+        advertisement[0] =
+            kFixtureHex40; // Probe request is not an advertisement.
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        parsed) != Result::UnsupportedFrame ||
             parsed.rsn.valid ||
             parsed.rsn.security != Security::UnsupportedRsn ||
             (parsed.rsnIeLength != 0U) || (parsed.ssidLength != 0U) ||
@@ -832,12 +1064,13 @@ namespace
         {
             return false;
         }
-        advertisement[0] = 0x80;
+        advertisement[0] = kFixtureHex80;
         if (!accepted())
         {
             return false;
         }
-        if (parseBeacon(advertisement, 3, parsed) != Result::Truncated ||
+        if (parseBeacon(arrayData(advertisement), 3, parsed) !=
+                Result::Truncated ||
             parsed.rsn.valid ||
             parsed.rsn.security != Security::UnsupportedRsn ||
             (parsed.rsnIeLength != 0U) || (parsed.ssidLength != 0U) ||
@@ -860,11 +1093,12 @@ namespace
     {
         Frame parsedFrame {};
         uint8_t previousFrame[sizeof(parsedFrame)] {};
-        std::memcpy(previousFrame, &parsedFrame, sizeof(parsedFrame));
-        if (parseFrame(reinterpret_cast<const uint8_t *>(&parsedFrame),
-                       sizeof(parsedFrame),
+        std::memcpy(arrayData(previousFrame), &parsedFrame,
+                    sizeof(parsedFrame));
+        if (parseFrame(byteView(parsedFrame), sizeof(parsedFrame),
                        parsedFrame) != Result::OverlappingBuffers ||
-            std::memcmp(&parsedFrame, previousFrame, sizeof(parsedFrame)) != 0)
+            std::memcmp(byteView(parsedFrame), arrayData(previousFrame),
+                        sizeof(parsedFrame)) != 0)
         {
             return false;
         }
@@ -872,20 +1106,20 @@ namespace
         struct RsnStorage
         {
                 Rsn result;
-                uint8_t trailing[32];
+                uint8_t trailing[kFixtureInt32];
         } rsnStorage {};
 
         constexpr uint8_t rsnBody[20] {
             1,    0, 0, 0x0f, 0xac, 4,    1,    0, 0, 0x0f,
             0xac, 4, 1, 0,    0,    0x0f, 0xac, 2, 0, 0,
         };
-        std::memcpy(&rsnStorage, rsnBody, sizeof(rsnBody));
+        std::memcpy(&rsnStorage, arrayData(rsnBody), sizeof(rsnBody));
         uint8_t previousRsn[sizeof(rsnStorage)] {};
-        std::memcpy(previousRsn, &rsnStorage, sizeof(rsnStorage));
-        if (parseRsn(reinterpret_cast<const uint8_t *>(&rsnStorage),
-                     sizeof(rsnBody),
+        std::memcpy(arrayData(previousRsn), &rsnStorage, sizeof(rsnStorage));
+        if (parseRsn(byteView(rsnStorage), sizeof(rsnBody),
                      rsnStorage.result) != Result::OverlappingBuffers ||
-            std::memcmp(&rsnStorage, previousRsn, sizeof(rsnStorage)) != 0)
+            std::memcmp(&rsnStorage, arrayData(previousRsn),
+                        sizeof(rsnStorage)) != 0)
         {
             return false;
         }
@@ -893,14 +1127,14 @@ namespace
         Beacon parsedBeacon {};
         uint8_t beacon[kBeaconBytes] {};
         makeBeacon(beacon);
-        std::memcpy(&parsedBeacon, beacon, sizeof(beacon));
+        std::memcpy(&parsedBeacon, arrayData(beacon), sizeof(beacon));
         uint8_t previousBeacon[sizeof(parsedBeacon)] {};
-        std::memcpy(previousBeacon, &parsedBeacon, sizeof(parsedBeacon));
-        if (parseBeacon(reinterpret_cast<const uint8_t *>(&parsedBeacon),
-                        sizeof(beacon),
-                        parsedBeacon) != Result::OverlappingBuffers ||
-            std::memcmp(&parsedBeacon, previousBeacon, sizeof(parsedBeacon)) !=
-                0)
+        std::memcpy(arrayData(previousBeacon), &parsedBeacon,
+                    sizeof(parsedBeacon));
+        if (parseBeacon(byteView(parsedBeacon), sizeof(beacon), parsedBeacon) !=
+                Result::OverlappingBuffers ||
+            std::memcmp(byteView(parsedBeacon), arrayData(previousBeacon),
+                        sizeof(parsedBeacon)) != 0)
         {
             return false;
         }
@@ -911,36 +1145,38 @@ namespace
         struct ResponseBuffer
         {
                 uint16_t status;
-                uint8_t rest[32];
+                uint8_t rest[kFixtureInt32];
         } response {};
 
-        auto *responseBytes = reinterpret_cast<uint8_t *>(&response);
-        responseBytes[0] = 0xb0; // Authentication response subtype.
-        std::memcpy(responseBytes + 4, kStation, 6);
-        std::memcpy(responseBytes + 10, kAp, 6);
-        std::memcpy(responseBytes + 16, kAp, 6);
-        responseBytes[26] = 2; // Open-system response transaction.
+        auto *responseBytes = byteView(response);
+        *byteAt(responseBytes, sizeof(response), 0U) =
+            kFixtureHexb0; // Authentication response subtype.
+        std::memcpy(byteAt(responseBytes, sizeof(response), 4U),
+                    arrayData(kStation), kFixtureInt6);
+        std::memcpy(byteAt(responseBytes, sizeof(response), kFixtureInt10),
+                    arrayData(kAp), kFixtureInt6);
+        std::memcpy(byteAt(responseBytes, sizeof(response), kFixtureInt16),
+                    arrayData(kAp), kFixtureInt6);
+        *byteAt(responseBytes, sizeof(response), kFixtureInt26) =
+            2U; // Open-system response transaction.
         uint8_t previousResponse[sizeof(response)] {};
-        std::memcpy(previousResponse, &response, sizeof(response));
-        if (parseAuthenticationResponse(responseBytes, 30, station, ap,
-                                        response.status) !=
+        std::memcpy(arrayData(previousResponse), &response, sizeof(response));
+        if (parseAuthenticationResponse(responseBytes, kFixtureInt30, station,
+                                        ap, response.status) !=
                 Result::OverlappingBuffers ||
-            std::memcmp(&response, previousResponse, sizeof(response)) != 0)
+            std::memcmp(&response, arrayData(previousResponse),
+                        sizeof(response)) != 0)
         {
             return false;
         }
 
         uint8_t association[kAssocBytes] {};
         makeAssoc(association);
-        uint16_t sharedResult = 543;
-        if (parseAssociationResponse(association, sizeof(association), station,
-                                     ap, sharedResult, sharedResult) !=
-                Result::OverlappingBuffers ||
-            sharedResult != 543)
-        {
-            return false;
-        }
-        return true;
+        uint16_t sharedResult = kFixtureInt543;
+        return parseAssociationResponse(
+                   arrayData(association), sizeof(association), station, ap,
+                   sharedResult, sharedResult) == Result::OverlappingBuffers &&
+               sharedResult == kFixtureInt543;
     }
 
     bool rejectTrailingOpenAuthenticationBody()
@@ -950,64 +1186,70 @@ namespace
         // smuggle arbitrary unparsed bytes into an accepted response.
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        uint8_t response[40] {};
-        response[0] = 0xb0;
-        std::memcpy(response + 4, kStation, 6);
-        std::memcpy(response + 10, kAp, 6);
-        std::memcpy(response + 16, kAp, 6);
-        response[26] = 2;
-        uint16_t status = 777;
-        if (parseAuthenticationResponse(response, 30, station, ap, status) !=
-                Result::Ok ||
+        uint8_t response[kFixtureInt40] {};
+        response[0] = kFixtureHexb0;
+        std::memcpy(&arrayAt(response, 4), arrayData(kStation), kFixtureInt6);
+        std::memcpy(&arrayAt(response, kFixtureInt10), arrayData(kAp),
+                    kFixtureInt6);
+        std::memcpy(&arrayAt(response, kFixtureInt16), arrayData(kAp),
+                    kFixtureInt6);
+        response[kFixtureInt26] = 2;
+        uint16_t status = kFixtureInt777;
+        if (parseAuthenticationResponse(arrayData(response), kFixtureInt30,
+                                        station, ap, status) != Result::Ok ||
             status != 0)
         {
             return false;
         }
-        status = 777;
-        response[30] = 0xdd;
-        if (parseAuthenticationResponse(response, 31, station, ap, status) !=
-                Result::InvalidElement ||
-            status != 0xffffU)
+        status = kFixtureInt777;
+        response[kFixtureInt30] = kFixtureHexdd;
+        if (parseAuthenticationResponse(arrayData(response), kFixtureInt31,
+                                        station, ap,
+                                        status) != Result::InvalidElement ||
+            status != kFixtureHexffffU)
         {
             return false;
         }
         // Vendor-specific IEs (OUI plus optional vendor bytes) are legal
         // suffixes and must not break otherwise valid infrastructure auth.
-        response[30] = 221;
-        response[31] = 3;
-        response[32] = 0x00;
-        response[33] = 0x11;
-        response[34] = 0x22;
-        if (parseAuthenticationResponse(response, 35, station, ap, status) !=
-                Result::Ok ||
+        response[kFixtureInt30] = kFixtureInt221;
+        response[kFixtureInt31] = 3;
+        response[kFixtureInt32] = 0x00;
+        response[kFixtureInt33] = kFixtureHex11;
+        response[kFixtureInt34] = kFixtureHex22;
+        if (parseAuthenticationResponse(arrayData(response), kFixtureInt35,
+                                        station, ap, status) != Result::Ok ||
             status != 0)
         {
             return false;
         }
-        response[35] = 221;
-        response[36] = 3;
-        response[37] = 0x00;
-        response[38] = 0x44;
-        response[39] = 0x55;
-        if (parseAuthenticationResponse(response, sizeof(response), station, ap,
-                                        status) != Result::Ok ||
+        response[kFixtureInt35] = kFixtureInt221;
+        response[kFixtureInt36] = 3;
+        response[kFixtureInt37] = 0x00;
+        response[kFixtureInt38] = kFixtureHex44;
+        response[kFixtureInt39] = kFixtureHex55;
+        if (parseAuthenticationResponse(arrayData(response), sizeof(response),
+                                        station, ap, status) != Result::Ok ||
             status != 0)
         {
             return false;
         }
-        status = 777;
-        response[30] = 1; // Non-vendor IE is not defined for Open System.
-        if (parseAuthenticationResponse(response, 35, station, ap, status) !=
-                Result::InvalidElement ||
-            status != 0xffffU)
+        status = kFixtureInt777;
+        response[kFixtureInt30] =
+            1; // Non-vendor IE is not defined for Open System.
+        if (parseAuthenticationResponse(arrayData(response), kFixtureInt35,
+                                        station, ap,
+                                        status) != Result::InvalidElement ||
+            status != kFixtureHexffffU)
         {
             return false;
         }
-        response[30] = 221;
-        response[31] = 2; // Vendor IE must carry its three-byte OUI.
-        return parseAuthenticationResponse(response, 34, station, ap, status) ==
-                   Result::InvalidElement &&
-               status == 0xffffU;
+        response[kFixtureInt30] = kFixtureInt221;
+        response[kFixtureInt31] = 2; // Vendor IE must carry its three-byte OUI.
+        return parseAuthenticationResponse(arrayData(response), kFixtureInt34,
+                                           station, ap,
+                                           status) == Result::InvalidElement &&
+               status == kFixtureHexffffU;
     }
 
     bool rejectInvalidManagementRxIdentities()
@@ -1015,30 +1257,34 @@ namespace
         const Mac empty {};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t auth[30] {};
-        auth[0] = 0xb0; // Successful Open authentication transaction 2.
-        auth[26] = 2;
-        uint16_t status = 777;
+        uint8_t auth[kFixtureInt30] {};
+        auth[0] =
+            kFixtureHexb0; // Successful Open authentication transaction 2.
+        auth[kFixtureInt26] = 2;
+        uint16_t status = kFixtureInt777;
         // Equality of forged addresses does not make either identity a
         // physical unicast AP or station.
-        if (parseAuthenticationResponse(auth, sizeof(auth), empty, empty,
+        if (parseAuthenticationResponse(arrayData(auth), sizeof(auth), empty,
+                                        empty,
                                         status) != Result::InvalidAddress ||
-            status != 0xffffU)
+            status != kFixtureHexffffU)
         {
             return false;
         }
-        std::memcpy(auth + 4, kAp, 6);
-        std::memcpy(auth + 10, kAp, 6);
-        std::memcpy(auth + 16, kAp, 6);
-        if (parseAuthenticationResponse(auth, sizeof(auth), ap, ap, status) !=
-                Result::InvalidAddress ||
-            status != 0xffffU)
+        std::memcpy(&arrayAt(auth, 4), arrayData(kAp), kFixtureInt6);
+        std::memcpy(&arrayAt(auth, kFixtureInt10), arrayData(kAp),
+                    kFixtureInt6);
+        std::memcpy(&arrayAt(auth, kFixtureInt16), arrayData(kAp),
+                    kFixtureInt6);
+        if (parseAuthenticationResponse(arrayData(auth), sizeof(auth), ap, ap,
+                                        status) != Result::InvalidAddress ||
+            status != kFixtureHexffffU)
         {
             return false;
         }
-        std::memcpy(auth + 4, kStation, 6);
-        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
-                                        status) != Result::Ok ||
+        std::memcpy(&arrayAt(auth, 4), arrayData(kStation), kFixtureInt6);
+        if (parseAuthenticationResponse(arrayData(auth), sizeof(auth), station,
+                                        ap, status) != Result::Ok ||
             status != 0)
         {
             return false;
@@ -1046,28 +1292,29 @@ namespace
 
         uint8_t association[kAssocBytes] {};
         makeAssoc(association);
-        std::memset(association + 4, 0, 18);
-        status = 777;
-        uint16_t aid = 888;
-        if (parseAssociationResponse(association, sizeof(association), empty,
-                                     empty, status,
+        std::memset(&arrayAt(association, 4), 0, kFixtureInt18);
+        status = kFixtureInt777;
+        uint16_t aid = kFixtureInt888;
+        if (parseAssociationResponse(arrayData(association),
+                                     sizeof(association), empty, empty, status,
                                      aid) != Result::InvalidAddress ||
-            status != 0xffffU || aid != 0)
+            status != kFixtureHexffffU || aid != 0)
         {
             return false;
         }
         makeAssoc(association);
-        std::memcpy(association + 4, kAp, 6);
-        if (parseAssociationResponse(association, sizeof(association), ap, ap,
-                                     status, aid) != Result::InvalidAddress ||
-            status != 0xffffU || aid != 0)
+        std::memcpy(&arrayAt(association, 4), arrayData(kAp), kFixtureInt6);
+        if (parseAssociationResponse(arrayData(association),
+                                     sizeof(association), ap, ap, status,
+                                     aid) != Result::InvalidAddress ||
+            status != kFixtureHexffffU || aid != 0)
         {
             return false;
         }
         makeAssoc(association);
-        return parseAssociationResponse(association, sizeof(association),
-                                        station, ap, status,
-                                        aid) == Result::Ok &&
+        return parseAssociationResponse(arrayData(association),
+                                        sizeof(association), station, ap,
+                                        status, aid) == Result::Ok &&
                status == 0 && aid == 1;
     }
 
@@ -1078,44 +1325,47 @@ namespace
         // association ID or status=0 available as apparent authorization.
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        uint8_t auth[30] {};
-        auth[0] = 0xb0;
-        std::memcpy(auth + 4, kStation, 6);
-        std::memcpy(auth + 10, kAp, 6);
-        std::memcpy(auth + 16, kAp, 6);
-        auth[26] = 2;
-        uint16_t status = 55;
-        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
-                                        status) != Result::Ok ||
+        uint8_t auth[kFixtureInt30] {};
+        auth[0] = kFixtureHexb0;
+        std::memcpy(&arrayAt(auth, 4), arrayData(kStation), kFixtureInt6);
+        std::memcpy(&arrayAt(auth, kFixtureInt10), arrayData(kAp),
+                    kFixtureInt6);
+        std::memcpy(&arrayAt(auth, kFixtureInt16), arrayData(kAp),
+                    kFixtureInt6);
+        auth[kFixtureInt26] = 2;
+        uint16_t status = kFixtureInt55;
+        if (parseAuthenticationResponse(arrayData(auth), sizeof(auth), station,
+                                        ap, status) != Result::Ok ||
             status != 0)
         {
             return false;
         }
-        auth[26] = 1; // Wrong transaction after accepted authentication.
-        if (parseAuthenticationResponse(auth, sizeof(auth), station, ap,
+        auth[kFixtureInt26] =
+            1; // Wrong transaction after accepted authentication.
+        if (parseAuthenticationResponse(arrayData(auth), sizeof(auth), station,
+                                        ap,
                                         status) != Result::UnsupportedFrame ||
-            status != 0xffffU)
+            status != kFixtureHexffffU)
         {
             return false;
         }
 
         uint8_t association[kAssocBytes] {};
         makeAssoc(association);
-        uint16_t aid = 88;
-        if (parseAssociationResponse(association, sizeof(association), station,
-                                     ap, status, aid) != Result::Ok ||
+        uint16_t aid = kFixtureInt88;
+        if (parseAssociationResponse(arrayData(association),
+                                     sizeof(association), station, ap, status,
+                                     aid) != Result::Ok ||
             status != 0 || aid != 1)
         {
             return false;
         }
-        association[29] = 0; // Invalid AID after successful association.
-        if (parseAssociationResponse(association, sizeof(association), station,
-                                     ap, status, aid) != Result::InvalidFrame ||
-            status != 0xffffU || aid != 0)
-        {
-            return false;
-        }
-        return true;
+        association[kFixtureInt29] =
+            0; // Invalid AID after successful association.
+        return parseAssociationResponse(arrayData(association),
+                                        sizeof(association), station, ap,
+                                        status, aid) == Result::InvalidFrame &&
+               status == kFixtureHexffffU && aid == 0;
     }
 
     bool rejectNonInfrastructureAssociation()
@@ -1124,25 +1374,27 @@ namespace
         makeAssoc(frame);
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        uint16_t status = 999;
-        uint16_t aid = 999;
-        frame[24] = 0; // No ESS capability bit.
-        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
-                                     aid) != Result::InvalidFrame ||
-            status != 0xffffU || aid != 0)
+        uint16_t status = kFixtureInt999;
+        uint16_t aid = kFixtureInt999;
+        frame[kFixtureInt24] = 0; // No ESS capability bit.
+        if (parseAssociationResponse(arrayData(frame), sizeof(frame), station,
+                                     ap, status, aid) != Result::InvalidFrame ||
+            status != kFixtureHexffffU || aid != 0)
         {
             return false;
         }
-        frame[24] = 3; // ESS and IBSS must not both be set.
-        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
-                                     aid) != Result::InvalidFrame)
+        frame[kFixtureInt24] = 3; // ESS and IBSS must not both be set.
+        if (parseAssociationResponse(arrayData(frame), sizeof(frame), station,
+                                     ap, status, aid) != Result::InvalidFrame)
         {
             return false;
         }
-        frame[24] = 0;
-        frame[26] = 1; // Failed association is still a valid rejection.
-        return parseAssociationResponse(frame, sizeof(frame), station, ap,
-                                        status, aid) == Result::Ok &&
+        frame[kFixtureInt24] = 0;
+        frame[kFixtureInt26] =
+            1; // Failed association is still a valid rejection.
+        return parseAssociationResponse(arrayData(frame), sizeof(frame),
+                                        station, ap, status,
+                                        aid) == Result::Ok &&
                status == 1 && aid == 0;
     }
 
@@ -1151,7 +1403,7 @@ namespace
         uint8_t frame[kBeaconBytes] {};
         makeBeacon(frame);
         Beacon valid {};
-        if (parseBeacon(frame, sizeof(frame), valid) != Result::Ok ||
+        if (parseBeacon(arrayData(frame), sizeof(frame), valid) != Result::Ok ||
             associationRequestLength(valid) == 0)
         {
             return false;
@@ -1174,7 +1426,7 @@ namespace
             return false;
         }
         invalid = valid;
-        invalid.capabilities = 0x11; // Privacy without a valid RSNE.
+        invalid.capabilities = kFixtureHex11; // Privacy without a valid RSNE.
         if (associationRequestLength(invalid) != 0)
         {
             return false;
@@ -1186,7 +1438,9 @@ namespace
             return false;
         }
         invalid = valid;
-        invalid.bssid.bytes[0] |= 1; // Group-addressed AP.
+        invalid.bssid.bytes[0] = static_cast<uint8_t>(
+            static_cast<unsigned>(invalid.bssid.bytes[0]) |
+            static_cast<unsigned>(1)); // Group-addressed AP.
         if (associationRequestLength(invalid) != 0)
         {
             return false;
@@ -1194,7 +1448,7 @@ namespace
         invalid = valid;
         for (size_t index = 0; index < invalid.ssidLength; ++index)
         {
-            invalid.ssid[index] = 0;
+            arrayAt(invalid.ssid, index) = 0U;
         }
         return associationRequestLength(invalid) == 0;
     }
@@ -1203,46 +1457,50 @@ namespace
     {
         uint8_t advertisement[kBeaconBytes] {};
         makeBeacon(advertisement);
-        advertisement[48] = 14; // Parsed BSS on the Japan-only channel.
+        advertisement[kFixtureInt48] =
+            kFixtureInt14; // Parsed BSS on the Japan-only channel.
         Beacon network {};
-        if (parseBeacon(advertisement, sizeof(advertisement), network) !=
-                Result::Ok ||
-            network.channel != 14)
+        if (parseBeacon(arrayData(advertisement), sizeof(advertisement),
+                        network) != Result::Ok ||
+            network.channel != kFixtureInt14)
         {
             return false;
         }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
-        uint8_t output[128] {};
+        uint8_t output[kFixtureInt128] {};
         size_t written = 0;
 
         // Baseline CCK-only channel-14 BSS remains joinable.
         if (associationRequestLength(network) == 0 ||
-            makeAssociationRequest(station, network, 1, output, sizeof(output),
-                                   written) != Result::Ok ||
-            output[34] != 1 || output[35] != 2 || output[36] != 0x82 ||
-            output[37] != 0x84)
+            makeAssociationRequest(station, network, 1, arrayData(output),
+                                   sizeof(output), written) != Result::Ok ||
+            output[kFixtureInt34] != 1 || output[kFixtureInt35] != 2 ||
+            output[kFixtureInt36] != kFixtureHex82 ||
+            output[kFixtureInt37] != kFixtureHex84)
         {
             return false;
         }
 
         // An optional OFDM rate must not appear in an association request,
         // while the same rate is allowed on ordinary 2.4-GHz channels.
-        network.rates[0] = 0x0c;
+        network.rates[0] = kFixtureHex0c;
         if (associationRequestLength(network) == 0 ||
-            associationRateSupported(network, 0x0c) ||
-            !associationRateSupported(network, 0x84) ||
-            makeAssociationRequest(station, network, 2, output, sizeof(output),
-                                   written) != Result::Ok ||
-            output[35] != 1 || output[36] != 0x84)
+            associationRateSupported(network, kFixtureHex0c) ||
+            !associationRateSupported(network, kFixtureHex84) ||
+            makeAssociationRequest(station, network, 2, arrayData(output),
+                                   sizeof(output), written) != Result::Ok ||
+            output[kFixtureInt35] != 1 ||
+            output[kFixtureInt36] != kFixtureHex84)
         {
             return false;
         }
-        network.channel = 13;
+        network.channel = kFixtureInt13;
         if (associationRequestLength(network) == 0 ||
-            !associationRateSupported(network, 0x0c) ||
-            makeAssociationRequest(station, network, 3, output, sizeof(output),
-                                   written) != Result::Ok ||
-            output[35] != 2 || output[36] != 0x0c)
+            !associationRateSupported(network, kFixtureHex0c) ||
+            makeAssociationRequest(station, network, 3, arrayData(output),
+                                   sizeof(output), written) != Result::Ok ||
+            output[kFixtureInt35] != 2 ||
+            output[kFixtureInt36] != kFixtureHex0c)
         {
             return false;
         }
@@ -1250,32 +1508,34 @@ namespace
         // A mandatory OFDM rate makes channel 14 unjoinable, even when
         // another local CCK rate overlaps. Rejected serialization must leave
         // the caller's TX buffer untouched and clear its stale byte count.
-        network.channel = 14;
-        network.rates[0] = 0x8c;
-        std::memset(output, 0xa5, sizeof(output));
-        written = 77;
+        network.channel = kFixtureInt14;
+        network.rates[0] = kFixtureHex8c;
+        std::memset(arrayData(output), kFixtureHexa5, sizeof(output));
+        written = kFixtureInt77;
         if (associationRequestLength(network) != 0 ||
-            associationRateSupported(network, 0x84) ||
-            makeAssociationRequest(station, network, 4, output, sizeof(output),
+            associationRateSupported(network, kFixtureHex84) ||
+            makeAssociationRequest(station, network, 4, arrayData(output),
+                                   sizeof(output),
                                    written) != Result::InvalidElement ||
-            written != 0 || output[0] != 0xa5)
+            written != 0 || output[0] != kFixtureHexa5)
         {
             return false;
         }
 
         // An OFDM-only AP cannot join by advertising the unsupported rate as
         // optional; a forged HT metadata flag is also invalid on channel 14.
-        network.rates[0] = 0x0c;
-        network.rates[1] = 0x12;
+        network.rates[0] = kFixtureHex0c;
+        network.rates[1] = kFixtureHex12;
         if (associationRequestLength(network) != 0)
         {
             return false;
         }
-        network.rates[0] = 0x82;
-        network.rates[1] = 0x84;
+        network.rates[0] = kFixtureHex82;
+        network.rates[1] = kFixtureHex84;
         network.htSupported = true;
         if (associationRequestLength(network) != 0 ||
-            makeAssociationRequest(station, network, 5, output, sizeof(output),
+            makeAssociationRequest(station, network, kFixtureInt5,
+                                   arrayData(output), sizeof(output),
                                    written) != Result::InvalidFrame)
         {
             return false;
@@ -1290,39 +1550,46 @@ namespace
         makeAssoc(frame);
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-        uint16_t status = 0xffff;
-        uint16_t aid = 0xffff;
-        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
-                                     aid) != Result::Ok ||
+        uint16_t status = kFixtureHexffff;
+        uint16_t aid = kFixtureHexffff;
+        if (parseAssociationResponse(arrayData(frame), sizeof(frame), station,
+                                     ap, status, aid) != Result::Ok ||
             status != 0 || aid != 1)
         {
             return false;
         }
         makeAssoc(frame);
-        frame[29] = 0; // Successful AID requires both high bits set.
-        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
-                                     aid) != Result::InvalidFrame)
+        frame[kFixtureInt29] = 0; // Successful AID requires both high bits set.
+        if (parseAssociationResponse(arrayData(frame), sizeof(frame), station,
+                                     ap, status, aid) != Result::InvalidFrame)
         {
             return false;
         }
         makeAssoc(frame);
-        if (parseAssociationResponse(frame, 30, station, ap, status, aid) !=
-            Result::InvalidElement)
+        if (parseAssociationResponse(arrayData(frame), kFixtureInt30, station,
+                                     ap, status, aid) != Result::InvalidElement)
         {
             return false;
         }
         makeAssoc(frame);
-        frame[32] = 0x80; // Invalid zero-valued rate.
-        if (parseAssociationResponse(frame, sizeof(frame), station, ap, status,
-                                     aid) != Result::InvalidElement)
+        frame[kFixtureInt32] = kFixtureHex80; // Invalid zero-valued rate.
+        if (parseAssociationResponse(arrayData(frame), sizeof(frame), station,
+                                     ap, status, aid) != Result::InvalidElement)
         {
             return false;
         }
         makeAssoc(frame);
         frame[1] = 0x04; // Fragmented management handshake response.
-        return parseAssociationResponse(frame, sizeof(frame), station, ap,
-                                        status,
+        return parseAssociationResponse(arrayData(frame), sizeof(frame),
+                                        station, ap, status,
                                         aid) == Result::UnsupportedFrame;
+    }
+
+    // Keep each admission check's distinct exit status while retaining a
+    // bounded entrypoint for the full host regression suite.
+    int checkOversizedManagementMpdu()
+    {
+        return rejectOversizedManagementMpdu() ? 0 : kFixtureInt26;
     }
 } // namespace
 
@@ -1346,91 +1613,87 @@ int main()
     }
     if (!enforceDsHtConsistency())
     {
-        return 5;
+        return kFixtureInt5;
     }
     if (!enforceAssociationAdmission())
     {
-        return 6;
+        return kFixtureInt6;
     }
     if (!rejectOverlappingManagementTx())
     {
-        return 7;
+        return kFixtureInt7;
     }
     if (!rejectOverlappingManagementRx())
     {
-        return 8;
+        return kFixtureInt8;
     }
     if (!rejectNonInfrastructureAssociation())
     {
-        return 9;
+        return kFixtureInt9;
     }
     if (!rejectStaleElementCursorViews())
     {
-        return 10;
+        return kFixtureInt10;
     }
     if (!rejectHiddenAssociationName())
     {
-        return 11;
+        return kFixtureInt11;
     }
     if (!rejectSelfBssidManagementTx())
     {
-        return 12;
+        return kFixtureInt12;
     }
     if (!rejectInvalidManagementRxIdentities())
     {
-        return 13;
+        return kFixtureInt13;
     }
     if (!rejectTrailingOpenAuthenticationBody())
     {
-        return 22;
+        return kFixtureInt22;
     }
     if (!revokeRejectedManagementResponseStatus())
     {
-        return 23;
+        return kFixtureInt23;
     }
     if (!rejectConflictingBssModes())
     {
-        return 14;
+        return kFixtureInt14;
     }
     if (!rejectForgedBssAssociationTx())
     {
-        return 15;
+        return kFixtureInt15;
     }
     if (!rejectForgedPrivacyAssociationTx())
     {
-        return 16;
+        return kFixtureInt16;
     }
     if (!revokeRejectedRsnSecurity())
     {
-        return 17;
+        return kFixtureInt17;
     }
     if (!revokeRejectedFrameMetadata())
     {
-        return 18;
+        return kFixtureInt18;
     }
     if (!revokeRejectedBeaconSecurity())
     {
-        return 19;
+        return kFixtureInt19;
     }
     if (!rejectZeroBeaconInterval())
     {
-        return 20;
+        return kFixtureInt20;
     }
     if (!rejectInvalidAssociationTimingAndChannel())
     {
-        return 21;
+        return kFixtureInt21;
     }
     if (!rejectUnserializableAssociationLengths())
     {
-        return 24;
+        return kFixtureInt24;
     }
     if (!rejectChannel14NonCckAssociation())
     {
-        return 25;
+        return kFixtureInt25;
     }
-    if (!rejectOversizedManagementMpdu())
-    {
-        return 26;
-    }
-    return 0;
+    return checkOversizedManagementMpdu();
 }
