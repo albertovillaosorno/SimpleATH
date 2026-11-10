@@ -55,7 +55,7 @@ tests/**/*        linguist-documentation=false eol=lf linguist-detectable
 tools/**/*        linguist-documentation=false eol=lf linguist-detectable
 cpp/**/*          linguist-documentation=false eol=lf linguist-detectable
 src/**/*          linguist-documentation=false eol=lf linguist-detectable
-src/linux/**/*    linguist-vendored=true       eol=lf
+src/linux/linux-port-ledger.jsonl llinguist-detectable=false eol=lf
 
 # Binaries
 *.png             binary
