@@ -12,6 +12,7 @@
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
+#include "wifi/AwdlAction.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
 #include "wifi/Frames.hpp"
@@ -71,6 +72,9 @@ namespace
     constexpr uint8_t kByteBits = 8;
     constexpr uint64_t kMicrosPerMillisecond = 1000;
     constexpr uint16_t kNativePassiveDwellMs = 120;
+    constexpr uint8_t kAwdlSocialChannelSix = 6U;
+    constexpr uint8_t kAwdlActionSubtype = 13U;
+    constexpr unsigned int kAwdlCounterWidthBits = 64U;
 
     struct NativeTransmitRequest
     {
@@ -1836,6 +1840,46 @@ class SimpleATH final : public IOService
             notifyWirelessChange(false);
         }
 
+        // Only genuine FCS-verified DMA RX on the tuned channel-six radio
+        // may feed the bounded AWDL peer table. No AirDrop/IPv6 packets are
+        // delivered, scheduled or transmitted by this observer.
+        void receiveNativeAwdl(const uint8_t *frame, size_t bytes,
+                               const simpleath::edma::RxStatus &status)
+        {
+            if (!radioOperational_ || !channelAuthorized_ ||
+                verifiedReceiveChannel_ != kAwdlSocialChannelSix ||
+                !status.frameValid || status.crcError || frame == nullptr ||
+                bytes <= kFcsBytes || bytes > kMaximumMpduBytes + kFcsBytes)
+            {
+                return;
+            }
+            const size_t mpduBytes = bytes - kFcsBytes;
+            simpleath::ieee80211::Frame header {};
+            if (simpleath::ieee80211::parseFrame(frame, mpduBytes, header) !=
+                simpleath::ieee80211::Result::Ok)
+            {
+                return;
+            }
+            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            if (header.type == simpleath::ieee80211::FrameType::Management &&
+                header.subtype == kAwdlActionSubtype)
+            {
+                if (awdlNeighbors_.observeMif(now, frame, mpduBytes) ==
+                    simpleath::ieee80211::Result::Ok)
+                {
+                    ++awdlReceivedMifs_;
+                    setProperty("SimpleATHObservedAwdlMifs", awdlReceivedMifs_,
+                                kAwdlCounterWidthBits);
+                }
+            }
+            else if (header.type == simpleath::ieee80211::FrameType::Data)
+            {
+                // A complete MIF must already have created the peer;
+                // IPv6 data alone cannot create neighbors or prove trust.
+                (void)awdlNeighbors_.observeIpv6(now, frame, mpduBytes);
+            }
+        }
+
         static void queueReceived(void *context, const uint8_t *frame,
                                   size_t bytes,
                                   const simpleath::edma::RxStatus &status)
@@ -1844,6 +1888,7 @@ class SimpleATH final : public IOService
             if (!self.radioOperational_ || !self.powered_ ||
                 !self.liveRfKillUnblocked())
                 return;
+            self.receiveNativeAwdl(frame, bytes, status);
             // An OS-installed TK has a single security owner: data RX must
             // use the matching native CCMP session, not the portable engine's
             // cleartext M1/M3 supplicant. Management frames may still feed the
@@ -2054,6 +2099,7 @@ class SimpleATH final : public IOService
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
             self.channelAuthorized_ = false;
+            self.awdlNeighbors_.clear();
             // A descriptor/IRQ fault destroys all derived RF/TPC claims. A
             // later queue or radio restart must recompute real channel and
             // per-rate limits under a fresh hardware setup, never inherit
@@ -2420,6 +2466,7 @@ class SimpleATH final : public IOService
                 scanTimer_->cancelTimeout();
             }
             scanBridge_.clear();
+            awdlNeighbors_.clear();
             scanTicket_ = {};
             completedScanTicket_ = {};
             scanEpoch_ = 0;
@@ -2590,6 +2637,7 @@ class SimpleATH final : public IOService
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
         simpleath::ieee80211::LegacyScanBridge scanBridge_;
+        simpleath::ieee80211::AwdlNeighbors awdlNeighbors_;
         simpleath::ieee80211::ScanBridgeTicket scanTicket_ {};
         simpleath::ieee80211::ScanBridgeTicket completedScanTicket_ {};
         IOTimerEventSource *scanTimer_ {nullptr};
@@ -2627,6 +2675,7 @@ class SimpleATH final : public IOService
         // recycle across disconnect, radio stop, sleep or PCI epoch change.
         uint64_t associationGeneration_ {0};
         uint64_t receivedFrames_ {0};
+        uint64_t awdlReceivedMifs_ {0};
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};
         bool radioOperational_ {false};

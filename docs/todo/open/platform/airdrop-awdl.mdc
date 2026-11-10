@@ -43,6 +43,28 @@ All source acceptance above is independent of physical device tests. Actual
 nearby discovery and bidirectional transfer belong to the single final
 owner-controlled acceptance TODO, which remains open until the owner closes it.
 
+## Source progress — 2026-11-10: native FCS-verified AWDL RX observation
+
+`src/SimpleATH.cpp` now connects the production PCI EDMA receive callback
+into the bounded `AwdlNeighbors` table. The observer requires the **physical**
+radio to be operational, channel authorization, a separately confirmed native
+receive channel of **6**, an EDMA-valid frame with no reported CRC error, and
+a bounded FCS-present MPDU. It strips exactly the four-byte FCS, parses the
+802.11 frame header, admits complete channel-6 MIF action frames through
+`observeMif` and refreshes already-observed peers from complete AWDL IPv6
+data with `observeIpv6`. A successful MIF increments a diagnostic receive
+counter; it is **not** a synthesized AirDrop discovery event or registration.
+The table is cleared on native DMA faults and physical radio shutdown.
+
+This hookup is currently **dormant by design**: no real channel tune sets
+`verifiedReceiveChannel_` (it remains zero), and physical RF activation and
+native Apple AWDL/Bluetooth host contracts remain unresolved. The only
+available native SDK headers are not evidence of the Tahoe AWDL ABI. The
+source is C++14 MacKernelSDK syntax-checked and the bounded parser's existing
+offline packet regressions are exercised; no live-radio, macOS AWDL interface,
+peer synchronization/authorization, or AirDrop success is claimed. This P0
+TODO remains **open**.
+
 ## Primary references
 
 https://support.apple.com/en-ie/guide/security-pdf/sec2261183f4/web
