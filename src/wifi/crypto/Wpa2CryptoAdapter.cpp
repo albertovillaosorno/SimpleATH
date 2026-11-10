@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Wpa2CryptoAdapter.hpp"
+#include "wifi/Frames.hpp"
+#include "wifi/Wpa2Supplicant.hpp"
+#include "wifi/crypto/Wpa2Primitives.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -18,8 +23,11 @@ namespace simpleath
                 bool overlaps(const void *a, size_t aBytes, const void *b,
                               size_t bBytes)
                 {
-                    if (!a || !b || !aBytes || !bBytes)
+                    if ((a == nullptr) || (b == nullptr) || (aBytes == 0U) ||
+                        (bBytes == 0U))
+                    {
                         return false;
+                    }
                     const auto first = reinterpret_cast<uintptr_t>(a);
                     const auto second = reinterpret_cast<uintptr_t>(b);
                     return first <= second ? second - first < aBytes
@@ -41,9 +49,13 @@ namespace simpleath
                 if (overlaps(hw.context, 1, this, sizeof(*this)) ||
                     overlaps(hw.context, 1, &hw, sizeof(hw)) ||
                     overlaps(&hw, sizeof(hw), this, sizeof(*this)) ||
-                    configured_ || !hw.context || !hw.secureRandom ||
-                    !hw.installPairwise || !hw.installGroup || !hw.removeKeys)
+                    configured_ || (hw.context == nullptr) ||
+                    (hw.secureRandom == nullptr) ||
+                    (hw.installPairwise == nullptr) ||
+                    (hw.installGroup == nullptr) || (hw.removeKeys == nullptr))
+                {
                     return false;
+                }
                 hardware_ = hw;
                 configured_ = true;
                 ++generation_;
@@ -63,7 +75,9 @@ namespace simpleath
             Wpa2Crypto Adapter::callbacks()
             {
                 if (!configured_)
+                {
                     return {};
+                }
                 Wpa2Crypto functions {};
                 functions.context = this;
                 functions.generateNonce = nonce;
@@ -76,79 +90,100 @@ namespace simpleath
                 return functions;
             }
 
-            bool Adapter::nonce(void *context, uint8_t outNonce[32])
+            bool Adapter::nonce(void *context, uint8_t outNonce[kNonceBytes])
             {
-                if (!context || !outNonce)
+                if ((context == nullptr) || (outNonce == nullptr))
+                {
                     return false;
+                }
                 auto *adapter = static_cast<Adapter *>(context);
-                if (!adapter->configured_ || !adapter->hardware_.secureRandom ||
+                if (!adapter->configured_ ||
+                    (adapter->hardware_.secureRandom == nullptr) ||
                     overlaps(adapter, sizeof(*adapter), outNonce, 32) ||
                     overlaps(adapter->hardware_.context, 1, outNonce, 32))
+                {
                     return false;
+                }
                 // A provider may fail after filling only part of the nonce.
                 // Never publish a partial result into a reusable caller
                 // buffer, or report success for a no-op provider that leaves
                 // its zero-initialized scratch space unchanged.
                 const uint64_t generation = adapter->generation_;
-                uint8_t generated[32] {};
+                uint8_t generated[kPmkBytes] {};
                 const bool providerSucceeded = adapter->hardware_.secureRandom(
                     adapter->hardware_.context, generated, sizeof(generated));
                 uint8_t any = 0;
                 for (uint8_t byte : generated)
+                {
                     any |= byte;
+                }
                 const bool valid = providerSucceeded && any != 0 &&
                                    adapter->configured_ &&
                                    adapter->generation_ == generation;
                 if (valid)
+                {
                     for (size_t i = 0; i < sizeof(generated); ++i)
+                    {
                         outNonce[i] = generated[i];
+                    }
+                }
                 volatile uint8_t *secret = generated;
                 for (size_t i = 0; i < sizeof(generated); ++i)
+                {
                     secret[i] = 0;
+                }
                 return valid;
             }
 
-            bool Adapter::ptk(void *context, const uint8_t pmk[32],
+            bool Adapter::ptk(void *context, const uint8_t pmk[kPmkBytes],
                               const Mac &ap, const Mac &station,
-                              const uint8_t aNonce[32],
-                              const uint8_t sNonce[32], uint8_t outPtk[48])
+                              const uint8_t aNonce[kNonceBytes],
+                              const uint8_t sNonce[kNonceBytes],
+                              uint8_t outPtk[kPtkBytes])
             {
                 auto *adapter = static_cast<Adapter *>(context);
-                if (!adapter || !adapter->configured_ ||
+                if ((adapter == nullptr) || !adapter->configured_ ||
                     overlaps(adapter, sizeof(*adapter), outPtk, 48) ||
                     overlaps(adapter->hardware_.context, 1, outPtk, 48))
+                {
                     return false;
+                }
                 return derivePtk(pmk, ap, station, aNonce, sNonce, outPtk) ==
                        Error::Ok;
             }
 
-            bool Adapter::mic(void *context, const uint8_t key[16],
+            bool Adapter::mic(void *context, const uint8_t key[kAesKeyBytes],
                               const uint8_t *eapol, size_t frameBytes,
-                              uint8_t outMic[16])
+                              uint8_t outMic[kAesKeyBytes])
             {
                 auto *adapter = static_cast<Adapter *>(context);
-                if (!adapter || !adapter->configured_ ||
+                if ((adapter == nullptr) || !adapter->configured_ ||
                     overlaps(adapter, sizeof(*adapter), outMic, 16) ||
                     overlaps(adapter->hardware_.context, 1, outMic, 16))
+                {
                     return false;
+                }
                 return calculateMic(key, eapol, frameBytes, outMic) ==
                        Error::Ok;
             }
 
-            bool Adapter::unwrap(void *context, const uint8_t kek[16],
+            bool Adapter::unwrap(void *context, const uint8_t kek[kAesKeyBytes],
                                  const uint8_t *wrapped, size_t wrappedBytes,
                                  uint8_t *out, size_t capacity,
                                  size_t *resultLength)
             {
                 auto *adapter = static_cast<Adapter *>(context);
-                if (!adapter || !resultLength || !adapter->configured_ ||
+                if ((adapter == nullptr) || (resultLength == nullptr) ||
+                    !adapter->configured_ ||
                     overlaps(adapter, sizeof(*adapter), resultLength,
                              sizeof(*resultLength)) ||
                     overlaps(adapter, sizeof(*adapter), out, capacity) ||
                     overlaps(adapter->hardware_.context, 1, resultLength,
                              sizeof(*resultLength)) ||
                     overlaps(adapter->hardware_.context, 1, out, capacity))
+                {
                     return false;
+                }
                 // unwrapKey rejects overlapping length/key/ciphertext/output
                 // storage BEFORE it initializes the result length. Do not
                 // clear the length here and bypass that protection.
@@ -157,16 +192,20 @@ namespace simpleath
             }
 
             bool Adapter::pairwise(void *context, const Mac &ap,
-                                   const uint8_t key[16])
+                                   const uint8_t key[kAesKeyBytes])
             {
-                if (!context || !key)
+                if ((context == nullptr) || (key == nullptr))
+                {
                     return false;
+                }
                 auto *adapter = static_cast<Adapter *>(context);
                 // Callbacks are public and may be invoked without passing
                 // through the supplicant's checked BSS identity.
                 if (!validStationMac(ap) || !adapter->configured_ ||
-                    !adapter->hardware_.installPairwise)
+                    (adapter->hardware_.installPairwise == nullptr))
+                {
                     return false;
+                }
                 // An install can report success after the provider has
                 // retired and reconfigured this same adapter. Never promote
                 // that stale completion into installed-key readiness.
@@ -178,16 +217,23 @@ namespace simpleath
             }
 
             bool Adapter::group(void *context, uint8_t keyId,
-                                const uint8_t key[16], const uint8_t keyRsc[8])
+                                const uint8_t key[kAesKeyBytes],
+                                const uint8_t keyRsc[kWpa2KeyRscBytes])
             {
-                if (!context || !key || !keyRsc)
+                if ((context == nullptr) || (key == nullptr) ||
+                    (keyRsc == nullptr))
+                {
                     return false;
+                }
                 auto *adapter = static_cast<Adapter *>(context);
                 // The hardware must never see a reserved GTK index or the
                 // two reserved octets after the six-byte CCMP receive PN.
                 if (keyId > 3 || keyRsc[6] != 0 || keyRsc[7] != 0 ||
-                    !adapter->configured_ || !adapter->hardware_.installGroup)
+                    !adapter->configured_ ||
+                    (adapter->hardware_.installGroup == nullptr))
+                {
                     return false;
+                }
                 const uint64_t generation = adapter->generation_;
                 const bool installed = adapter->hardware_.installGroup(
                     adapter->hardware_.context, keyId, key, keyRsc);
@@ -197,11 +243,16 @@ namespace simpleath
 
             void Adapter::remove(void *context)
             {
-                if (!context)
+                if (context == nullptr)
+                {
                     return;
+                }
                 auto *adapter = static_cast<Adapter *>(context);
-                if (adapter->configured_ && adapter->hardware_.removeKeys)
+                if (adapter->configured_ &&
+                    (adapter->hardware_.removeKeys != nullptr))
+                {
                     adapter->hardware_.removeKeys(adapter->hardware_.context);
+                }
             }
 
         } // namespace crypto

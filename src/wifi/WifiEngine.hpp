@@ -92,6 +92,8 @@ namespace simpleath
                 ~WifiEngine();
                 WifiEngine(const WifiEngine &) = delete;
                 WifiEngine &operator=(const WifiEngine &) = delete;
+                WifiEngine(WifiEngine &&) = delete;
+                WifiEngine &operator=(WifiEngine &&) = delete;
 
                 void clear();
                 bool configureKeys(const crypto::KeyHardware &hardware);
@@ -106,7 +108,7 @@ namespace simpleath
                                            size_t ssidLength,
                                            uint8_t requestedChannel,
                                            bool allowOpen, bool allowWpa2,
-                                           const uint8_t pmk[32]);
+                                           const uint8_t pmk[kWpa2PmkBytes]);
 
                 // Caller submits returned frame only after full
                 // RF/calibration/DMA policy.

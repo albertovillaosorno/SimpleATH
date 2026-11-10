@@ -11,6 +11,11 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        constexpr size_t kWpa2PmkBytes = 32;
+        constexpr size_t kWpa2PtkBytes = 48;
+        constexpr size_t kWpa2NonceBytes = kEapolAnonceBytes;
+        constexpr size_t kWpa2KeyBytes = 16;
+        constexpr size_t kWpa2KeyRscBytes = 8;
 
         enum class Wpa2Result : uint8_t
         {
@@ -62,25 +67,29 @@ namespace simpleath
         struct Wpa2Crypto
         {
                 void *context;
-                bool (*generateNonce)(void *context, uint8_t outNonce[32]);
-                bool (*derivePtk)(void *context, const uint8_t pmk[32],
+                bool (*generateNonce)(void *context,
+                                      uint8_t outNonce[kWpa2NonceBytes]);
+                bool (*derivePtk)(void *context,
+                                  const uint8_t pmk[kWpa2PmkBytes],
                                   const Mac &ap, const Mac &station,
-                                  const uint8_t aNonce[32],
-                                  const uint8_t sNonce[32], uint8_t ptk[48]);
-                bool (*micSha1)(void *context, const uint8_t kck[16],
+                                  const uint8_t aNonce[kWpa2NonceBytes],
+                                  const uint8_t sNonce[kWpa2NonceBytes],
+                                  uint8_t ptk[kWpa2PtkBytes]);
+                bool (*micSha1)(void *context, const uint8_t kck[kWpa2KeyBytes],
                                 const uint8_t *eapol, size_t length,
-                                uint8_t mic[16]);
-                bool (*unwrapGtk)(void *context, const uint8_t kek[16],
+                                uint8_t mic[kWpa2KeyBytes]);
+                bool (*unwrapGtk)(void *context,
+                                  const uint8_t kek[kWpa2KeyBytes],
                                   const uint8_t *wrapped, size_t wrappedLength,
                                   uint8_t *out, size_t capacity,
                                   size_t *resultLength);
                 bool (*installPairwiseTk)(void *context, const Mac &ap,
-                                          const uint8_t tk[16]);
+                                          const uint8_t tk[kWpa2KeyBytes]);
                 // M3's MIC-authenticated Key RSC must seed the GTK receive
                 // PN/replay state; refuse success if hardware cannot do so.
                 bool (*installGroupGtk)(void *context, uint8_t keyId,
-                                        const uint8_t gtk[16],
-                                        const uint8_t keyRsc[8]);
+                                        const uint8_t gtk[kWpa2KeyBytes],
+                                        const uint8_t keyRsc[kWpa2KeyRscBytes]);
                 // Must roll back even partially programmed pairwise/group
                 // slots when an install callback returns false. Idempotent
                 // after partial writes, before the first successful install.
@@ -96,13 +105,16 @@ namespace simpleath
                 ~Wpa2Supplicant();
                 Wpa2Supplicant(const Wpa2Supplicant &) = delete;
                 Wpa2Supplicant &operator=(const Wpa2Supplicant &) = delete;
+                Wpa2Supplicant(Wpa2Supplicant &&) = delete;
+                Wpa2Supplicant &operator=(Wpa2Supplicant &&) = delete;
 
                 // Use the exact validated BSS RSNE (ID, length, payload)
                 // from Beacon/Probe Response to bind M3 to the association.
                 // Credential/RSNE sources and callback metadata/context must
                 // not alias this state or one another's writable context.
                 Wpa2Result begin(const Wpa2Crypto &crypto, const Mac &station,
-                                 const Mac &ap, const uint8_t pmk[32],
+                                 const Mac &ap,
+                                 const uint8_t pmk[kWpa2PmkBytes],
                                  const uint8_t *expectedRsnIe,
                                  size_t expectedRsnIeLength);
                 // AP source/BSSID and 802.11 decryption/CRC must be verified
@@ -149,10 +161,10 @@ namespace simpleath
                 ReplayGuard replay_;
                 Mac station_;
                 Mac ap_;
-                uint8_t pmk_[32];
-                uint8_t ptk_[48];
-                uint8_t snonce_[32];
-                uint8_t expectedRsnIe_[257];
+                uint8_t pmk_[kWpa2PmkBytes];
+                uint8_t ptk_[kWpa2PtkBytes];
+                uint8_t snonce_[kWpa2NonceBytes];
+                uint8_t expectedRsnIe_[kMaxRsnIeBytes];
                 size_t expectedRsnIeLength_;
                 uint8_t eapolVersion_;
                 bool keyInstallAttempted_;

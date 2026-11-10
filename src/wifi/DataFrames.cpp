@@ -155,7 +155,9 @@ namespace simpleath
             uint16_t etherType = 0;
             const Result snapResult = validateSnap(llc, etherType);
             if (snapResult != Result::Ok)
+            {
                 return snapResult;
+            }
             // The protected bit and decrypted payload are NOT evidence that a
             // key is authorized; the platform must prove decrypt+MIC+PN before
             // passing true.

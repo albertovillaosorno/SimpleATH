@@ -28,14 +28,15 @@ namespace simpleath
                     // validated PCI owner and keep the correct key-ids, address
                     // and PN state.
                     bool (*installPairwise)(void *context, const Mac &ap,
-                                            const uint8_t key[16]);
+                                            const uint8_t key[kAesKeyBytes]);
                     // keyRsc is the MIC-authenticated EAPOL M3 RSC:
                     // CCMP receive PN bytes 0..5 (least-significant first),
                     // followed by two zeros. Install GTK and receive PN/replay
                     // floor as one fail-closed operation. Never reset PN to 0.
-                    bool (*installGroup)(void *context, uint8_t keyId,
-                                         const uint8_t key[16],
-                                         const uint8_t keyRsc[8]);
+                    bool (*installGroup)(
+                        void *context, uint8_t keyId,
+                        const uint8_t key[kAesKeyBytes],
+                        const uint8_t keyRsc[kWpa2KeyRscBytes]);
                     void (*removeKeys)(void *context);
             };
 
@@ -45,6 +46,9 @@ namespace simpleath
                     Adapter();
                     Adapter(const Adapter &) = delete;
                     Adapter &operator=(const Adapter &) = delete;
+                    ~Adapter() = default;
+                    Adapter(Adapter &&) = delete;
+                    Adapter &operator=(Adapter &&) = delete;
                     // All callbacks must be real, nonblocking and serialized.
                     // This layer cannot authenticate their implementation or
                     // claim hardware readiness. The borrowed hardware table
@@ -62,24 +66,27 @@ namespace simpleath
                     void clear();
 
                 private:
-                    static bool nonce(void *context, uint8_t outNonce[32]);
-                    static bool ptk(void *context, const uint8_t pmk[32],
+                    static bool nonce(void *context,
+                                      uint8_t outNonce[kNonceBytes]);
+                    static bool ptk(void *context, const uint8_t pmk[kPmkBytes],
                                     const Mac &ap, const Mac &station,
-                                    const uint8_t aNonce[32],
-                                    const uint8_t sNonce[32],
-                                    uint8_t outPtk[48]);
-                    static bool mic(void *context, const uint8_t key[16],
+                                    const uint8_t aNonce[kNonceBytes],
+                                    const uint8_t sNonce[kNonceBytes],
+                                    uint8_t outPtk[kPtkBytes]);
+                    static bool mic(void *context,
+                                    const uint8_t key[kAesKeyBytes],
                                     const uint8_t *eapol, size_t frameBytes,
-                                    uint8_t outMic[16]);
-                    static bool unwrap(void *context, const uint8_t kek[16],
+                                    uint8_t outMic[kAesKeyBytes]);
+                    static bool unwrap(void *context,
+                                       const uint8_t kek[kAesKeyBytes],
                                        const uint8_t *wrapped,
                                        size_t wrappedBytes, uint8_t *out,
                                        size_t capacity, size_t *resultLength);
                     static bool pairwise(void *context, const Mac &ap,
-                                         const uint8_t key[16]);
+                                         const uint8_t key[kAesKeyBytes]);
                     static bool group(void *context, uint8_t keyId,
-                                      const uint8_t key[16],
-                                      const uint8_t keyRsc[8]);
+                                      const uint8_t key[kAesKeyBytes],
+                                      const uint8_t keyRsc[kWpa2KeyRscBytes]);
                     static void remove(void *context);
                     KeyHardware hardware_;
                     bool configured_;

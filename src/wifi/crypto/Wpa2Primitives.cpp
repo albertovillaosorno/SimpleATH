@@ -7,6 +7,9 @@
 // exercised this source; no Tahoe kext build or security audit is authorized.
 #include "Wpa2Primitives.hpp"
 #include "AesTables.hpp"
+#include "wifi/Frames.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -17,24 +20,28 @@ namespace simpleath
             namespace
             {
 
-                constexpr size_t kShaBlock = 64u;
-                constexpr size_t kShaDigest = 20u;
-                constexpr size_t kMaximumKeyData = 512u;
-                constexpr size_t kPmkLength = 32u;
-                constexpr size_t kPtkLength = 48u;
+                constexpr size_t kShaBlock = 64U;
+                constexpr size_t kShaDigest = 20U;
+                constexpr size_t kMaximumKeyData = 512U;
+                constexpr size_t kPmkLength = 32U;
+                constexpr size_t kPtkLength = 48U;
 
                 void wipe(void *storage, size_t length)
                 {
                     volatile uint8_t *ptr =
                         static_cast<volatile uint8_t *>(storage);
                     for (size_t i = 0; i < length; ++i)
+                    {
                         ptr[i] = 0;
+                    }
                 }
 
                 void bytesCopy(uint8_t *out, const uint8_t *in, size_t length)
                 {
                     for (size_t i = 0; i < length; ++i)
+                    {
                         out[i] = in[i];
+                    }
                 }
 
                 bool byteLess(const uint8_t *a, const uint8_t *b, size_t length)
@@ -42,30 +49,34 @@ namespace simpleath
                     for (size_t i = 0; i < length; ++i)
                     {
                         if (a[i] < b[i])
+                        {
                             return true;
+                        }
                         if (a[i] > b[i])
+                        {
                             return false;
+                        }
                     }
                     return false;
                 }
 
                 uint32_t rotl32(uint32_t a, unsigned n)
                 {
-                    return (a << n) | (a >> (32u - n));
+                    return (a << n) | (a >> (32U - n));
                 }
 
                 uint32_t read32be(const uint8_t *p)
                 {
-                    return (static_cast<uint32_t>(p[0]) << 24u) |
-                           (static_cast<uint32_t>(p[1]) << 16u) |
-                           (static_cast<uint32_t>(p[2]) << 8u) | p[3];
+                    return (static_cast<uint32_t>(p[0]) << 24U) |
+                           (static_cast<uint32_t>(p[1]) << 16U) |
+                           (static_cast<uint32_t>(p[2]) << 8U) | p[3];
                 }
 
                 void write32be(uint8_t *p, uint32_t v)
                 {
-                    p[0] = static_cast<uint8_t>(v >> 24u);
-                    p[1] = static_cast<uint8_t>(v >> 16u);
-                    p[2] = static_cast<uint8_t>(v >> 8u);
+                    p[0] = static_cast<uint8_t>(v >> 24U);
+                    p[1] = static_cast<uint8_t>(v >> 16U);
+                    p[2] = static_cast<uint8_t>(v >> 8U);
                     p[3] = static_cast<uint8_t>(v);
                 }
 
@@ -81,11 +92,15 @@ namespace simpleath
                 {
                     uint32_t words[80] {};
                     for (size_t i = 0; i < 16; ++i)
-                        words[i] = read32be(bytes + 4 * i);
+                    {
+                        words[i] = read32be(bytes + (4 * i));
+                    }
                     for (size_t i = 16; i < 80; ++i)
+                    {
                         words[i] = rotl32(words[i - 3] ^ words[i - 8] ^
                                               words[i - 14] ^ words[i - 16],
-                                          1u);
+                                          1U);
+                    }
                     uint32_t a = ctx.state[0];
                     uint32_t b = ctx.state[1];
                     uint32_t c = ctx.state[2];
@@ -93,32 +108,33 @@ namespace simpleath
                     uint32_t e = ctx.state[4];
                     for (size_t i = 0; i < 80; ++i)
                     {
-                        uint32_t f = 0, k = 0;
+                        uint32_t f = 0;
+                        uint32_t k = 0;
                         if (i < 20)
                         {
                             f = (b & c) | (~b & d);
-                            k = 0x5a827999u;
+                            k = 0x5a827999U;
                         }
                         else if (i < 40)
                         {
                             f = b ^ c ^ d;
-                            k = 0x6ed9eba1u;
+                            k = 0x6ed9eba1U;
                         }
                         else if (i < 60)
                         {
                             f = (b & c) | (b & d) | (c & d);
-                            k = 0x8f1bbcdcu;
+                            k = 0x8f1bbcdcU;
                         }
                         else
                         {
                             f = b ^ c ^ d;
-                            k = 0xca62c1d6u;
+                            k = 0xca62c1d6U;
                         }
                         const uint32_t tmp =
-                            rotl32(a, 5u) + f + e + k + words[i];
+                            rotl32(a, 5U) + f + e + k + words[i];
                         e = d;
                         d = c;
-                        c = rotl32(b, 30u);
+                        c = rotl32(b, 30U);
                         b = a;
                         a = tmp;
                     }
@@ -133,11 +149,11 @@ namespace simpleath
                 void shaInit(Sha1 &ctx)
                 {
                     ctx = {};
-                    ctx.state[0] = 0x67452301u;
-                    ctx.state[1] = 0xefcdab89u;
-                    ctx.state[2] = 0x98badcfeu;
-                    ctx.state[3] = 0x10325476u;
-                    ctx.state[4] = 0xc3d2e1f0u;
+                    ctx.state[0] = 0x67452301U;
+                    ctx.state[1] = 0xefcdab89U;
+                    ctx.state[2] = 0x98badcfeU;
+                    ctx.state[3] = 0x10325476U;
+                    ctx.state[4] = 0xc3d2e1f0U;
                 }
 
                 void shaUpdate(Sha1 &ctx, const uint8_t *data, size_t length)
@@ -156,18 +172,24 @@ namespace simpleath
 
                 void shaFinal(Sha1 &ctx, uint8_t out[kShaDigest])
                 {
-                    const uint64_t bits = ctx.totalBytes * 8u;
-                    const uint8_t one = 0x80u;
+                    const uint64_t bits = ctx.totalBytes * 8U;
+                    const uint8_t one = 0x80U;
                     const uint8_t zero = 0;
-                    shaUpdate(ctx, &one, 1u);
+                    shaUpdate(ctx, &one, 1U);
                     while (ctx.buffered != 56)
-                        shaUpdate(ctx, &zero, 1u);
+                    {
+                        shaUpdate(ctx, &zero, 1U);
+                    }
                     uint8_t length[8] {};
                     for (size_t i = 0; i < 8; ++i)
-                        length[7u - i] = static_cast<uint8_t>(bits >> (8u * i));
+                    {
+                        length[7U - i] = static_cast<uint8_t>(bits >> (8U * i));
+                    }
                     shaUpdate(ctx, length, sizeof(length));
                     for (size_t i = 0; i < 5; ++i)
-                        write32be(out + 4u * i, ctx.state[i]);
+                    {
+                        write32be(out + (4U * i), ctx.state[i]);
+                    }
                     wipe(length, sizeof(length));
                     wipe(&ctx, sizeof(ctx));
                 }
@@ -198,15 +220,17 @@ namespace simpleath
                     uint8_t outerPad[kShaBlock] {};
                     for (size_t i = 0; i < kShaBlock; ++i)
                     {
-                        innerPad[i] = normalized[i] ^ 0x36u;
-                        outerPad[i] = normalized[i] ^ 0x5cu;
+                        innerPad[i] = normalized[i] ^ 0x36U;
+                        outerPad[i] = normalized[i] ^ 0x5cU;
                     }
                     uint8_t inner[kShaDigest] {};
                     Sha1 ctx {};
                     shaInit(ctx);
                     shaUpdate(ctx, innerPad, kShaBlock);
                     for (size_t i = 0; i < count; ++i)
+                    {
                         shaUpdate(ctx, items[i].data, items[i].length);
+                    }
                     shaFinal(ctx, inner);
                     shaInit(ctx);
                     shaUpdate(ctx, outerPad, kShaBlock);
@@ -223,12 +247,14 @@ namespace simpleath
                     uint8_t product = 0;
                     for (unsigned i = 0; i < 8; ++i)
                     {
-                        if (b & 1u)
+                        if ((b & 1U) != 0U)
+                        {
                             product ^= a;
-                        const bool high = (a & 0x80u) != 0;
-                        a = static_cast<uint8_t>((a << 1u) ^
-                                                 (high ? 0x1bu : 0));
-                        b >>= 1u;
+                        }
+                        const bool high = (a & 0x80U) != 0;
+                        a = static_cast<uint8_t>((a << 1U) ^
+                                                 (high ? 0x1bU : 0));
+                        b >>= 1U;
                     }
                     return product;
                 }
@@ -240,8 +266,12 @@ namespace simpleath
                     size_t i = 16;
                     while (i < 176)
                     {
-                        uint8_t tmp[4] = {expanded[i - 4], expanded[i - 3],
-                                          expanded[i - 2], expanded[i - 1]};
+                        uint8_t tmp[4] = {
+                            expanded[i - 4],
+                            expanded[i - 3],
+                            expanded[i - 2],
+                            expanded[i - 1],
+                        };
                         if (i % 16 == 0)
                         {
                             const uint8_t first = tmp[0];
@@ -251,12 +281,12 @@ namespace simpleath
                             tmp[3] = kAesSbox[first];
                             rcon = gfMultiply(rcon, 2);
                         }
-                        for (size_t k = 0; k < 4; ++k)
+                        for (unsigned char k : tmp)
                         {
                             // C++14 does not order lhs post-increment against
                             // rhs evaluation.
                             expanded[i] =
-                                static_cast<uint8_t>(expanded[i - 16] ^ tmp[k]);
+                                static_cast<uint8_t>(expanded[i - 16] ^ k);
                             ++i;
                         }
                         wipe(tmp, sizeof(tmp));
@@ -267,7 +297,9 @@ namespace simpleath
                                  size_t round)
                 {
                     for (size_t i = 0; i < 16; ++i)
-                        state[i] ^= expanded[round * 16u + i];
+                    {
+                        state[i] ^= expanded[(round * 16U) + i];
+                    }
                 }
 
                 void inverseShiftRows(uint8_t state[16])
@@ -278,9 +310,9 @@ namespace simpleath
                     for (size_t col = 0; col < 4; ++col)
                     {
                         state[4 * col] = old[4 * col];
-                        state[4 * col + 1] = old[4 * ((col + 3u) % 4u) + 1];
-                        state[4 * col + 2] = old[4 * ((col + 2u) % 4u) + 2];
-                        state[4 * col + 3] = old[4 * ((col + 1u) % 4u) + 3];
+                        state[(4 * col) + 1] = old[(4 * ((col + 3U) % 4U)) + 1];
+                        state[(4 * col) + 2] = old[(4 * ((col + 2U) % 4U)) + 2];
+                        state[(4 * col) + 3] = old[(4 * ((col + 1U) % 4U)) + 3];
                     }
                     wipe(old, sizeof(old));
                 }
@@ -319,14 +351,18 @@ namespace simpleath
                     {
                         inverseShiftRows(state);
                         for (uint8_t &v : state)
+                        {
                             v = kAesInverseSbox[v];
+                        }
                         addRoundKey(state, expanded,
                                     static_cast<size_t>(round));
                         inverseMixColumns(state);
                     }
                     inverseShiftRows(state);
                     for (uint8_t &v : state)
+                    {
                         v = kAesInverseSbox[v];
+                    }
                     addRoundKey(state, expanded, 0);
                     bytesCopy(plain, state, sizeof(state));
                     wipe(state, sizeof(state));
@@ -347,25 +383,34 @@ namespace simpleath
                             const uint8_t *ssid, size_t ssidLength,
                             uint8_t outputPmk[32])
             {
-                if (!passphrase || !ssid || !outputPmk)
+                if ((passphrase == nullptr) || (ssid == nullptr) ||
+                    (outputPmk == nullptr))
+                {
                     return Error::InvalidArgument;
+                }
                 if (passphraseLength < 8 || passphraseLength > 63)
+                {
                     return Error::InvalidPassword;
+                }
                 if (ssidLength == 0 || ssidLength > 32)
+                {
                     return Error::InvalidSsid;
+                }
                 if (!disjoint(passphrase, passphraseLength, outputPmk, 32) ||
                     !disjoint(ssid, ssidLength, outputPmk, 32))
+                {
                     return Error::InvalidArgument;
+                }
                 uint8_t salt[36] {};
                 bytesCopy(salt, ssid, ssidLength);
                 uint8_t result[32] {};
                 for (uint32_t block = 1; block <= 2; ++block)
                 {
-                    salt[ssidLength] = static_cast<uint8_t>(block >> 24u);
-                    salt[ssidLength + 1] = static_cast<uint8_t>(block >> 16u);
-                    salt[ssidLength + 2] = static_cast<uint8_t>(block >> 8u);
+                    salt[ssidLength] = static_cast<uint8_t>(block >> 24U);
+                    salt[ssidLength + 1] = static_cast<uint8_t>(block >> 16U);
+                    salt[ssidLength + 2] = static_cast<uint8_t>(block >> 8U);
                     salt[ssidLength + 3] = static_cast<uint8_t>(block);
-                    const Slice piece {salt, ssidLength + 4u};
+                    const Slice piece {salt, ssidLength + 4U};
                     uint8_t previous[kShaDigest] {};
                     hmacSha1Slices(passphrase, passphraseLength, &piece, 1,
                                    previous);
@@ -378,11 +423,13 @@ namespace simpleath
                         hmacSha1Slices(passphrase, passphraseLength, &prev, 1,
                                        next);
                         for (size_t i = 0; i < kShaDigest; ++i)
+                        {
                             xorValue[i] ^= next[i];
+                        }
                         bytesCopy(previous, next, sizeof(previous));
                         wipe(next, sizeof(next));
                     }
-                    const size_t start = (block - 1u) * kShaDigest;
+                    const size_t start = (block - 1U) * kShaDigest;
                     const size_t count = start + kShaDigest <= kPmkLength
                                              ? kShaDigest
                                              : kPmkLength - start;
@@ -400,14 +447,19 @@ namespace simpleath
                             const Mac &station, const uint8_t aNonce[32],
                             const uint8_t sNonce[32], uint8_t outputPtk[48])
             {
-                if (!pmk || !aNonce || !sNonce || !outputPtk)
+                if ((pmk == nullptr) || (aNonce == nullptr) ||
+                    (sNonce == nullptr) || (outputPtk == nullptr))
+                {
                     return Error::InvalidArgument;
+                }
                 // Public callers need not pass through station selection.
                 // An authenticator cannot also be the supplicant whose
                 // traffic keys are being derived.
                 if (!validStationMac(ap) || !validStationMac(station) ||
                     sameMac(ap, station))
+                {
                     return Error::InvalidArgument;
+                }
                 // The MAC identities are references supplied by the caller,
                 // not necessarily detached values. Even though the derivation
                 // reads them before publishing the PTK, never overwrite an AP
@@ -419,7 +471,9 @@ namespace simpleath
                               kPtkLength) ||
                     !disjoint(station.bytes, sizeof(station.bytes), outputPtk,
                               kPtkLength))
+                {
                     return Error::InvalidArgument;
+                }
                 uint8_t ptk[kPtkLength] {};
                 uint8_t ordered[76] {};
                 const bool macOrder = byteLess(ap.bytes, station.bytes, 6);
@@ -433,11 +487,14 @@ namespace simpleath
                 for (uint8_t counter = 0; counter < 3; ++counter)
                 {
                     const Slice parts[] = {
-                        {reinterpret_cast<const uint8_t *>(label),
-                         sizeof(label) - 1u},
-                        {&separator, 1u},
+                        {
+                            reinterpret_cast<const uint8_t *>(label),
+                            sizeof(label) - 1U,
+                        },
+                        {&separator, 1U},
                         {ordered, sizeof(ordered)},
-                        {&counter, 1u}};
+                        {&counter, 1U},
+                    };
                     uint8_t digest[kShaDigest] {};
                     hmacSha1Slices(pmk, 32, parts, 4, digest);
                     const size_t offset =
@@ -457,15 +514,20 @@ namespace simpleath
             Error calculateMic(const uint8_t kck[16], const uint8_t *eapol,
                                size_t frameBytes, uint8_t outputMic[16])
             {
-                if (!kck || !eapol || !outputMic || frameBytes < 99u ||
-                    frameBytes > 2048u)
+                if ((kck == nullptr) || (eapol == nullptr) ||
+                    (outputMic == nullptr) || frameBytes < 99U ||
+                    frameBytes > 2048U)
+                {
                     return Error::InvalidArgument;
+                }
                 // The output must not overwrite the KCK or signed input.
                 // In particular, returning a MIC in the key buffer would
                 // silently destroy the caller's live session secret.
                 if (!disjoint(outputMic, 16, kck, 16) ||
                     !disjoint(outputMic, 16, eapol, frameBytes))
+                {
                     return Error::InvalidArgument;
+                }
                 const Slice input {eapol, frameBytes};
                 uint8_t digest[kShaDigest] {};
                 hmacSha1Slices(kck, 16, &input, 1, digest);
@@ -484,32 +546,45 @@ namespace simpleath
                 // cannot mutate the key or the packet being authenticated.
                 const auto *countBytes =
                     reinterpret_cast<const uint8_t *>(&outputBytes);
-                if ((kek &&
+                if (((kek != nullptr) &&
                      !disjoint(countBytes, sizeof(outputBytes), kek, 16)) ||
-                    (wrapped && !disjoint(countBytes, sizeof(outputBytes),
-                                          wrapped, wrappedBytes)) ||
-                    (output && !disjoint(countBytes, sizeof(outputBytes),
-                                         output, outputCapacity)))
+                    ((wrapped != nullptr) &&
+                     !disjoint(countBytes, sizeof(outputBytes), wrapped,
+                               wrappedBytes)) ||
+                    ((output != nullptr) &&
+                     !disjoint(countBytes, sizeof(outputBytes), output,
+                               outputCapacity)))
+                {
                     return Error::InvalidArgument;
+                }
                 outputBytes = 0;
-                if (!kek || !wrapped || !output)
+                if ((kek == nullptr) || (wrapped == nullptr) ||
+                    (output == nullptr))
+                {
                     return Error::InvalidArgument;
+                }
                 if (wrappedBytes < 24 || wrappedBytes > kMaximumKeyData ||
-                    wrappedBytes % 8u != 0)
+                    wrappedBytes % 8U != 0)
+                {
                     return Error::BadWrappedLength;
-                const size_t plainBytes = wrappedBytes - 8u;
+                }
+                const size_t plainBytes = wrappedBytes - 8U;
                 if (outputCapacity < plainBytes)
+                {
                     return Error::BufferTooSmall;
+                }
                 if (!disjoint(kek, 16, output, plainBytes) ||
                     !disjoint(wrapped, wrappedBytes, output, plainBytes))
+                {
                     return Error::InvalidArgument;
+                }
                 uint8_t expanded[176] {};
                 expandAes128(kek, expanded);
                 uint8_t a[8] {};
                 bytesCopy(a, wrapped, 8);
                 uint8_t result[kMaximumKeyData] {};
                 bytesCopy(result, wrapped + 8, plainBytes);
-                const size_t n = plainBytes / 8u;
+                const size_t n = plainBytes / 8U;
                 for (int j = 5; j >= 0; --j)
                 {
                     for (size_t i = n; i > 0; --i)
@@ -517,23 +592,27 @@ namespace simpleath
                         uint8_t encrypted[16] {};
                         uint8_t decrypted[16] {};
                         bytesCopy(encrypted, a, 8);
-                        const uint64_t t = static_cast<uint64_t>(n) *
-                                               static_cast<uint64_t>(j) +
+                        const uint64_t t = (static_cast<uint64_t>(n) *
+                                            static_cast<uint64_t>(j)) +
                                            i;
                         for (size_t index = 0; index < 8; ++index)
-                            encrypted[7u - index] ^=
-                                static_cast<uint8_t>(t >> (8u * index));
-                        bytesCopy(encrypted + 8, result + (i - 1u) * 8u, 8);
+                        {
+                            encrypted[7U - index] ^=
+                                static_cast<uint8_t>(t >> (8U * index));
+                        }
+                        bytesCopy(encrypted + 8, result + ((i - 1U) * 8U), 8);
                         aes128DecryptBlock(expanded, encrypted, decrypted);
                         bytesCopy(a, decrypted, 8);
-                        bytesCopy(result + (i - 1u) * 8u, decrypted + 8, 8);
+                        bytesCopy(result + ((i - 1U) * 8U), decrypted + 8, 8);
                         wipe(encrypted, sizeof(encrypted));
                         wipe(decrypted, sizeof(decrypted));
                     }
                 }
                 uint8_t mismatch = 0;
-                for (size_t i = 0; i < 8; ++i)
-                    mismatch |= static_cast<uint8_t>(a[i] ^ 0xa6u);
+                for (unsigned char i : a)
+                {
+                    mismatch |= static_cast<uint8_t>(i ^ 0xa6U);
+                }
                 wipe(a, sizeof(a));
                 wipe(expanded, sizeof(expanded));
                 if (mismatch != 0)

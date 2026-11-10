@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "DataPath.hpp"
 #include "Eapol.hpp"
+#include "wifi/DataFrames.hpp"
+#include "wifi/Frames.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -43,9 +45,9 @@ namespace simpleath
             bool validDestination(const Mac &address)
             {
                 uint8_t any = 0;
-                for (size_t i = 0; i < 6; ++i)
+                for (unsigned char byte : address.bytes)
                 {
-                    any |= address.bytes[i];
+                    any |= byte;
                 }
                 return any !=
                        0; // Multicast/broadcast can be Ethernet destinations.
@@ -65,7 +67,7 @@ namespace simpleath
         {
             // Fail without modifying output or result on any validation
             // failure.
-            if (!out || !ethernet)
+            if ((out == nullptr) || (ethernet == nullptr))
             {
                 return DataPathResult::NullBuffer;
             }
@@ -101,10 +103,26 @@ namespace simpleath
             {
                 return DataPathResult::InvalidEthernetFrame;
             }
-            const Mac destination {{ethernet[0], ethernet[1], ethernet[2],
-                                    ethernet[3], ethernet[4], ethernet[5]}};
-            const Mac source {{ethernet[6], ethernet[7], ethernet[8],
-                               ethernet[9], ethernet[10], ethernet[11]}};
+            const Mac destination {
+                {
+                    ethernet[0],
+                    ethernet[1],
+                    ethernet[2],
+                    ethernet[3],
+                    ethernet[4],
+                    ethernet[5],
+                },
+            };
+            const Mac source {
+                {
+                    ethernet[6],
+                    ethernet[7],
+                    ethernet[8],
+                    ethernet[9],
+                    ethernet[10],
+                    ethernet[11],
+                },
+            };
             if (!validDestination(destination) ||
                 !sameMac(source, link.station))
             {
@@ -266,7 +284,7 @@ namespace simpleath
             }
             // An ordinary failed admission revokes stale borrowed RX payload.
             result = {};
-            if (!frame)
+            if (frame == nullptr)
             {
                 return DataPathResult::NullBuffer;
             }

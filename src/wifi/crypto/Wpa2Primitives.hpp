@@ -18,6 +18,10 @@ namespace simpleath
     {
         namespace crypto
         {
+            constexpr size_t kPmkBytes = 32;
+            constexpr size_t kNonceBytes = 32;
+            constexpr size_t kPtkBytes = 48;
+            constexpr size_t kAesKeyBytes = 16;
 
             enum class Error : uint8_t
             {
@@ -35,21 +39,24 @@ namespace simpleath
             // separate API.
             Error derivePmk(const uint8_t *passphrase, size_t passphraseLength,
                             const uint8_t *ssid, size_t ssidLength,
-                            uint8_t outputPmk[32]);
+                            uint8_t outputPmk[kPmkBytes]);
 
             // WPA2-CCMP PRF-384 over ordered MAC addresses and nonces; 48-byte
             // PTK layout = KCK(16) || KEK(16) || TK(16). Never log/serialize
             // the output. Output must not overlap either MAC identity, the PMK
             // or either nonce.
-            Error derivePtk(const uint8_t pmk[32], const Mac &ap,
-                            const Mac &station, const uint8_t aNonce[32],
-                            const uint8_t sNonce[32], uint8_t outputPtk[48]);
+            Error derivePtk(const uint8_t pmk[kPmkBytes], const Mac &ap,
+                            const Mac &station,
+                            const uint8_t aNonce[kNonceBytes],
+                            const uint8_t sNonce[kNonceBytes],
+                            uint8_t outputPtk[kPtkBytes]);
 
             // HMAC-SHA1-128 for WPA2 EAPOL-Key descriptor version 2.
             // Caller must supply the whole EAPOL frame with its MIC field
             // zeroed. The output must not overlap the KCK or signed bytes.
-            Error calculateMic(const uint8_t kck[16], const uint8_t *eapol,
-                               size_t frameBytes, uint8_t outputMic[16]);
+            Error calculateMic(const uint8_t kck[kAesKeyBytes],
+                               const uint8_t *eapol, size_t frameBytes,
+                               uint8_t outputMic[kAesKeyBytes]);
 
             // RFC3394 AES-128-Key-Unwrap. Bounds fixed to WPA2 EAPOL key-data
             // maximum of 512 bytes. Rejects integrity-check failure without
@@ -57,9 +64,10 @@ namespace simpleath
             // multiple of 8, and disjoint from out. The outputBytes
             // reference must not alias the KEK, ciphertext or output storage;
             // invalid aliases are rejected without modifying those bytes.
-            Error unwrapKey(const uint8_t kek[16], const uint8_t *wrapped,
-                            size_t wrappedBytes, uint8_t *output,
-                            size_t outputCapacity, size_t &outputBytes);
+            Error unwrapKey(const uint8_t kek[kAesKeyBytes],
+                            const uint8_t *wrapped, size_t wrappedBytes,
+                            uint8_t *output, size_t outputCapacity,
+                            size_t &outputBytes);
 
         } // namespace crypto
     } // namespace ieee80211

@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "ScanCache.hpp"
+#include "wifi/Frames.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -10,8 +13,11 @@ namespace simpleath
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
             {
-                if (!a || !b || !aBytes || !bBytes)
+                if ((a == nullptr) || (b == nullptr) || (aBytes == 0U) ||
+                    (bBytes == 0U))
+                {
                     return false;
+                }
                 const auto first = reinterpret_cast<uintptr_t>(a);
                 const auto second = reinterpret_cast<uintptr_t>(b);
                 return first <= second ? second - first < aBytes
@@ -23,13 +29,19 @@ namespace simpleath
             {
                 if (left.channel != right.channel ||
                     left.rsn.security != right.rsn.security ||
-                    ((left.capabilities ^ right.capabilities) & 0x0010u) != 0 ||
+                    ((left.capabilities ^ right.capabilities) & 0x0010U) != 0 ||
                     left.rsnIeLength != right.rsnIeLength ||
                     left.rsnIeLength > sizeof(left.rsnIe))
+                {
                     return false;
+                }
                 for (size_t i = 0; i < left.rsnIeLength; ++i)
+                {
                     if (left.rsnIe[i] != right.rsnIe[i])
+                    {
                         return false;
+                    }
+                }
                 return true;
             }
 
@@ -45,8 +57,10 @@ namespace simpleath
 
         void ScanCache::clear()
         {
-            for (size_t i = 0; i < kCapacity; ++i)
-                entries_[i] = {};
+            for (auto &entrie : entries_)
+            {
+                entrie = {};
+            }
         }
 
         Result ScanCache::observe(const uint8_t *frame, size_t length,
@@ -55,13 +69,19 @@ namespace simpleath
             // RX bytes must be borrowed from a disjoint DMA/frame allocation;
             // a forged source within the cache could change while updating it.
             if (overlaps(frame, length, this, sizeof(*this)))
+            {
                 return Result::InvalidFrame;
+            }
             Beacon beacon {};
             const Result result = parseBeacon(frame, length, beacon);
             if (result != Result::Ok)
+            {
                 return result;
+            }
             if (!beacon.infrastructure || beacon.intervalTu == 0)
+            {
                 return Result::InvalidFrame;
+            }
 
             size_t slot = kCapacity;
             size_t freeSlot = kCapacity;
@@ -72,14 +92,18 @@ namespace simpleath
                 if (!entries_[i].occupied)
                 {
                     if (freeSlot == kCapacity)
+                    {
                         freeSlot = i;
+                    }
                     continue;
                 }
                 // A delayed RX callback must not rewind any cached clock or
                 // evict a newer BSSID on the strength of an older sample.
                 // Check all occupied entries, including those after a match.
                 if (nowMs < entries_[i].lastSeenMs)
+                {
                     return Result::InvalidFrame;
+                }
                 if (sameMac(entries_[i].beacon.bssid, beacon.bssid))
                 {
                     slot = i;
@@ -93,9 +117,13 @@ namespace simpleath
                 }
             }
             if (slot == kCapacity)
+            {
                 slot = freeSlot != kCapacity ? freeSlot : oldestSlot;
+            }
             if (slot == kCapacity)
+            {
                 return Result::InvalidFrame;
+            }
 
             // Retain a previously visible probe-response name only when the
             // exact same BSSID advertises a hidden SSID with unchanged channel
@@ -109,7 +137,9 @@ namespace simpleath
                 beacon.ssidLength = entries_[slot].beacon.ssidLength;
                 beacon.hiddenSsid = false;
                 for (size_t i = 0; i < beacon.ssidLength; ++i)
+                {
                     beacon.ssid[i] = entries_[slot].beacon.ssid[i];
+                }
             }
             entries_[slot].beacon = beacon;
             entries_[slot].rssiDbm = rssiDbm;
@@ -120,22 +150,30 @@ namespace simpleath
 
         void ScanCache::expire(uint64_t nowMs, uint64_t ttlMs)
         {
-            for (size_t i = 0; i < kCapacity; ++i)
+            for (auto &entrie : entries_)
             {
-                if (!entries_[i].occupied)
+                if (!entrie.occupied)
+                {
                     continue;
-                if (nowMs < entries_[i].lastSeenMs ||
-                    nowMs - entries_[i].lastSeenMs > ttlMs)
-                    entries_[i] = {};
+                }
+                if (nowMs < entrie.lastSeenMs ||
+                    nowMs - entrie.lastSeenMs > ttlMs)
+                {
+                    entrie = {};
+                }
             }
         }
 
         size_t ScanCache::size() const
         {
             size_t count = 0;
-            for (size_t i = 0; i < kCapacity; ++i)
-                if (entries_[i].occupied)
+            for (const auto &entrie : entries_)
+            {
+                if (entrie.occupied)
+                {
                     ++count;
+                }
+            }
             return count;
         }
 
@@ -144,18 +182,24 @@ namespace simpleath
             // Failed lookups normally clear stale output, but an alias to an
             // owned cache entry must not erase its live BSS first.
             if (overlaps(&out, sizeof(out), this, sizeof(*this)))
+            {
                 return false;
+            }
             out = {};
             if (ordinal >= kCapacity)
-                return false;
-            size_t occupied = 0;
-            for (size_t i = 0; i < kCapacity; ++i)
             {
-                if (!entries_[i].occupied)
+                return false;
+            }
+            size_t occupied = 0;
+            for (const auto &entrie : entries_)
+            {
+                if (!entrie.occupied)
+                {
                     continue;
+                }
                 if (occupied == ordinal)
                 {
-                    out = entries_[i];
+                    out = entrie;
                     return true;
                 }
                 ++occupied;
@@ -172,45 +216,62 @@ namespace simpleath
             if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
                 overlaps(&out, sizeof(out), ssid, ssidLength) ||
                 overlaps(ssid, ssidLength, this, sizeof(*this)))
+            {
                 return false;
-            if (ssidLength > 32 || (ssidLength != 0 && !ssid))
+            }
+            if (ssidLength > 32 || (ssidLength != 0 && (ssid == nullptr)))
             {
                 out = {};
                 return false;
             }
             bool found = false;
             Bss best {};
-            for (size_t i = 0; i < kCapacity; ++i)
+            for (const auto &candidate : entries_)
             {
-                const Bss &candidate = entries_[i];
                 if (!candidate.occupied || candidate.beacon.hiddenSsid ||
                     candidate.beacon.channel == 0 ||
                     (channel != 0 && candidate.beacon.channel != channel))
+                {
                     continue;
+                }
                 const Security security = candidate.beacon.rsn.security;
                 if (security == Security::Open && !permitOpen)
+                {
                     continue;
+                }
                 if (security == Security::Wpa2Personal &&
                     (!permitWpa2 || !candidate.beacon.rsn.groupCcmp))
+                {
                     continue;
+                }
                 if (security != Security::Open &&
                     security != Security::Wpa2Personal)
+                {
                     continue;
+                }
                 // Rank only BSSes whose mandatory basic rates this PHY can
                 // honor and which have at least one common association rate.
                 // Otherwise a stronger unjoinable BSSID can mask a weaker
                 // compatible AP with the same SSID and security policy.
                 if (associationRequestLength(candidate.beacon) == 0)
+                {
                     continue;
+                }
                 if (ssidLength != 0)
                 {
                     if (candidate.beacon.ssidLength != ssidLength)
+                    {
                         continue;
+                    }
                     uint8_t difference = 0;
                     for (size_t j = 0; j < ssidLength; ++j)
+                    {
                         difference |= candidate.beacon.ssid[j] ^ ssid[j];
+                    }
                     if (difference != 0)
+                    {
                         continue;
+                    }
                 }
                 // Never prefer a stronger Open BSS over compatible WPA2
                 // solely because both policies were explicitly allowed.
@@ -234,9 +295,13 @@ namespace simpleath
                 }
             }
             if (found)
+            {
                 out = best;
+            }
             else
+            {
                 out = {};
+            }
             return found;
         }
 

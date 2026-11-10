@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "WifiEngine.hpp"
+#include "wifi/DataFrames.hpp"
+#include "wifi/DataPath.hpp"
+#include "wifi/Eapol.hpp"
+#include "wifi/Frames.hpp"
+#include "wifi/LinkMonitor.hpp"
+#include "wifi/ScanCache.hpp"
+#include "wifi/Station.hpp"
+#include "wifi/Wpa2Supplicant.hpp"
+#include "wifi/crypto/Wpa2CryptoAdapter.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -8,18 +19,21 @@ namespace simpleath
         namespace
         {
 
-            constexpr uint16_t kEtherTypeEapol = 0x888eu;
-            constexpr size_t kEthernetHeader = 14u;
-            constexpr size_t kMaximumEapolReply = 256u;
+            constexpr uint16_t kEtherTypeEapol = 0x888eU;
+            constexpr size_t kEthernetHeader = 14U;
+            constexpr size_t kMaximumEapolReply = 256U;
             // WPA2 M2 is 121 bytes EAPOL plus 802.11 header and 8-byte
             // LLC/SNAP.
-            constexpr size_t kMinimumEapolTxFrameCapacity = 24u + 8u + 121u;
+            constexpr size_t kMinimumEapolTxFrameCapacity = 24U + 8U + 121U;
 
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
             {
-                if (!a || !b || !aBytes || !bBytes)
+                if ((a == nullptr) || (b == nullptr) || (aBytes == 0U) ||
+                    (bBytes == 0U))
+                {
                     return false;
+                }
                 const auto first = reinterpret_cast<uintptr_t>(a);
                 const auto second = reinterpret_cast<uintptr_t>(b);
                 return first <= second ? second - first < aBytes
@@ -50,13 +64,17 @@ namespace simpleath
             void copyBytes(uint8_t *dest, const uint8_t *src, size_t count)
             {
                 for (size_t i = 0; i < count; ++i)
+                {
                     dest[i] = src[i];
+                }
             }
 
             EngineResult mapPrepared(Result value)
             {
                 if (value == Result::BufferTooSmall)
+                {
                     return EngineResult::BufferTooSmall;
+                }
                 return value == Result::Ok ? EngineResult::Ok
                                            : EngineResult::InvalidInput;
             }
@@ -102,7 +120,9 @@ namespace simpleath
             if (overlaps(hardware.context, 1, this, sizeof(*this)) ||
                 overlaps(&hardware, sizeof(hardware), this, sizeof(*this)) ||
                 keysConfigured_ || selected_)
+            {
                 return false;
+            }
             keysConfigured_ = crypto_.configure(hardware);
             return keysConfigured_;
         }
@@ -111,15 +131,23 @@ namespace simpleath
                                            bool countryChannelAllowed)
         {
             if (selected_)
+            {
                 return EngineResult::InvalidState;
+            }
             if (!radioInitialized)
+            {
                 return EngineResult::RadioNotReady;
+            }
             if (!countryChannelAllowed)
+            {
                 return EngineResult::CountryNotAuthorized;
+            }
             if (station_.enterScanning(radioInitialized,
                                        countryChannelAllowed) !=
                 StationResult::Ok)
+            {
                 return EngineResult::InvalidState;
+            }
             cache_.clear();
             channelAuthorized_ = countryChannelAllowed;
             return EngineResult::Ok;
@@ -130,41 +158,57 @@ namespace simpleath
                                                size_t ssidLength,
                                                uint8_t requestedChannel,
                                                bool allowOpen, bool allowWpa2,
-                                               const uint8_t pmk[32])
+                                               const uint8_t pmk[kWpa2PmkBytes])
         {
             if (selected_ || station_.state() != StationState::Scanning)
+            {
                 return EngineResult::InvalidState;
-            if (!channelAuthorized_ || requestedChannel < 1u ||
-                requestedChannel > 14u)
+            }
+            if (!channelAuthorized_ || requestedChannel < 1U ||
+                requestedChannel > 14U)
+            {
                 return EngineResult::CountryNotAuthorized;
-            if (!validStationMac(station) || !ssid || ssidLength == 0 ||
-                ssidLength > 32)
+            }
+            if (!validStationMac(station) || (ssid == nullptr) ||
+                ssidLength == 0 || ssidLength > 32)
+            {
                 return EngineResult::InvalidInput;
+            }
             // An explicit SSID is mandatory for association. A wildcard
             // scan result is never authorization to join an arbitrary BSS.
             Bss candidate {};
             if (!cache_.strongest(ssid, ssidLength, requestedChannel, allowOpen,
                                   allowWpa2, candidate))
+            {
                 return EngineResult::NoMatchingBss;
+            }
             if (candidate.beacon.channel != requestedChannel)
+            {
                 return EngineResult::CountryNotAuthorized;
+            }
             // Reject a forged local/AP identity before the WPA2 supplicant
             // sees credentials. Station::select also checks this, but runs
             // only after the optional security setup below.
             if (sameMac(station, candidate.beacon.bssid))
+            {
                 return EngineResult::InvalidInput;
+            }
             const Security security = candidate.beacon.rsn.security;
             if (security == Security::Wpa2Personal)
             {
-                if (!keysConfigured_ || !pmk)
+                if (!keysConfigured_ || (pmk == nullptr))
+                {
                     return EngineResult::CryptoUnavailable;
+                }
                 const Wpa2Crypto callbacks = crypto_.callbacks();
-                if (!callbacks.context ||
+                if ((callbacks.context == nullptr) ||
                     supplicant_.begin(
                         callbacks, station, candidate.beacon.bssid, pmk,
                         candidate.beacon.rsnIe,
                         candidate.beacon.rsnIeLength) != Wpa2Result::Ok)
+                {
                     return EngineResult::CryptoFailure;
+                }
             }
             else if (security != Security::Open)
             {
@@ -210,16 +254,22 @@ namespace simpleath
         {
             if (aliasesEngineIo(this, action, nullptr, 0, nullptr, 0, out,
                                 capacity))
+            {
                 return EngineResult::InvalidInput;
+            }
             action = {};
             if (!selected_)
+            {
                 return EngineResult::InvalidState;
+            }
             size_t written = 0;
             Result result = station_.authenticationRequest(sequence, out,
                                                            capacity, written);
             if (result != Result::Ok)
+            {
                 return mapPrepared(result);
-            nextSequence_ = static_cast<uint16_t>((sequence + 1u) & 0xfffu);
+            }
+            nextSequence_ = static_cast<uint16_t>((sequence + 1U) & 0xfffU);
             return emitPrepared(ActionKind::TransmitAuthentication, written,
                                 action);
         }
@@ -231,7 +281,9 @@ namespace simpleath
         {
             Frame header {};
             if (parseFrame(frame, length, header) != Result::Ok)
+            {
                 return EngineResult::InvalidReceivedFrame;
+            }
             const StationState state = station_.state();
             if (state == StationState::AuthenticationFramePrepared &&
                 header.subtype == 11)
@@ -245,7 +297,9 @@ namespace simpleath
                 if (parseAuthenticationResponse(frame, length, stationAddress_,
                                                 network.bssid,
                                                 statusCode) != Result::Ok)
+                {
                     return EngineResult::InvalidReceivedFrame;
+                }
                 if (statusCode != 0)
                 {
                     abandonCandidate();
@@ -257,9 +311,13 @@ namespace simpleath
                 const size_t associationBytes =
                     associationRequestLength(network);
                 if (associationBytes == 0)
+                {
                     return EngineResult::InvalidState;
-                if (!out || capacity < associationBytes)
+                }
+                if ((out == nullptr) || capacity < associationBytes)
+                {
                     return EngineResult::BufferTooSmall;
+                }
                 const StationResult authenticated =
                     station_.onAuthenticationResponse(frame, length);
                 if (authenticated == StationResult::AssociationRejected)
@@ -268,14 +326,18 @@ namespace simpleath
                     return EngineResult::AccessPointRejected;
                 }
                 if (authenticated != StationResult::Ok)
+                {
                     return EngineResult::InvalidReceivedFrame;
+                }
                 size_t written = 0;
                 const Result prepared = station_.associationRequest(
                     nextSequence_, out, capacity, written);
                 if (prepared != Result::Ok)
+                {
                     return mapPrepared(prepared);
+                }
                 nextSequence_ =
-                    static_cast<uint16_t>((nextSequence_ + 1u) & 0xfffu);
+                    static_cast<uint16_t>((nextSequence_ + 1U) & 0xfffU);
                 return emitPrepared(ActionKind::TransmitAssociation, written,
                                     action);
             }
@@ -291,15 +353,21 @@ namespace simpleath
                 }
                 if (response != StationResult::Wpa2CryptoNotImplemented &&
                     response != StationResult::NetworkInterfaceNotImplemented)
+                {
                     return EngineResult::InvalidReceivedFrame;
+                }
                 const Bss &candidate = station_.candidate();
                 if (link_.started(stationAddress_, candidate.beacon.bssid,
                                   candidate.beacon.intervalTu, nowMs, false,
                                   false) != LinkMonitorResult::Ok)
+                {
                     return EngineResult::InvalidState;
+                }
                 if (response == StationResult::Wpa2CryptoNotImplemented)
+                {
                     return emitPrepared(ActionKind::AssociatedAwaitingKeys, 0,
                                         action);
+                }
                 return emitPrepared(ActionKind::OpenAssociationEstablished, 0,
                                     action);
             }
@@ -322,8 +390,10 @@ namespace simpleath
                                               size_t capacity,
                                               EngineAction &action)
         {
-            if (!message || messageBytes > kMaximumEapolReply)
+            if ((message == nullptr) || messageBytes > kMaximumEapolReply)
+            {
                 return EngineResult::InvalidInput;
+            }
             // WPA2 EAPOL is cleartext at the 802.11 data layer until PTK
             // install. Keep source and destination distinct when encoding
             // LLC/SNAP.
@@ -331,7 +401,7 @@ namespace simpleath
             const Mac &ap = station_.candidate().beacon.bssid;
             copyBytes(ethernet, ap.bytes, 6);
             copyBytes(ethernet + 6, stationAddress_.bytes, 6);
-            ethernet[12] = static_cast<uint8_t>(kEtherTypeEapol >> 8u);
+            ethernet[12] = static_cast<uint8_t>(kEtherTypeEapol >> 8U);
             ethernet[13] = static_cast<uint8_t>(kEtherTypeEapol);
             copyBytes(ethernet + kEthernetHeader, message, messageBytes);
             LinkContext link {};
@@ -348,11 +418,13 @@ namespace simpleath
                 prepareStationTx(link, ethernet, kEthernetHeader + messageBytes,
                                  nextSequence_, out, capacity, packet);
             if (encoded != DataPathResult::Ok)
+            {
                 return encoded == DataPathResult::BufferTooSmall
                            ? EngineResult::BufferTooSmall
                            : EngineResult::InvalidState;
+            }
             nextSequence_ =
-                static_cast<uint16_t>((nextSequence_ + 1u) & 0xfffu);
+                static_cast<uint16_t>((nextSequence_ + 1U) & 0xfffU);
             return emitPrepared(ActionKind::TransmitEapol, packet.frameBytes,
                                 action);
         }
@@ -371,7 +443,9 @@ namespace simpleath
             // has quiesced DMA and removed keys. No payload may pass through
             // that gap, even if the station still remembers the association.
             if (!associated || link_.status().state != LinkState::Associated)
+            {
                 return EngineResult::InvalidState;
+            }
             const Bss &candidate = station_.candidate();
             LinkContext link {};
             link.station = stationAddress_;
@@ -388,12 +462,16 @@ namespace simpleath
             if (inspectStationRx(
                     link, frame, length, false, trust.dmaAndFcsVerified,
                     trust.ccmpMicAndReplayVerified, msdu) != DataPathResult::Ok)
+            {
                 return EngineResult::InvalidReceivedFrame;
+            }
             if (msdu.etherType != kEtherTypeEapol)
             {
                 if (link.security == LinkSecurity::Wpa2Ccmp &&
                     !supplicant_.keysInstalled())
+                {
                     return EngineResult::CryptoUnavailable;
+                }
                 EngineAction result {};
                 result.kind = ActionKind::ReceivedPayload;
                 result.etherType = msdu.etherType;
@@ -405,35 +483,51 @@ namespace simpleath
             }
             if (link.security != LinkSecurity::Wpa2Ccmp ||
                 state != StationState::WaitingForWpa2Keys)
+            {
                 return EngineResult::NoAction;
+            }
             KeyFrame key {};
             if (parseEapolKey(msdu.payload, msdu.payloadLength, key) !=
                 EapolResult::Ok)
+            {
                 return EngineResult::InvalidReceivedFrame;
+            }
             // Refuse too-small output BEFORE changing supplicant
             // replay/nonce/key state; the caller can provision enough room and
             // retry the same input.
-            if (!out || capacity < kMinimumEapolTxFrameCapacity)
+            if ((out == nullptr) || capacity < kMinimumEapolTxFrameCapacity)
+            {
                 return EngineResult::BufferTooSmall;
+            }
             uint8_t reply[kMaximumEapolReply] {};
             size_t written = 0;
             Wpa2Result security = Wpa2Result::InvalidState;
             if (key.message == KeyMessage::Pairwise1)
+            {
                 security =
                     supplicant_.onMessage1(msdu.payload, msdu.payloadLength,
                                            reply, sizeof(reply), written);
+            }
             else if (key.message == KeyMessage::Pairwise3)
+            {
                 security =
                     supplicant_.onMessage3(msdu.payload, msdu.payloadLength,
                                            reply, sizeof(reply), written);
+            }
             else
+            {
                 return EngineResult::NoAction;
+            }
             if (security != Wpa2Result::Ok)
+            {
                 return EngineResult::CryptoFailure;
+            }
             if (key.message == KeyMessage::Pairwise3 &&
                 station_.recordInstalledWpa2Keys(supplicant_) !=
                     StationResult::NetworkInterfaceNotImplemented)
+            {
                 return EngineResult::CryptoFailure;
+            }
             return packageEapol(reply, written, out, capacity, action);
         }
 
@@ -444,22 +538,30 @@ namespace simpleath
         {
             if (aliasesEngineIo(this, action, frame, length, &trust,
                                 sizeof(trust), out, capacity))
+            {
                 return EngineResult::InvalidInput;
+            }
             action = {};
-            if (!frame || !trust.radioReady || !trust.channelAuthorized ||
-                !trust.dmaAndFcsVerified)
+            if ((frame == nullptr) || !trust.radioReady ||
+                !trust.channelAuthorized || !trust.dmaAndFcsVerified)
+            {
                 return EngineResult::InvalidInput;
+            }
             // The trusted DMA owner must state whether the verified FCS was
             // stripped. A retained FCS is neither a management IE tail nor
             // Ethernet payload. Bounds/alias checks above cover the original
             // allocation; all parsers below see only the on-air MAC body.
-            if (trust.rxFrameIncludesFcs && length < 4u)
+            if (trust.rxFrameIncludesFcs && length < 4U)
+            {
                 return EngineResult::InvalidReceivedFrame;
+            }
             const size_t macBytes =
-                length - (trust.rxFrameIncludesFcs ? 4u : 0u);
+                length - (trust.rxFrameIncludesFcs ? 4U : 0U);
             Frame header {};
             if (parseFrame(frame, macBytes, header) != Result::Ok)
+            {
                 return EngineResult::InvalidReceivedFrame;
+            }
 
             if (header.type == FrameType::Management)
             {
@@ -469,16 +571,20 @@ namespace simpleath
                     {
                         if (cache_.observe(frame, macBytes, rssi, nowMs) ==
                             Result::Ok)
+                        {
                             return emitPrepared(ActionKind::ScanCacheUpdated, 0,
                                                 action);
+                        }
                     }
                 }
                 return handleManagement(frame, macBytes, nowMs, out, capacity,
                                         action);
             }
             if (header.type == FrameType::Data)
+            {
                 return handleData(frame, macBytes, trust, out, capacity,
                                   action);
+            }
             return EngineResult::NoAction;
         }
 
@@ -487,10 +593,14 @@ namespace simpleath
         {
             if (aliasesEngineIo(this, action, nullptr, 0, nullptr, 0, nullptr,
                                 0))
+            {
                 return EngineResult::InvalidInput;
+            }
             action = {};
             if (link_.observeTimeout(nowMs) != LinkMonitorResult::Ok)
+            {
                 return EngineResult::NoAction;
+            }
             // OS / radio owner must quiesce DMA, clear keycache and reconnect.
             return emitPrepared(ActionKind::LinkLost, 0, action);
         }
@@ -522,13 +632,17 @@ namespace simpleath
         {
             if (aliasesEngineIo(this, action, ethernet, length, &trust,
                                 sizeof(trust), out, capacity))
+            {
                 return EngineResult::InvalidInput;
+            }
             action = {};
             const StationState state = station_.state();
             if ((state != StationState::AssociatedOpen &&
                  state != StationState::HardwareKeysInstalled) ||
                 link_.status().state != LinkState::Associated)
+            {
                 return EngineResult::InvalidState;
+            }
             const Bss &bss = station_.candidate();
             LinkContext context {};
             context.station = stationAddress_;
@@ -544,19 +658,25 @@ namespace simpleath
             // handshake. Generic outbound EAPOL after key installation needs
             // a separately reviewed, policy-checked rekey transport, not the
             // unprotected Ethernet-II serializer.
-            if (context.security == LinkSecurity::Wpa2Ccmp && ethernet &&
-                length >= kEthernetHeader && ethernet[12] == 0x88u &&
-                ethernet[13] == 0x8eu)
+            if (context.security == LinkSecurity::Wpa2Ccmp &&
+                (ethernet != nullptr) && length >= kEthernetHeader &&
+                ethernet[12] == 0x88U && ethernet[13] == 0x8eU)
+            {
                 return EngineResult::CryptoUnavailable;
+            }
             SerializedData serialized {};
             const DataPathResult result = prepareStationTx(
                 context, ethernet, length, sequence, out, capacity, serialized);
             if (result == DataPathResult::NeedsCcmpEncryption)
+            {
                 return EngineResult::CryptoUnavailable;
+            }
             if (result != DataPathResult::Ok)
+            {
                 return result == DataPathResult::BufferTooSmall
                            ? EngineResult::BufferTooSmall
                            : EngineResult::InvalidInput;
+            }
             // No transport here: output contains only bytes for the future PCI
             // and native wireless backend; never report IP connectivity.
             return emitPrepared(serialized.isEapol ? ActionKind::TransmitEapol

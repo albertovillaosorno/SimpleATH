@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Wpa2Supplicant.hpp"
+#include "wifi/Eapol.hpp"
+#include "wifi/Frames.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -20,7 +24,7 @@ namespace simpleath
                 1,  0,  0, 0x0f, 0xac, 4, // Group cipher: CCMP.
                 1,  0,  0, 0x0f, 0xac, 4, // Pairwise cipher: CCMP.
                 1,  0,  0, 0x0f, 0xac, 2, // Key management: PSK.
-                0,  0 // RSN capabilities: PMF not negotiated.
+                0,  0, // RSN capabilities: PMF not negotiated.
             };
 
             // Crypto callbacks may reset and restart this owner. Keep the
@@ -32,12 +36,16 @@ namespace simpleath
                     ScopedSecret() = default;
                     ScopedSecret(const ScopedSecret &) = delete;
                     ScopedSecret &operator=(const ScopedSecret &) = delete;
+                    ScopedSecret(ScopedSecret &&) = delete;
+                    ScopedSecret &operator=(ScopedSecret &&) = delete;
 
                     ~ScopedSecret()
                     {
                         volatile uint8_t *out = bytes;
                         for (size_t i = 0; i < N; ++i)
+                        {
                             out[i] = 0;
+                        }
                     }
             };
 
@@ -45,12 +53,14 @@ namespace simpleath
                            size_t count)
             {
                 for (size_t i = 0; i < count; ++i)
+                {
                     destination[i] = source[i];
+                }
             }
 
             void putBig16(uint8_t *buffer, uint16_t value)
             {
-                buffer[0] = static_cast<uint8_t>(value >> 8u);
+                buffer[0] = static_cast<uint8_t>(value >> 8U);
                 buffer[1] = static_cast<uint8_t>(value);
             }
 
@@ -58,8 +68,8 @@ namespace simpleath
             {
                 for (size_t i = 0; i < 8; ++i)
                 {
-                    buffer[7u - i] = static_cast<uint8_t>(value);
-                    value >>= 8u;
+                    buffer[7U - i] = static_cast<uint8_t>(value);
+                    value >>= 8U;
                 }
             }
 
@@ -68,7 +78,9 @@ namespace simpleath
             {
                 uint8_t mismatch = 0;
                 for (size_t i = 0; i < count; ++i)
+                {
                     mismatch |= static_cast<uint8_t>(left[i] ^ right[i]);
+                }
                 return mismatch == 0;
             }
 
@@ -76,15 +88,20 @@ namespace simpleath
             {
                 uint8_t aggregate = 0;
                 for (size_t i = 0; i < count; ++i)
+                {
                     aggregate |= value[i];
+                }
                 return aggregate != 0;
             }
 
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
             {
-                if (!a || !b || !aBytes || !bBytes)
+                if ((a == nullptr) || (b == nullptr) || (aBytes == 0U) ||
+                    (bBytes == 0U))
+                {
                     return false;
+                }
                 const auto first = reinterpret_cast<uintptr_t>(a);
                 const auto second = reinterpret_cast<uintptr_t>(b);
                 return first <= second ? second - first < aBytes
@@ -108,19 +125,23 @@ namespace simpleath
                         size_t bytes;
                 };
 
-                const Span inputs[] = {{&crypto, sizeof(crypto)},
-                                       {&station, sizeof(station)},
-                                       {&ap, sizeof(ap)},
-                                       {pmk, 32},
-                                       {rsn, rsnBytes}};
+                const Span inputs[] = {
+                    {&crypto, sizeof(crypto)}, {&station, sizeof(station)},
+                    {&ap, sizeof(ap)},         {pmk, 32},
+                    {rsn, rsnBytes},
+                };
                 if (overlaps(crypto.context, 1, owner, ownerBytes))
+                {
                     return false;
+                }
                 for (const Span &input : inputs)
                 {
                     if (overlaps(input.address, input.bytes, owner,
                                  ownerBytes) ||
                         overlaps(input.address, input.bytes, crypto.context, 1))
+                    {
                         return false;
+                    }
                 }
                 return true;
             }
@@ -151,10 +172,12 @@ namespace simpleath
                                   uint64_t replayCounter, const uint8_t *nonce)
             {
                 for (size_t i = 0; i < length; ++i)
+                {
                     message[i] = 0;
+                }
                 message[0] = version;
                 message[1] = 3; // IEEE 802.1X EAPOL-Key.
-                putBig16(message + 2, static_cast<uint16_t>(length - 4u));
+                putBig16(message + 2, static_cast<uint16_t>(length - 4U));
                 uint8_t *body = message + kEapolHeaderBytes;
                 body[0] = 2; // RSN key descriptor.
                 putBig16(body + 1, keyInfo);
@@ -162,8 +185,10 @@ namespace simpleath
                 // only Authenticator M1/M3 carry the CCMP TK length of 16.
                 putBig16(body + 3, 0);
                 putBig64(body + 5, replayCounter);
-                if (nonce)
+                if (nonce != nullptr)
+                {
                     copyBytes(body + 13, nonce, 32);
+                }
                 putBig16(body + 93,
                          static_cast<uint16_t>(length - kMessage4Length));
             }
@@ -185,28 +210,38 @@ namespace simpleath
                     {
                         bool padding = true;
                         for (size_t i = offset + 1; i < length; ++i)
+                        {
                             padding = padding && plaintext[i] == 0;
+                        }
                         if (padding)
+                        {
                             break;
+                        }
                     }
                     if (length - offset < 2)
+                    {
                         return Wpa2Result::GtkMissingOrMalformed;
+                    }
                     const uint8_t tag = plaintext[offset];
                     const size_t size = plaintext[offset + 1];
                     offset += 2;
                     if (size > length - offset)
+                    {
                         return Wpa2Result::GtkMissingOrMalformed;
+                    }
                     const uint8_t *element = plaintext + offset;
                     if (tag == 48)
                     {
                         // M3 must reproduce the associated BSS's RSNE; do not
                         // install keys for a changed suite/AKM/PMF policy.
-                        if (foundRsn || size + 2u != expectedRsnIeLength ||
+                        if (foundRsn || size + 2U != expectedRsnIeLength ||
                             expectedRsnIe[0] != tag ||
                             expectedRsnIe[1] != size ||
-                            !constantTimeEqual(element, expectedRsnIe + 2u,
+                            !constantTimeEqual(element, expectedRsnIe + 2U,
                                                size))
+                        {
                             return Wpa2Result::RsnMismatch;
+                        }
                         foundRsn = true;
                     }
                     else if (tag == 221 && size >= 4 && element[0] == 0 &&
@@ -217,17 +252,23 @@ namespace simpleath
                         // reserved(1), 16-byte GTK. Reject
                         // duplicate/short/malformed KDEs.
                         if (foundGtk || size != 22 || element[5] != 0)
+                        {
                             return Wpa2Result::GtkMissingOrMalformed;
-                        keyId = static_cast<uint8_t>(element[4] & 3u);
-                        if ((element[4] & 0xfcu) != 0)
+                        }
+                        keyId = static_cast<uint8_t>(element[4] & 3U);
+                        if ((element[4] & 0xfcU) != 0)
+                        {
                             return Wpa2Result::GtkMissingOrMalformed;
+                        }
                         copyBytes(gtk, element + 6, 16);
                         foundGtk = true;
                     }
                     offset += size;
                 }
                 if (!foundRsn)
+                {
                     return Wpa2Result::RsnMismatch;
+                }
                 return foundGtk ? Wpa2Result::Ok
                                 : Wpa2Result::GtkMissingOrMalformed;
             }
@@ -255,7 +296,9 @@ namespace simpleath
         {
             volatile uint8_t *bytes = ptr;
             for (size_t i = 0; i < length; ++i)
+            {
                 bytes[i] = 0;
+            }
         }
 
         Wpa2Result Wpa2Supplicant::fail(Wpa2Result error)
@@ -271,8 +314,10 @@ namespace simpleath
             secureClear(expectedRsnIe_, sizeof(expectedRsnIe_));
             expectedRsnIeLength_ = 0;
             state_ = Wpa2State::Failed;
-            if (rollback && previousCrypto.removeInstalledKeys)
+            if (rollback && (previousCrypto.removeInstalledKeys != nullptr))
+            {
                 previousCrypto.removeInstalledKeys(previousCrypto.context);
+            }
             return error;
         }
 
@@ -295,8 +340,10 @@ namespace simpleath
             ap_ = {};
             eapolVersion_ = 0;
             state_ = Wpa2State::Inactive;
-            if (rollback && previousCrypto.removeInstalledKeys)
+            if (rollback && (previousCrypto.removeInstalledKeys != nullptr))
+            {
                 previousCrypto.removeInstalledKeys(previousCrypto.context);
+            }
         }
 
         Wpa2Result Wpa2Supplicant::begin(const Wpa2Crypto &crypto,
@@ -307,32 +354,48 @@ namespace simpleath
         {
             if (!beginInputsDisjoint(this, sizeof(*this), crypto, station, ap,
                                      pmk, expectedRsnIe, expectedRsnIeLength))
+            {
                 return Wpa2Result::InvalidArgument;
+            }
             if (state_ != Wpa2State::Inactive)
+            {
                 return Wpa2Result::InvalidState;
+            }
             // A public supplicant must not authenticate a forged association
             // whose local station and authenticator addresses are identical.
-            if (!pmk || !validStationMac(station) || !validStationMac(ap) ||
-                sameMac(station, ap) || !nonzero(pmk, 32))
+            if ((pmk == nullptr) || !validStationMac(station) ||
+                !validStationMac(ap) || sameMac(station, ap) ||
+                !nonzero(pmk, 32))
+            {
                 return Wpa2Result::InvalidArgument;
+            }
             // This snapshot came from a validated Beacon/Probe Response.
             // A missing or unsupported RSNE cannot be treated as WPA2-PSK.
-            if (!expectedRsnIe || expectedRsnIeLength < 2u ||
+            if ((expectedRsnIe == nullptr) || expectedRsnIeLength < 2U ||
                 expectedRsnIeLength > sizeof(expectedRsnIe_) ||
                 expectedRsnIe[0] != 48 ||
-                expectedRsnIe[1] != expectedRsnIeLength - 2u)
+                expectedRsnIe[1] != expectedRsnIeLength - 2U)
+            {
                 return Wpa2Result::InvalidArgument;
+            }
             Rsn advertised {};
-            if (parseRsn(expectedRsnIe + 2u, expectedRsnIeLength - 2u,
+            if (parseRsn(expectedRsnIe + 2U, expectedRsnIeLength - 2U,
                          advertised) != Result::Ok ||
                 !advertised.groupCcmp || !advertised.pairwiseCcmp ||
                 !advertised.akmPsk || advertised.pmfRequired)
+            {
                 return Wpa2Result::InvalidArgument;
-            if (!crypto.context || !crypto.generateNonce || !crypto.derivePtk ||
-                !crypto.micSha1 || !crypto.unwrapGtk ||
-                !crypto.installPairwiseTk || !crypto.installGroupGtk ||
-                !crypto.removeInstalledKeys)
+            }
+            if ((crypto.context == nullptr) ||
+                (crypto.generateNonce == nullptr) ||
+                (crypto.derivePtk == nullptr) || (crypto.micSha1 == nullptr) ||
+                (crypto.unwrapGtk == nullptr) ||
+                (crypto.installPairwiseTk == nullptr) ||
+                (crypto.installGroupGtk == nullptr) ||
+                (crypto.removeInstalledKeys == nullptr))
+            {
                 return Wpa2Result::CryptoProviderMissing;
+            }
             crypto_ = crypto;
             station_ = station;
             ap_ = ap;
@@ -352,26 +415,38 @@ namespace simpleath
             if (!handshakeIoDisjoint(this, sizeof(*this), crypto_.context,
                                      eapol, length, outMessage2, capacity,
                                      written))
+            {
                 return Wpa2Result::InvalidArgument;
+            }
             written = 0;
             if (state_ != Wpa2State::AwaitingMessage1)
+            {
                 return Wpa2Result::InvalidState;
-            if (!outMessage2 || capacity < kMessage2Length)
+            }
+            if ((outMessage2 == nullptr) || capacity < kMessage2Length)
+            {
                 return Wpa2Result::BufferTooSmall;
+            }
             const uint64_t epoch = sessionEpoch_;
             // M1 is not MIC-protected. Still capture its complete input once
             // so the stored ANonce/replay counter and PTK derivation cannot
             // observe different versions of a mutable RX/DMA buffer.
             KeyFrame preflight {};
             if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
+            {
                 return Wpa2Result::MalformedEapol;
+            }
             // A valid parsed EAPOL prefix does not authenticate extra RX
             // bytes. The direct public handshake API requires the exact
             // declared packet, just like the station data-path admission.
             if (preflight.eapolLength != length)
+            {
                 return Wpa2Result::MalformedEapol;
+            }
             if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
+            {
                 return Wpa2Result::WrongMessage;
+            }
             uint8_t receivedM1[kMaximumEapolHandshakeBytes] {};
             copyBytes(receivedM1, eapol, preflight.eapolLength);
             KeyFrame parsed {};
@@ -439,7 +514,7 @@ namespace simpleath
             secureClear(receivedM1, sizeof(receivedM1));
 
             uint8_t response[kMessage2Length] {};
-            populateEapolKey(response, sizeof(response), eapolVersion_, 0x010au,
+            populateEapolKey(response, sizeof(response), eapolVersion_, 0x010aU,
                              parsed.replayCounter, snonce_);
             copyBytes(response + kMessage4Length, kRsnCcmpPskIe, kRsnIeBytes);
             ScopedSecret<16> kckSnapshot {};
@@ -467,7 +542,7 @@ namespace simpleath
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return fail(Wpa2Result::MicCalculationFailure);
             }
-            copyBytes(response + kEapolHeaderBytes + 77u, calculatedMic,
+            copyBytes(response + kEapolHeaderBytes + 77U, calculatedMic,
                       sizeof(calculatedMic));
             secureClear(calculatedMic, sizeof(calculatedMic));
             copyBytes(outMessage2, response, sizeof(response));
@@ -485,12 +560,18 @@ namespace simpleath
             if (!handshakeIoDisjoint(this, sizeof(*this), crypto_.context,
                                      eapol, length, outMessage4, capacity,
                                      written))
+            {
                 return Wpa2Result::InvalidArgument;
+            }
             written = 0;
             if (state_ != Wpa2State::AwaitingMessage3)
+            {
                 return Wpa2Result::InvalidState;
-            if (!outMessage4 || capacity < kMessage4Length)
+            }
+            if ((outMessage4 == nullptr) || capacity < kMessage4Length)
+            {
                 return Wpa2Result::BufferTooSmall;
+            }
             const uint64_t epoch = sessionEpoch_;
             // Preflight the untrusted input only to bound the copy. Reparse
             // the private snapshot: KeyFrame contains borrowed pointers and
@@ -498,14 +579,20 @@ namespace simpleath
             // different DMA image than the bytes authenticated by the MIC.
             KeyFrame preflight {};
             if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok)
+            {
                 return Wpa2Result::MalformedEapol;
+            }
             // A valid parsed EAPOL prefix does not authenticate extra RX
             // bytes. The direct public handshake API requires the exact
             // declared packet, just like the station data-path admission.
             if (preflight.eapolLength != length)
+            {
                 return Wpa2Result::MalformedEapol;
+            }
             if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
+            {
                 return Wpa2Result::WrongMessage;
+            }
             uint8_t signedEapol[kMaximumEapolHandshakeBytes] {};
             copyBytes(signedEapol, eapol, preflight.eapolLength);
             KeyFrame parsed {};
@@ -530,10 +617,12 @@ namespace simpleath
             // bounded RX snapshot; never reread mutable caller/DMA memory
             // after creating that snapshot.
             uint8_t receivedMic[16] {};
-            copyBytes(receivedMic, signedEapol + kEapolHeaderBytes + 77u,
+            copyBytes(receivedMic, signedEapol + kEapolHeaderBytes + 77U,
                       sizeof(receivedMic));
             for (size_t i = 0; i < sizeof(receivedMic); ++i)
-                signedEapol[kEapolHeaderBytes + 77u + i] = 0;
+            {
+                signedEapol[kEapolHeaderBytes + 77U + i] = 0;
+            }
             ScopedSecret<48> ptkSnapshot {};
             copyBytes(ptkSnapshot.bytes, ptk_, sizeof(ptk_));
             const Mac apSnapshot = ap_;
@@ -574,9 +663,11 @@ namespace simpleath
             // whose MIC was just verified, not the original DMA-backed input.
             uint8_t authenticatedRsc[8] {};
             if (micValid)
+            {
                 copyBytes(authenticatedRsc,
-                          signedEapol + kEapolHeaderBytes + 61u,
+                          signedEapol + kEapolHeaderBytes + 61U,
                           sizeof(authenticatedRsc));
+            }
             secureClear(expectedMic, sizeof(expectedMic));
             if (!micValid)
             {
@@ -598,7 +689,7 @@ namespace simpleath
             uint8_t decrypted[kMaximumGtkPlaintext] {};
             size_t decryptedLength = 0;
             const bool unwrapped = crypto_.unwrapGtk(
-                crypto_.context, ptkSnapshot.bytes + 16u, parsed.keyData,
+                crypto_.context, ptkSnapshot.bytes + 16U, parsed.keyData,
                 parsed.keyDataLength, decrypted, sizeof(decrypted),
                 &decryptedLength);
             // Reject a backend that changes const input after MIC verification.
@@ -636,7 +727,7 @@ namespace simpleath
                 return fail(keyData);
             }
             uint8_t response[kMessage4Length] {};
-            populateEapolKey(response, sizeof(response), eapolVersion_, 0x030au,
+            populateEapolKey(response, sizeof(response), eapolVersion_, 0x030aU,
                              parsed.replayCounter, nullptr);
             ScopedSecret<kMessage4Length> m4MicInput {};
             copyBytes(m4MicInput.bytes, response, sizeof(response));
@@ -664,7 +755,7 @@ namespace simpleath
                 secureClear(calculatedMic, sizeof(calculatedMic));
                 return fail(Wpa2Result::MicCalculationFailure);
             }
-            copyBytes(response + kEapolHeaderBytes + 77u, calculatedMic,
+            copyBytes(response + kEapolHeaderBytes + 77U, calculatedMic,
                       sizeof(calculatedMic));
             secureClear(calculatedMic, sizeof(calculatedMic));
 
@@ -675,7 +766,7 @@ namespace simpleath
             // Arm rollback before either hardware installation attempt.
             keyInstallAttempted_ = true;
             const bool pairwiseInstalled = crypto_.installPairwiseTk(
-                crypto_.context, apSnapshot, ptkSnapshot.bytes + 32u);
+                crypto_.context, apSnapshot, ptkSnapshot.bytes + 32U);
             if (sessionEpoch_ != epoch)
             {
                 secureClear(gtk, sizeof(gtk));

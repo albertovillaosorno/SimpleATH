@@ -61,7 +61,8 @@ namespace simpleath
                                     const void *const secondBuffer,
                                     size_t secondBytes)
         {
-            if (!firstBuffer || !secondBuffer || !firstBytes || !secondBytes)
+            if ((firstBuffer == nullptr) || (secondBuffer == nullptr) ||
+                (firstBytes == 0U) || (secondBytes == 0U))
             {
                 return false;
             }
@@ -89,7 +90,9 @@ namespace simpleath
             if (frame.eapolBytes == nullptr || frame.nonce == nullptr ||
                 frame.eapolLength < kEapolHeaderBytes + kEapolKeyFixedBytes ||
                 frame.eapolLength > kEapolHeaderBytes + kMaxEapolBodyBytes)
+            {
                 return false;
+            }
             if (!atWireOffset(frame.eapolBytes, frame.nonce,
                               kEapolHeaderBytes + kKeyNonceOffset) ||
                 !atWireOffset(frame.eapolBytes, frame.keyRsc,
@@ -98,21 +101,27 @@ namespace simpleath
                               kEapolHeaderBytes + kKeyMicOffset) ||
                 !atWireOffset(frame.eapolBytes, frame.keyData,
                               kEapolHeaderBytes + kEapolKeyFixedBytes))
+            {
                 return false;
+            }
             // A fabricated KeyFrame must not approve a mismatched fixed
             // EAPOL-Key body/key-data length that the parser would reject.
             // This also prevents an undeclared suffix from entering the public
             // replay transition as if it were part of a parsed key packet.
             if (frame.eapolLength - kEapolHeaderBytes !=
                 kEapolKeyFixedBytes + frame.keyDataLength)
+            {
                 return false;
+            }
             const uint8_t *const bytes = frame.eapolBytes;
             if (bytes[0] < 1 || bytes[0] > 3 ||
                 bytes[1] != kEapolKeyPacketType ||
                 bytes[kEapolHeaderBytes] != kKeyDescriptorType ||
                 static_cast<size_t>(readBig16(bytes + 2)) + kEapolHeaderBytes !=
                     frame.eapolLength)
+            {
                 return false;
+            }
             return readBig16(bytes + kEapolHeaderBytes + 1) ==
                        frame.keyInformation &&
                    readBig16(bytes + kEapolHeaderBytes + 3) ==
@@ -249,7 +258,7 @@ namespace simpleath
             // supplicant M2/M4 carry zero. All pairwise messages must agree
             // with this advertised role, not just their MIC/ACK flags.
             // M2 must also contain the supplicant's nonzero SNonce.
-            if (pairwise && (keyLength != (ack ? kCcmpKeyBytes : 0u) ||
+            if (pairwise && (keyLength != (ack ? kCcmpKeyBytes : 0U) ||
                              (message == KeyMessage::Pairwise2 &&
                               !anyNonzero(nonce, kKeyNonceBytes))))
             {
@@ -365,14 +374,18 @@ namespace simpleath
                 frame.keyLength != kCcmpKeyBytes || !frame.hasMic ||
                 !frame.keyAck || !frame.secure || !frame.encryptedData ||
                 !frame.installationRequested)
+            {
                 return EapolResult::InvalidKeyInformation;
+            }
             if (frame.nonce == nullptr ||
                 frame.replayCounter <= latestReplayCounter_)
             {
                 return EapolResult::ReplayDetected;
             }
             if (!replayMetadataMatchesWire(frame))
+            {
                 return EapolResult::InvalidKeyInformation;
+            }
             uint8_t difference = 0;
             for (size_t i = 0; i < sizeof(initialAnonce_); ++i)
             {
