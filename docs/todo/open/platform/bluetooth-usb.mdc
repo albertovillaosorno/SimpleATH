@@ -114,6 +114,16 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   concurrent validator runs, so its post-change aggregate is **not yet
   verified**. These source checks do not establish macOS HCI host attachment,
   USB lifetime safety at detach, real controller readiness, or AirDrop.
+- Commit `69cd43c` requires a controller-confirmed live connection handle
+  for both classic and LE ACL transmission and delivery. Buffer-size
+  negotiation alone no longer grants authority to host-chosen handles;
+  disconnected and retired handles cannot consume packet credits or
+  deliver incoming bulk ACL data. Synthetic regressions exercise classic
+  connection events, handle-slot reuse, pre-connection RX denial and
+  post-disconnection RX rejection. C++14/C++17 offline ASan+UBSan,
+  direct strict Clang-Tidy and scoped formatting passed. This does not
+  establish native macOS Bluetooth host registration, HCI traffic, or
+  physical controller behavior.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
