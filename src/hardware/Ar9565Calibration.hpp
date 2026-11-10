@@ -61,6 +61,44 @@ namespace simpleath
     runAr9565RxAgcCalibration(const RfChannelRequest &request,
                               const CalibrationAndRegulatory &authorization,
                               const RxAgcBackend &backend);
+    enum class RxIqResult : uint8_t
+    {
+        Ok,
+        InvalidBackend,
+        InvalidChannel,
+        MissingAuthorization,
+        InvalidBar,
+        AlreadyBusy,
+        OwnershipLost,
+        ReadFailed,
+        WriteFailed,
+        Timeout,
+        InvalidMeasurement,
+    };
+
+    struct RxIqProgress
+    {
+            RxIqResult result;
+            size_t completedWrites;
+            size_t completedReads;
+            size_t polls;
+            int16_t iCorrection;
+            int16_t qCorrection;
+            bool requiresReset;
+    };
+
+    // Chain-0 RX IQ mismatch: perform the one-sample AR9003 TIMING4 IQ
+    // calibration, wait for hardware completion, read actual I/Q/correlation
+    // measurements and apply bounded AR9565-specific IQ correction bits.
+    // The native owner MUST verify one physical RX chain, an active channel,
+    // completed AGC and stable RF/PHY ownership through permitWrite; do not
+    // call this routine with untrusted board chain masks, or enable RX on
+    // the strength of its result alone. TX and automatic responses stay off.
+    RxIqProgress
+    runAr9565RxIqCalibration(const RfChannelRequest &request,
+                             const CalibrationAndRegulatory &authorization,
+                             const RxAgcBackend &backend);
+
 } // namespace simpleath
 
 #endif

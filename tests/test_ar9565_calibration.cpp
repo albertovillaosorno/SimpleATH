@@ -18,6 +18,31 @@ namespace
     constexpr uint32_t kAgc = 0xa2c4;
     constexpr uint32_t kCarrier = 0xa2d8;
     constexpr uint32_t kTxIq = 0xa5c4;
+    constexpr uint32_t kIqTiming = 0x980c;
+    constexpr uint32_t kIqCalMode = 0xa2c8;
+    constexpr uint32_t kIqMeasI = 0x98c0;
+    constexpr uint32_t kIqMeasQ = 0x98c4;
+    constexpr uint32_t kIqMeasCorr = 0x98c8;
+    constexpr uint32_t kIqCorr = 0x98dc;
+    constexpr uint32_t kIqDoCal = 0x10000;
+    constexpr uint32_t kIqLogCount = 0xa000;
+    constexpr uint32_t kIqSampleI = 98304;
+    constexpr uint32_t kIqSampleQ = 65536;
+    constexpr uint32_t kIqSampleCorrelation = 640;
+    constexpr uint32_t kIqUnrelated = 0x80000000;
+    constexpr uint32_t kIqExpectedCorrected = 0x7f20;
+    constexpr int16_t kIqExpectedQ = 32;
+    constexpr uint32_t kIqNegativeCorrelation = 0xfffffd80U;
+    constexpr uint32_t kIqSaturatedCorrelation = 0x7fffffffU;
+    constexpr size_t kIqRevokeAt = 5;
+    constexpr int kFailedIqPreflightExit = 5;
+    constexpr int kFailedIqFailuresExit = 6;
+
+    constexpr size_t kIqExpectedReads = 7;
+    constexpr size_t kIqExpectedWrites = 4;
+    constexpr size_t kIqExpectedPolls = 2;
+    constexpr size_t kIqExpectedDelays = 1;
+
     constexpr uint32_t kCal = 0x1;
     constexpr uint32_t kOffset = 0x800;
     constexpr uint32_t kFilter = 0x10000;
@@ -51,17 +76,27 @@ namespace
             uint32_t txIq = kTxIqEnable | kTxIqUnrelated;
             uint32_t carrier = kCarrierEnable | kCarrierUnrelated;
             uint32_t agc = kFilter | kPeak | kAgcUnrelated;
-            std::array<Write, 3> writes {};
+            uint32_t iqTiming = 0;
+            uint32_t iqMode = kIqUnrelated;
+            uint32_t iqPowerI = kIqSampleI;
+            uint32_t iqPowerQ = kIqSampleQ;
+            uint32_t iqCorrelation = kIqSampleCorrelation;
+            uint32_t iqCorrection = kIqUnrelated;
+            std::array<Write, kIqExpectedWrites> writes {};
             size_t writeCount = 0;
             size_t readCount = 0;
             size_t permitCount = 0;
             size_t pollReads = 0;
             size_t delayCount = 0;
             size_t completeAfter = 3;
+            size_t iqPollReads = 0;
+            size_t iqCompleteAfter = kIqExpectedPolls;
+
             size_t failReadAt = 0;
             size_t failWriteAt = 0;
             size_t revokeAt = 0;
             bool triggered = false;
+            bool iqTriggered = false;
             bool denied = false;
             bool wrongEpoch = false;
             bool badDelay = false;
@@ -77,6 +112,18 @@ namespace
                 return &mock.carrier;
             case kTxIq:
                 return &mock.txIq;
+            case kIqTiming:
+                return &mock.iqTiming;
+            case kIqCalMode:
+                return &mock.iqMode;
+            case kIqMeasI:
+                return &mock.iqPowerI;
+            case kIqMeasQ:
+                return &mock.iqPowerQ;
+            case kIqMeasCorr:
+                return &mock.iqCorrelation;
+            case kIqCorr:
+                return &mock.iqCorrection;
             default:
                 return nullptr;
         }
@@ -107,6 +154,14 @@ namespace
                 mock.agc &= ~kCal;
             }
         }
+        if (address == kIqTiming && mock.iqTriggered)
+        {
+            ++mock.iqPollReads;
+            if (mock.iqPollReads >= mock.iqCompleteAfter)
+            {
+                mock.iqTiming &= ~kIqDoCal;
+            }
+        }
         *out = *reg(mock, address);
         return true;
     }
@@ -127,6 +182,10 @@ namespace
         if (address == kAgc)
         {
             mock.triggered = true;
+        }
+        if (address == kIqTiming && (value & kIqDoCal) != 0)
+        {
+            mock.iqTriggered = true;
         }
         return true;
     }
@@ -312,6 +371,129 @@ namespace
                neverCompletes.delayCount == kPollLimit - 1 &&
                neverCompletes.writeCount == 3 && !neverCompletes.badDelay;
     }
+
+    bool testsIqSuccess()
+    {
+        Mock mock {};
+        const auto result =
+            runAr9565RxIqCalibration(request(), authorization(), backend(mock));
+        if (result.result != RxIqResult::Ok || result.requiresReset ||
+            result.completedWrites != kIqExpectedWrites ||
+            result.completedReads != kIqExpectedReads ||
+            result.polls != kIqExpectedPolls || result.iCorrection != -2 ||
+            result.qCorrection != kIqExpectedQ ||
+            mock.iqCorrection != (kIqUnrelated | kIqExpectedCorrected) ||
+            mock.iqTiming != kIqLogCount || mock.iqMode != 0 ||
+            mock.writeCount != kIqExpectedWrites ||
+            mock.delayCount != kIqExpectedDelays || mock.badDelay ||
+            mock.writes.at(0).address != kIqTiming ||
+            mock.writes.at(0).value != kIqLogCount ||
+            mock.writes.at(1).address != kIqCalMode ||
+            mock.writes.at(1).value != 0 ||
+            mock.writes.at(2).address != kIqTiming ||
+            mock.writes.at(2).value != (kIqLogCount | kIqDoCal) ||
+            mock.writes.at(3).address != kIqCorr ||
+            mock.writes.at(3).value != (kIqUnrelated | kIqExpectedCorrected))
+        {
+            return false;
+        }
+        Mock negative {};
+        negative.iqCorrelation = kIqNegativeCorrelation;
+        const auto reverse = runAr9565RxIqCalibration(
+            request(), authorization(), backend(negative));
+        return reverse.result == RxIqResult::Ok && reverse.iCorrection == 2 &&
+               reverse.qCorrection == kIqExpectedQ;
+    }
+
+    bool testsIqPreflight()
+    {
+        Mock mock {};
+        auto auth = authorization();
+        auto req = request();
+        if (runAr9565RxIqCalibration(req, auth, backend(mock, kIqCalMode))
+                .result != RxIqResult::InvalidBar)
+        {
+            return false;
+        }
+        mock.iqTiming = kIqDoCal;
+        const auto busy = runAr9565RxIqCalibration(req, auth, backend(mock));
+        if (busy.result != RxIqResult::AlreadyBusy || busy.requiresReset ||
+            mock.writeCount != 0)
+        {
+            return false;
+        }
+        req.silicon = Revision::Unknown;
+        if (runAr9565RxIqCalibration(req, auth, backend(mock)).result !=
+            RxIqResult::InvalidChannel)
+        {
+            return false;
+        }
+        req = request();
+        auth.radioKillUnblocked = false;
+        return runAr9565RxIqCalibration(req, auth, backend(mock)).result ==
+                   RxIqResult::MissingAuthorization &&
+               mock.writeCount == 0;
+    }
+
+    bool testsIqFailures()
+    {
+        Mock invalid {};
+        invalid.iqPowerQ = 0;
+        const auto unavailable = runAr9565RxIqCalibration(
+            request(), authorization(), backend(invalid));
+        if (unavailable.result != RxIqResult::InvalidMeasurement ||
+            !unavailable.requiresReset ||
+            invalid.writeCount != (kIqExpectedWrites - 1) ||
+            invalid.iqCorrection != kIqUnrelated)
+        {
+            return false;
+        }
+        Mock saturated {};
+        saturated.iqCorrelation = kIqSaturatedCorrelation;
+        const auto unsafe = runAr9565RxIqCalibration(request(), authorization(),
+                                                     backend(saturated));
+        if (unsafe.result != RxIqResult::InvalidMeasurement ||
+            !unsafe.requiresReset || saturated.iqCorrection != kIqUnrelated)
+        {
+            return false;
+        }
+        Mock stalled {};
+        stalled.iqCompleteAfter = std::numeric_limits<size_t>::max();
+        const auto timeout = runAr9565RxIqCalibration(
+            request(), authorization(), backend(stalled));
+        if (timeout.result != RxIqResult::Timeout || !timeout.requiresReset ||
+            timeout.polls != kPollLimit ||
+            stalled.delayCount != kPollLimit - 1 ||
+            stalled.writeCount != kIqExpectedWrites - 1)
+        {
+            return false;
+        }
+        Mock writeFail {};
+        writeFail.failWriteAt = kIqExpectedWrites;
+        const auto failed = runAr9565RxIqCalibration(request(), authorization(),
+                                                     backend(writeFail));
+        if (failed.result != RxIqResult::WriteFailed || !failed.requiresReset ||
+            failed.completedWrites != kIqExpectedWrites - 1)
+        {
+            return false;
+        }
+        Mock readFail {};
+        readFail.failReadAt = kIqExpectedReads - 1;
+        const auto broken = runAr9565RxIqCalibration(request(), authorization(),
+                                                     backend(readFail));
+        if (broken.result != RxIqResult::ReadFailed || !broken.requiresReset ||
+            broken.completedWrites != kIqExpectedWrites - 1)
+        {
+            return false;
+        }
+        Mock epochLost {};
+        epochLost.revokeAt = kIqRevokeAt;
+        const auto revoked = runAr9565RxIqCalibration(
+            request(), authorization(), backend(epochLost));
+        return revoked.result == RxIqResult::OwnershipLost &&
+               revoked.requiresReset && revoked.completedWrites == 2 &&
+               epochLost.writeCount == 2;
+    }
 } // namespace
 
 int main()
@@ -327,6 +509,18 @@ int main()
     if (!testsFailures())
     {
         return 3;
+    }
+    if (!testsIqSuccess())
+    {
+        return 4;
+    }
+    if (!testsIqPreflight())
+    {
+        return kFailedIqPreflightExit;
+    }
+    if (!testsIqFailures())
+    {
+        return kFailedIqFailuresExit;
     }
     return 0;
 }

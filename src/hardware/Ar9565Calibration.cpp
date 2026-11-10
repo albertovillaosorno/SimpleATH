@@ -28,6 +28,27 @@ namespace simpleath
     {
         // ath9k ar9003_calib.c: ar9003_hw_init_cal_pcoem / AGC wait;
         // ath9k ar9003_phy.h and reg.h (AR9300 SM base 0xa200).
+        // ar9003_calib.c ar9003_hw_setup_calibration(), iqcal_collect(),
+        // iqcalibrate(); ar9003_phy.h AR_CHAN_BASE and correction masks.
+        constexpr uint32_t kIqTiming = 0x980c;
+        constexpr uint32_t kIqCalMode = 0xa2c8;
+        constexpr uint32_t kIqMeasI = 0x98c0;
+        constexpr uint32_t kIqMeasQ = 0x98c4;
+        constexpr uint32_t kIqMeasCorr = 0x98c8;
+        constexpr uint32_t kIqCorrection = 0x98dc;
+        constexpr uint32_t kIqTimingLogMask = 0xf000;
+        constexpr uint32_t kIqTimingLogMax = 0xa000;
+        constexpr uint32_t kIqTimingDoCal = 0x10000;
+        constexpr uint32_t kIqCalModeIq = 0;
+        constexpr uint32_t kIqCorrectionMask = 0x3fff;
+        constexpr uint32_t kIqCorrectionEnable = 0x4000;
+        constexpr uint32_t kIqCoefMask = 0x7f;
+        constexpr uint32_t kIqCoefShift = 7;
+        constexpr int64_t kIqMaximumCoefficient = 63;
+        constexpr uint64_t kIqDenominatorScale = 256;
+        constexpr uint64_t kIqQPowerScale = 64;
+        constexpr uint64_t kIqSignBit = 0x80000000ULL;
+        constexpr uint64_t kIqMagnitudeModulus = 0x100000000ULL;
         constexpr uint32_t kAgcControl = 0xa2c4;
         constexpr uint32_t kCarrierLeakControl = 0xa2d8;
         constexpr uint32_t kTxIqControl = 0xa5c4;
@@ -165,6 +186,135 @@ namespace simpleath
             }
             progress.result = RxAgcResult::Timeout;
         }
+
+        class RxIqIo
+        {
+            public:
+                RxIqIo(const RxAgcBackend &backend, RxIqProgress &progress)
+                    : backend_(&backend), progress_(&progress)
+                {
+                }
+
+                bool permit()
+                {
+                    if (backend_->io.permitWrite(backend_->io.context,
+                                                 backend_->io.ownerEpoch))
+                    {
+                        return true;
+                    }
+                    progress_->result = RxIqResult::OwnershipLost;
+                    return false;
+                }
+
+                bool read(uint32_t offset, uint32_t &value)
+                {
+                    if (!permit())
+                    {
+                        return false;
+                    }
+                    if (!backend_->read32(backend_->io.context, offset, &value))
+                    {
+                        progress_->result = RxIqResult::ReadFailed;
+                        return false;
+                    }
+                    ++progress_->completedReads;
+                    return true;
+                }
+
+                bool write(uint32_t offset, uint32_t value)
+                {
+                    if (!permit())
+                    {
+                        return false;
+                    }
+                    // Even a failed MMIO callback may have issued the write.
+                    progress_->requiresReset = true;
+                    if (!backend_->io.write32(backend_->io.context, offset,
+                                              value))
+                    {
+                        progress_->result = RxIqResult::WriteFailed;
+                        return false;
+                    }
+                    ++progress_->completedWrites;
+                    return true;
+                }
+
+                bool waitComplete()
+                {
+                    for (size_t count = 0; count < kMaximumPolls; ++count)
+                    {
+                        uint32_t timing = 0;
+                        if (!read(kIqTiming, timing))
+                        {
+                            return false;
+                        }
+                        ++progress_->polls;
+                        if ((timing & kIqTimingDoCal) == 0)
+                        {
+                            return permit();
+                        }
+                        if (count + 1 < kMaximumPolls)
+                        {
+                            backend_->io.delayMicros(backend_->io.context,
+                                                     kPollingMicros);
+                        }
+                    }
+                    progress_->result = RxIqResult::Timeout;
+                    return false;
+                }
+
+            private:
+                const RxAgcBackend *backend_;
+                RxIqProgress *progress_;
+        };
+
+        struct RxIqMeasurements
+        {
+                uint32_t powerI;
+                uint32_t powerQ;
+                uint32_t correlation;
+        };
+
+        bool calculateIq(const RxIqMeasurements &sample, RxIqProgress &progress)
+        {
+            const uint64_t denominatorI =
+                (static_cast<uint64_t>(sample.powerI / 2) +
+                 (sample.powerQ / 2)) /
+                kIqDenominatorScale;
+            const uint64_t denominatorQ = sample.powerQ / kIqQPowerScale;
+            if (denominatorI == 0 || denominatorQ == 0)
+            {
+                progress.result = RxIqResult::InvalidMeasurement;
+                return false;
+            }
+            // Two's-complement magnitude handling in unsigned arithmetic.
+            const bool negative = sample.correlation > kIqSignBit;
+            const uint64_t magnitude =
+                negative ? kIqMagnitudeModulus - sample.correlation
+                         : sample.correlation;
+            auto coefficientI = static_cast<int64_t>(magnitude / denominatorI);
+            const auto coefficientQ =
+                static_cast<int64_t>(sample.powerI / denominatorQ) -
+                static_cast<int64_t>(kIqQPowerScale);
+            if (!negative)
+            {
+                coefficientI = -coefficientI;
+            }
+            // ath9k refuses a saturated +/-63 coefficient on AR9565.
+            // Reject rather than clamp and publish an unusable calibration.
+            if (coefficientI >= kIqMaximumCoefficient ||
+                coefficientI <= -kIqMaximumCoefficient ||
+                coefficientQ >= kIqMaximumCoefficient ||
+                coefficientQ <= -kIqMaximumCoefficient)
+            {
+                progress.result = RxIqResult::InvalidMeasurement;
+                return false;
+            }
+            progress.iCorrection = static_cast<int16_t>(coefficientI);
+            progress.qCorrection = static_cast<int16_t>(coefficientQ);
+            return true;
+        }
+
     } // namespace
 
     RxAgcProgress
@@ -223,6 +373,83 @@ namespace simpleath
         // Hardware must deassert AGC.CAL on completion. A bounded wait
         // never establishes PHY or regulatory readiness by itself.
         poll(stable, progress);
+        return progress;
+    }
+
+    RxIqProgress
+    runAr9565RxIqCalibration(const RfChannelRequest &request,
+                             const CalibrationAndRegulatory &authorization,
+                             const RxAgcBackend &backend)
+    {
+        RxIqProgress progress {
+            RxIqResult::InvalidBackend, 0, 0, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfChannelRequest channel = request;
+        const CalibrationAndRegulatory permissions = authorization;
+        if (!validBackend(stable))
+        {
+            return progress;
+        }
+        progress.result = RxIqResult::InvalidChannel;
+        if (!validChannel(channel))
+        {
+            return progress;
+        }
+        progress.result = RxIqResult::MissingAuthorization;
+        if (permissions.use != RadioInitialization::ReceiveOnly ||
+            !radioInitializationAuthorized(permissions))
+        {
+            return progress;
+        }
+        progress.result = RxIqResult::InvalidBar;
+        if (stable.io.barLengthBytes < kIqCalMode + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        RxIqIo io(stable, progress);
+        uint32_t timing = 0;
+        uint32_t priorCorrection = 0;
+        if (!io.read(kIqTiming, timing) ||
+            !io.read(kIqCorrection, priorCorrection))
+        {
+            return progress;
+        }
+        progress.result = RxIqResult::AlreadyBusy;
+        if ((timing & kIqTimingDoCal) != 0)
+        {
+            return progress;
+        }
+        const uint32_t configuredTiming =
+            (timing & ~kIqTimingLogMask) | kIqTimingLogMax;
+        if (!io.write(kIqTiming, configuredTiming) ||
+            !io.write(kIqCalMode, kIqCalModeIq) ||
+            !io.write(kIqTiming, configuredTiming | kIqTimingDoCal) ||
+            !io.waitComplete())
+        {
+            return progress;
+        }
+        RxIqMeasurements measured {};
+        if (!io.read(kIqMeasI, measured.powerI) ||
+            !io.read(kIqMeasQ, measured.powerQ) ||
+            !io.read(kIqMeasCorr, measured.correlation) ||
+            !calculateIq(measured, progress))
+        {
+            return progress;
+        }
+        const uint32_t iBits =
+            static_cast<uint32_t>(progress.iCorrection) & kIqCoefMask;
+        const uint32_t qBits =
+            static_cast<uint32_t>(progress.qCorrection) & kIqCoefMask;
+        const uint32_t correction =
+            (priorCorrection & ~(kIqCorrectionMask | kIqCorrectionEnable)) |
+            (iBits << kIqCoefShift) | qBits | kIqCorrectionEnable;
+        if (!io.write(kIqCorrection, correction) || !io.permit())
+        {
+            return progress;
+        }
+        progress.result = RxIqResult::Ok;
+        progress.requiresReset = false;
         return progress;
     }
 } // namespace simpleath
