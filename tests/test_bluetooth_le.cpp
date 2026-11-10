@@ -71,6 +71,7 @@ namespace
             bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
+            bool reboundEpoch {};
             void *reportContext {};
             bool (*onFirstReport)(void *) {};
             bool allowActiveScan {true};
@@ -79,6 +80,11 @@ namespace
             uint8_t expectedEventType {};
             uint8_t expectedAdByte {kAdByte};
     };
+
+    uint64_t activeEpoch(const Fake &fake)
+    {
+        return fake.reboundEpoch ? kEpoch + 1U : kEpoch;
+    }
 
     bool authorizeActive(void *context, uint64_t epoch, uint16_t interval,
                          uint16_t window)
@@ -89,14 +95,14 @@ namespace
         {
             fake.valid = false;
         }
-        return fake.allowActiveScan && epoch == kEpoch &&
+        return fake.allowActiveScan && epoch == activeEpoch(fake) &&
                interval == kInterval && window == kWindow;
     }
 
     bool permit(void *context, uint64_t epoch)
     {
         const auto &fake = *static_cast<Fake *>(context);
-        return fake.valid && epoch == kEpoch;
+        return fake.valid && epoch == activeEpoch(fake);
     }
 
     bool sendCommand(void *context, const uint8_t *packet, size_t bytes)
@@ -195,7 +201,7 @@ namespace
                  const LeLegacyAdvertisement &advertisement)
     {
         auto &fake = *static_cast<Fake *>(context);
-        if (fake.failAdvertisement || epoch != kEpoch ||
+        if (fake.failAdvertisement || epoch != activeEpoch(fake) ||
             advertisement.dataBytes != 3U ||
             advertisement.data.at(0U) != fake.expectedAdByte ||
             advertisement.eventType != fake.expectedEventType ||
@@ -220,12 +226,12 @@ namespace
 
     UsbHciHostCallbacks hostFor(Fake &fake)
     {
-        return {&fake, kEpoch, permit, sendCommand, aclOut, deliver};
+        return {&fake, activeEpoch(fake), permit, sendCommand, aclOut, deliver};
     }
 
     LeDiscoveryOwner ownerFor(Fake &fake)
     {
-        return {&fake, kEpoch, permit, observe};
+        return {&fake, activeEpoch(fake), permit, observe};
     }
 
     // Command Complete: one command credit + the echoed 16-bit opcode.
@@ -282,6 +288,31 @@ namespace
                 auto &fixture = *static_cast<Fixture *>(context);
                 fixture.revoke();
                 return true;
+            }
+
+            static bool rebindDuringReport(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                // A new epoch is valid only after quiescing the old USB
+                // transport; a producer revoke alone is insufficient.
+                detachUsbHci(fixture.transport_);
+                fixture.revoke();
+                fixture.fake_.reboundEpoch = true;
+                return fixture.attach() &&
+                       fixture.begin() == LeDiscoveryResult::Ok;
+            }
+
+            static bool rejectAfterRebind(void *context)
+            {
+                (void)rebindDuringReport(context);
+                return false;
+            }
+
+            void rebindFromFirstReport(bool rejectDelivery)
+            {
+                fake_.reportContext = this;
+                fake_.onFirstReport =
+                    rejectDelivery ? rejectAfterRebind : rebindDuringReport;
             }
 
             void stopFromFirstReport()
@@ -867,6 +898,30 @@ namespace
             reset.epoch() != 0U)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The previous delivery completes after a new physical USB epoch
+        // has attached. A stale false return must not fault the successor
+        // or emit the second report from the old HCI transfer.
+        for (const bool rejectDelivery : {false, true})
+        {
+            Fixture rebound {};
+            if (!rebound.start())
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+            rebound.rebindFromFirstReport(rejectDelivery);
+            if (rebound.accept(packet.data(), packet.size()) !=
+                    LeDiscoveryResult::Ok ||
+                rebound.fake().reports != 1U ||
+                rebound.phase() != LeScanPhase::AwaitParameters ||
+                rebound.epoch() != activeEpoch(rebound.fake()) ||
+                rebound.fake().commandCount != 3U ||
+                rebound.completeParameters() != LeDiscoveryResult::Ok ||
+                rebound.completeEnable() != LeDiscoveryResult::Ok ||
+                rebound.phase() != LeScanPhase::Scanning)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
         }
         Fixture invalid {};
         if (!invalid.start())

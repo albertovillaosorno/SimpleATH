@@ -200,3 +200,17 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   C++14/C++17 ASan+UBSan host fixtures and direct strict Clang-Tidy and
   formatting checks pass. This does not establish native Bluetooth host
   registration, a real USB re-enumeration or device readiness.
+
+- Legacy BLE discovery now verifies the scan epoch *after* the external
+  advertisement observer returns, before interpreting callback success/failure
+  or delivering another report from the same controller event. A callback
+  that tears down the USB transport, revokes the scan, and attaches a fresh
+  physical epoch cannot fault the successor or forward stale trailing reports.
+  Intentional scan cancellation is checked before a late observer rejection,
+  while a failed callback against a still-live scan remains a hard failure.
+  The synthetic two-report fixture covers successful and rejected observers
+  with a real host-state detach/reattach transition and completion of the
+  replacement scan's pending controller commands. The unmodified discovery
+  source fails this new test (exit 174); the revised C++14/C++17 sanitizer
+  fixtures and strict Clang-Tidy/format checks pass. No native Bluetooth
+  registration or physical scanning is implied.
