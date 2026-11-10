@@ -204,8 +204,8 @@ IOReturn ATH80211UserClient::dispatch(uint32_t selector,
         if (arguments->asyncReferenceCount)
             return kIOReturnBadArgument;
         return runCommand(arguments, method == ath::Selector::Command
-                                         ? ath::CommandCapacity
-                                         : ath::LargeCommandCapacity);
+                                         ? ath::commandCapacity
+                                         : ath::largeCommandCapacity);
     }
     if (arguments->structureInputSize || arguments->structureInputDescriptor)
         return kIOReturnBadArgument;
@@ -258,34 +258,34 @@ static IOReturn runRoamProfiles(const ath::Endpoint &endpoint, bool set,
                                 ath::LegacyRequest &request, uint8_t *shadow,
                                 size_t capacity)
 {
-    uint8_t profiles[ath::NativeRoamProfileSize] {};
+    uint8_t profiles[ath::nativeRoamProfileSize] {};
     if (set)
         memcpy(profiles, shadow, sizeof(profiles));
     IOReturn result = kIOReturnBadArgument;
     for (size_t index = 0; index < 2; ++index)
     {
-        auto band = profiles + index * ath::NativeRoamBandSize;
+        auto band = profiles + index * ath::nativeRoamBandSize;
         if (set)
         {
             if (!ath::readUInt32(band + 12))
                 continue;
             if (!ath::prepareRoamBand(request.request, shadow, capacity, band,
-                                      ath::NativeRoamBandSize))
+                                      ath::nativeRoamBandSize))
                 return kIOReturnBadArgument;
         }
         else
         {
-            bzero(shadow, ath::LegacyRoamBandSize);
+            bzero(shadow, ath::legacyRoamBandSize);
             shadow[0] = 1;
             shadow[4] = static_cast<uint8_t>(2U << index);
-            request.request.length = ath::LegacyRoamBandSize;
+            request.request.length = ath::legacyRoamBandSize;
         }
         result = static_cast<IOReturn>(
             ath::Bridge::command(endpoint, set, request, shadow, capacity));
         if (result != kIOReturnSuccess)
             return result;
         if (!set && !ath::expandRoamBand(request.request, shadow, capacity,
-                                         band, ath::NativeRoamBandSize))
+                                         band, ath::nativeRoamBandSize))
             return kIOReturnOverrun;
     }
     if (!set && result == kIOReturnSuccess)
@@ -351,18 +351,18 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     memcpy(&legacy.request, shadow + capacity, sizeof(legacy.request));
     legacy.pointerSize = 8;
     const auto request = legacy.request.type;
-    const bool set = header->command == ath::SetCommand;
-    const bool get = header->command == ath::GetCommand;
+    const bool set = header->command == ath::setCommand;
+    const bool get = header->command == ath::getCommand;
     const auto &abi = ath::Bridge::abi();
     const bool scalar =
         get && ath::Bridge::isScalarGet(static_cast<uint32_t>(request));
-    const bool scanResult = get && request == ath::ScanResultRequest &&
+    const bool scanResult = get && request == ath::scanResultRequest &&
                             outputSize == abi.scanResultSize;
-    const bool capabilities = get && request == ath::CardCapabilitiesRequest &&
+    const bool capabilities = get && request == ath::cardCapabilitiesRequest &&
                               outputSize == abi.capabilitySize;
-    const bool associate = set && request == ath::AssociateRequest;
-    const bool roamProfiles = request == ath::RoamProfileRequest &&
-                              abi.roamProfileSize == ath::NativeRoamProfileSize;
+    const bool associate = set && request == ath::associateRequest;
+    const bool roamProfiles = request == ath::roamProfileRequest &&
+                              abi.roamProfileSize == ath::nativeRoamProfileSize;
     bool outputPrepared = false;
     __atomic_fetch_add(&ath::counters.commands, 1ULL, __ATOMIC_RELAXED);
     __atomic_store_n(&ath::counters.lastRequest, static_cast<uint32_t>(request),
@@ -374,12 +374,12 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
         strncmp(legacy.request.interfaceName, endpoint.name,
                 sizeof(endpoint.name)))
         goto done;
-    if ((get && request == ath::ScanResultRequest && !scanResult) ||
-        (get && request == ath::CardCapabilitiesRequest && !capabilities) ||
+    if ((get && request == ath::scanResultRequest && !scanResult) ||
+        (get && request == ath::cardCapabilitiesRequest && !capabilities) ||
         (associate && header->length != abi.associateSize) ||
-        (set && request == ath::ScanMultipleRequest &&
+        (set && request == ath::scanMultipleRequest &&
          header->length != abi.scanMultipleSize) ||
-        (request == ath::RoamProfileRequest &&
+        (request == ath::roamProfileRequest &&
          (get ? outputSize : header->length) != abi.roamProfileSize))
         goto done;
     if (get && request == 0x178 &&
@@ -410,7 +410,7 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     if (scanResult &&
         !ath::prepareScanResult(legacy.request, shadow, capacity, abi))
         goto done;
-    if (set && request == ath::ScanMultipleRequest &&
+    if (set && request == ath::scanMultipleRequest &&
         !ath::prepareScanMultiple(legacy.request, shadow, capacity, abi))
         goto done;
     if (associate &&
@@ -531,7 +531,7 @@ IOReturn ATH80211UserClient::startMonitor()
     if (!ringMemory)
         ringMemory = IOBufferMemoryDescriptor::inTaskWithOptions(
             kernel_task, kIOMemoryKernelUserShared | kIODirectionInOut,
-            ath::EventCapacity, PAGE_SIZE);
+            ath::eventCapacity, PAGE_SIZE);
     if (!stateMemory)
         stateMemory = IOBufferMemoryDescriptor::inTaskWithOptions(
             kernel_task, kIOMemoryKernelUserShared | kIODirectionInOut,
@@ -549,13 +549,13 @@ IOReturn ATH80211UserClient::startMonitor()
         ath::AvailabilityEvent initial {};
         monitorSerial = ath::Bridge::copyAvailability(endpoint, initial);
         monitoring = true;
-        if (initial.length && filter.accepts(ath::DriverAvailableEvent))
+        if (initial.length && filter.accepts(ath::driverAvailableEvent))
         {
             const auto result = ath::EventRing::append(
                 static_cast<uint8_t *>(ringMemory->getBytesNoCopy()),
-                ath::EventCapacity,
+                ath::eventCapacity,
                 static_cast<ath::EventState *>(stateMemory->getBytesNoCopy()),
-                writeOffset, sequence, endpoint.name, ath::DriverAvailableEvent,
+                writeOffset, sequence, endpoint.name, ath::driverAvailableEvent,
                 initial.payload, initial.length, initial.seconds,
                 initial.microseconds);
             if (result == ath::RingResult::Written)
@@ -630,7 +630,7 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
     }
     const auto result = ath::EventRing::append(
         static_cast<uint8_t *>(ringMemory->getBytesNoCopy()),
-        ath::EventCapacity,
+        ath::eventCapacity,
         static_cast<ath::EventState *>(stateMemory->getBytesNoCopy()),
         writeOffset, sequence, name, event, payload, length, seconds,
         microseconds);
@@ -638,7 +638,7 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
     {
         __atomic_fetch_add(&ath::counters.dropped, 1ULL, __ATOMIC_RELAXED);
     }
-    if (event == ath::ScanDoneEvent && result == ath::RingResult::Written)
+    if (event == ath::scanDoneEvent && result == ath::RingResult::Written)
         __atomic_fetch_add(&ath::counters.scanDoneRecords, 1ULL,
                            __ATOMIC_RELAXED);
     if (subscribed && result != ath::RingResult::Invalid)
@@ -649,7 +649,7 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
 void ATH80211UserClient::notifyAvailable()
 {
     const auto status =
-        sendAsyncResult64WithOptions(asyncReference, ath::EventNotification,
+        sendAsyncResult64WithOptions(asyncReference, ath::eventNotification,
                                      nullptr, 0, kIOUserNotifyOptionCanDrop);
     auto counter = status == kIOReturnSuccess
                        ? &ath::counters.notifications

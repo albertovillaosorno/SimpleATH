@@ -38,7 +38,7 @@ namespace ath
             uint64_t seconds;
             uint64_t microseconds;
             uint32_t length;
-            uint8_t payload[NativeDriverAvailableSize];
+            uint8_t payload[nativeDriverAvailableSize];
     };
 
     struct Counters

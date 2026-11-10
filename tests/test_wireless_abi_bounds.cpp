@@ -26,18 +26,18 @@ namespace
     bool rejectUndersizedLayouts()
     {
         uint8_t arena[kArenaBytes];
-        uint8_t source[ath::LegacyDriverAvailableSize] {};
+        uint8_t source[ath::legacyDriverAvailableSize] {};
         std::memset(arena, 0xA5, sizeof(arena));
-        auto abi = ath::TahoeABI;
+        auto abi = ath::tahoeABI;
         abi.driverAvailableSize = 1;
-        if (ath::copyEventPayload(ath::DriverAvailableEvent, source,
+        if (ath::copyEventPayload(ath::driverAvailableEvent, source,
                                   sizeof(source), arena, 1, abi) ||
             !intact(arena))
         {
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.scanResultSize = 1;
         ath::Request request {};
         request.length = 1;
@@ -46,23 +46,23 @@ namespace
         {
             return false;
         }
-        request.length = ath::LegacyScanResultSize;
+        request.length = ath::legacyScanResultSize;
         if (ath::expandScanResult(request, arena, 1, abi) || !intact(arena) ||
-            request.length != ath::LegacyScanResultSize)
+            request.length != ath::legacyScanResultSize)
         {
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.capabilitySize = 1;
-        request.length = ath::LegacyCapabilitySize;
+        request.length = ath::legacyCapabilitySize;
         if (ath::expandCapabilities(request, arena, 1, abi, true) ||
-            !intact(arena) || request.length != ath::LegacyCapabilitySize)
+            !intact(arena) || request.length != ath::legacyCapabilitySize)
         {
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.scanMultipleSize = 1;
         request.length = 1;
         arena[0] = 1;
@@ -77,9 +77,9 @@ namespace
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.driverAvailableSize = 1;
-        uint8_t power[ath::PowerDataSize] {};
+        uint8_t power[ath::powerDataSize] {};
         ath::writeUInt32(power, 1);
         ath::writeUInt32(power + 4, 1);
         ath::writeUInt32(power + 8, 1);
@@ -89,7 +89,7 @@ namespace
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.joinStatusSize = 1;
         if (ath::encodeJoinStatus(0, 0, nullptr, 0, arena, 1, abi) ||
             !intact(arena))
@@ -97,7 +97,7 @@ namespace
             return false;
         }
 
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.associateSize = 1;
         request.length = 1;
         arena[0x206] = 0;
@@ -107,7 +107,7 @@ namespace
             return false;
         }
         arena[0x206] = 0xA5;
-        abi = ath::TahoeABI;
+        abi = ath::tahoeABI;
         abi.associateLayout = static_cast<ath::AssociateLayout>(0xFFU);
         request.length = static_cast<uint32_t>(abi.associateSize);
         if (ath::prepareAssociate(request, arena, abi.associateSize, abi) ||
@@ -175,16 +175,16 @@ namespace
 
     bool preserveSupportedLayouts()
     {
-        auto abi = ath::TahoeABI;
-        uint8_t source[ath::LegacyDriverAvailableSize] {};
-        uint8_t destination[ath::NativeDriverAvailableSize] {};
-        if (!ath::copyEventPayload(ath::DriverAvailableEvent, source,
+        auto abi = ath::tahoeABI;
+        uint8_t source[ath::legacyDriverAvailableSize] {};
+        uint8_t destination[ath::nativeDriverAvailableSize] {};
+        if (!ath::copyEventPayload(ath::driverAvailableEvent, source,
                                    sizeof(source), destination,
                                    sizeof(destination), abi))
         {
             return false;
         }
-        uint8_t power[ath::PowerDataSize] {};
+        uint8_t power[ath::powerDataSize] {};
         ath::writeUInt32(power, 1);
         ath::writeUInt32(power + 4, 1);
         ath::writeUInt32(power + 8, 1);
@@ -198,7 +198,7 @@ namespace
         {
             return false;
         }
-        abi = ath::SequoiaABI;
+        abi = ath::sequoiaABI;
         return ath::encodeJoinStatus(0, 0, nullptr, 0, join, sizeof(join), abi);
     }
 } // namespace

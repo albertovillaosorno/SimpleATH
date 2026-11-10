@@ -15,38 +15,38 @@
 namespace ath
 {
 
-    constexpr uint32_t GetCommand = 0xC02869C9;
-    constexpr uint32_t SetCommand = 0x802869C8;
-    constexpr size_t CommandCapacity = 0x3C00;
-    constexpr size_t LargeCommandCapacity = 0x3C000;
-    constexpr size_t EventCapacity = 0x4000;
-    constexpr size_t MaximumEventPayload = 0x1000;
-    constexpr uint32_t EventNotification = 0xE00002D5;
-    constexpr uint32_t ScanResultRequest = 11;
-    constexpr uint32_t ScanMultipleRequest = 86;
-    constexpr size_t LegacyScanMultipleSize = 0x14E0;
-    constexpr size_t NativeScanMultipleSize = 0x14E8;
-    constexpr uint32_t CardCapabilitiesRequest = 12;
-    constexpr uint32_t ScanDoneEvent = 10;
-    constexpr uint32_t DriverAvailableEvent = 0x37;
-    constexpr size_t LegacyDriverAvailableSize = 0xB8;
-    constexpr size_t NativeDriverAvailableSize = 0xF8;
-    constexpr size_t PowerDataSize = 0x18;
-    constexpr uint32_t PowerStateAvailabilityReason = 0xE0821803;
-    constexpr uint32_t AssociationDoneEvent = 9;
-    constexpr size_t LegacyCapabilitySize = 12;
-    constexpr size_t ScanCompletionCapabilityByte = 5;
-    constexpr uint8_t ScanCompletionCapabilityMask = 0x40;
-    constexpr uint32_t AssociateRequest = 20;
-    constexpr size_t LegacyAssociateSize = 0x224;
-    constexpr uint32_t RoamProfileRequest = 216;
-    constexpr size_t NativeRoamProfileSize = 0x180;
-    constexpr size_t NativeRoamBandSize = 0x80;
-    constexpr size_t LegacyRoamBandSize = 0x7C;
-    constexpr size_t LegacyScanResultSize = 0x48C;
-    constexpr size_t ScanIELengthOffset = 0x8A;
-    constexpr size_t ScanIEOffset = 0x8C;
-    constexpr size_t LegacyScanIECapacity = 0x400;
+    constexpr uint32_t getCommand = 0xC02869C9;
+    constexpr uint32_t setCommand = 0x802869C8;
+    constexpr size_t commandCapacity = 0x3C00;
+    constexpr size_t largeCommandCapacity = 0x3C000;
+    constexpr size_t eventCapacity = 0x4000;
+    constexpr size_t maximumEventPayload = 0x1000;
+    constexpr uint32_t eventNotification = 0xE00002D5;
+    constexpr uint32_t scanResultRequest = 11;
+    constexpr uint32_t scanMultipleRequest = 86;
+    constexpr size_t legacyScanMultipleSize = 0x14E0;
+    constexpr size_t nativeScanMultipleSize = 0x14E8;
+    constexpr uint32_t cardCapabilitiesRequest = 12;
+    constexpr uint32_t scanDoneEvent = 10;
+    constexpr uint32_t driverAvailableEvent = 0x37;
+    constexpr size_t legacyDriverAvailableSize = 0xB8;
+    constexpr size_t nativeDriverAvailableSize = 0xF8;
+    constexpr size_t powerDataSize = 0x18;
+    constexpr uint32_t powerStateAvailabilityReason = 0xE0821803;
+    constexpr uint32_t associationDoneEvent = 9;
+    constexpr size_t legacyCapabilitySize = 12;
+    constexpr size_t scanCompletionCapabilityByte = 5;
+    constexpr uint8_t scanCompletionCapabilityMask = 0x40;
+    constexpr uint32_t associateRequest = 20;
+    constexpr size_t legacyAssociateSize = 0x224;
+    constexpr uint32_t roamProfileRequest = 216;
+    constexpr size_t nativeRoamProfileSize = 0x180;
+    constexpr size_t nativeRoamBandSize = 0x80;
+    constexpr size_t legacyRoamBandSize = 0x7C;
+    constexpr size_t legacyScanResultSize = 0x48C;
+    constexpr size_t scanIELengthOffset = 0x8A;
+    constexpr size_t scanIEOffset = 0x8C;
+    constexpr size_t legacyScanIECapacity = 0x400;
 
     enum class AirPortBackend : uint8_t
     {
@@ -83,44 +83,44 @@ namespace ath
             JoinEventPolicy joinEventPolicy;
     };
 
-    constexpr UserABI SonomaABI {23,
+    constexpr UserABI sonomaABI {23,
                                  "Sonoma",
                                  0x4CC,
                                  16,
                                  0x358,
                                  0,
                                  0,
-                                 LegacyScanMultipleSize,
-                                 LegacyRoamBandSize,
-                                 LegacyDriverAvailableSize,
+                                 legacyScanMultipleSize,
+                                 legacyRoamBandSize,
+                                 legacyDriverAvailableSize,
                                  7,
                                  AirPortBackend::Original,
                                  AssociateLayout::Legacy,
                                  JoinEventPolicy::Passthrough};
-    constexpr UserABI SequoiaABI {24,
+    constexpr UserABI sequoiaABI {24,
                                   "Sequoia",
                                   0x8D8,
                                   19,
                                   0x384,
                                   0x1CC,
                                   0,
-                                  NativeScanMultipleSize,
-                                  NativeRoamProfileSize,
-                                  NativeDriverAvailableSize,
+                                  nativeScanMultipleSize,
+                                  nativeRoamProfileSize,
+                                  nativeDriverAvailableSize,
                                   9,
                                   AirPortBackend::Original,
                                   AssociateLayout::Extended,
                                   JoinEventPolicy::Sequoia};
-    constexpr UserABI TahoeABI {25,
+    constexpr UserABI tahoeABI {25,
                                 "Tahoe",
                                 0x8E0,
                                 21,
                                 0x38C,
                                 0x1D4,
                                 0x234,
-                                NativeScanMultipleSize,
-                                NativeRoamProfileSize,
-                                NativeDriverAvailableSize,
+                                nativeScanMultipleSize,
+                                nativeRoamProfileSize,
+                                nativeDriverAvailableSize,
                                 9,
                                 AirPortBackend::Tahoe,
                                 AssociateLayout::Extended,
@@ -128,17 +128,17 @@ namespace ath
 
     inline const UserABI *userABIForKernel(uint32_t kernel)
     {
-        return kernel == 23   ? &SonomaABI
-               : kernel == 24 ? &SequoiaABI
-               : kernel == 25 ? &TahoeABI
+        return kernel == 23   ? &sonomaABI
+               : kernel == 24 ? &sequoiaABI
+               : kernel == 25 ? &tahoeABI
                               : nullptr;
     }
 
     inline size_t eventPayloadSize(uint32_t event, size_t length,
                                    const UserABI &abi)
     {
-        return event == DriverAvailableEvent &&
-                       length == LegacyDriverAvailableSize
+        return event == driverAvailableEvent &&
+                       length == legacyDriverAvailableSize
                    ? abi.driverAvailableSize
                    : length;
     }
@@ -148,7 +148,7 @@ namespace ath
                                  size_t capacity, const UserABI &abi)
     {
         const auto outputLength = eventPayloadSize(event, length, abi);
-        if (length > MaximumEventPayload || outputLength < length ||
+        if (length > maximumEventPayload || outputLength < length ||
             outputLength > capacity || (outputLength && !destination) ||
             (length && !source))
             return false;
@@ -209,15 +209,15 @@ namespace ath
             char country[4];
     };
 
-    constexpr uint32_t LocaleUnknown = 0;
-    constexpr uint32_t LocaleETSI = 2;
+    constexpr uint32_t localeUnknown = 0;
+    constexpr uint32_t localeETSI = 2;
 
     inline void resolveLocale(LocaleData &data, const CountryCodeData &country)
     {
-        if (data.version == 1 && data.locale == LocaleUnknown &&
+        if (data.version == 1 && data.locale == localeUnknown &&
             country.version == 1 && country.country[0] == 'I' &&
             country.country[1] == 'L' && country.country[2] == '\0')
-            data.locale = LocaleETSI;
+            data.locale = localeETSI;
     }
 
     inline const char *localeString(uint32_t locale)
@@ -251,29 +251,29 @@ namespace ath
     inline bool prepareScanResult(Request &request, uint8_t *buffer,
                                   size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanResultSize < LegacyScanResultSize ||
+        if (!buffer || abi.scanResultSize < legacyScanResultSize ||
             capacity < abi.scanResultSize ||
             request.length != abi.scanResultSize)
             return false;
         uint16_t length = static_cast<uint16_t>(
-            buffer[ScanIELengthOffset] |
-            (uint16_t(buffer[ScanIELengthOffset + 1]) << 8));
-        if (length > LegacyScanIECapacity)
-            length = LegacyScanIECapacity;
-        buffer[ScanIELengthOffset] = static_cast<uint8_t>(length);
-        buffer[ScanIELengthOffset + 1] = static_cast<uint8_t>(length >> 8);
-        request.length = LegacyScanResultSize;
+            buffer[scanIELengthOffset] |
+            (uint16_t(buffer[scanIELengthOffset + 1]) << 8));
+        if (length > legacyScanIECapacity)
+            length = legacyScanIECapacity;
+        buffer[scanIELengthOffset] = static_cast<uint8_t>(length);
+        buffer[scanIELengthOffset + 1] = static_cast<uint8_t>(length >> 8);
+        request.length = legacyScanResultSize;
         return true;
     }
 
     inline bool expandScanResult(Request &request, uint8_t *buffer,
                                  size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanResultSize < LegacyScanResultSize ||
+        if (!buffer || abi.scanResultSize < legacyScanResultSize ||
             capacity < abi.scanResultSize ||
-            request.length != LegacyScanResultSize)
+            request.length != legacyScanResultSize)
             return false;
-        for (size_t offset = LegacyScanResultSize; offset < abi.scanResultSize;
+        for (size_t offset = legacyScanResultSize; offset < abi.scanResultSize;
              ++offset)
             buffer[offset] = 0;
         request.length = static_cast<uint32_t>(abi.scanResultSize);
@@ -284,16 +284,16 @@ namespace ath
                                    size_t capacity, const UserABI &abi,
                                    bool scanEvents)
     {
-        if (!buffer || abi.capabilitySize < LegacyCapabilitySize ||
+        if (!buffer || abi.capabilitySize < legacyCapabilitySize ||
             capacity < abi.capabilitySize ||
-            request.length != LegacyCapabilitySize)
+            request.length != legacyCapabilitySize)
             return false;
-        for (size_t offset = LegacyCapabilitySize; offset < abi.capabilitySize;
+        for (size_t offset = legacyCapabilitySize; offset < abi.capabilitySize;
              ++offset)
             buffer[offset] = 0;
         if (scanEvents)
-            buffer[ScanCompletionCapabilityByte] |=
-                ScanCompletionCapabilityMask;
+            buffer[scanCompletionCapabilityByte] |=
+                scanCompletionCapabilityMask;
         request.length = static_cast<uint32_t>(abi.capabilitySize);
         return true;
     }
@@ -313,7 +313,7 @@ namespace ath
     inline bool prepareScanMultiple(Request &request, uint8_t *buffer,
                                     size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanMultipleSize < LegacyScanMultipleSize ||
+        if (!buffer || abi.scanMultipleSize < legacyScanMultipleSize ||
             capacity < abi.scanMultipleSize ||
             request.length != abi.scanMultipleSize || readUInt32(buffer) != 1 ||
             readUInt32(buffer + 8) > 10 || readUInt32(buffer + 0x19C) > 16 ||
@@ -324,10 +324,10 @@ namespace ath
             if (readUInt32(buffer + 0x10 + index * 0x28) > 32)
                 return false;
         }
-        for (size_t offset = LegacyScanMultipleSize;
+        for (size_t offset = legacyScanMultipleSize;
              offset < abi.scanMultipleSize; ++offset)
             buffer[offset] = 0;
-        request.length = LegacyScanMultipleSize;
+        request.length = legacyScanMultipleSize;
         return true;
     }
 
@@ -336,7 +336,7 @@ namespace ath
                                         const UserABI &abi)
     {
         // The fixed status and reason words occupy bytes through 0x13.
-        if (!power || !output || length != PowerDataSize ||
+        if (!power || !output || length != powerDataSize ||
             abi.driverAvailableSize < 0x14 ||
             capacity < abi.driverAvailableSize || readUInt32(power) != 1)
             return false;
@@ -354,7 +354,7 @@ namespace ath
         for (size_t index = 0; index < abi.driverAvailableSize; ++index)
             output[index] = 0;
         writeUInt32(output + 8, available);
-        writeUInt32(output + 0x10, PowerStateAvailabilityReason);
+        writeUInt32(output + 0x10, powerStateAvailabilityReason);
         return true;
     }
 
@@ -392,8 +392,8 @@ namespace ath
         // Extended layout shifts the bytes at 0x218..0x223 from
         // 0x244..0x24F; both source and destination must be present.
         const size_t minimum = abi.associateLayout == AssociateLayout::Legacy
-                                   ? LegacyAssociateSize
-                                   : LegacyAssociateSize + 0x2C;
+                                   ? legacyAssociateSize
+                                   : legacyAssociateSize + 0x2C;
         if ((abi.associateLayout != AssociateLayout::Legacy &&
              abi.associateLayout != AssociateLayout::Extended) ||
             !buffer || abi.associateSize < minimum ||
@@ -403,7 +403,7 @@ namespace ath
         {
             if (buffer[0x202] > 3)
                 return false;
-            request.length = LegacyAssociateSize;
+            request.length = legacyAssociateSize;
             return true;
         }
         const auto lower = readUInt32(buffer + 8);
@@ -419,12 +419,12 @@ namespace ath
         buffer[10] = buffer[11] = 0;
         for (size_t offset = 0x215; offset < 0x218; ++offset)
             buffer[offset] = 0;
-        for (size_t offset = 0x218; offset < LegacyAssociateSize; ++offset)
+        for (size_t offset = 0x218; offset < legacyAssociateSize; ++offset)
             buffer[offset] = buffer[offset + 0x2C];
-        for (size_t offset = LegacyAssociateSize; offset < abi.associateSize;
+        for (size_t offset = legacyAssociateSize; offset < abi.associateSize;
              ++offset)
             buffer[offset] = 0;
-        request.length = LegacyAssociateSize;
+        request.length = legacyAssociateSize;
         return true;
     }
 
@@ -432,16 +432,16 @@ namespace ath
                                 size_t capacity, const uint8_t *band,
                                 size_t bandCapacity)
     {
-        if (!buffer || !band || capacity < LegacyRoamBandSize ||
-            bandCapacity < NativeRoamBandSize || readUInt32(band + 12) != 1)
+        if (!buffer || !band || capacity < legacyRoamBandSize ||
+            bandCapacity < nativeRoamBandSize || readUInt32(band + 12) != 1)
             return false;
         for (size_t offset = 0; offset < 4; ++offset)
             buffer[offset] = band[offset + 12];
         for (size_t offset = 4; offset < 12; ++offset)
             buffer[offset] = band[offset];
-        for (size_t offset = 12; offset < LegacyRoamBandSize; ++offset)
+        for (size_t offset = 12; offset < legacyRoamBandSize; ++offset)
             buffer[offset] = band[offset + 4];
-        request.length = LegacyRoamBandSize;
+        request.length = legacyRoamBandSize;
         return true;
     }
 
@@ -449,11 +449,11 @@ namespace ath
                                size_t capacity, uint8_t *band,
                                size_t bandCapacity)
     {
-        if (!buffer || !band || capacity < LegacyRoamBandSize ||
-            bandCapacity < NativeRoamBandSize ||
-            request.length != LegacyRoamBandSize)
+        if (!buffer || !band || capacity < legacyRoamBandSize ||
+            bandCapacity < nativeRoamBandSize ||
+            request.length != legacyRoamBandSize)
             return false;
-        for (size_t offset = LegacyRoamBandSize; offset > 12; --offset)
+        for (size_t offset = legacyRoamBandSize; offset > 12; --offset)
             band[offset + 3] = buffer[offset - 1];
         for (size_t offset = 4; offset < 12; ++offset)
             band[offset] = buffer[offset];
@@ -516,7 +516,7 @@ namespace ath
             {
                 if (!ring || !state || !name || capacity < 4096 ||
                     capacity > 0x80000 || (capacity & 3) ||
-                    length > MaximumEventPayload || (length && !payload))
+                    length > maximumEventPayload || (length && !payload))
                     return RingResult::Invalid;
                 // The status word is atomically published at a 4-byte aligned
                 // address. Never clobber retained ring/owner metadata or
@@ -591,10 +591,10 @@ namespace ath
     static_assert(sizeof(Request) == 0x28, "Request ABI");
     static_assert(offsetof(Request, data) == 0x20, "Request pointer ABI");
     static_assert(sizeof(LegacyRequest) == 0x30, "Legacy request ABI");
-    static_assert(sizeof(CommandHeader) + CommandCapacity + sizeof(Request) ==
+    static_assert(sizeof(CommandHeader) + commandCapacity + sizeof(Request) ==
                       0x3C30,
                   "Command ABI");
-    static_assert(sizeof(CommandHeader) + LargeCommandCapacity +
+    static_assert(sizeof(CommandHeader) + largeCommandCapacity +
                           sizeof(Request) ==
                       0x3C030,
                   "Large command ABI");

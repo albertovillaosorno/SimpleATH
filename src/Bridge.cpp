@@ -52,7 +52,7 @@ namespace ath
             uint32_t length;
             uint64_t seconds;
             uint64_t microseconds;
-            uint8_t payload[MaximumEventPayload];
+            uint8_t payload[maximumEventPayload];
     };
 
     static CopyContext *contexts;
@@ -243,7 +243,7 @@ namespace ath
     {
         const auto result = originalLocale(controller, nullptr, output);
         if (result || !output || output->version != 1 ||
-            output->locale != LocaleUnknown)
+            output->locale != localeUnknown)
             return result;
         CountryCodeData country {};
         if (!getCountryCode(controller, nullptr, &country))
@@ -513,7 +513,7 @@ namespace ath
         if (!Bridge::ready())
             return;
         Endpoint endpoint {};
-        if (length > MaximumEventPayload || (length && !payload) ||
+        if (length > maximumEventPayload || (length && !payload) ||
             !Bridge::identify(self, kind, endpoint))
         {
             __atomic_fetch_add(&counters.dropped, 1ULL, __ATOMIC_RELAXED);
@@ -528,7 +528,7 @@ namespace ath
         const auto interruptState = IOSimpleLockLockDisableInterrupt(hubLock);
         const auto eventSerial =
             __atomic_add_fetch(&serial, 1ULL, __ATOMIC_RELEASE);
-        if (message == DriverAvailableEvent)
+        if (message == driverAvailableEvent)
         {
             size_t slot = arrsize(availability);
             for (size_t index = 0; index < arrsize(availability); ++index)
@@ -585,7 +585,7 @@ namespace ath
                                              : &counters.availabilityEvents,
                                1ULL, __ATOMIC_RELAXED);
         }
-        if (message == AssociationDoneEvent)
+        if (message == associationDoneEvent)
         {
             __atomic_fetch_add(&counters.associationEvents, 1ULL,
                                __ATOMIC_RELAXED);
@@ -604,7 +604,7 @@ namespace ath
         entry.controller = endpoint.controller;
         entry.controller->retain();
         entry.interface = abi.joinEventPolicy != JoinEventPolicy::Passthrough &&
-                                  message == AssociationDoneEvent && !length &&
+                                  message == associationDoneEvent && !length &&
                                   kind == InterfaceKind::Classic
                               ? self
                               : nullptr;
@@ -620,7 +620,7 @@ namespace ath
         pendingWrite = next;
         IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
         __atomic_fetch_add(&counters.events, 1ULL, __ATOMIC_RELAXED);
-        if (message == ScanDoneEvent)
+        if (message == scanDoneEvent)
             __atomic_fetch_add(&counters.scanDoneEvents, 1ULL,
                                __ATOMIC_RELAXED);
         thread_call_enter(eventCall);
@@ -630,7 +630,7 @@ namespace ath
     {
         if (endpoint.kind != InterfaceKind::Classic)
             return ENOTSUP;
-        uint8_t power[PowerDataSize] {};
+        uint8_t power[powerDataSize] {};
         return readEventValue(endpoint, 19, power, sizeof(power));
     }
 
@@ -702,7 +702,7 @@ namespace ath
         const auto result =
             endpoint.kind == InterfaceKind::Classic
                 ? classicCommand(endpoint.interface, endpoint.controller,
-                                 set ? SetCommand : GetCommand, nullptr,
+                                 set ? setCommand : getCommand, nullptr,
                                  &request.request)
                 : (set ? setRequest : getRequest)(
                       endpoint.controller, nullptr,
@@ -724,14 +724,14 @@ namespace ath
         {
             __atomic_store_n(&counters.lastAvailabilityReadResult,
                              static_cast<uint32_t>(result), __ATOMIC_RELAXED);
-            uint8_t event[NativeDriverAvailableSize];
-            if (!result && size >= PowerDataSize &&
-                request.request.length == PowerDataSize &&
+            uint8_t event[nativeDriverAvailableSize];
+            if (!result && size >= powerDataSize &&
+                request.request.length == powerDataSize &&
                 encodePowerAvailability(static_cast<const uint8_t *>(shadow),
-                                        PowerDataSize, event, sizeof(event),
+                                        powerDataSize, event, sizeof(event),
                                         abi()))
                 queueEvent(endpoint.interface, endpoint.kind,
-                           DriverAvailableEvent, event,
+                           driverAvailableEvent, event,
                            abi().driverAvailableSize, true);
         }
         return result;
