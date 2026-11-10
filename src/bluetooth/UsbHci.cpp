@@ -205,6 +205,14 @@ namespace simpleath
             {
                 return UsbHciStatus::MalformedPacket;
             }
+            // Reset clears all controller connection ownership before the
+            // command leaves USB. A delayed Connection Complete from the
+            // retiring controller state must not repopulate this ledger
+            // before the new Reset Complete opens fresh link admission.
+            if (state.aclWindow.resetPending)
+            {
+                return UsbHciStatus::Ok;
+            }
             UsbHciAclHandle *entry = findHandle(state.aclWindow, handle, true);
             if (entry == nullptr || entry->outstanding != 0U)
             {

@@ -551,6 +551,47 @@ namespace
                state.aclWindow.availableCredits == 2U;
     }
 
+    bool testResetQuarantinesPreCompletionConnections()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> reset {0x03U, 0x0cU, 0U};
+        constexpr std::array<uint8_t, 5U> acl {
+            2U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), reset.data(), reset.size()) !=
+                UsbHciStatus::Ok ||
+            !state.aclWindow.resetPending ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kResetComplete.data(),
+                               kResetComplete.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.resetPending || !negotiateAclCredits(state, fake))
+        {
+            return false;
+        }
+        // A late pre-reset connection event cannot become a valid ACL
+        // handle just because the post-reset controller has fresh credits.
+        if (sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            state.aclWindow.availableCredits != 2U)
+        {
+            return false;
+        }
+        // A genuinely new connection event after Reset Complete is valid.
+        return receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                                  kClassicConnected.size()) ==
+                   UsbHciStatus::Ok &&
+               sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) ==
+                   UsbHciStatus::Ok;
+    }
+
     bool testAclCredits()
     {
         UsbFake fake = newFake();
@@ -1956,6 +1997,11 @@ int main()
     if (!testHci())
     {
         return 2;
+    }
+    if (!testResetQuarantinesPreCompletionConnections())
+    {
+        constexpr int kPreResetHandleFailure = 26;
+        return kPreResetHandleFailure;
     }
     if (!testAclCredits())
     {
