@@ -416,3 +416,23 @@ native host policy; a decoded advertisement neither establishes a contact
 match nor a verified AirDrop peer. No controller scan, macOS Bluetooth
 handoff, RF channel change, native AWDL interface or transfer is activated
 by the new parser. This P0 task remains open.
+
+## Source progress — 2026-11-10: HCI-to-owner AirDrop hint callback
+
+The normal `LeDiscovery` controller receive path now optionally invokes
+`LeDiscoveryOwner::onAirDropHint` after first forwarding the complete copied
+HCI LE Advertising Report to the ordinary Bluetooth owner. The hint is
+produced only from a structurally valid version-1/3 AirDrop Continuity
+advertisement; malformed, unrelated and unexpected passive SCAN_RSP data
+cannot emit the callback. Every callback is bound to the current controller
+epoch and scan procedure, and callback failure or lost authorization follows
+the existing fail-closed HCI scan result path. The host callback is optional;
+this library does not install or impersonate any macOS Bluetooth provider.
+
+A complete synthetic HCI LE Meta Advertising Report exercises the actual
+scan dispatch, original report delivery before hint, one hint per report,
+passive-response suppression, policy rejection, and owner revocation.
+C++14/C++17 ASan+UBSan host regressions, strict Clang-Tidy and formatting
+pass. A native host must still provide the callback and separately evaluate
+Apple contact/privacy authorization, physical Bluetooth and AWDL policy;
+this source hook alone is not macOS AirDrop or peer discovery completion.

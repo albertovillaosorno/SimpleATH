@@ -34,6 +34,7 @@ namespace
     constexpr uint8_t kEnableOpcode = 0x0cU;
     constexpr uint8_t kEventPayloadBytes = 0x0fU;
     constexpr uint8_t kOverlongAdvertBytes = 0x20U;
+    constexpr size_t kAirDropAdBytes = 27U;
     constexpr uint8_t kIntervalLsb = 0xa0U;
     constexpr uint8_t kWindowLsb = 0x50U;
 
@@ -56,6 +57,7 @@ namespace
             size_t deliveredBytes {};
             size_t hostDeliveredEvents {};
             size_t aclTransfers {};
+            size_t airDropHints {};
             const LeScanPhase *pendingPhase {};
             void *inlineContext {};
             bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
@@ -75,6 +77,9 @@ namespace
             bool reboundEpoch {};
             bool allowActiveScan {true};
             bool revokeOnActiveAuthorization {};
+            bool expectAirDrop {};
+            bool rejectAirDropHint {};
+            bool revokeOnAirDropHint {};
             LeDiscoveryResult nestedScanResult {LeDiscoveryResult::Ignored};
             uint8_t expectedEventType {};
             uint8_t expectedAdByte {kAdByte};
@@ -216,8 +221,10 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         if (fake.failAdvertisement || epoch != activeEpoch(fake) ||
-            advertisement.dataBytes != 3U ||
-            advertisement.data.at(0U) != fake.expectedAdByte ||
+            advertisement.dataBytes !=
+                (fake.expectAirDrop ? kAirDropAdBytes : 3U) ||
+            (!fake.expectAirDrop &&
+             advertisement.data.at(0U) != fake.expectedAdByte) ||
             advertisement.eventType != fake.expectedEventType ||
             advertisement.addressType != 1U)
         {
@@ -238,6 +245,26 @@ namespace
         return true;
     }
 
+    bool observeAirDrop(void *context, uint64_t epoch,
+                        const LeAirDropHint &hint)
+    {
+        auto &fake = *static_cast<Fake *>(context);
+        // HCI's ordinary copied report must be handed to the host before
+        // any optional AirDrop hint, never in place of generic HCI delivery.
+        if (!fake.expectAirDrop || epoch != activeEpoch(fake) ||
+            fake.reports != fake.airDropHints + 1U || hint.version != 3U ||
+            hint.address.at(0U) != kFirstAddress || hint.rssi != kRssi)
+        {
+            return false;
+        }
+        ++fake.airDropHints;
+        if (fake.revokeOnAirDropHint)
+        {
+            fake.valid = false;
+        }
+        return !fake.rejectAirDropHint;
+    }
+
     UsbHciHostCallbacks hostFor(Fake &fake)
     {
         return {&fake, activeEpoch(fake), permit, sendCommand, aclOut, deliver};
@@ -245,7 +272,7 @@ namespace
 
     LeDiscoveryOwner ownerFor(Fake &fake)
     {
-        return {&fake, activeEpoch(fake), permit, observe};
+        return {&fake, activeEpoch(fake), permit, observe, observeAirDrop};
     }
 
     // Command Complete: one command credit + the echoed 16-bit opcode.
@@ -1087,7 +1114,6 @@ namespace
     // Apple company ID 0x004c, AirDrop Continuity type 5 and a version-3
     // 18-byte payload. This is synthetic over-the-air data, not an OS host
     // contact match or AirDrop receive authorization.
-    constexpr size_t kAirDropAdBytes = 27U;
     constexpr size_t kAirDropPayloadStart = 9U;
     constexpr size_t kAirDropVersionByte = kAirDropPayloadStart + 8U;
     constexpr size_t kAirDropSuffixByte = kAirDropPayloadStart + 17U;
@@ -1141,6 +1167,99 @@ namespace
             advert.data.at(index) = bytes.at(index);
         }
         return advert;
+    }
+
+    // Deliver a real HCI LE Advertising Report through the USB scan owner,
+    // not a direct helper call; non-AirDrop reports stay ordinary HCI data.
+    constexpr size_t kHciEventPrefixBytes = 13U;
+    constexpr size_t kHciEventRssiBytes = 1U;
+    constexpr size_t kHciAirDropEventBytes =
+        kHciEventPrefixBytes + kAirDropAdBytes + kHciEventRssiBytes;
+    constexpr size_t kHciEventHeaderBytes = 2U;
+    constexpr uint8_t kHciLeMetaEvent = 0x3eU;
+
+    std::array<uint8_t, kHciAirDropEventBytes> syntheticHciAirDrop()
+    {
+        std::array<uint8_t, kHciAirDropEventBytes> event {};
+        for (size_t index = 0U; index < kHciEventPrefixBytes; ++index)
+        {
+            event.at(index) = kAdvertisement.at(index);
+        }
+        event.at(0U) = kHciLeMetaEvent;
+        event.at(1U) =
+            static_cast<uint8_t>(kHciAirDropEventBytes - kHciEventHeaderBytes);
+        event.at(kAdvertDataLengthOffset) =
+            static_cast<uint8_t>(kAirDropAdBytes);
+        const auto advert = syntheticAirDrop();
+        for (size_t index = 0U; index < kAirDropAdBytes; ++index)
+        {
+            event.at(kHciEventPrefixBytes + index) = advert.data.at(index);
+        }
+        event.at(kHciAirDropEventBytes - 1U) =
+            kAdvertisement.at(kAdvertisement.size() - 2U);
+        return event;
+    }
+
+    bool nativeHciAirDropHintHandoff()
+    {
+        Fixture valid {};
+        valid.fake().expectAirDrop = true;
+        const auto report = syntheticHciAirDrop();
+        if (!valid.start() ||
+            valid.accept(report.data(), report.size()) !=
+                LeDiscoveryResult::Ok ||
+            valid.fake().reports != 1U || valid.fake().airDropHints != 1U ||
+            valid.fake().deliveredBytes != kAirDropAdBytes ||
+            valid.phase() != LeScanPhase::Scanning)
+        {
+            return false;
+        }
+        // A passive scan cannot deliver unsolicited active SCAN_RSP hints.
+        auto scanResponse = report;
+        constexpr size_t kReportEventTypeOffset = 4U;
+        constexpr uint8_t kScanResponseType = 4U;
+        scanResponse.at(kReportEventTypeOffset) = kScanResponseType;
+        if (valid.accept(scanResponse.data(), scanResponse.size()) !=
+                LeDiscoveryResult::Ok ||
+            valid.fake().airDropHints != 1U || valid.fake().reports != 1U)
+        {
+            return false;
+        }
+        Fixture unrelated {};
+        unrelated.fake().expectAirDrop = true;
+        auto otherCompany = report;
+        constexpr size_t kManufacturerCompanyOffset = kHciEventPrefixBytes + 5U;
+        otherCompany.at(kManufacturerCompanyOffset) = 0U;
+        if (!unrelated.start() ||
+            unrelated.accept(otherCompany.data(), otherCompany.size()) !=
+                LeDiscoveryResult::Ok ||
+            unrelated.fake().reports != 1U ||
+            unrelated.fake().airDropHints != 0U ||
+            unrelated.phase() != LeScanPhase::Scanning)
+        {
+            return false;
+        }
+        Fixture rejected {};
+        rejected.fake().expectAirDrop = true;
+        rejected.fake().rejectAirDropHint = true;
+        if (!rejected.start() ||
+            rejected.accept(report.data(), report.size()) !=
+                LeDiscoveryResult::DeliveryFailed ||
+            rejected.fake().reports != 1U ||
+            rejected.fake().airDropHints != 1U ||
+            rejected.phase() != LeScanPhase::Faulted)
+        {
+            return false;
+        }
+        Fixture revoked {};
+        revoked.fake().expectAirDrop = true;
+        revoked.fake().revokeOnAirDropHint = true;
+        return revoked.start() &&
+               revoked.accept(report.data(), report.size()) ==
+                   LeDiscoveryResult::OwnershipLost &&
+               revoked.fake().reports == 1U &&
+               revoked.fake().airDropHints == 1U &&
+               revoked.phase() == LeScanPhase::Faulted;
     }
 
     bool validAppleAirDropHints()
@@ -1279,6 +1398,11 @@ namespace
 
 int main()
 {
+    if (!nativeHciAirDropHintHandoff())
+    {
+        constexpr int kAirDropHciHandoffFailure = 29;
+        return kAirDropHciHandoffFailure;
+    }
     if (!validAppleAirDropHints() || !skipUnknownAppleContinuityMessages() ||
         !rejectUntrustedAppleAirDropHints())
     {

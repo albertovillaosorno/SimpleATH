@@ -83,14 +83,20 @@ namespace simpleath
 
     struct LeDiscoveryOwner
     {
-            void *context;
-            uint64_t epoch;
-            bool (*permit)(void *context, uint64_t epoch);
+            void *context {};
+            uint64_t epoch {};
+            bool (*permit)(void *context, uint64_t epoch) {};
             // The callback receives a bounded COPY (not a USB DMA pointer).
             // Neither this callback nor LE scans establish a macOS Bluetooth
             // service, AirDrop discovery, or independent HCI ownership.
-            bool (*onAdvertisement)(void *context, uint64_t epoch,
-                                    const LeLegacyAdvertisement &advertisement);
+            bool (*onAdvertisement)(
+                void *context, uint64_t epoch,
+                const LeLegacyAdvertisement &advertisement) {};
+            // Optional host-only hint after ordinary advertisement delivery.
+            // No host callback is installed by this library; a hint cannot
+            // itself authorize Apple contacts, BLE wake or AWDL peer traffic.
+            bool (*onAirDropHint)(void *context, uint64_t epoch,
+                                  const LeAirDropHint &hint) {};
     };
 
     struct LeDiscoveryState

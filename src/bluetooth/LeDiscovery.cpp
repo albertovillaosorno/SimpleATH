@@ -373,6 +373,43 @@ namespace simpleath
             return offset == bytes;
         }
 
+        LeDiscoveryResult dispatchAirDropHint(
+            const LeDiscoveryState &state, const UsbHciState &transport,
+            const UsbHciHostCallbacks &host, const LeDiscoveryOwner &owner,
+            const LeLegacyAdvertisement &report, uint64_t reportEpoch)
+        {
+            const auto callback = owner.onAirDropHint;
+            if (callback == nullptr)
+            {
+                return LeDiscoveryResult::Ok;
+            }
+            LeAirDropHint hint {};
+            if (parseLeAirDropHint(report, hint) != LeAirDropStatus::Found)
+            {
+                return LeDiscoveryResult::Ok;
+            }
+            // Ordinary Bluetooth event delivery precedes any optional
+            // AirDrop hint. No hint may activate an AWDL or OS host procedure.
+            const bool delivered = callback(owner.context, reportEpoch, hint);
+            if (state.epoch != reportEpoch ||
+                state.phase == LeScanPhase::Idle ||
+                state.phase == LeScanPhase::AwaitDisable || state.stopRequested)
+            {
+                return LeDiscoveryResult::Ok;
+            }
+            if (!delivered)
+            {
+                return LeDiscoveryResult::DeliveryFailed;
+            }
+            if (state.phase != LeScanPhase::Scanning)
+            {
+                return LeDiscoveryResult::Faulted;
+            }
+            return authorized(state, transport, host, owner)
+                       ? LeDiscoveryResult::Ok
+                       : LeDiscoveryResult::OwnershipLost;
+        }
+
         LeDiscoveryResult dispatchReports(const LeDiscoveryState &state,
                                           const UsbHciState &transport,
                                           const UsbHciHostCallbacks &host,
@@ -441,6 +478,12 @@ namespace simpleath
                 if (!authorized(state, transport, host, owner))
                 {
                     return LeDiscoveryResult::OwnershipLost;
+                }
+                const LeDiscoveryResult hintResult = dispatchAirDropHint(
+                    state, transport, host, owner, report, reportEpoch);
+                if (hintResult != LeDiscoveryResult::Ok)
+                {
+                    return hintResult;
                 }
             }
             return LeDiscoveryResult::Ok;
