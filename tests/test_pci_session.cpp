@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic PCI callback contract only: no IOKit, PCI hardware or kext build.
+#include "hardware/Ar9565Core.hpp"
 #include "platform/Ar9565PciSession.hpp"
+#include <cstdint>
 
 using namespace simpleath;
 
@@ -53,7 +55,9 @@ namespace
                 auto &self = get(context);
                 ++self.claims;
                 if (!self.claimAllowed || self.claimed)
+                {
                     return false;
+                }
                 self.claimed = true;
                 return true;
             }
@@ -96,40 +100,45 @@ namespace
                                    uint32_t *value)
             {
                 auto &self = get(context);
-                if (!self.claimed || !self.powered || !value)
+                if (!self.claimed || !self.powered || (value == nullptr))
+                {
                     return false;
+                }
                 ++self.reads;
                 switch (offset)
                 {
                     case 0x00:
-                        *value = 0x0036168cu; // Device 0036, Atheros 168c.
+                        *value = 0x0036168cU; // Device 0036, Atheros 168c.
                         return true;
                     case 0x2c:
-                        *value = 0x12345678u;
+                        *value = 0x12345678U;
                         return true;
                     case 0x08:
-                        *value = 0x02800001u; // Network/other, revision 1.
+                        *value = 0x02800001U; // Network/other, revision 1.
                         return true;
                     case 0x0c:
                         *value = 0; // Type-0 header.
                         return true;
                     case 0x04:
-                        if (self.powerDropsOnReadback && (self.command & 2u))
+                        if (self.powerDropsOnReadback &&
+                            ((self.command & 2U) != 0U))
                         {
                             // The provider disappears after decode enable.
                             self.powered = false;
                             return false;
                         }
-                        *value = 0xa5a50000u | self.command; // Preserve status.
+                        *value = 0xa5a50000U | self.command; // Preserve status.
                         if (((self.powerDropsAfterReadback ||
                               self.powerDropsDuringRollbackRead) &&
-                             (self.command & 2u)) ||
+                             ((self.command & 2U) != 0U)) ||
                             (self.powerDropsDuringRollbackVerification &&
-                             !(self.command & 2u)))
+                             ((self.command & 2U) == 0U)))
+                        {
                             self.powered = false;
+                        }
                         return true;
                     case 0x10:
-                        *value = 0x80001000u; // Assigned 32-bit MMIO BAR.
+                        *value = 0x80001000U; // Assigned 32-bit MMIO BAR.
                         return true;
                     default:
                         return false;
@@ -140,18 +149,24 @@ namespace
             {
                 auto &self = get(context);
                 ++self.writes;
-                if (!self.claimed || !self.powered || (value & 4u))
+                if (!self.claimed || !self.powered || ((value & 4U) != 0U))
+                {
                     return false; // No bus mastering, even in the fake.
-                if (value & 2u)
+                }
+                if ((value & 2U) != 0U)
                 {
                     if (self.enableWriteTakesEffect)
+                    {
                         self.command = static_cast<uint16_t>(
                             value |
-                            (self.commandMutatedOnEnable ? 0x0100u : 0u));
+                            (self.commandMutatedOnEnable ? 0x0100U : 0U));
+                    }
                     return !self.enableWriteFails;
                 }
                 if (self.disableWriteFails)
+                {
                     return false;
+                }
                 self.command = value;
                 return true;
             }
@@ -161,14 +176,20 @@ namespace
                 auto &self = get(context);
                 ++self.maps;
                 if (!self.claimed || !self.powered || !self.mapAllowed ||
-                    !length || !(self.command & 2u))
+                    (length == nullptr) || ((self.command & 2U) == 0U))
+                {
                     return false;
+                }
                 self.mapped = true;
                 *length = self.barLength;
                 if (self.busMasterAppearsDuringMap)
-                    self.command |= 4u;
+                {
+                    self.command |= 4U;
+                }
                 if (self.powerDropsDuringMap)
+                {
                     self.powered = false;
+                }
                 return true;
             }
 
@@ -183,14 +204,17 @@ namespace
             {
                 auto &self = get(context);
                 if (!self.claimed || !self.powered || !self.mapped ||
-                    self.registerReadFails || !value || !(self.command & 2u))
+                    self.registerReadFails || (value == nullptr) ||
+                    ((self.command & 2U) == 0U))
+                {
                     return false;
+                }
                 ++self.barReads;
                 switch (offset)
                 {
                     case kRevisionRegister:
                         *value =
-                            (static_cast<uint32_t>(kMacFamily) << 12u) | 0xffu;
+                            (static_cast<uint32_t>(kMacFamily) << 12U) | 0xffU;
                         break;
                     case kRtcStatusRegister:
                         *value = kRtcOn;
@@ -199,7 +223,9 @@ namespace
                         *value = self.eepromStatus;
                         self.finalEepromReadComplete = true;
                         if (self.busMasterAppearsDuringInspection)
-                            self.command |= 4u;
+                        {
+                            self.command |= 4U;
+                        }
                         break;
                     default:
                         return false;
@@ -207,14 +233,18 @@ namespace
                 // Synthesize a provider disappearing precisely after a
                 // successful MMIO sample, including the LAST EEPROM read.
                 if (self.revokeAfterBarOffset == offset)
+                {
                     self.powered = false;
+                }
                 return true;
             }
 
             PciSessionBackend backend()
             {
-                return {this,         claim, release, inD0,   configRead,
-                        commandWrite, map,   unmap,   barRead};
+                return {
+                    this,         claim, release, inD0,    configRead,
+                    commandWrite, map,   unmap,   barRead,
+                };
             }
     };
 } // namespace
@@ -229,20 +259,26 @@ int main()
             !session.status().readAccessReady ||
             !session.status().memoryDecodeChanged || fake.command != 2 ||
             fake.writes != 1 || fake.maps != 1)
+        {
             return 1;
+        }
         if (session.inspect() != PciSessionResult::Ok ||
             session.hardwareStatus().stage !=
                 Stage::AwaitingResetAndCalibration ||
             !session.hardwareStatus().eepromAccessible ||
             session.status().coreInspectResult != Result::Ok)
+        {
             return 2;
+        }
         session.stop(ProviderAccess::Available);
-        if (fake.claimed || fake.mapped || fake.command || fake.releases != 1 ||
-            fake.unmaps != 1 || fake.writes != 2 ||
+        if (fake.claimed || fake.mapped || (fake.command != 0U) ||
+            fake.releases != 1 || fake.unmaps != 1 || fake.writes != 2 ||
             session.status().memoryDecodeChanged ||
             session.status().cleanupResult != PciSessionResult::Ok ||
             session.status().readAccessReady)
+        {
             return 3;
+        }
     }
     {
         FakePci fake {};
@@ -250,27 +286,34 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) !=
                 PciSessionResult::InheritedBusMaster ||
-            fake.releases != 1 || fake.maps || fake.writes || fake.command != 4)
+            fake.releases != 1 || (fake.maps != 0U) || (fake.writes != 0U) ||
+            fake.command != 4)
+        {
             return 4;
+        }
     }
     {
         FakePci fake {};
         fake.mapAllowed = false;
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::MappingFailed ||
-            fake.command || fake.releases != 1 || fake.maps != 1 ||
-            fake.unmaps || fake.writes != 2 ||
+            (fake.command != 0U) || fake.releases != 1 || fake.maps != 1 ||
+            (fake.unmaps != 0U) || fake.writes != 2 ||
             session.status().memoryDecodeChanged)
+        {
             return 5;
+        }
     }
     {
         FakePci fake {};
         fake.barLength = kRtcStatusRegister; // Too short for RTC word.
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::InvalidBar ||
-            fake.command || fake.releases != 1 || fake.unmaps != 1 ||
+            (fake.command != 0U) || fake.releases != 1 || fake.unmaps != 1 ||
             session.status().memoryDecodeChanged)
+        {
             return 6;
+        }
     }
     {
         FakePci fake {};
@@ -279,10 +322,12 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) !=
                 PciSessionResult::CommandWriteFailed ||
-            fake.command || fake.writes != 2 || fake.releases != 1 ||
+            (fake.command != 0U) || fake.writes != 2 || fake.releases != 1 ||
             session.status().cleanupResult != PciSessionResult::Ok ||
             session.status().memoryDecodeChanged)
+        {
             return 7;
+        }
     }
     {
         FakePci fake {};
@@ -295,13 +340,17 @@ int main()
                 PciSessionResult::DecodeRestoreFailed ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 8;
+        }
     }
     {
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 9;
+        }
         fake.disableWriteFails = true;
         session.stop(ProviderAccess::Available);
         if (fake.command != 2 || fake.writes != 2 || fake.releases != 1 ||
@@ -311,13 +360,17 @@ int main()
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState ||
             fake.claims != 1)
+        {
             return 10;
+        }
     }
     {
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 11;
+        }
         fake.powered = false;
         const unsigned reads = fake.reads;
         session.stop(ProviderAccess::Unavailable);
@@ -327,39 +380,53 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 12;
+        }
     }
     {
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 13;
+        }
         fake.registerReadFails = true;
         if (session.inspect() != PciSessionResult::CoreRejected ||
             session.status().coreInspectResult != Result::RegisterReadFailed ||
-            fake.claimed || fake.mapped || fake.command || fake.releases != 1 ||
-            fake.unmaps != 1 || session.status().readAccessReady)
+            fake.claimed || fake.mapped || (fake.command != 0U) ||
+            fake.releases != 1 || fake.unmaps != 1 ||
+            session.status().readAccessReady)
+        {
             return 14;
+        }
     }
     {
         FakePci fake {};
         fake.powered = false;
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::NotInD0 ||
-            fake.releases != 1 || fake.maps || fake.writes || fake.claimed)
+            fake.releases != 1 || (fake.maps != 0U) || (fake.writes != 0U) ||
+            fake.claimed)
+        {
             return 15;
+        }
     }
     {
         FakePci fake {};
         fake.command = 2; // Preexisting memory decode belongs to prior owner.
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok ||
-            session.status().memoryDecodeChanged || fake.writes)
+            session.status().memoryDecodeChanged || (fake.writes != 0U))
+        {
             return 16;
+        }
         session.stop(ProviderAccess::Available);
-        if (fake.command != 2 || fake.writes || fake.releases != 1 ||
+        if (fake.command != 2 || (fake.writes != 0U) || fake.releases != 1 ||
             fake.unmaps != 1)
+        {
             return 17;
+        }
     }
     {
         FakePci fake {};
@@ -367,10 +434,12 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) !=
                 PciSessionResult::CommandReadbackFailed ||
-            fake.writes != 1 || fake.command || fake.releases != 1 ||
+            fake.writes != 1 || (fake.command != 0U) || fake.releases != 1 ||
             session.status().cleanupResult != PciSessionResult::Ok ||
             session.status().memoryDecodeChanged)
+        {
             return 18;
+        }
     }
     {
         FakePci fake {};
@@ -378,8 +447,11 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) !=
                 PciSessionResult::OwnershipDenied ||
-            fake.claims != 1 || fake.releases || fake.maps || fake.writes)
+            fake.claims != 1 || (fake.releases != 0U) || (fake.maps != 0U) ||
+            (fake.writes != 0U))
+        {
             return 19;
+        }
     }
     {
         FakePci fake {};
@@ -388,18 +460,22 @@ int main()
         if (session.start(fake.backend()) !=
                 PciSessionResult::CommandReadbackFailed ||
             fake.powered || fake.command != 2 || fake.writes != 1 ||
-            fake.releases != 1 || fake.maps || fake.unmaps ||
+            fake.releases != 1 || (fake.maps != 0U) || (fake.unmaps != 0U) ||
             session.status().cleanupResult !=
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 20;
+        }
     }
     {
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 21;
+        }
         fake.powered = false; // D0 lost between start and core register read.
         if (session.inspect() != PciSessionResult::CoreRejected ||
             session.status().coreInspectResult != Result::RegisterReadFailed ||
@@ -407,11 +483,15 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged || fake.writes != 1 ||
             fake.unmaps != 1 || fake.releases != 1 || fake.claimed)
+        {
             return 22;
+        }
         session.stop(ProviderAccess::Unavailable); // Idempotent late stop.
         if (fake.releases != 1 || fake.unmaps != 1 || fake.writes != 1 ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 23;
+        }
     }
     {
         // A callback context forged from our retained session storage must
@@ -422,23 +502,32 @@ int main()
         auto backend = fake.backend();
         backend.context = &session;
         if (session.start(backend) != PciSessionResult::MissingBackend ||
-            fake.claims || fake.writes || fake.maps ||
+            (fake.claims != 0U) || (fake.writes != 0U) || (fake.maps != 0U) ||
             session.status().claimed || session.status().mapped)
+        {
             return 24;
+        }
         backend.context = &backend;
         if (session.start(backend) != PciSessionResult::MissingBackend ||
-            fake.claims || fake.writes || fake.maps ||
+            (fake.claims != 0U) || (fake.writes != 0U) || (fake.maps != 0U) ||
             session.status().claimed || session.status().mapped)
+        {
             return 25;
+        }
         // A rejected malicious context does not poison a later legitimate
         // claim with the same already initialized session object.
         backend.context = &fake;
         if (session.start(backend) != PciSessionResult::Ok ||
             !session.status().readAccessReady || fake.claims != 1)
+        {
             return 26;
+        }
         session.stop(ProviderAccess::Available);
-        if (fake.claimed || fake.mapped || fake.command || fake.releases != 1)
+        if (fake.claimed || fake.mapped || (fake.command != 0U) ||
+            fake.releases != 1)
+        {
             return 27;
+        }
     }
     {
         // Readback succeeds just as D0 is revoked. Mapping may use a provider
@@ -447,13 +536,15 @@ int main()
         fake.powerDropsAfterReadback = true;
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::NotInD0 ||
-            fake.powered || fake.maps || fake.unmaps || fake.writes != 1 ||
-            fake.releases != 1 || fake.claimed ||
+            fake.powered || (fake.maps != 0U) || (fake.unmaps != 0U) ||
+            fake.writes != 1 || fake.releases != 1 || fake.claimed ||
             session.status().cleanupResult !=
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 28;
+        }
     }
     {
         // BAR mapping can succeed just before provider access is revoked.
@@ -468,19 +559,25 @@ int main()
             session.status().cleanupResult !=
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged)
+        {
             return 29;
+        }
     }
     {
         // D0 may vanish while readBar0 itself is completing. In particular,
         // the last EEPROM read must not declare the old session inspected.
-        const uint32_t revokeOffsets[] {kRevisionRegister,
-                                        kEepromStatusRegister};
+        const uint32_t revokeOffsets[] {
+            kRevisionRegister,
+            kEepromStatusRegister,
+        };
         for (uint32_t revokedAt : revokeOffsets)
         {
             FakePci fake {};
             PciReadOnlySession session;
             if (session.start(fake.backend()) != PciSessionResult::Ok)
+            {
                 return 30;
+            }
             fake.revokeAfterBarOffset = revokedAt;
             if (session.inspect() != PciSessionResult::CoreRejected ||
                 session.status().coreInspectResult !=
@@ -491,8 +588,10 @@ int main()
                 !session.status().memoryDecodeChanged || fake.powered ||
                 fake.claimed || fake.mapped || fake.releases != 1 ||
                 fake.unmaps != 1 || fake.writes != 1 ||
-                fake.barReads != (revokedAt == kRevisionRegister ? 1u : 3u))
+                fake.barReads != (revokedAt == kRevisionRegister ? 1U : 3U))
+            {
                 return 31;
+            }
         }
     }
     {
@@ -502,7 +601,9 @@ int main()
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 32;
+        }
         const unsigned readsBeforeStop = fake.reads;
         fake.powerDropsDuringRollbackRead = true;
         session.stop(ProviderAccess::Available);
@@ -513,7 +614,9 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 33;
+        }
     }
     {
         // Revocation may also occur on the *verification* read after a
@@ -522,18 +625,22 @@ int main()
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 34;
+        }
         const unsigned readsBeforeStop = fake.reads;
         fake.powerDropsDuringRollbackVerification = true;
         session.stop(ProviderAccess::Available);
-        if (fake.powered || fake.command || fake.writes != 2 ||
+        if (fake.powered || (fake.command != 0U) || fake.writes != 2 ||
             fake.reads != readsBeforeStop + 2 || fake.releases != 1 ||
             fake.unmaps != 1 || fake.claimed || fake.mapped ||
             session.status().cleanupResult !=
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 35;
+        }
     }
     {
         // The final MMIO read can finish with a valid sample before the
@@ -542,7 +649,9 @@ int main()
         FakePci fake {};
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok)
+        {
             return 36;
+        }
         fake.powerDropsAfterFinalMmioCheck = true;
         if (session.inspect() != PciSessionResult::NotInD0 || fake.powered ||
             !fake.finalPowerCheckReturned || fake.barReads != 3 ||
@@ -553,7 +662,9 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 37;
+        }
     }
     {
         // A successful post-map D0 gate cannot authorize publication after
@@ -569,7 +680,9 @@ int main()
                 PciSessionResult::ProviderUnavailable ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 39;
+        }
     }
     {
         // A BAR mapping callback can succeed while PCI command acquires
@@ -580,14 +693,16 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) !=
                 PciSessionResult::CommandReadbackFailed ||
-            fake.command != 6u || fake.maps != 1 || fake.unmaps != 1 ||
+            fake.command != 6U || fake.maps != 1 || fake.unmaps != 1 ||
             fake.releases != 1 || fake.claimed || fake.mapped ||
             session.status().readAccessReady ||
             session.status().cleanupResult !=
                 PciSessionResult::DecodeRestoreFailed ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 40;
+        }
     }
     {
         // Read-only MMIO callbacks must not turn a post-scan command change
@@ -597,7 +712,7 @@ int main()
         PciReadOnlySession session;
         if (session.start(fake.backend()) != PciSessionResult::Ok ||
             session.inspect() != PciSessionResult::CommandReadbackFailed ||
-            fake.command != 6u || fake.barReads != 3 || fake.releases != 1 ||
+            fake.command != 6U || fake.barReads != 3 || fake.releases != 1 ||
             fake.unmaps != 1 || fake.claimed || fake.mapped ||
             session.status().readAccessReady ||
             session.status().coreInspectResult != Result::Ok ||
@@ -605,7 +720,9 @@ int main()
                 PciSessionResult::DecodeRestoreFailed ||
             !session.status().memoryDecodeChanged ||
             session.start(fake.backend()) != PciSessionResult::WrongState)
+        {
             return 41;
+        }
     }
     return 0;
 }

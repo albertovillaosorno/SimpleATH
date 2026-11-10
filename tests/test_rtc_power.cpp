@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic RTC owner/clock/MMIO callbacks only; never touches hardware.
+#include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565RtcPower.hpp"
+#include <cstdint>
 
 using namespace simpleath;
 
@@ -11,8 +13,8 @@ namespace
     {
             uint64_t time = 100;
             uint64_t epoch = 1;
-            uint64_t token = 0x1234u;
-            uint32_t workaround = 0x1000u;
+            uint64_t token = 0x1234U;
+            uint32_t workaround = 0x1000U;
             uint32_t forceWake = 0;
             uint32_t control = 0;
             uint32_t rtcStatus = kRtcOn;
@@ -55,7 +57,8 @@ namespace
                 return self.alive && self.epoch == ownerEpoch;
             }
 
-            static bool redirectedWrite(void *context, uint32_t, uint32_t)
+            static bool redirectedWrite(void *context, uint32_t /*unused*/,
+                                        uint32_t /*unused*/)
             {
                 ++get(context).hijackedWrites;
                 return false;
@@ -65,18 +68,22 @@ namespace
             {
                 auto &self = get(context);
                 ++self.readAttempts;
-                if (!self.alive || !value)
+                if (!self.alive || (value == nullptr))
+                {
                     return false;
+                }
                 ++self.reads;
                 switch (offset)
                 {
                     case kRevisionRegister:
                         *value =
-                            (static_cast<uint32_t>(kMacFamily) << 12u) | 0xffu;
+                            (static_cast<uint32_t>(kMacFamily) << 12U) | 0xffU;
                         if (self.backwardOnRevision)
+                        {
                             --self.time;
+                        }
                         if (self.retargetCallbacksOnRevision &&
-                            self.borrowedCallbacks)
+                            (self.borrowedCallbacks != nullptr))
                         {
                             self.borrowedCallbacks->ownerEpoch = self.epoch + 1;
                             self.borrowedCallbacks->write32 = redirectedWrite;
@@ -86,18 +93,20 @@ namespace
                         *value = self.workaround;
                         return true;
                     case kRtcStatusRegister:
-                        *value = self.stuckWake ? 1u : self.rtcStatus;
+                        *value = self.stuckWake ? 1U : self.rtcStatus;
                         // The bootstrap's last WA write precedes the final
                         // RTC_STATUS read, with no more MMIO before success.
                         if (self.revokeAfterFinalStatusCheck &&
-                            (self.workaround & (1u << 22u)))
+                            ((self.workaround & (1U << 22U)) != 0U))
+                        {
                             self.finalStatusRead = true;
+                        }
                         return true;
                     case 0x704c: // AR_RTC_FORCE_WAKE
                         *value = self.forceWake;
                         return true;
                     case 0x7000: // AR_RTC_RC
-                        *value = self.stuckReset ? 3u : self.control;
+                        *value = self.stuckReset ? 3U : self.control;
                         return true;
                     case 0x4028: // AR_INTR_SYNC_CAUSE
                         *value = 0;
@@ -111,10 +120,14 @@ namespace
             {
                 auto &self = get(context);
                 if (!self.alive)
+                {
                     return false;
+                }
                 ++self.writes;
                 if (self.revokeAfterFirstWrite)
+                {
                     self.alive = false; // Provider vanishes mid-operation.
+                }
                 switch (offset)
                 {
                     case kWorkaroundRegister:
@@ -126,7 +139,7 @@ namespace
                     case 0x7040: // AR_RTC_RESET
                         return value <= 1;
                     case 0x7000:
-                        self.sawColdReset = self.sawColdReset || value == 3u;
+                        self.sawColdReset = self.sawColdReset || value == 3U;
                         self.control = value;
                         return true;
                     case 0x4000: // AR_RC
@@ -141,7 +154,9 @@ namespace
                 auto &self = get(context);
                 ++self.clocks;
                 if (self.revokeOnSecondClock && self.clocks == 2)
+                {
                     self.alive = false;
+                }
                 return self.time;
             }
 
@@ -149,14 +164,15 @@ namespace
             {
                 auto &self = get(context);
                 ++self.delays;
-                self.time += self.shortDelay ? micros - 1u : micros;
+                self.time += self.shortDelay ? micros - 1U : micros;
             }
 
             RtcPowerBackend backend()
             {
-                return {this,    token,   epoch,     canReset,
-                        read32,  write32, nowMicros, delayMicros,
-                        0x8000u, false,   nullptr,   nullptr};
+                return {
+                    this,      token,       epoch,   canReset, read32,  write32,
+                    nowMicros, delayMicros, 0x8000U, false,    nullptr, nullptr,
+                };
             }
     };
 
@@ -173,8 +189,11 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::EnsureAwake,
                                 context,
                                 status) != RtcResult::BootstrapRequired ||
-            fake.reads || fake.writes || context.bootstrapCompleted)
+            (fake.reads != 0U) || (fake.writes != 0U) ||
+            context.bootstrapCompleted)
+        {
             return 1;
+        }
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok ||
@@ -183,35 +202,47 @@ int main()
             context.bootstrapEpoch != 1 ||
             context.providerToken != fake.token ||
             context.workaroundValue != fake.workaround ||
-            (fake.workaround & (1u << 22u)) == 0 || !fake.writes ||
-            !fake.delays)
+            (fake.workaround & (1U << 22U)) == 0 || (fake.writes == 0U) ||
+            (fake.delays == 0U))
+        {
             return 2;
+        }
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::EnsureAwake,
                                 context, status) != RtcResult::Ok ||
             !status.rtcAwake || !context.bootstrapCompleted)
+        {
             return 3;
+        }
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::WarmReset,
                                 context, status) != RtcResult::Ok ||
             !status.resetCompleted || fake.sawColdReset)
+        {
             return 4;
+        }
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::ColdReset,
                                 context, status) != RtcResult::Ok ||
             !status.resetCompleted || !fake.sawColdReset)
+        {
             return 5;
+        }
         fake.epoch = 2;
         backend.ownerEpoch = 2;
         const unsigned oldWrites = fake.writes;
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::WarmReset,
                                 context,
                                 status) != RtcResult::BootstrapRequired ||
-            context.bootstrapCompleted || context.bootstrapEpoch ||
+            context.bootstrapCompleted || (context.bootstrapEpoch != 0U) ||
             fake.writes != oldWrites)
+        {
             return 6;
+        }
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok ||
             !context.bootstrapCompleted || context.bootstrapEpoch != 2)
+        {
             return 7;
+        }
         const unsigned beforeProviderWrites = fake.writes;
         const unsigned beforeProviderReads = fake.reads;
         backend.providerToken = 0x4321;
@@ -220,13 +251,17 @@ int main()
                                 status) != RtcResult::ProviderChanged ||
             fake.writes != beforeProviderWrites ||
             fake.reads != beforeProviderReads)
+        {
             return 8;
+        }
         backend.providerToken = fake.token;
         fake.alive = false;
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::WarmReset,
                                 context, status) != RtcResult::AccessRevoked ||
-            status.writes || status.boardStateInvalidated)
+            (status.writes != 0U) || status.boardStateInvalidated)
+        {
             return 9;
+        }
     }
     {
         FakeRtc fake {};
@@ -238,8 +273,10 @@ int main()
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::DelayTooShort ||
             !status.boardStateInvalidated || context.bootstrapCompleted ||
-            !fake.writes || !fake.delays)
+            (fake.writes == 0U) || (fake.delays == 0U))
+        {
             return 10;
+        }
     }
     {
         FakeRtc fake {};
@@ -252,7 +289,9 @@ int main()
                                 status) != RtcResult::ResetTimeout ||
             status.resetCompleted || !status.boardStateInvalidated ||
             context.bootstrapCompleted || fake.time > 250100)
+        {
             return 11;
+        }
     }
     {
         FakeRtc fake {};
@@ -265,7 +304,9 @@ int main()
                                 status) != RtcResult::WakeTimeout ||
             status.resetCompleted || !status.boardStateInvalidated ||
             context.bootstrapCompleted || fake.time > 250100)
+        {
             return 12;
+        }
     }
     {
         FakeRtc fake {};
@@ -276,8 +317,10 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::InvalidClock ||
-            status.writes || status.boardStateInvalidated)
+            (status.writes != 0U) || status.boardStateInvalidated)
+        {
             return 13;
+        }
     }
     {
         FakeRtc fake {};
@@ -288,8 +331,10 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::CoexistenceUnavailable ||
-            fake.reads || fake.writes)
+            (fake.reads != 0U) || (fake.writes != 0U))
+        {
             return 14;
+        }
     }
     {
         FakeRtc fake {};
@@ -302,7 +347,9 @@ int main()
                                 status) != RtcResult::AccessRevoked ||
             fake.writes != 1 || !status.boardStateInvalidated ||
             context.bootstrapCompleted || status.rtcAwake)
+        {
             return 15;
+        }
     }
     {
         FakeRtc fake {};
@@ -313,8 +360,10 @@ int main()
         if (transitionAr9565Rtc(backend, spoofed,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::UnsupportedIdentity ||
-            fake.reads || fake.writes)
+            (fake.reads != 0U) || (fake.writes != 0U))
+        {
             return 16;
+        }
     }
     {
         // An opaque callback may not reinterpret the retained callback table
@@ -329,24 +378,31 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::InvalidArgument ||
-            status.lastRegister != 0x1234 || fake.writes || fake.reads ||
-            context.workaroundCaptured)
+            status.lastRegister != 0x1234 || (fake.writes != 0U) ||
+            (fake.reads != 0U) || context.workaroundCaptured)
+        {
             return 17;
+        }
         Identity physical = kPhysical;
         backend.context = &physical;
         if (transitionAr9565Rtc(backend, physical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::InvalidArgument ||
-            status.lastRegister != 0x1234 || fake.writes || fake.reads ||
-            physical.vendorId != kPciVendor || physical.deviceId != kPciDevice)
+            status.lastRegister != 0x1234 || (fake.writes != 0U) ||
+            (fake.reads != 0U) || physical.vendorId != kPciVendor ||
+            physical.deviceId != kPciDevice)
+        {
             return 18;
+        }
         // Rejection does not poison a legitimate callback on the same object.
         backend.context = &fake;
         if (transitionAr9565Rtc(backend, physical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok ||
             !context.bootstrapCompleted || !status.resetCompleted)
+        {
             return 19;
+        }
     }
     {
         // The reset capability can be revoked before bootstrap begins. Its
@@ -360,9 +416,11 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::AccessRevoked ||
-            fake.clocks || fake.reads || fake.writes ||
+            (fake.clocks != 0U) || (fake.reads != 0U) || (fake.writes != 0U) ||
             status.boardStateInvalidated || context.workaroundCaptured)
+        {
             return 20;
+        }
 
         // A stale/reset epoch is also not authorization to consult the clock.
         fake.alive = true;
@@ -370,9 +428,11 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::AccessRevoked ||
-            fake.clocks || fake.reads || fake.writes ||
+            (fake.clocks != 0U) || (fake.reads != 0U) || (fake.writes != 0U) ||
             status.boardStateInvalidated || context.workaroundCaptured)
+        {
             return 21;
+        }
     }
     {
         // The clock callback can itself revoke the underlying PCI owner.
@@ -386,10 +446,12 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::AccessRevoked ||
-            fake.clocks != 2 || fake.readAttempts != 0 || fake.reads ||
-            fake.writes || status.boardStateInvalidated ||
+            fake.clocks != 2 || fake.readAttempts != 0 || (fake.reads != 0U) ||
+            (fake.writes != 0U) || status.boardStateInvalidated ||
             context.workaroundCaptured)
+        {
             return 22;
+        }
     }
     {
         // Ownership may disappear immediately after the last successful
@@ -405,9 +467,11 @@ int main()
                                 status) != RtcResult::AccessRevoked ||
             fake.alive || fake.finalStatusOwnerChecks != 3 ||
             !status.boardStateInvalidated || status.rtcAwake ||
-            context.bootstrapCompleted || context.bootstrapEpoch ||
+            context.bootstrapCompleted || (context.bootstrapEpoch != 0U) ||
             !status.resetCompleted)
+        {
             return 23;
+        }
     }
     {
         // After a successful bootstrap, a pre-MMIO loss of the reset owner
@@ -421,25 +485,33 @@ int main()
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok ||
             !context.bootstrapCompleted)
+        {
             return 24;
+        }
         const unsigned priorWrites = fake.writes;
         fake.alive = false;
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::EnsureAwake,
                                 context, status) != RtcResult::AccessRevoked ||
             status.boardStateInvalidated || fake.writes != priorWrites ||
-            context.bootstrapCompleted || context.bootstrapEpoch)
+            context.bootstrapCompleted || (context.bootstrapEpoch != 0U))
+        {
             return 25;
+        }
         fake.alive = true;
         if (transitionAr9565Rtc(backend, kPhysical, RtcOperation::WarmReset,
                                 context,
                                 status) != RtcResult::BootstrapRequired ||
             fake.writes != priorWrites)
+        {
             return 26;
+        }
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok ||
             !context.bootstrapCompleted)
+        {
             return 27;
+        }
     }
     {
         // Revocation during the clock callback, before the first MMIO read,
@@ -451,7 +523,9 @@ int main()
         if (transitionAr9565Rtc(backend, kPhysical,
                                 RtcOperation::BootstrapPowerOn, context,
                                 status) != RtcResult::Ok)
+        {
             return 28;
+        }
         const unsigned beforeReads = fake.reads;
         const unsigned beforeWrites = fake.writes;
         fake.clocks = 0;
@@ -460,8 +534,10 @@ int main()
                                 context, status) != RtcResult::AccessRevoked ||
             fake.reads != beforeReads || fake.writes != beforeWrites ||
             status.boardStateInvalidated || context.bootstrapCompleted ||
-            context.bootstrapEpoch)
+            (context.bootstrapEpoch != 0U))
+        {
             return 29;
+        }
     }
     {
         // A callback retaining the caller's table cannot redirect the
@@ -479,7 +555,9 @@ int main()
             fake.hijackedWrites != 0 || fake.writes == 0 ||
             backend.ownerEpoch != fake.epoch + 1 ||
             backend.write32 != FakeRtc::redirectedWrite)
+        {
             return 30;
+        }
     }
     return 0;
 }

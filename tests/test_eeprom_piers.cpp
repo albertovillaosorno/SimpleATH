@@ -2,6 +2,9 @@
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic packed EEPROM image; never sourced from hardware or RF.
 #include "hardware/Ar9565Eeprom.hpp"
+#include "hardware/Ar9565InitCatalog.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace
 {
@@ -10,18 +13,20 @@ namespace
             const uint8_t *base;
     };
 
-    const uint8_t *borrowedTemplateLookup(void *context, uint8_t,
+    const uint8_t *borrowedTemplateLookup(void *context, uint8_t /*unused*/,
                                           size_t *length)
     {
-        if (!context || !length)
+        if ((context == nullptr) || (length == nullptr))
+        {
             return nullptr;
+        }
         *length = simpleath::kAr9300EepromImageBytes;
         return static_cast<BorrowedTemplateReturn *>(context)->base;
     }
 
     struct PostValidationMutation
     {
-            uint8_t *frame;
+            uint8_t *frame {};
             unsigned calls = 0;
             unsigned changedByte = 5;
             uint8_t changedValue = 0xff;
@@ -41,9 +46,9 @@ namespace
 
     struct OutputMetadataMutation
     {
-            simpleath::EepromBlockInfo *info;
-            simpleath::EepromImage *image;
-            bool mutateReference;
+            simpleath::EepromBlockInfo *info {};
+            simpleath::EepromImage *image {};
+            bool mutateReference {};
             unsigned calls = 0;
     };
 
@@ -122,7 +127,9 @@ int main()
         board.eepromVersion != 2 || board.templateVersion != 3 ||
         !board.calibrationPierBinsPlausible || board.antennaGainDb != -1 ||
         board.calibrationValidated || board.regulatoryAuthorized)
+    {
         return 1;
+    }
     const auto &first = board.calibrationPiers2G[0];
     const auto &second = board.calibrationPiers2G[1];
     const auto &third = board.calibrationPiers2G[2];
@@ -138,14 +145,18 @@ int main()
         second.noiseFloorPowerRaw != 2 || !second.noiseMeasurementsPresent ||
         third.frequencyBin != 162 || third.centerMhz != 2462 ||
         third.referencePower != -128 || !third.noiseMeasurementsPresent)
+    {
         return 2;
+    }
 
     TxGainProfile tx = TxGainProfile::Unknown;
     RxGainProfile rx = RxGainProfile::Unknown;
     if (selectBoardGainProfiles(board, tx, rx) != EepromResult::Ok ||
         tx != TxGainProfile::LowOb || rx != RxGainProfile::Standard ||
         board.calibrationValidated || board.regulatoryAuthorized)
+    {
         return 3;
+    }
 
     // Bad frequency geometry remains readable as *diagnostics* but never
     // confers calibration/readiness. Both outputs reset on ordinary failures.
@@ -153,12 +164,16 @@ int main()
     if (summarizeBoardData(image, board) != EepromResult::Ok ||
         board.calibrationPierBinsPlausible || board.calibrationValidated ||
         board.regulatoryAuthorized)
+    {
         return 4;
+    }
     image.bytes[140] = 184; // 2484 MHz upper 2.4-GHz edge.
     if (summarizeBoardData(image, board) != EepromResult::Ok ||
         !board.calibrationPierBinsPlausible ||
         board.calibrationPiers2G[2].centerMhz != 2484)
+    {
         return 5;
+    }
     // Template callback context is opaque, but must never begin in mutable
     // block output: an aliased callback could corrupt the image or metadata.
     EepromTemplates templates = pinnedEepromTemplates();
@@ -170,12 +185,16 @@ int main()
     if (applyEepromBlock(frame, sizeof(frame), templates, image, blockInfo) !=
             EepromResult::InvalidArgument ||
         image.bytes[0] != 2 || blockInfo.major != 99)
+    {
         return 6;
+    }
     templates.context = &blockInfo.major;
     if (applyEepromBlock(frame, sizeof(frame), templates, image, blockInfo) !=
             EepromResult::InvalidArgument ||
         blockInfo.major != 99)
+    {
         return 7;
+    }
 
     // Fail before clearing any scratch/status or erasing a recovered board.
     uint8_t storage[1024] {};
@@ -189,20 +208,25 @@ int main()
                           restoreStatus) != EepromResult::InvalidArgument ||
         scratch[0] != 0xa5 || image.restored != true ||
         restoreStatus.result != EepromResult::BadChecksum)
+    {
         return 8;
+    }
     templates.context = &restoreStatus.result;
     if (restoreEepromDump(storage, sizeof(storage), 0x3ff, templates, scratch,
                           sizeof(scratch), image,
                           restoreStatus) != EepromResult::InvalidArgument ||
         restoreStatus.result != EepromResult::BadChecksum)
+    {
         return 9;
+    }
 
     // The callback is allowed to mutate its opaque context. If that context
     // points inside a validated delta, its find() can silently replace bytes
     // AFTER checksum + delta-bounds validation but BEFORE delta application.
     // Reject the alias before invoking any callback or changing frame/image.
-    uint8_t mutableDelta[] = {0x62, 0x00, 0x30, 0x01, 0x00,
-                              0x01, 0x22, 0x23, 0x00};
+    uint8_t mutableDelta[] = {
+        0x62, 0x00, 0x30, 0x01, 0x00, 0x01, 0x22, 0x23, 0x00,
+    };
     EepromTemplates hostile {mutableDelta, mutatingTemplateLookup};
     static EepromImage borrowedImage {};
     borrowedImage.bytes[0] = 0x77;
@@ -213,7 +237,9 @@ int main()
                          borrowedInfo) != EepromResult::InvalidArgument ||
         mutableDelta[6] != 0x22 || borrowedImage.bytes[0] != 0x77 ||
         borrowedImage.restored || borrowedInfo.major != 99)
+    {
         return 16;
+    }
     // The provider table itself cannot be writable callback context either.
     EepromTemplates tableAlias = pinnedEepromTemplates();
     tableAlias.context = &tableAlias;
@@ -222,7 +248,9 @@ int main()
                          borrowedInfo) != EepromResult::InvalidArgument ||
         borrowedImage.bytes[0] != 0x77 || borrowedImage.restored ||
         borrowedInfo.major != 99)
+    {
         return 17;
+    }
 
     // Raw multi-block restoration likewise cannot let its callback rewrite
     // borrowed NVM storage or its own callback function table. Fail before
@@ -234,14 +262,18 @@ int main()
                           restoreStatus) != EepromResult::InvalidArgument ||
         image.bytes[0] != 2 || !image.restored || scratch[0] != 0xa5 ||
         restoreStatus.result != EepromResult::BadChecksum)
+    {
         return 18;
+    }
     dumpAlias.context = &dumpAlias;
     if (restoreEepromDump(storage, sizeof(storage), 0x3ff, dumpAlias, scratch,
                           sizeof(scratch), image,
                           restoreStatus) != EepromResult::InvalidArgument ||
         image.bytes[0] != 2 || !image.restored || scratch[0] != 0xa5 ||
         restoreStatus.result != EepromResult::BadChecksum)
+    {
         return 19;
+    }
 
     // A provider can also return a supposedly immutable template pointer
     // into the already authenticated input block while its own context is
@@ -250,10 +282,13 @@ int main()
     // negative-before regression is defined behavior, even without a guard.
     static uint8_t frameBacking[1120] {};
     uint8_t *aliasedFrame = frameBacking + 8;
-    const uint8_t validDelta[] = {0x62, 0x00, 0x30, 0x01, 0x00,
-                                  0x01, 0x22, 0x23, 0x00};
+    const uint8_t validDelta[] = {
+        0x62, 0x00, 0x30, 0x01, 0x00, 0x01, 0x22, 0x23, 0x00,
+    };
     for (size_t i = 0; i < sizeof(validDelta); ++i)
+    {
         aliasedFrame[i] = validDelta[i];
+    }
     frameBacking[7] = 2; // Base's template ID matches reference 2.
     BorrowedTemplateReturn baseContext {frameBacking + 6};
     EepromTemplates badBase {&baseContext, borrowedTemplateLookup};
@@ -269,7 +304,9 @@ int main()
         unsafeBaseInfo.major != 0 || unsafeBaseInfo.minor != 1 ||
         unsafeBaseImage.bytes[0] != 0x7e || unsafeBaseImage.restored ||
         aliasedFrame[6] != 0x22)
+    {
         return 20;
+    }
 
     // A template lookup can mutate a frame through a separately retained
     // pointer after its checksum/delta bounds have already been checked.
@@ -284,8 +321,10 @@ int main()
     if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
             EepromResult::InvalidDelta ||
         mutation.calls != 1 || lateImage.bytes[0] != 0x7e ||
-        lateImage.restored || lateImage.appliedBlocks)
+        lateImage.restored || (lateImage.appliedBlocks != 0U))
+    {
         return 28;
+    }
     // A same-length mutation is delta-safe, but invalidates the previously
     // verified additive checksum. Refuse it before loading a template.
     lateFrame[5] = 1;
@@ -294,14 +333,18 @@ int main()
     if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
             EepromResult::BadChecksum ||
         mutation.calls != 2 || lateImage.bytes[0] != 0x7e || lateImage.restored)
+    {
         return 29;
+    }
     lateFrame[6] = 0x22;
     mutation.changedByte = 0;
     mutation.changedValue = 0x63; // Rebind checked template reference.
     if (applyEepromBlock(lateFrame, 9, mutableProvider, lateImage, lateInfo) !=
             EepromResult::InvalidDelta ||
         mutation.calls != 3 || lateImage.bytes[0] != 0x7e || lateImage.restored)
+    {
         return 30;
+    }
 
     // A template callback can retain separately borrowed output pointers.
     // Neither a substituted parsed reference nor a forged restored block
@@ -309,26 +352,35 @@ int main()
     static EepromImage metadataImage {};
     metadataImage.bytes[0] = 0x7e;
     EepromBlockInfo metadataInfo {};
-    OutputMetadataMutation metadataMutation {&metadataInfo, &metadataImage,
-                                             true};
-    EepromTemplates metadataProvider {&metadataMutation,
-                                      metadataMutatingTemplateLookup};
+    OutputMetadataMutation metadataMutation {
+        &metadataInfo,
+        &metadataImage,
+        true,
+    };
+    EepromTemplates metadataProvider {
+        &metadataMutation,
+        metadataMutatingTemplateLookup,
+    };
     if (applyEepromBlock(validDelta, sizeof(validDelta), metadataProvider,
                          metadataImage,
                          metadataInfo) != EepromResult::InvalidArgument ||
         metadataMutation.calls != 1 || metadataInfo.reference != 2 ||
-        metadataImage.bytes[0] || metadataImage.restored ||
-        metadataImage.appliedBlocks)
+        (metadataImage.bytes[0] != 0U) || metadataImage.restored ||
+        (metadataImage.appliedBlocks != 0U))
+    {
         return 31;
+    }
     metadataImage.bytes[0] = 0x7e;
     metadataMutation.mutateReference = false;
     if (applyEepromBlock(validDelta, sizeof(validDelta), metadataProvider,
                          metadataImage,
                          metadataInfo) != EepromResult::InvalidArgument ||
         metadataMutation.calls != 2 || metadataInfo.reference != 2 ||
-        metadataImage.bytes[0] || metadataImage.restored ||
-        metadataImage.appliedBlocks)
+        (metadataImage.bytes[0] != 0U) || metadataImage.restored ||
+        (metadataImage.appliedBlocks != 0U))
+    {
         return 32;
+    }
 
     // An empty or tampered diagnostic summary must never choose apparently
     // supported zero-index gain tables. Reject without retaining old gains.
@@ -339,40 +391,54 @@ int main()
     if (selectBoardGainProfiles(invalid, tx, rx) !=
             EepromResult::InvalidBoardIdentity ||
         tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+    {
         return 11;
+    }
     invalid = accepted;
     invalid.mac[0] |= 1; // Multicast MAC is not a permanent station address.
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
+    {
         return 12;
+    }
     invalid = accepted;
     invalid.txChainMask = 2; // Unsupported multi-chain board.
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
+    {
         return 13;
+    }
     invalid = accepted;
     invalid.operationFlags = 0; // No 2.4 GHz operation capability.
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
+    {
         return 14;
+    }
     invalid = accepted;
     invalid.eepromVersion = 1;
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::InvalidBoardIdentity)
+    {
         return 15;
+    }
     // A pinned dictionary's generic MAC is not a physical board identity.
     // Discovery rejects such placeholders, but a direct gain-table caller
     // must not bypass that rejection by constructing a valid-looking summary.
     invalid = accepted;
     const uint8_t genericMac[] {0, 2, 3, 4, 5, 6};
     for (size_t i = 0; i < sizeof(genericMac); ++i)
+    {
         invalid.mac[i] = genericMac[i];
+    }
     tx = TxGainProfile::HighOb;
     rx = RxGainProfile::WithoutExternalLna;
     if (selectBoardGainProfiles(invalid, tx, rx) !=
             EepromResult::InvalidBoardIdentity ||
         tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+    {
         return 22;
+    }
 
     // Gain selection may be called directly on a diagnostic summary. A
     // malformed-pier board must not supply a seemingly usable gain profile.
@@ -383,7 +449,9 @@ int main()
     if (selectBoardGainProfiles(invalid, tx, rx) !=
             EepromResult::UnsupportedFormat ||
         tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+    {
         return 21;
+    }
 
     // This is a public diagnostic summary. A forged true plausibility flag
     // cannot replace checking the actual three bin/pier records again.
@@ -396,32 +464,44 @@ int main()
     if (selectBoardGainProfiles(invalid, tx, rx) !=
             EepromResult::UnsupportedFormat ||
         tx != TxGainProfile::Unknown || rx != RxGainProfile::Unknown)
+    {
         return 23;
+    }
     invalid = accepted;
     invalid.calibrationFrequencyBins2G[0] = 111;
     invalid.calibrationPiers2G[0].frequencyBin = 111;
     invalid.calibrationPiers2G[0].centerMhz = 2411;
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::UnsupportedFormat)
+    {
         return 24;
+    }
     invalid = accepted;
     invalid.calibrationPiers2G[1].frequencyBin = 113;
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::UnsupportedFormat)
+    {
         return 25;
+    }
     invalid = accepted;
     invalid.calibrationPiers2G[2].centerMhz = 2483;
     if (selectBoardGainProfiles(invalid, tx, rx) !=
         EepromResult::UnsupportedFormat)
+    {
         return 26;
+    }
     if (selectBoardGainProfiles(accepted, tx, rx) != EepromResult::Ok ||
         tx != TxGainProfile::LowOb || rx != RxGainProfile::Standard)
+    {
         return 27;
+    }
 
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||
         board.eepromVersion != 0 || board.calibrationPierBinsPlausible ||
         board.calibrationValidated || board.regulatoryAuthorized)
+    {
         return 10;
+    }
     return 0;
 }

@@ -11,8 +11,12 @@ namespace
     bool unchanged(const uint8_t *bytes, size_t count)
     {
         for (size_t index = 0; index < count; ++index)
+        {
             if (bytes[index] != 0)
+            {
                 return false;
+            }
+        }
         return true;
     }
 
@@ -20,8 +24,9 @@ namespace
     {
         // The four-byte marker begins at offset 4. The final four bytes encode
         // a signed x86 RIP-relative displacement from the end of the pattern.
-        uint8_t text[12] = {0,    0,    0,    0,    0x91, 0x92,
-                            0x93, 0x94, 0xfc, 0xff, 0xff, 0xff};
+        uint8_t text[12] = {
+            0, 0, 0, 0, 0x91, 0x92, 0x93, 0x94, 0xfc, 0xff, 0xff, 0xff,
+        };
         const uint8_t bytes[8] = {0x91, 0x92, 0x93, 0x94, 0, 0, 0, 0};
         const uint8_t mask[8] = {0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0};
         const ath::NativeCodeReference reference = {4, 0};
@@ -29,7 +34,9 @@ namespace
         const uintptr_t validImport[] = {0x1008};
         if (ath::findNativeLink(text, sizeof(text), 0x1000, pattern,
                                 validImport, 1) != 0x1004)
+        {
             return false;
+        }
 
         // A negative displacement may not wrap below address zero and match an
         // unrelated high import address.
@@ -37,7 +44,9 @@ namespace
         const uintptr_t wrappedNegative[] = {UINTPTR_MAX - 51};
         if (ath::findNativeLink(text, sizeof(text), 0, pattern, wrappedNegative,
                                 1) != 0)
+        {
             return false;
+        }
 
         // Forward RIP-relative targets still resolve normally.
         text[8] = 16;
@@ -45,32 +54,44 @@ namespace
         const uintptr_t forwardImport[] = {0x101c};
         if (ath::findNativeLink(text, sizeof(text), 0x1000, pattern,
                                 forwardImport, 1) != 0x1004)
+        {
             return false;
+        }
 
         // A positive displacement may not wrap beyond the address space.
         const uintptr_t wrappedPositive[] = {11};
         if (ath::findNativeLink(text, sizeof(text), UINTPTR_MAX - 16, pattern,
                                 wrappedPositive, 1) != 0)
+        {
             return false;
+        }
 
         // The pattern itself may not straddle the address-space boundary.
         text[8] = text[9] = text[10] = text[11] = 0;
         const uintptr_t wrappedEnd[] = {6};
         if (ath::findNativeLink(text, sizeof(text), UINTPTR_MAX - 5, pattern,
                                 wrappedEnd, 1) != 0)
+        {
             return false;
+        }
 
         // The first valid match at base zero must not conceal a duplicate.
-        uint8_t duplicate[16] = {0x91, 0x92, 0x93, 0x94, 0xf8, 0, 0, 0,
-                                 0x91, 0x92, 0x93, 0x94, 0xf0, 0, 0, 0};
+        uint8_t duplicate[16] = {
+            0x91, 0x92, 0x93, 0x94, 0xf8, 0, 0, 0,
+            0x91, 0x92, 0x93, 0x94, 0xf0, 0, 0, 0,
+        };
         const uintptr_t duplicateImport[] = {0x100};
         if (ath::findNativeLink(duplicate, sizeof(duplicate), 0, pattern,
                                 duplicateImport, 1) != 0)
+        {
             return false;
+        }
         duplicate[0] = 0;
         if (ath::findNativeLink(duplicate, sizeof(duplicate), 0, pattern,
                                 duplicateImport, 1) != 8)
+        {
             return false;
+        }
         return true;
     }
 } // namespace
@@ -99,18 +120,24 @@ int main()
     // a null payload pointer and crashes the kernel caller.
     if (ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 20;
+    }
 
     // Counted metadata must never be dereferenced when the pointer is null.
     payload.relocations = nullptr;
     if (ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 21;
+    }
     payload.relocationCount = 0;
     payload.symbolValueCount = 1;
     if (ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 22;
+    }
     payload.symbolValueCount = 0;
     payload.relocations = &relocation;
     payload.relocationCount = 1;
@@ -121,10 +148,14 @@ int main()
     if (ath::findSymbol(image, nullptr) != 0 ||
         ath::findSymbol(missing, "missing") != 0 ||
         ath::allocateStub(missing, 0x3000) != 0)
+    {
         return 23;
+    }
     payload.symbolCount = 1;
     if (ath::findSymbol(image, "missing") != 0)
+    {
         return 24;
+    }
     payload.symbolCount = 0;
 
     // Imported relocation targets and signed addends must not wrap 64-bit
@@ -135,30 +166,40 @@ int main()
     foreign.address = UINTPTR_MAX - 2;
     if (ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 25;
+    }
     foreign.address = 0x2000;
     relocation.addend = INT64_MIN;
     if (ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 26;
+    }
     relocation.image = 255;
     relocation.target = 0;
     relocation.addend = 8;
     const uintptr_t imports[] = {UINTPTR_MAX - 2};
     if (ath::relocateImage(image, nullptr, 0, imports, 1, nullptr, 0) ||
         !unchanged(storage, sizeof(storage)))
+    {
         return 27;
+    }
 
     // Keep a positive relocation to ensure the hardened path remains usable.
     relocation.image = 0;
     relocation.target = 4;
     relocation.addend = 0;
     if (!ath::relocateImage(image, &foreign, 1, nullptr, 0, nullptr, 0))
+    {
         return 28;
+    }
     uintptr_t resultingAddress = 0;
     std::memcpy(&resultingAddress, storage, sizeof(resultingAddress));
     if (resultingAddress != 0x2004)
+    {
         return 29;
+    }
 
     // Restoration first validates each delta record, then zeroes the mapped
     // destination before applying it. An aliased delta would be erased after
@@ -181,7 +222,9 @@ int main()
     ath::LinkedImage restoredImage {&restored, mapped, 0x3000, 7, false, true};
     if (ath::restorePayload(restoredImage) ||
         std::memcmp(previous, mapped, sizeof(mapped)) != 0)
+    {
         return 30;
+    }
 
     // Overlapping base bytes would enter memcpy with undefined behavior;
     // reject them without touching the mapped image or its stub usage.
@@ -192,7 +235,9 @@ int main()
     if (ath::restorePayload(restoredImage) ||
         std::memcmp(previous, mapped, sizeof(mapped)) != 0 ||
         restoredImage.stubUsed != 7)
+    {
         return 31;
+    }
 
     // Independent base/delta storage remains supported and clears old stubs.
     restored.bytes = payloadBytes;
@@ -201,7 +246,9 @@ int main()
     if (!ath::restorePayload(restoredImage) || mapped[4] != 0x7f ||
         mapped[0] != 1 || mapped[7] != 8 || mapped[8] != 0 ||
         restoredImage.stubUsed != 0)
+    {
         return 32;
+    }
 
     // A caller can invoke allocateStub independently of restorePayload.
     // The reserved stub area must never overlap live executable image bytes.
@@ -213,12 +260,15 @@ int main()
     stubPayload.stubOffset = 8; // Malformed: overlaps the executable prefix.
     stubPayload.stubSize = 16;
     ath::LinkedImage stubImage {
-        &stubPayload, executableAndStubs, 0x4000, 0, false, true};
+        &stubPayload, executableAndStubs, 0x4000, 0, false, true,
+    };
     if (ath::allocateStub(stubImage, 0x12345678) != 0 ||
         stubImage.stubUsed != 0 ||
         std::memcmp(initialStubBytes, executableAndStubs,
                     sizeof(executableAndStubs)) != 0)
+    {
         return 33;
+    }
 
     // A valid, disjoint reservation still builds a full 16-byte jump stub.
     stubPayload.stubOffset = 16;
@@ -226,7 +276,9 @@ int main()
         stubImage.stubUsed != 16 ||
         std::memcmp(initialStubBytes, executableAndStubs, 16) != 0 ||
         executableAndStubs[16] != 0xff || executableAndStubs[17] != 0x25)
+    {
         return 34;
+    }
 
     // The direct stub writer is also an entrypoint: a forged mapping can
     // point its writable stub range into the payload descriptor itself.
@@ -240,12 +292,15 @@ int main()
     uint8_t originalPayload[sizeof(selfDescribingPayload)] {};
     std::memcpy(originalPayload, payloadStorage, sizeof(originalPayload));
     ath::LinkedImage selfDescribingImage {
-        &selfDescribingPayload, payloadStorage, 0x7000, 0, false, true};
+        &selfDescribingPayload, payloadStorage, 0x7000, 0, false, true,
+    };
     if (ath::allocateStub(selfDescribingImage, 0x12345678) != 0 ||
         selfDescribingImage.stubUsed != 0 ||
         std::memcmp(originalPayload, payloadStorage, sizeof(originalPayload)) !=
             0)
+    {
         return 38;
+    }
 
     // A second forged mapping can alias the LinkedImage descriptor that
     // carries its own memory pointer, allocation state and target address.
@@ -255,14 +310,17 @@ int main()
     selfAliasedPayload.stubOffset = 0;
     selfAliasedPayload.stubSize = 16;
     ath::LinkedImage selfAliasedImage {
-        &selfAliasedPayload, nullptr, 0x8000, 0, false, true};
+        &selfAliasedPayload, nullptr, 0x8000, 0, false, true,
+    };
     selfAliasedImage.memory = reinterpret_cast<uint8_t *>(&selfAliasedImage);
     uint8_t originalImage[sizeof(selfAliasedImage)] {};
     std::memcpy(originalImage, &selfAliasedImage, sizeof(originalImage));
     if (ath::allocateStub(selfAliasedImage, 0x12345678) != 0 ||
         std::memcmp(originalImage, &selfAliasedImage, sizeof(originalImage)) !=
             0)
+    {
         return 39;
+    }
 
     // Even if Payload and LinkedImage live elsewhere, standalone stub
     // allocation must preserve immutable relocation and symbol tables.
@@ -277,12 +335,15 @@ int main()
     auto *relocationStorage = reinterpret_cast<uint8_t *>(stubRelocations);
     uint8_t originalTable[sizeof(stubRelocations)] {};
     ath::LinkedImage tableImage {
-        &tablePayload, relocationStorage, 0x9000, 0, false, true};
+        &tablePayload, relocationStorage, 0x9000, 0, false, true,
+    };
     if (ath::allocateStub(tableImage, 0x12345678) != 0 ||
         tableImage.stubUsed != 0 ||
         std::memcmp(originalTable, relocationStorage, sizeof(originalTable)) !=
             0)
+    {
         return 40;
+    }
 
     uint32_t stubSymbolOffsets[8] {};
     tablePayload.relocations = nullptr;
@@ -297,7 +358,9 @@ int main()
         tableImage.stubUsed != 0 ||
         std::memcmp(originalSymbolOffsets, stubSymbolOffsets,
                     sizeof(originalSymbolOffsets)) != 0)
+    {
         return 41;
+    }
 
     // A stored byte template is also an immutable input to later restores.
     uint8_t stubTemplate[32] {};
@@ -313,7 +376,9 @@ int main()
         tableImage.stubUsed != 0 ||
         std::memcmp(originalTemplate, stubTemplate, sizeof(originalTemplate)) !=
             0)
+    {
         return 42;
+    }
 
     // Relocation metadata can itself live inside a caller-owned mapping.
     // Treat it as immutable input: writing the first relocated pointer must
@@ -336,13 +401,16 @@ int main()
     uint8_t oldRelocations[sizeof(aliasedRelocations)] {};
     std::memcpy(oldRelocations, relocatedBytes, sizeof(oldRelocations));
     ath::LinkedImage aliasImage {
-        &aliasedPayload, relocatedBytes, 0x5000, 0, false, true};
+        &aliasedPayload, relocatedBytes, 0x5000, 0, false, true,
+    };
     const uintptr_t aliasImports[] {0x5050};
     if (ath::relocateImage(aliasImage, nullptr, 0, aliasImports, 1, nullptr,
                            0) ||
         std::memcmp(oldRelocations, relocatedBytes, sizeof(oldRelocations)) !=
             0)
+    {
         return 35;
+    }
 
     // Symbol value offsets have the same alias problem: an offset table in
     // the output mapping may be overwritten by its own relocation operation.
@@ -359,13 +427,18 @@ int main()
         ath::payloadChecksum(offsetBytes, offsetPayload.size);
     uint8_t oldOffsets[sizeof(aliasedOffsets)] {};
     std::memcpy(oldOffsets, offsetBytes, sizeof(oldOffsets));
-    ath::LinkedImage offsetImage {&offsetPayload, offsetBytes, 0x6000, 0,
-                                  false,          true};
+    ath::LinkedImage offsetImage {
+        &offsetPayload, offsetBytes, 0x6000, 0, false, true,
+    };
     if (ath::relocateImage(offsetImage, nullptr, 0, nullptr, 0, nullptr, 0) ||
         std::memcmp(oldOffsets, offsetBytes, sizeof(oldOffsets)) != 0)
+    {
         return 36;
+    }
 
     if (!linkPatternBoundaries())
+    {
         return 37;
+    }
     return 0;
 }

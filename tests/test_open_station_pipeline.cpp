@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Portable synthetic open-BSS association; NO native Wi-Fi, RF, PCI or OS I/O.
+#include "wifi/DataFrames.hpp"
+#include "wifi/DataPath.hpp"
+#include "wifi/Frames.hpp"
+#include "wifi/LinkMonitor.hpp"
+#include "wifi/ScanCache.hpp"
+#include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
+#include "wifi/Wpa2Supplicant.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
+#include <cstdint>
 #include <cstring>
 
 namespace
@@ -14,26 +22,28 @@ namespace
 
     // These deliberately nonfunctional providers are never invoked; they
     // validate only the adapter's offline callback storage contract.
-    bool fakeRandom(void *, uint8_t *, size_t)
+    bool fakeRandom(void * /*unused*/, uint8_t * /*unused*/, size_t /*unused*/)
     {
         return false;
     }
 
-    bool fakePairwise(void *, const Mac &, const uint8_t[16])
+    bool fakePairwise(void * /*unused*/, const Mac & /*unused*/,
+                      const uint8_t /*unused*/[16])
     {
         return false;
     }
 
-    bool fakeGroup(void *, uint8_t, const uint8_t[16], const uint8_t[8])
+    bool fakeGroup(void * /*unused*/, uint8_t /*unused*/,
+                   const uint8_t /*unused*/[16], const uint8_t /*unused*/[8])
     {
         return false;
     }
 
-    void fakeRemove(void *)
+    void fakeRemove(void * /*unused*/)
     {
     }
 
-    bool observingRandom(void *context, uint8_t *, size_t)
+    bool observingRandom(void *context, uint8_t * /*unused*/, size_t /*unused*/)
     {
         // Synthetic only: let tests detect a forbidden provider invocation.
         ++*static_cast<size_t *>(context);
@@ -99,7 +109,9 @@ namespace
         Bss candidate {};
         if (parseBeacon(advertisement, sizeof(advertisement),
                         candidate.beacon) != Result::Ok)
+        {
             return false;
+        }
         // The AP may advertise an optional rate the station hardware lacks.
         // Association TX correctly omits it, so an Association Response
         // containing ONLY that rate cannot establish a common PHY rate.
@@ -115,13 +127,17 @@ namespace
             owner.select(station, candidate) != StationResult::Ok ||
             owner.authenticationRequest(1, tx, sizeof(tx), written) !=
                 Result::Ok)
+        {
             return false;
+        }
         uint8_t authentication[30] {};
         authenticationResponse(authentication);
         if (owner.onAuthenticationResponse(
                 authentication, sizeof(authentication)) != StationResult::Ok ||
             owner.associationRequest(2, tx, sizeof(tx), written) != Result::Ok)
+        {
             return false;
+        }
 
         // One matching rate cannot mask a newly mandatory, unsupported AP
         // basic rate. Retain the retryable association state for a rescan.
@@ -132,7 +148,9 @@ namespace
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
+        {
             return false;
+        }
 
         uint8_t unnegotiated[34] {};
         associationResponse(unnegotiated);
@@ -142,7 +160,9 @@ namespace
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
+        {
             return false;
+        }
 
         uint8_t response[36] {};
         associationResponse(response);
@@ -155,7 +175,9 @@ namespace
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
+        {
             return false;
+        }
         // Extended Supported Rates also cannot add a new mandatory basic
         // rate, even if base Supported Rates retains a matching rate.
         response[32] = 0x82; // Matching 1 Mbps basic rate.
@@ -164,7 +186,9 @@ namespace
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
+        {
             return false;
+        }
         // The AP cannot upgrade a selected optional rate to a new mandatory
         // basic rate in its response without forcing a rescan. This local PHY
         // rate is supported, but was not advertised as a required BSS rate.
@@ -173,7 +197,9 @@ namespace
                 StationResult::FrameRejected ||
             owner.state() != StationState::AssociationFramePrepared ||
             owner.associationId() != 0)
+        {
             return false;
+        }
         // Nonbasic AP additions are allowed when a selected rate is shared.
         response[35] = 0x7f; // Unrecognized, but not mandatory.
         return owner.onAssociationResponse(response, sizeof(response)) ==
@@ -190,7 +216,9 @@ namespace
         if (parseBeacon(advertisement, sizeof(advertisement), network) !=
                 Result::Ok ||
             network.rateCount != 2)
+        {
             return false;
+        }
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         uint8_t request[128] {};
         size_t written = 0;
@@ -200,19 +228,24 @@ namespace
                                    sizeof(request), written) != Result::Ok ||
             written != 38 || request[34] != 1 || request[35] != 2 ||
             request[36] != 0x82 || request[37] != 0x84)
+        {
             return false;
+        }
         // Supported Rates holds at most eight entries. A ninth compatible
         // AP rate belongs in Extended Supported Rates. An unknown optional
         // rate must not be falsely advertised as a local capability.
-        const uint8_t offered[] {0x82, 0x84, 0x8b, 0x96, 0x0c,
-                                 0x12, 0x18, 0x24, 0x30, 0x7f};
+        const uint8_t offered[] {
+            0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24, 0x30, 0x7f,
+        };
         network.rateCount = sizeof(offered);
         std::memcpy(network.rates, offered, sizeof(offered));
         if (makeAssociationRequest(station, network, 2, request,
                                    sizeof(request), written) != Result::Ok ||
             written != 47 || request[34] != 1 || request[35] != 8 ||
             request[44] != 50 || request[45] != 1 || request[46] != 0x30)
+        {
             return false;
+        }
         // The same PHY rate may occur twice with different basic flags.
         // Deduplication must retain the mandatory bit, not drop it.
         network.rateCount = 3;
@@ -222,7 +255,9 @@ namespace
         if (makeAssociationRequest(station, network, 3, request,
                                    sizeof(request), written) != Result::Ok ||
             written != 38 || request[36] != 0x82 || request[37] != 0x84)
+        {
             return false;
+        }
         network.rateCount = sizeof(offered);
         std::memcpy(network.rates, offered, sizeof(offered));
         // A new mandatory basic rate unknown to this hardware is never
@@ -234,7 +269,9 @@ namespace
                                    sizeof(request),
                                    written) != Result::InvalidElement ||
             written != 0 || request[0] != 0xa5)
+        {
             return false;
+        }
         return true;
     }
 
@@ -264,24 +301,32 @@ namespace
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              result) != DataPathResult::Ok ||
             result.payload != frame + 32)
+        {
             return false;
+        }
         // Broadcast source (multicast bit set), zero source, and another
         // multicast source must all fail without borrowing stale RX bytes.
         frame[16] = 0xff;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              result) != DataPathResult::InvalidAddress ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
         std::memset(frame + 16, 0, 6);
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              result) != DataPathResult::InvalidAddress ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
         frame[16] = 0x01;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              result) != DataPathResult::InvalidAddress ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
         return true;
     }
 
@@ -311,7 +356,9 @@ namespace
                              sizeof(tx),
                              txResult) != DataPathResult::InvalidAddress ||
             txResult.frameBytes != 77 || tx[0] != 0xa5)
+        {
             return false;
+        }
 
         uint8_t frame[33] {};
         frame[0] = 0x08;
@@ -329,8 +376,10 @@ namespace
         rxResult.payloadLength = 1;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              rxResult) != DataPathResult::InvalidAddress ||
-            rxResult.payload || rxResult.payloadLength)
+            (rxResult.payload != nullptr) || (rxResult.payloadLength != 0U))
+        {
             return false;
+        }
 
         // Both directions still accept a genuinely distinct valid AP.
         std::memcpy(link.bssid.bytes, kAp, 6);
@@ -369,7 +418,9 @@ namespace
                              sizeof(tx), prepared) !=
                 DataPathResult::InvalidSecurityState ||
             tx[0] != 0xa5 || prepared.frameBytes != 77)
+        {
             return false;
+        }
 
         uint8_t frame[33] {};
         frame[0] = 0x08;
@@ -385,8 +436,10 @@ namespace
         decoded.payloadLength = sizeof(frame);
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              decoded) != DataPathResult::InvalidSecurityState ||
-            decoded.payload || decoded.payloadLength)
+            (decoded.payload != nullptr) || (decoded.payloadLength != 0U))
+        {
             return false;
+        }
 
         // A legitimate open link still admits cleartext TX and RX.
         link.pairwiseAndGroupKeysInstalled = false;
@@ -424,7 +477,9 @@ namespace
                              sizeof(tx), prepared) !=
                 DataPathResult::InvalidEthernetFrame ||
             tx[0] != 0xa5 || prepared.frameBytes != 99)
+        {
             return false;
+        }
         // Ordinary Open IPv4 data remains permitted under the same link.
         ethernet[12] = 0x08;
         ethernet[13] = 0x00;
@@ -465,13 +520,17 @@ namespace
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              msdu) != DataPathResult::Ok ||
             msdu.etherType != 0x888e)
+        {
             return false;
-        frame[21] ^= 1u; // Different valid unicast source, same AP/BSSID.
+        }
+        frame[21] ^= 1U; // Different valid unicast source, same AP/BSSID.
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              msdu) !=
                 DataPathResult::NotFromAssociatedAccessPoint ||
-            msdu.payload || msdu.payloadLength)
+            (msdu.payload != nullptr) || (msdu.payloadLength != 0U))
+        {
             return false;
+        }
         // Do not accidentally ban other unicast Ethernet sources behind the
         // AP for actual protected data with validated integrity and keys.
         frame[1] |= 0x40;
@@ -510,8 +569,10 @@ namespace
         result.payloadLength = 10;
         if (inspectStationRx(link, frame, 33, false, true, false, result) !=
                 DataPathResult::UnsupportedFrame ||
-            result.payload || result.payloadLength)
+            (result.payload != nullptr) || (result.payloadLength != 0U))
+        {
             return false;
+        }
 
         uint8_t *const eapol = frame + 32;
         eapol[1] = 3;    // EAPOL-Key.
@@ -524,12 +585,16 @@ namespace
         if (inspectStationRx(link, frame, 131, false, true, false, result) !=
                 DataPathResult::Ok ||
             result.payload != eapol || result.payloadLength != 99)
+        {
             return false;
+        }
         frame[131] = 0xa5; // Not part of the declared EAPOL packet.
         if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
                              result) != DataPathResult::UnsupportedFrame ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
 
         eapol[5] = 1;
         eapol[6] = 0x0a; // M2: a supplicant reply, never AP-side RX.
@@ -537,8 +602,10 @@ namespace
         eapol[81] = 0x55; // MIC present.
         if (inspectStationRx(link, frame, 131, false, true, false, result) !=
                 DataPathResult::UnsupportedFrame ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
 
         eapol[5] = 0x13;
         eapol[6] = 0xca; // M3: AP install/MIC/secure/encrypted flags.
@@ -546,21 +613,27 @@ namespace
         if (inspectStationRx(link, frame, 131, false, true, false, result) !=
                 DataPathResult::Ok ||
             result.payload != eapol)
+        {
             return false;
+        }
         link.pairwiseAndGroupKeysInstalled = true;
         frame[1] = 0x42; // Protected AP EAPOL after initial key install.
         if (inspectStationRx(link, frame, 131, false, true, true, result) !=
                 DataPathResult::UnsupportedFrame ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
         // An open link must not inherit a prior WPA2 session's key-installed
         // claim; that contradiction cannot authorize plaintext receive.
         link.security = LinkSecurity::Open;
         frame[1] = 0x02;
         if (inspectStationRx(link, frame, 33, false, true, false, result) !=
                 DataPathResult::InvalidSecurityState ||
-            result.payload)
+            (result.payload != nullptr))
+        {
             return false;
+        }
         // Open networks retain generic Ethernet-II EAPOL pass-through only
         // after the previous security state has been fully revoked.
         link.pairwiseAndGroupKeysInstalled = false;
@@ -581,8 +654,8 @@ namespace
         link.associated = true;
         link.rfReady = true;
         link.channelPermitted = true;
-        constexpr size_t kM2EthernetBytes = 14u + 121u;
-        uint8_t ethernet[kM2EthernetBytes + 1u] {};
+        constexpr size_t kM2EthernetBytes = 14U + 121U;
+        uint8_t ethernet[kM2EthernetBytes + 1U] {};
         std::memcpy(ethernet, kAp, 6);
         std::memcpy(ethernet + 6, kStation, 6);
         ethernet[12] = 0x88;
@@ -598,8 +671,10 @@ namespace
         eapol[17] = 7;    // SNonce.
         eapol[81] = 0x55; // Synthetic nonzero MIC.
         eapol[98] = 22;
-        const uint8_t rsne[22] {48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
-                                0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0};
+        const uint8_t rsne[22] {
+            48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+            0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
+        };
         std::memcpy(eapol + 99, rsne, sizeof(rsne));
         uint8_t tx[192] {};
         std::memset(tx, 0xa5, sizeof(tx));
@@ -610,20 +685,26 @@ namespace
                              sizeof(tx),
                              prepared) != DataPathResult::InvalidAddress ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
+        {
             return false;
+        }
         std::memcpy(ethernet, kStation, 6);
-        ethernet[5] ^= 1u; // Valid foreign unicast destination.
+        ethernet[5] ^= 1U; // Valid foreign unicast destination.
         if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
                              sizeof(tx),
                              prepared) != DataPathResult::InvalidAddress ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
+        {
             return false;
+        }
         std::memcpy(ethernet, kAp, 6);
         // An arbitrary 1-byte EAPOL body is not an authorized key response.
         if (prepareStationTx(link, ethernet, 15, 1, tx, sizeof(tx), prepared) !=
                 DataPathResult::InvalidEthernetFrame ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
+        {
             return false;
+        }
         // A syntactically valid incoming M1 must not be transmitted from the
         // station through the public EAPOL serializer.
         eapol[5] = 0;
@@ -634,7 +715,9 @@ namespace
                              sizeof(tx), prepared) !=
                 DataPathResult::InvalidEthernetFrame ||
             tx[0] != 0xa5 || prepared.frameBytes != 91)
+        {
             return false;
+        }
         eapol[5] = 1;
         eapol[6] = 0x0a;
         eapol[8] = 0;
@@ -642,7 +725,9 @@ namespace
         if (prepareStationTx(link, ethernet, kM2EthernetBytes, 1, tx,
                              sizeof(tx), prepared) != DataPathResult::Ok ||
             !prepared.isEapol || prepared.frameBytes != 153)
+        {
             return false;
+        }
         // M2 cannot be sent in the clear after pairwise/group installation.
         link.pairwiseAndGroupKeysInstalled = true;
         std::memset(tx, 0xa5, sizeof(tx));
@@ -650,7 +735,9 @@ namespace
                              sizeof(tx),
                              prepared) != DataPathResult::NeedsCcmpEncryption ||
             tx[0] != 0xa5 || prepared.frameBytes != 153)
+        {
             return false;
+        }
         // M4 carries no SNonce/key data and is the final cleartext 4-way
         // handshake response after M3 has installed the PTK/GTK.
         eapol[3] = 95;
@@ -658,18 +745,22 @@ namespace
         eapol[6] = 0x0a;
         eapol[17] = 0;
         eapol[98] = 0;
-        constexpr size_t kM4EthernetBytes = 14u + 99u;
+        constexpr size_t kM4EthernetBytes = 14U + 99U;
         if (prepareStationTx(link, ethernet, kM4EthernetBytes, 1, tx,
                              sizeof(tx), prepared) != DataPathResult::Ok ||
             !prepared.isEapol || prepared.frameBytes != 131)
+        {
             return false;
+        }
         link.pairwiseAndGroupKeysInstalled = false;
         std::memset(tx, 0xa5, sizeof(tx));
         if (prepareStationTx(link, ethernet, kM4EthernetBytes, 1, tx,
                              sizeof(tx),
                              prepared) != DataPathResult::MissingKeys ||
             tx[0] != 0xa5 || prepared.frameBytes != 131)
+        {
             return false;
+        }
         // A valid EAPOL payload cannot conceal an extra trailing byte.
         eapol[5] = 1;
         eapol[3] = 117;
@@ -681,7 +772,9 @@ namespace
                              sizeof(tx), prepared) !=
                 DataPathResult::InvalidEthernetFrame ||
             tx[0] != 0xa5 || prepared.frameBytes != 131)
+        {
             return false;
+        }
 
         // A forged verified-decryption flag cannot make protected EAPOL
         // admissible before the selected link reports installed keys.
@@ -706,18 +799,24 @@ namespace
         decoded.payloadLength = 1;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
                              decoded) != DataPathResult::UnverifiedDecryption ||
-            decoded.payload || decoded.payloadLength)
+            (decoded.payload != nullptr) || (decoded.payloadLength != 0U))
+        {
             return false;
+        }
         link.pairwiseAndGroupKeysInstalled = true;
         if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
                              decoded) != DataPathResult::UnsupportedFrame ||
-            decoded.payload || decoded.payloadLength)
+            (decoded.payload != nullptr) || (decoded.payloadLength != 0U))
+        {
             return false;
+        }
         frame[1] = 0x02; // Post-key cleartext EAPOL cannot bypass CCMP.
         if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
                              decoded) != DataPathResult::UnverifiedDecryption ||
-            decoded.payload || decoded.payloadLength)
+            (decoded.payload != nullptr) || (decoded.payloadLength != 0U))
+        {
             return false;
+        }
         link.pairwiseAndGroupKeysInstalled = false;
         // Before installation, unprotected M1/M3 is still permissible.
         return inspectStationRx(link, frame, sizeof(frame), false, true, false,
@@ -732,15 +831,22 @@ namespace
         // even the first byte of that owner, before invoking any callback.
         struct ProviderContext
         {
-                size_t calls = 0x1234u;
+                size_t calls = 0x1234U;
                 uint8_t storage[128] {};
         } providerContext {};
 
         crypto::Adapter adapter;
-        const crypto::KeyHardware hw {&providerContext.calls, observingRandom,
-                                      fakePairwise, fakeGroup, fakeRemove};
+        const crypto::KeyHardware hw {
+            &providerContext.calls,
+            observingRandom,
+            fakePairwise,
+            fakeGroup,
+            fakeRemove,
+        };
         if (!adapter.configure(hw))
+        {
             return false;
+        }
         const Wpa2Crypto callbacks = adapter.callbacks();
         uint8_t kek[16] {};
         uint8_t wrapped[24] {};
@@ -748,13 +854,17 @@ namespace
         if (callbacks.unwrapGtk(callbacks.context, kek, wrapped,
                                 sizeof(wrapped), output, sizeof(output),
                                 &providerContext.calls) ||
-            providerContext.calls != 0x1234u)
+            providerContext.calls != 0x1234U)
+        {
             return false;
+        }
         if (callbacks.generateNonce(
                 callbacks.context,
                 reinterpret_cast<uint8_t *>(&providerContext.calls)) ||
-            providerContext.calls != 0x1234u)
+            providerContext.calls != 0x1234U)
+        {
             return false;
+        }
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         uint8_t pmk[32] {};
@@ -762,26 +872,32 @@ namespace
         if (callbacks.derivePtk(
                 callbacks.context, pmk, ap, station, nonce, nonce,
                 reinterpret_cast<uint8_t *>(&providerContext)) ||
-            providerContext.calls != 0x1234u)
+            providerContext.calls != 0x1234U)
+        {
             return false;
+        }
         uint8_t eapol[99] {};
         if (callbacks.micSha1(callbacks.context, pmk, eapol, sizeof(eapol),
                               reinterpret_cast<uint8_t *>(&providerContext)) ||
-            providerContext.calls != 0x1234u)
+            providerContext.calls != 0x1234U)
+        {
             return false;
+        }
         size_t length = 123;
         if (callbacks.unwrapGtk(callbacks.context, kek, wrapped,
                                 sizeof(wrapped),
                                 reinterpret_cast<uint8_t *>(&providerContext),
                                 sizeof(providerContext), &length) ||
-            length != 123 || providerContext.calls != 0x1234u)
+            length != 123 || providerContext.calls != 0x1234U)
+        {
             return false;
+        }
         // Disjoint outputs still reach the configured provider. This fake
         // only counts invocations: it supplies no entropy, so the adapter
         // must not accept or publish a nonce from the no-op callback.
         uint8_t independentNonce[32] {};
         return !callbacks.generateNonce(callbacks.context, independentNonce) &&
-               providerContext.calls == 0x1235u && independentNonce[0] == 0;
+               providerContext.calls == 0x1235U && independentNonce[0] == 0;
     }
 
     bool rejectForgedVisibleZeroName()
@@ -791,21 +907,27 @@ namespace
         Bss candidate {};
         if (parseBeacon(advertisement, sizeof(advertisement),
                         candidate.beacon) != Result::Ok)
+        {
             return false;
+        }
         candidate.occupied = true;
         std::memset(candidate.beacon.ssid, 0, sizeof(candidate.beacon.ssid));
         candidate.beacon.hiddenSsid = false;
         Station owner;
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         if (owner.enterScanning(true, true) != StationResult::Ok)
+        {
             return false;
+        }
         // A forged scan snapshot must not reach authentication if its SSID
         // has no actual visible octet, regardless of its hidden flag.
         if (owner.select(station, candidate) !=
                 StationResult::UnsupportedNetwork ||
             owner.state() != StationState::Scanning ||
             owner.candidate().occupied)
+        {
             return false;
+        }
         beacon(advertisement);
         return parseBeacon(advertisement, sizeof(advertisement),
                            candidate.beacon) == Result::Ok &&
@@ -820,17 +942,21 @@ namespace
         Bss candidate {};
         if (parseBeacon(advertisement, sizeof(advertisement),
                         candidate.beacon) != Result::Ok)
+        {
             return false;
+        }
         candidate.occupied = true;
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         Station owner;
         if (owner.enterScanning(true, true) != StationResult::Ok)
+        {
             return false;
+        }
 
         // The public selection API must not trust a caller-forged
         // infrastructure flag when the 802.11 capabilities say otherwise.
         // Neither ESS nor IBSS, IBSS only, and both bits are all invalid.
-        const uint16_t invalidModes[] {0u, 2u, 3u};
+        const uint16_t invalidModes[] {0U, 2U, 3U};
         for (const uint16_t mode : invalidModes)
         {
             candidate.beacon.capabilities = mode;
@@ -838,10 +964,12 @@ namespace
                     StationResult::UnsupportedNetwork ||
                 owner.state() != StationState::Scanning ||
                 owner.candidate().occupied)
+            {
                 return false;
+            }
         }
         // A genuine infrastructure advertisement is still selectable.
-        candidate.beacon.capabilities = 1u;
+        candidate.beacon.capabilities = 1U;
         return owner.select(station, candidate) == StationResult::Ok &&
                owner.state() == StationState::CandidateSelected;
     }
@@ -850,9 +978,10 @@ namespace
     {
         // A forged local station address equal to the selected WPA2 AP must
         // be rejected before handing identity and credentials to WPA2.
-        constexpr uint8_t rsnIe[22] {48, 20,   1,    0,    0,    0x0f, 0xac, 4,
-                                     1,  0,    0,    0x0f, 0xac, 4,    1,    0,
-                                     0,  0x0f, 0xac, 2,    0,    0};
+        constexpr uint8_t rsnIe[22] {
+            48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+            0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
+        };
         uint8_t advertisement[49 + sizeof(rsnIe)] {};
         beacon(advertisement);
         advertisement[34] |= 0x10; // WPA2 privacy capability.
@@ -861,10 +990,13 @@ namespace
         WifiEngine engine;
         uint32_t providerContext = 1;
         const crypto::KeyHardware hardware {
-            &providerContext, fakeRandom, fakePairwise, fakeGroup, fakeRemove};
+            &providerContext, fakeRandom, fakePairwise, fakeGroup, fakeRemove,
+        };
         if (!engine.configureKeys(hardware) ||
             engine.startScan(true, true) != EngineResult::Ok)
+        {
             return false;
+        }
         uint8_t output[256] {};
         EngineAction action {};
         const InputTrust verifiedRx {true, true, true, false};
@@ -872,7 +1004,9 @@ namespace
                             verifiedRx, output, sizeof(output),
                             action) != EngineResult::Ok ||
             engine.scan().size() != 1)
+        {
             return false;
+        }
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         const uint8_t ssid[] {'T', 'e', 's', 't'};
@@ -880,7 +1014,9 @@ namespace
         if (engine.chooseNetwork(ap, ssid, sizeof(ssid), 6, false, true, pmk) !=
                 EngineResult::InvalidInput ||
             engine.stationState() != StationState::Scanning)
+        {
             return false;
+        }
         // Rejecting the identity cannot consume a valid candidate or make a
         // subsequent independently addressed WPA2 selection impossible.
         return engine.chooseNetwork(station, ssid, sizeof(ssid), 6, false, true,
@@ -895,13 +1031,17 @@ namespace
         Bss candidate {};
         if (parseBeacon(advertisement, sizeof(advertisement),
                         candidate.beacon) != Result::Ok)
+        {
             return false;
+        }
         candidate.occupied = true;
         const Mac ownMac {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
         Station owner;
         if (owner.enterScanning(true, true) != StationResult::Ok ||
             owner.select(ownMac, candidate) != StationResult::Ok)
+        {
             return false;
+        }
 
         struct TxBuffer
         {
@@ -918,7 +1058,9 @@ namespace
                 Result::OverlappingBuffers ||
             std::memcmp(&tx, previousTx, sizeof(tx)) != 0 ||
             owner.state() != StationState::CandidateSelected)
+        {
             return false;
+        }
 
         // A byte pointer into owner storage must not overwrite association
         // state even if the output-length reference is kept elsewhere.
@@ -930,17 +1072,23 @@ namespace
                 Result::OverlappingBuffers ||
             written != 777 ||
             std::memcmp(&owner, previousOwner, sizeof(owner)) != 0)
+        {
             return false;
+        }
         uint8_t frame[128] {};
         if (owner.authenticationRequest(1, frame, sizeof(frame), written) !=
                 Result::Ok ||
             written != 30)
+        {
             return false;
+        }
         uint8_t response[30] {};
         authenticationResponse(response);
         if (owner.onAuthenticationResponse(response, sizeof(response)) !=
             StationResult::Ok)
+        {
             return false;
+        }
         tx.written = 234;
         std::memcpy(previousTx, &tx, sizeof(tx));
         if (owner.associationRequest(2, reinterpret_cast<uint8_t *>(&tx),
@@ -948,7 +1096,9 @@ namespace
                 Result::OverlappingBuffers ||
             std::memcmp(&tx, previousTx, sizeof(tx)) != 0 ||
             owner.state() != StationState::Authenticated)
+        {
             return false;
+        }
         std::memcpy(previousOwner, &owner, sizeof(owner));
         written = 888;
         if (owner.associationRequest(2, reinterpret_cast<uint8_t *>(&owner),
@@ -956,7 +1106,9 @@ namespace
                                      written) != Result::OverlappingBuffers ||
             written != 888 ||
             std::memcmp(&owner, previousOwner, sizeof(owner)) != 0)
+        {
             return false;
+        }
         return owner.associationRequest(2, frame, sizeof(frame), written) ==
                    Result::Ok &&
                written > 30 &&
@@ -984,7 +1136,9 @@ namespace
             LinkMonitor monitor;
             if (monitor.started(station, ap, 100, 1000, false, false) !=
                 LinkMonitorResult::Ok)
+            {
                 return false;
+            }
             frame[0] = subtype;
             if (monitor.observeManagement(frame, 27, 1500, true, false) !=
                     LinkMonitorResult::InvalidFrame ||
@@ -994,13 +1148,17 @@ namespace
                     LinkMonitorResult::InvalidFrame ||
                 monitor.status().state != LinkState::Associated ||
                 monitor.status().lastBeaconMs != 1000)
+            {
                 return false;
+            }
             // Optional complete IEs remain permitted, including on a
             // correctly formed disassociation frame.
             if (monitor.observeManagement(frame, sizeof(frame), 1520, true,
                                           false) != LinkMonitorResult::Ok ||
                 monitor.status().state != LinkState::ReconnectPending)
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -1012,14 +1170,18 @@ namespace
         LinkMonitor monitor;
         if (monitor.started(station, ap, 100, 1000, false, false) !=
             LinkMonitorResult::Ok)
+        {
             return false;
+        }
         if (monitor.observeManagement(nullptr, 26, 1500, true, false) !=
                 LinkMonitorResult::InvalidFrame ||
             monitor.observeManagement(nullptr, 0, 1510, true, false) !=
                 LinkMonitorResult::InvalidFrame ||
             monitor.observeManagement(nullptr, 26, 1520, false, false) !=
                 LinkMonitorResult::UnverifiedFrame)
+        {
             return false;
+        }
         return monitor.status().state == LinkState::Associated &&
                monitor.status().lastBeaconMs == 1000 &&
                monitor.status().acceptedBeacons == 0 &&
@@ -1043,20 +1205,26 @@ namespace
             LinkMonitor open;
             if (open.started(station, ap, 100, 1000, false, false) !=
                 LinkMonitorResult::Ok)
+            {
                 return false;
+            }
             forged[0] = subtype;
             if (open.observeManagement(forged, sizeof(forged), 1500, true,
                                        true) !=
                     LinkMonitorResult::InvalidFrame ||
                 open.status().state != LinkState::Associated)
+            {
                 return false;
+            }
         }
         // A genuinely PMF-negotiated session still honors a verified robust
         // management frame from its associated AP.
         LinkMonitor pmf;
         if (pmf.started(station, ap, 100, 1000, true, false) !=
             LinkMonitorResult::Ok)
+        {
             return false;
+        }
         forged[0] = 0xc0;
         return pmf.observeManagement(forged, sizeof(forged), 1500, true,
                                      true) == LinkMonitorResult::Ok &&
@@ -1073,7 +1241,9 @@ namespace
         const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
         if (monitor.started(station, ap, 100, 1000, false, false) !=
             LinkMonitorResult::Ok)
+        {
             return false;
+        }
         constexpr size_t kDeauthBytes = 26;
         const auto *const start =
             reinterpret_cast<const uint8_t *>(&monitor.status());
@@ -1081,7 +1251,9 @@ namespace
             reinterpret_cast<const uint8_t *>(&monitor.status().lastBeaconMs);
         if (sizeof(LinkSnapshot) - static_cast<size_t>(tail - start) <
             kDeauthBytes)
+        {
             return false;
+        }
         auto *const borrowed = const_cast<uint8_t *>(tail);
         std::memset(borrowed, 0, kDeauthBytes);
         borrowed[0] = 0xc0; // Deauthentication management subtype.
@@ -1094,12 +1266,16 @@ namespace
                 LinkMonitorResult::InvalidArgument ||
             monitor.status().state != LinkState::Associated ||
             std::memcmp(borrowed, original, sizeof(original)) != 0)
+        {
             return false;
+        }
         // Independent, FCS-verified AP deauth continues to revoke a link.
         LinkMonitor independent;
         if (independent.started(station, ap, 100, 1000, false, false) !=
             LinkMonitorResult::Ok)
+        {
             return false;
+        }
         return independent.observeManagement(original, sizeof(original), 1500,
                                              true,
                                              false) == LinkMonitorResult::Ok &&
@@ -1128,7 +1304,9 @@ namespace
                                  6, true, false, nullptr) != EngineResult::Ok ||
             engine.requestAuthentication(1, tx, sizeof(tx), action) !=
                 EngineResult::Ok)
+        {
             return false;
+        }
 
         uint8_t response[30] {};
         authenticationResponse(response);
@@ -1138,7 +1316,9 @@ namespace
                             action) != EngineResult::AccessPointRejected ||
             engine.stationState() != StationState::Inactive ||
             action.kind != ActionKind::None)
+        {
             return false;
+        }
 
         // A malformed response also must not request TX buffer capacity.
         if (engine.startScan(true, true) != EngineResult::Ok ||
@@ -1150,7 +1330,9 @@ namespace
                                  6, true, false, nullptr) != EngineResult::Ok ||
             engine.requestAuthentication(2, tx, sizeof(tx), action) !=
                 EngineResult::Ok)
+        {
             return false;
+        }
         authenticationResponse(response);
         response[26] = 3; // Not transaction 2.
         if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
@@ -1159,13 +1341,17 @@ namespace
             engine.stationState() !=
                 StationState::AuthenticationFramePrepared ||
             action.kind != ActionKind::None)
+        {
             return false;
+        }
         authenticationResponse(response);
         if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
                             nullptr, 0,
                             action) != EngineResult::BufferTooSmall ||
             engine.stationState() != StationState::AuthenticationFramePrepared)
+        {
             return false;
+        }
         // A valid retry still emits the association body after an output
         // allocation is supplied, and never reports native Wi-Fi success.
         return engine.acceptRx(response, sizeof(response), 0, 2010, trusted, tx,
@@ -1180,43 +1366,81 @@ int main()
 {
     using namespace simpleath::ieee80211;
     if (!rejectMalformedLinkLossIes())
+    {
         return 51;
+    }
     if (!rejectNullLinkManagementRx())
+    {
         return 55;
+    }
     if (!rejectUnexpectedProtectedLinkManagementRx())
+    {
         return 49;
+    }
     if (!rejectAliasedLinkManagementRx())
+    {
         return 47;
+    }
     if (!associationUsesSelectedRates())
+    {
         return 44;
+    }
     if (!rejectDisjointAssociationRates())
+    {
         return 32;
+    }
     if (!rejectEngineSelfBssidBeforeCrypto())
+    {
         return 25;
+    }
     if (!rejectStationManagementTxAlias())
+    {
         return 19;
+    }
     if (!rejectForgedVisibleZeroName())
+    {
         return 23;
+    }
     if (!rejectForgedInfrastructureCapability())
+    {
         return 26;
+    }
     if (!rejectInvalidFromDsSource())
+    {
         return 20;
+    }
     if (!rejectIdenticalLinkIdentities())
+    {
         return 24;
+    }
     if (!rejectOpenLinkWithInstalledWpa2Keys())
+    {
         return 45;
+    }
     if (!rejectOpenAssociationEapolTx())
+    {
         return 48;
+    }
     if (!rejectForeignWpa2Authenticator())
+    {
         return 21;
+    }
     if (!rejectUnboundWpa2Eapol())
+    {
         return 31;
+    }
     if (!rejectMalformedWpa2RxEapol())
+    {
         return 43;
+    }
     if (!rejectCryptoProviderContextAliases())
+    {
         return 22;
+    }
     if (!rejectAuthenticationWithoutTxBuffer())
+    {
         return 50;
+    }
     // Native lifecycle must allocate/serialize persistent owner storage.
     // This static host fixture has no controlling radio or OS interface.
     static WifiEngine engine;
@@ -1230,7 +1454,9 @@ int main()
     EngineAction action {};
     if (engine.startScan(true, true) != EngineResult::Ok ||
         engine.hasNativeWifiInterface())
+    {
         return 1;
+    }
     // Default construction must fail closed even without `{}` value-init.
     // A caller that forgets to populate trust cannot assert RF or DMA proof.
     InputTrust defaultTrust;
@@ -1238,22 +1464,30 @@ int main()
         defaultTrust.dmaAndFcsVerified ||
         defaultTrust.ccmpMicAndReplayVerified ||
         defaultTrust.rxFrameIncludesFcs)
+    {
         return 55;
+    }
     if (engine.acceptRx(probe, sizeof(probe), -42, 1000, defaultTrust, tx,
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)
+    {
         return 56;
+    }
     if (engine.acceptRx(probe, sizeof(probe), -42, 1000, unverifiedFrame, tx,
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)
+    {
         return 2;
+    }
     // An inconsistent FCS layout cannot underflow the MAC frame length.
     const uint8_t truncatedFcs[3] {0x08, 0x02, 0xff};
     if (engine.acceptRx(truncatedFcs, sizeof(truncatedFcs), -42, 999,
                         verifiedRxWithFcs, tx, sizeof(tx),
                         action) != EngineResult::InvalidReceivedFrame ||
         action.kind != ActionKind::None)
+    {
         return 54;
+    }
     // A verified DMA buffer can still contain the trailing FCS. Those four
     // bytes are NOT management information elements. The same parser must
     // accept the BSS as a stripped frame, without corrupting scan admission.
@@ -1266,21 +1500,29 @@ int main()
                         action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         engine.scan().size() != 1)
+    {
         return 52;
+    }
     if (engine.acceptRx(probe, sizeof(probe), -42, 1000, syntheticTrust, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         action.nativeInterfaceUsable || engine.scan().size() != 1)
+    {
         return 3;
+    }
     if (engine.chooseNetwork(station, reinterpret_cast<const uint8_t *>("Test"),
                              4, 6, true, false, nullptr) != EngineResult::Ok ||
         engine.startScan(true, true) != EngineResult::InvalidState)
+    {
         return 4;
+    }
     if (engine.requestAuthentication(10, tx, sizeof(tx), action) !=
             EngineResult::Ok ||
         action.kind != ActionKind::TransmitAuthentication ||
         action.bytes != 30 || action.nativeInterfaceUsable)
+    {
         return 5;
+    }
     uint8_t auth[30] {};
     authenticationResponse(auth);
     // Exact selected-rate capacity must work before authentication is
@@ -1289,25 +1531,31 @@ int main()
                         action) != EngineResult::Ok ||
         action.kind != ActionKind::TransmitAssociation || action.bytes != 38 ||
         action.nativeInterfaceUsable)
+    {
         return 6;
+    }
     uint8_t assoc[34] {};
     associationResponse(assoc);
     // A changed AP privacy capability cannot silently turn our selected
     // Open BSS into a protected association; retain retryable TX state.
-    assoc[24] |= 0x10u;
+    assoc[24] |= 0x10U;
     if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
                         sizeof(tx),
                         action) != EngineResult::InvalidReceivedFrame ||
         engine.stationState() != StationState::AssociationFramePrepared ||
         action.kind != ActionKind::None)
+    {
         return 27;
-    assoc[24] &= static_cast<uint8_t>(~0x10u);
+    }
+    assoc[24] &= static_cast<uint8_t>(~0x10U);
     if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::OpenAssociationEstablished ||
         engine.stationState() != StationState::AssociatedOpen ||
         action.nativeInterfaceUsable || engine.hasNativeWifiInterface())
+    {
         return 7;
+    }
 
     // On RX, a verified but retained FCS is not Ethernet payload. The
     // caller-provided layout bit must strip it before LLC/SNAP delivery.
@@ -1333,7 +1581,9 @@ int main()
         action.kind != ActionKind::ReceivedPayload ||
         action.receivedPayload != incoming + 32 ||
         action.receivedPayloadBytes != 3 || action.etherType != 0x0800)
+    {
         return 53;
+    }
 
     uint8_t ethernet[17] {};
     std::memcpy(ethernet, kAp, 6);
@@ -1346,7 +1596,9 @@ int main()
                                       action) != EngineResult::Ok ||
         action.kind != ActionKind::TransmitData || action.bytes == 0 ||
         action.nativeInterfaceUsable)
+    {
         return 8;
+    }
     engine.radioStopped(2000, false);
     if (engine.encodeOutgoingEthernet(ethernet, sizeof(ethernet), 13,
                                       syntheticTrust, tx, sizeof(tx),
@@ -1354,7 +1606,9 @@ int main()
         action.kind != ActionKind::None ||
         engine.stationState() == StationState::AssociatedOpen ||
         engine.hasNativeWifiInterface())
+    {
         return 9;
+    }
 
     // Borrowed identities from a previous link are not independent inputs to
     // started(): resetting the snapshot would otherwise erase both MACs
@@ -1365,7 +1619,9 @@ int main()
             LinkMonitorResult::Ok ||
         monitor.observeTimeout(3000) != LinkMonitorResult::Ok ||
         monitor.status().state != LinkState::ReconnectPending)
+    {
         return 10;
+    }
     const LinkSnapshot beforeRestart = monitor.status();
     if (monitor.started(monitor.status().station, monitor.status().bssid, 100,
                         3000, false,
@@ -1374,39 +1630,56 @@ int main()
         !sameMac(monitor.status().station, beforeRestart.station) ||
         !sameMac(monitor.status().bssid, beforeRestart.bssid) ||
         monitor.status().nextReconnectAtMs != beforeRestart.nextReconnectAtMs)
+    {
         return 11;
+    }
     if (monitor.started(station, monitor.status().bssid, 100, 3000, false,
                         false) != LinkMonitorResult::InvalidArgument ||
         monitor.started(monitor.status().station, accessPoint, 100, 3000, false,
                         false) != LinkMonitorResult::InvalidArgument ||
         monitor.status().state != LinkState::ReconnectPending)
+    {
         return 12;
+    }
     if (monitor.started(station, accessPoint, 100, 3000, false, false) !=
             LinkMonitorResult::Ok ||
         !sameMac(monitor.status().station, station) ||
         !sameMac(monitor.status().bssid, accessPoint))
+    {
         return 13;
+    }
 
     // A provider may write to its opaque context. It cannot be allowed to
     // modify the adapter's callbacks or the borrowed callback table itself.
     crypto::Adapter adapter;
-    crypto::KeyHardware provider {nullptr, fakeRandom, fakePairwise, fakeGroup,
-                                  fakeRemove};
+    crypto::KeyHardware provider {
+        nullptr, fakeRandom, fakePairwise, fakeGroup, fakeRemove,
+    };
     provider.context = &adapter;
-    if (adapter.configure(provider) || adapter.callbacks().context)
+    if (adapter.configure(provider) || (adapter.callbacks().context != nullptr))
+    {
         return 14;
+    }
     provider.context = &provider;
-    if (adapter.configure(provider) || adapter.callbacks().context)
+    if (adapter.configure(provider) || (adapter.callbacks().context != nullptr))
+    {
         return 15;
+    }
     provider.context = reinterpret_cast<uint8_t *>(&adapter) + 1;
-    if (adapter.configure(provider) || adapter.callbacks().context)
+    if (adapter.configure(provider) || (adapter.callbacks().context != nullptr))
+    {
         return 16;
+    }
     uint32_t independentOwner = 1;
     provider.context = &independentOwner;
     if (!adapter.configure(provider) || adapter.callbacks().context != &adapter)
+    {
         return 17;
+    }
     adapter.clear();
-    if (adapter.callbacks().context)
+    if (adapter.callbacks().context != nullptr)
+    {
         return 18;
+    }
     return 0;
 }

@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Fake WPA2 callbacks and EAPOL bytes only: no radio, keycache or PCI I/O.
+#include "wifi/Eapol.hpp"
+#include "wifi/Frames.hpp"
+#include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
+#include <cstdint>
 #include <cstring>
 
 using namespace simpleath::ieee80211;
 
 namespace
 {
-    constexpr uint8_t kRsnIe[22] {48, 20,   1,    0,    0,    0x0f, 0xac, 4,
-                                  1,  0,    0,    0x0f, 0xac, 4,    1,    0,
-                                  0,  0x0f, 0xac, 2,    0,    0};
+    constexpr uint8_t kRsnIe[22] {
+        48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+        0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
+    };
     const Mac kStation {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
     const Mac kAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
 
@@ -25,45 +30,55 @@ namespace
     {
         ++static_cast<FakeCrypto *>(ctx)->calls;
         for (size_t i = 0; i < 32; ++i)
+        {
             out[i] = static_cast<uint8_t>(i + 1);
+        }
         return true;
     }
 
-    bool derive(void *ctx, const uint8_t[32], const Mac &, const Mac &,
-                const uint8_t[32], const uint8_t[32], uint8_t out[48])
+    bool derive(void *ctx, const uint8_t /*unused*/[32], const Mac & /*unused*/,
+                const Mac & /*unused*/, const uint8_t /*unused*/[32],
+                const uint8_t /*unused*/[32], uint8_t out[48])
     {
         ++static_cast<FakeCrypto *>(ctx)->calls;
         for (size_t i = 0; i < 48; ++i)
+        {
             out[i] = static_cast<uint8_t>(i + 1);
+        }
         return true;
     }
 
-    bool mic(void *ctx, const uint8_t[16], const uint8_t *, size_t,
-             uint8_t out[16])
+    bool mic(void *ctx, const uint8_t /*unused*/[16],
+             const uint8_t * /*unused*/, size_t /*unused*/, uint8_t out[16])
     {
         ++static_cast<FakeCrypto *>(ctx)->calls;
         for (size_t i = 0; i < 16; ++i)
+        {
             out[i] = 0x55;
+        }
         return true;
     }
 
-    bool unwrap(void *, const uint8_t[16], const uint8_t *, size_t, uint8_t *,
-                size_t, size_t *)
+    bool unwrap(void * /*unused*/, const uint8_t /*unused*/[16],
+                const uint8_t * /*unused*/, size_t /*unused*/,
+                uint8_t * /*unused*/, size_t /*unused*/, size_t * /*unused*/)
     {
         return false;
     }
 
-    bool pairwise(void *, const Mac &, const uint8_t[16])
+    bool pairwise(void * /*unused*/, const Mac & /*unused*/,
+                  const uint8_t /*unused*/[16])
     {
         return false;
     }
 
-    bool group(void *, uint8_t, const uint8_t[16], const uint8_t[8])
+    bool group(void * /*unused*/, uint8_t /*unused*/,
+               const uint8_t /*unused*/[16], const uint8_t /*unused*/[8])
     {
         return false;
     }
 
-    void remove(void *)
+    void remove(void * /*unused*/)
     {
     }
 
@@ -75,7 +90,9 @@ namespace
     void makeM1(uint8_t *frame)
     {
         for (size_t i = 0; i < 99; ++i)
+        {
             frame[i] = 0;
+        }
         frame[0] = 2;    // EAPOL version 2.
         frame[1] = 3;    // EAPOL-Key.
         frame[3] = 95;   // 95-byte fixed descriptor body.
@@ -126,24 +143,33 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.nonceCalls;
-        if (state.revokeOnNonce && state.owner)
+        if (state.revokeOnNonce && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         for (size_t index = 0; index < 32; ++index)
+        {
             out[index] = static_cast<uint8_t>(index + 1);
+        }
         return true;
     }
 
-    bool handshakePtk(void *context, const uint8_t pmk[32], const Mac &,
-                      const Mac &, const uint8_t[32], const uint8_t[32],
-                      uint8_t out[48])
+    bool handshakePtk(void *context, const uint8_t pmk[32],
+                      const Mac & /*unused*/, const Mac & /*unused*/,
+                      const uint8_t /*unused*/[32],
+                      const uint8_t /*unused*/[32], uint8_t out[48])
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.ptkCalls;
-        if (state.revokeOnPtk && state.owner)
+        if (state.revokeOnPtk && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         state.observedPmk = pmk[0];
         for (size_t index = 0; index < 48; ++index)
+        {
             out[index] = static_cast<uint8_t>(index + 1);
+        }
         return true;
     }
 
@@ -152,18 +178,26 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.micCalls;
-        if (state.revokeMicCall == state.micCalls && state.owner)
+        if (state.revokeMicCall == state.micCalls && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         state.observedKck = kck[0];
         for (size_t index = 0; index < 16; ++index)
+        {
             out[index] = state.zeroMicCall == state.micCalls ? 0 : 0x55;
+        }
         // Deliberately violate the input-const contract after producing a
         // matching MIC. The supplicant must not use the altered RSC/KDE.
         if (state.mutateMicInputOnCall == state.micCalls &&
             state.mutateMicInputOffset < eapolBytes)
-            const_cast<uint8_t *>(eapol)[state.mutateMicInputOffset] ^= 1u;
+        {
+            const_cast<uint8_t *>(eapol)[state.mutateMicInputOffset] ^= 1U;
+        }
         if (state.mutateMicKeyOnCall == state.micCalls)
+        {
             const_cast<uint8_t *>(kck)[0] ^= 1U;
+        }
         return true;
     }
 
@@ -173,26 +207,37 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.unwrapCalls;
-        if (state.revokeOnUnwrap && state.owner)
+        if (state.revokeOnUnwrap && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         state.observedKek = kek[0];
         if (capacity < 48)
+        {
             return false;
+        }
         std::memcpy(out, kRsnIe, sizeof(kRsnIe));
         if (state.alteredRsn)
+        {
             out[3] = 1; // Changed M3 RSNE must never install keycache slots.
-        const uint8_t gtkKde[24] {0xdd, 22,   0,    0x0f, 0xac, 1,
-                                  2,    0,    0xa0, 0xa1, 0xa2, 0xa3,
-                                  0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xa9,
-                                  0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf};
+        }
+        const uint8_t gtkKde[24] {
+            0xdd, 22,   0,    0x0f, 0xac, 1,    2,    0,
+            0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7,
+            0xa8, 0xa9, 0xaa, 0xab, 0xac, 0xad, 0xae, 0xaf,
+        };
         std::memcpy(out + sizeof(kRsnIe), gtkKde, sizeof(gtkKde));
         out[46] = 0xdd; // AES-wrap padding marker followed by zero.
         out[47] = 0;
         *written = 48;
         if (state.mutateWrappedData && wrappedBytes != 0)
+        {
             const_cast<uint8_t *>(wrapped)[0] ^= 1U;
+        }
         if (state.mutateUnwrapKey)
+        {
             const_cast<uint8_t *>(kek)[0] ^= 1U;
+        }
         return true;
     }
 
@@ -200,10 +245,14 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.pairwiseCalls;
-        if (state.revokeOnPairwise && state.owner)
+        if (state.revokeOnPairwise && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         if (std::memcmp(ap.bytes, kAp.bytes, sizeof(ap.bytes)) != 0)
+        {
             return false;
+        }
         std::memcpy(state.installedTk, tk, sizeof(state.installedTk));
         return state.pairwiseSuccess;
     }
@@ -213,8 +262,10 @@ namespace
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.groupCalls;
-        if (state.revokeOnGroup && state.owner)
+        if (state.revokeOnGroup && (state.owner != nullptr))
+        {
             state.owner->reset();
+        }
         state.installedKeyId = keyId;
         std::memcpy(state.installedGtk, gtk, sizeof(state.installedGtk));
         std::memcpy(state.installedRsc, rsc, sizeof(state.installedRsc));
@@ -228,9 +279,11 @@ namespace
 
     Wpa2Crypto handshakeCrypto(HandshakeCallbacks &state)
     {
-        return {&state,         handshakeNonce,   handshakePtk,
-                handshakeMic,   handshakeUnwrap,  handshakePairwise,
-                handshakeGroup, handshakeRollback};
+        return {
+            &state,         handshakeNonce,    handshakePtk,
+            handshakeMic,   handshakeUnwrap,   handshakePairwise,
+            handshakeGroup, handshakeRollback,
+        };
     }
 
     void makeM3(uint8_t (&frame)[155])
@@ -249,10 +302,14 @@ namespace
         frame[66] = 0x12;
         frame[70] = 0x01;
         for (size_t index = 81; index < 97; ++index)
+        {
             frame[index] = 0x55; // Fake MIC, checked against callback.
-        frame[98] = 56;          // Wrapped key-data size in bytes.
+        }
+        frame[98] = 56; // Wrapped key-data size in bytes.
         for (size_t index = 99; index < sizeof(frame); ++index)
+        {
             frame[index] = static_cast<uint8_t>(index);
+        }
     }
 
     bool waitingForKeys(Station &owner, const Mac &station, const Mac &ap)
@@ -281,13 +338,17 @@ namespace
         std::memcpy(candidate.beacon.rsnIe, kRsnIe, sizeof(kRsnIe));
         if (owner.enterScanning(true, true) != StationResult::Ok ||
             owner.select(station, candidate) != StationResult::Ok)
+        {
             return false;
+        }
 
         uint8_t outgoing[128] {};
         size_t written = 0;
         if (owner.authenticationRequest(1, outgoing, sizeof(outgoing),
                                         written) != Result::Ok)
+        {
             return false;
+        }
         uint8_t auth[30] {};
         auth[0] = 0xb0; // Open authentication response.
         std::memcpy(auth + 4, station.bytes, 6);
@@ -298,7 +359,9 @@ namespace
                 StationResult::Ok ||
             owner.associationRequest(2, outgoing, sizeof(outgoing), written) !=
                 Result::Ok)
+        {
             return false;
+        }
 
         uint8_t assoc[34] {};
         assoc[0] = 0x10; // Association response.
@@ -329,7 +392,9 @@ namespace
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
                              kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[100] {};
         makeM1(m1);
         m1[99] = 0xa5;
@@ -340,11 +405,15 @@ namespace
                 Wpa2Result::MalformedEapol ||
             written != 0 || m2[0] != 0xa5 || callbacks.nonceCalls != 0 ||
             supplicant.state() != Wpa2State::AwaitingMessage1)
+        {
             return false;
+        }
         if (supplicant.onMessage1(m1, sizeof(m1) - 1, m2, sizeof(m2),
                                   written) != Wpa2Result::Ok ||
             written != sizeof(m2) || callbacks.micCalls != 1)
+        {
             return false;
+        }
         uint8_t m3[155] {};
         makeM3(m3);
         uint8_t trailingM3[156] {};
@@ -359,11 +428,15 @@ namespace
             written != 0 || m4[0] != 0xa5 || callbacks.micCalls != 1 ||
             callbacks.unwrapCalls != 0 || callbacks.pairwiseCalls != 0 ||
             supplicant.state() != Wpa2State::AwaitingMessage3)
+        {
             return false;
+        }
         if (supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written) !=
                 Wpa2Result::Ok ||
             written != sizeof(m4) || !supplicant.keysInstalled())
+        {
             return false;
+        }
         supplicant.reset();
         return callbacks.rollbackCalls == 1;
     }
@@ -375,13 +448,15 @@ namespace
         // unauthenticated TX response nor installed keys may be published.
         HandshakeCallbacks callbacks {};
         callbacks.mutateMicInputOnCall = call;
-        callbacks.mutateMicInputOffset = call == 1 ? 99u : 16u;
+        callbacks.mutateMicInputOffset = call == 1 ? 99U : 16U;
         Wpa2Supplicant supplicant;
         uint8_t pmk[32] {};
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
                              kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[99] {};
         makeM1(m1);
         uint8_t m2[121] {};
@@ -390,13 +465,17 @@ namespace
         const Wpa2Result m2Result =
             supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written);
         if (call == 1)
+        {
             return m2Result == Wpa2Result::MicCalculationFailure &&
                    written == 0 && m2[0] == 0xa5 && callbacks.micCalls == 1 &&
                    callbacks.unwrapCalls == 0 && callbacks.pairwiseCalls == 0 &&
                    callbacks.groupCalls == 0 &&
                    supplicant.state() == Wpa2State::Failed;
+        }
         if (m2Result != Wpa2Result::Ok || written != sizeof(m2))
+        {
             return false;
+        }
         uint8_t m3[155] {};
         makeM3(m3);
         uint8_t m4[99] {};
@@ -425,7 +504,9 @@ namespace
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
                              kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[99] {};
         makeM1(m1);
         uint8_t m2[121] {};
@@ -433,7 +514,9 @@ namespace
         if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
                 Wpa2Result::Ok ||
             written != sizeof(m2))
+        {
             return false;
+        }
         uint8_t m3[155] {};
         makeM3(m3);
         uint8_t original[sizeof(m3)] {};
@@ -464,7 +547,9 @@ namespace
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
                              kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[99] {};
         makeM1(m1);
         uint8_t m2[121] {};
@@ -476,15 +561,20 @@ namespace
         {
             if (first != Wpa2Result::MicCalculationFailure || written != 0 ||
                 m2[0] != 0xa5 || callbacks.micCalls != 1 ||
-                callbacks.pairwiseCalls || callbacks.groupCalls ||
+                (callbacks.pairwiseCalls != 0U) ||
+                (callbacks.groupCalls != 0U) ||
                 supplicant.state() != Wpa2State::Failed ||
                 supplicant.keysInstalled())
+            {
                 return false;
+            }
         }
         else
         {
             if (first != Wpa2Result::Ok || written != sizeof(m2))
+            {
                 return false;
+            }
             uint8_t m3[155] {};
             makeM3(m3);
             uint8_t m4[99] {};
@@ -494,10 +584,12 @@ namespace
                 supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
             if (third != Wpa2Result::MicCalculationFailure || written != 0 ||
                 m4[0] != 0xa5 || callbacks.micCalls != 3 ||
-                callbacks.unwrapCalls != 1 || callbacks.pairwiseCalls ||
-                callbacks.groupCalls || supplicant.keysInstalled() ||
+                callbacks.unwrapCalls != 1 || (callbacks.pairwiseCalls != 0U) ||
+                (callbacks.groupCalls != 0U) || supplicant.keysInstalled() ||
                 supplicant.state() != Wpa2State::Failed)
+            {
                 return false;
+            }
         }
         supplicant.reset();
         return callbacks.rollbackCalls == 0;
@@ -535,7 +627,9 @@ namespace
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(state), kStation, kAp, pmk, kRsnIe,
                              sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[99] {};
         makeM1(m1);
         uint8_t m2[121] {};
@@ -544,15 +638,23 @@ namespace
                 Wpa2Result::Ok ||
             m2Written != sizeof(m2) || state.nonceCalls != 1 ||
             state.ptkCalls != 1 || state.micCalls != 1)
+        {
             return false;
+        }
         uint8_t m3[155] {};
         makeM3(m3);
         if (scenario == HandshakeCase::InvalidRsc)
+        {
             m3[71] = 1; // High RSC byte is forbidden for CCMP GTK.
+        }
         if (scenario == HandshakeCase::InvalidReplay)
+        {
             m3[16] = 1; // Replay counter not greater than M1.
+        }
         if (scenario == HandshakeCase::InvalidMic)
+        {
             m3[81] ^= 1;
+        }
         uint8_t m4[99] {};
         std::memset(m4, 0xa5, sizeof(m4));
         size_t m4Written = 17;
@@ -567,11 +669,17 @@ namespace
                 state.installedKeyId != 2 || state.unwrapCalls != 1 ||
                 state.micCalls != 3 ||
                 std::memcmp(state.installedRsc, expectedRsc, 8) != 0)
+            {
                 return false;
+            }
             for (size_t index = 0; index < 16; ++index)
+            {
                 if (state.installedTk[index] != index + 33 ||
                     state.installedGtk[index] != index + 0xa0)
+                {
                     return false;
+                }
+            }
             // Keys installed for a different link must not authorize a
             // public Station to enter HardwareKeysInstalled.
             const Mac foreignStation {{0x02, 0x66, 0x77, 0x88, 0x99, 0xbb}};
@@ -591,47 +699,65 @@ namespace
                 correct.recordInstalledWpa2Keys(supplicant) !=
                     StationResult::NetworkInterfaceNotImplemented ||
                 correct.state() != StationState::HardwareKeysInstalled)
+            {
                 return false;
+            }
             supplicant.reset();
             return state.rollbackCalls == 1 &&
                    supplicant.state() == Wpa2State::Inactive;
         }
         Wpa2Result expected = Wpa2Result::HardwareKeyInstallFailure;
         if (scenario == HandshakeCase::InvalidRsc)
+        {
             expected = Wpa2Result::InvalidKeySequenceCounter;
+        }
         if (scenario == HandshakeCase::InvalidReplay)
+        {
             expected = Wpa2Result::InvalidReplayCounter;
+        }
         if (scenario == HandshakeCase::InvalidMic)
+        {
             expected = Wpa2Result::MicMismatch;
+        }
         if (scenario == HandshakeCase::ChangedRsn)
+        {
             expected = Wpa2Result::RsnMismatch;
+        }
         if (scenario == HandshakeCase::MutatedWrappedData ||
             scenario == HandshakeCase::MutatedUnwrapKey)
+        {
             expected = Wpa2Result::GtkUnwrapFailure;
+        }
         if (scenario == HandshakeCase::MutatedM3Key ||
             scenario == HandshakeCase::MutatedM4Key)
+        {
             expected = Wpa2Result::MicCalculationFailure;
+        }
         if (result != expected || m4Written != 0 || m4[0] != 0xa5 ||
             supplicant.keysInstalled() ||
             supplicant.state() != Wpa2State::Failed)
+        {
             return false;
+        }
         const bool installationFailed =
             scenario == HandshakeCase::PairwiseFailure ||
             scenario == HandshakeCase::GroupFailure;
-        if (state.rollbackCalls != (installationFailed ? 1u : 0u) ||
-            state.pairwiseCalls != (installationFailed ? 1u : 0u) ||
+        if (state.rollbackCalls != (installationFailed ? 1U : 0U) ||
+            state.pairwiseCalls != (installationFailed ? 1U : 0U) ||
             state.groupCalls !=
-                (scenario == HandshakeCase::GroupFailure ? 1u : 0u) ||
+                (scenario == HandshakeCase::GroupFailure ? 1U : 0U) ||
             state.unwrapCalls !=
                 (scenario == HandshakeCase::InvalidMic ||
                          scenario == HandshakeCase::InvalidReplay ||
                          scenario == HandshakeCase::InvalidRsc ||
                          scenario == HandshakeCase::MutatedM3Key
-                     ? 0u
-                     : 1u))
+                     ? 0U
+                     : 1U))
+        {
             return false;
+        }
         supplicant.reset();
-        return state.rollbackCalls == (installationFailed ? 1u : 0u);
+        return state.rollbackCalls == (installationFailed ? 1U : 0U);
     }
 
     // Crypto callbacks may synchronously revoke the owner. No continuation
@@ -643,10 +769,10 @@ namespace
         callbacks.owner = &supplicant;
         callbacks.revokeOnNonce = stage == 0;
         callbacks.revokeOnPtk = stage == 1;
-        callbacks.revokeMicCall = stage == 2   ? 1u
-                                  : stage == 3 ? 2u
-                                  : stage == 7 ? 3u
-                                               : 0u;
+        callbacks.revokeMicCall = stage == 2   ? 1U
+                                  : stage == 3 ? 2U
+                                  : stage == 7 ? 3U
+                                               : 0U;
         callbacks.revokeOnUnwrap = stage == 4;
         callbacks.revokeOnPairwise = stage == 5;
         callbacks.revokeOnGroup = stage == 6;
@@ -654,7 +780,9 @@ namespace
         pmk[0] = 1;
         if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
                              kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
             return false;
+        }
         uint8_t m1[99] {};
         makeM1(m1);
         uint8_t m2[121] {};
@@ -666,15 +794,19 @@ namespace
                                       written) != Wpa2Result::InvalidState ||
                 written != 0 || m2[0] != 0xa5 ||
                 supplicant.state() != Wpa2State::Inactive ||
-                callbacks.groupCalls || callbacks.pairwiseCalls)
+                (callbacks.groupCalls != 0U) || (callbacks.pairwiseCalls != 0U))
+            {
                 return false;
+            }
             return (stage != 1 || callbacks.observedPmk == 1) &&
                    (stage != 2 || callbacks.observedKck == 1);
         }
         if (supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
                 Wpa2Result::Ok ||
             written != sizeof(m2))
+        {
             return false;
+        }
         uint8_t m3[155] {};
         makeM3(m3);
         uint8_t m4[99] {};
@@ -682,13 +814,13 @@ namespace
         written = 123;
         const Wpa2Result outcome =
             supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written);
-        const unsigned expectedRollback = (stage == 5 || stage == 6) ? 1u : 0u;
+        const unsigned expectedRollback = (stage == 5 || stage == 6) ? 1U : 0U;
         return outcome == Wpa2Result::InvalidState && written == 0 &&
                m4[0] == 0xa5 && supplicant.state() == Wpa2State::Inactive &&
                callbacks.rollbackCalls == expectedRollback &&
-               callbacks.groupCalls == (stage == 6 ? 1u : 0u) &&
+               callbacks.groupCalls == (stage == 6 ? 1U : 0U) &&
                callbacks.pairwiseCalls ==
-                   ((stage == 5 || stage == 6) ? 1u : 0u) &&
+                   ((stage == 5 || stage == 6) ? 1U : 0U) &&
                ((stage != 3 && stage != 7) || callbacks.observedKck == 1) &&
                (stage != 4 || callbacks.observedKek == 17) &&
                (stage != 5 || callbacks.installedTk[0] == 33);
@@ -703,7 +835,9 @@ namespace
                 EapolResult::Ok ||
             parsed.message != KeyMessage::Pairwise1 ||
             parsed.eapolBytes != independent || parsed.eapolLength != 99)
+        {
             return false;
+        }
 
         struct AliasedInput
         {
@@ -718,7 +852,9 @@ namespace
         if (parseEapolKey(bytes, 99, input.result) !=
                 EapolResult::OverlappingBuffers ||
             std::memcmp(&input, before, sizeof(input)) != 0)
+        {
             return false;
+        }
 
         ReplayGuard guard;
         const auto *guardBytes = reinterpret_cast<const uint8_t *>(&guard);
@@ -728,18 +864,24 @@ namespace
                 EapolResult::OverlappingBuffers ||
             guard.phase() != HandshakePhase::Empty ||
             guard.lastReplayCounter() != 0)
+        {
             return false;
+        }
         if (guard.acceptMessage1(parsed) != EapolResult::Ok ||
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != 1)
+        {
             return false;
+        }
         aliasedNonce.message = KeyMessage::Pairwise3;
         aliasedNonce.replayCounter = 2;
         if (guard.acceptVerifiedMessage3(aliasedNonce, true) !=
                 EapolResult::OverlappingBuffers ||
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != 1)
+        {
             return false;
+        }
 
         // A reused parser output must not keep old borrowed RX pointers when
         // a subsequent malformed input is refused. Only an overlap contract
@@ -747,16 +889,22 @@ namespace
         independent[0] = 0;
         if (parseEapolKey(independent, sizeof(independent), parsed) !=
                 EapolResult::UnsupportedVersion ||
-            parsed.eapolBytes || parsed.eapolLength || parsed.nonce ||
-            parsed.mic || parsed.keyData ||
+            (parsed.eapolBytes != nullptr) || (parsed.eapolLength != 0U) ||
+            (parsed.nonce != nullptr) || (parsed.mic != nullptr) ||
+            (parsed.keyData != nullptr) ||
             parsed.message != KeyMessage::Unknown)
+        {
             return false;
+        }
         independent[0] = 2;
         if (parseEapolKey(independent, sizeof(independent), parsed) !=
                 EapolResult::Ok ||
             parseEapolKey(nullptr, 0, parsed) != EapolResult::NullBuffer ||
-            parsed.eapolBytes || parsed.nonce || parsed.mic || parsed.keyData)
+            (parsed.eapolBytes != nullptr) || (parsed.nonce != nullptr) ||
+            (parsed.mic != nullptr) || (parsed.keyData != nullptr))
+        {
             return false;
+        }
         return true;
     }
 
@@ -775,17 +923,21 @@ namespace
         if (parseEapolKey(message, sizeof(message), parsed) !=
                 EapolResult::Ok ||
             parsed.message != KeyMessage::Pairwise2)
+        {
             return false;
+        }
         message[17] = 0; // Invalid all-zero SNonce.
         if (parseEapolKey(message, sizeof(message), parsed) !=
                 EapolResult::InvalidKeyInformation ||
-            parsed.eapolBytes || parsed.nonce)
+            (parsed.eapolBytes != nullptr) || (parsed.nonce != nullptr))
+        {
             return false;
+        }
         message[17] = 7;
         message[8] = 16; // M1/M3 key length must not be copied to M2.
         return parseEapolKey(message, sizeof(message), parsed) ==
                    EapolResult::InvalidKeyInformation &&
-               !parsed.eapolBytes && !parsed.nonce;
+               (parsed.eapolBytes == nullptr) && (parsed.nonce == nullptr);
     }
 
     bool rejectWrongPairwiseKeyLengths()
@@ -799,24 +951,32 @@ namespace
         first[8] = 0;
         if (parseEapolKey(first, sizeof(first), parsed) !=
                 EapolResult::InvalidKeyInformation ||
-            parsed.eapolBytes || parsed.nonce)
+            (parsed.eapolBytes != nullptr) || (parsed.nonce != nullptr))
+        {
             return false;
+        }
         first[8] = 16;
         if (parseEapolKey(first, sizeof(first), parsed) != EapolResult::Ok ||
             parsed.message != KeyMessage::Pairwise1)
+        {
             return false;
+        }
 
         uint8_t third[155] {};
         makeM3(third);
         third[8] = 0;
         if (parseEapolKey(third, sizeof(third), parsed) !=
                 EapolResult::InvalidKeyInformation ||
-            parsed.eapolBytes || parsed.nonce)
+            (parsed.eapolBytes != nullptr) || (parsed.nonce != nullptr))
+        {
             return false;
+        }
         third[8] = 16;
         if (parseEapolKey(third, sizeof(third), parsed) != EapolResult::Ok ||
             parsed.message != KeyMessage::Pairwise3)
+        {
             return false;
+        }
 
         uint8_t fourth[99] {};
         makeM1(fourth);
@@ -827,11 +987,13 @@ namespace
         fourth[81] = 0x55;
         if (parseEapolKey(fourth, sizeof(fourth), parsed) != EapolResult::Ok ||
             parsed.message != KeyMessage::Pairwise4)
+        {
             return false;
+        }
         fourth[8] = 16;
         return parseEapolKey(fourth, sizeof(fourth), parsed) ==
                    EapolResult::InvalidKeyInformation &&
-               !parsed.eapolBytes && !parsed.nonce;
+               (parsed.eapolBytes == nullptr) && (parsed.nonce == nullptr);
     }
 
     bool rejectForgedReplayMetadata()
@@ -842,7 +1004,9 @@ namespace
         makeM1(m1);
         KeyFrame first {};
         if (parseEapolKey(m1, sizeof(m1), first) != EapolResult::Ok)
+        {
             return false;
+        }
         ReplayGuard guard;
         uint8_t emptyNonce[32] {};
         KeyFrame forged = first;
@@ -851,52 +1015,70 @@ namespace
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty ||
             guard.lastReplayCounter() != 0)
+        {
             return false;
+        }
         forged = first;
         forged.hasMic = true;
         if (guard.acceptMessage1(forged) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         forged = first;
-        forged.keyInformation ^= 0x20u; // Unsupported legacy Key Index.
+        forged.keyInformation ^= 0x20U; // Unsupported legacy Key Index.
         if (guard.acceptMessage1(forged) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         forged = first;
         forged.keyLength = 0;
         if (guard.acceptMessage1(forged) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         if (guard.acceptMessage1(first) != EapolResult::Ok)
+        {
             return false;
+        }
 
         uint8_t m3[155] {};
         makeM3(m3);
         KeyFrame third {};
         if (parseEapolKey(m3, sizeof(m3), third) != EapolResult::Ok)
+        {
             return false;
+        }
         forged = third;
         forged.hasMic = false;
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != first.replayCounter)
+        {
             return false;
+        }
         forged = third;
         forged.keyInformation = first.keyInformation; // M1 mask, M3 flags.
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3)
+        {
             return false;
+        }
         forged = third;
         forged.keyLength = 0;
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3)
+        {
             return false;
+        }
         return guard.acceptVerifiedMessage3(third, true) == EapolResult::Ok &&
                guard.phase() == HandshakePhase::Message3MicVerified &&
                guard.lastReplayCounter() == third.replayCounter;
@@ -912,7 +1094,9 @@ namespace
         KeyFrame first {};
         if (parseEapolKey(firstBytes, sizeof(firstBytes), first) !=
             EapolResult::Ok)
+        {
             return false;
+        }
         ReplayGuard guard;
         // The direct replay API cannot trust metadata copied from an earlier
         // parse when the borrowed M1 bytes have since changed. A MIC bit of
@@ -920,7 +1104,9 @@ namespace
         firstBytes[81] = 0x5a;
         if (guard.acceptMessage1(first) != EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         firstBytes[81] = 0;
         // A caller can also adjust the declared EAPOL length without fixing
         // the fixed key body/key-data length. A parser would reject this.
@@ -937,7 +1123,9 @@ namespace
         extra.keyData = extraFirst + 99;
         if (guard.acceptMessage1(extra) != EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         KeyFrame forged = first;
         uint8_t detachedNonce[32] {};
         std::memcpy(detachedNonce, first.nonce, sizeof(detachedNonce));
@@ -945,21 +1133,29 @@ namespace
         if (guard.acceptMessage1(forged) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::Empty)
+        {
             return false;
+        }
         forged = first;
         ++forged.replayCounter;
         if (guard.acceptMessage1(forged) !=
                 EapolResult::InvalidKeyInformation ||
             guard.lastReplayCounter() != 0)
+        {
             return false;
+        }
         forged = first;
         forged.eapolBytes = nullptr;
         if (guard.acceptMessage1(forged) != EapolResult::InvalidKeyInformation)
+        {
             return false;
+        }
         forged = first;
         --forged.eapolLength;
         if (guard.acceptMessage1(forged) != EapolResult::InvalidKeyInformation)
+        {
             return false;
+        }
         // These three borrowed fields must identify the actual wire image,
         // even when ReplayGuard does not consume their contents itself.
         uint8_t detachedFields[32] {};
@@ -967,26 +1163,38 @@ namespace
         {
             forged = first;
             if (field == 0)
+            {
                 forged.keyRsc = detachedFields;
+            }
             else if (field == 1)
+            {
                 forged.mic = detachedFields;
+            }
             else
+            {
                 forged.keyData = detachedFields;
+            }
             if (guard.acceptMessage1(forged) !=
                     EapolResult::InvalidKeyInformation ||
                 guard.phase() != HandshakePhase::Empty ||
                 guard.lastReplayCounter() != 0)
+            {
                 return false;
+            }
         }
         if (guard.acceptMessage1(first) != EapolResult::Ok)
+        {
             return false;
+        }
 
         uint8_t thirdBytes[155] {};
         makeM3(thirdBytes);
         KeyFrame third {};
         if (parseEapolKey(thirdBytes, sizeof(thirdBytes), third) !=
             EapolResult::Ok)
+        {
             return false;
+        }
         uint8_t extraThird[156] {};
         std::memcpy(extraThird, thirdBytes, sizeof(thirdBytes));
         extraThird[3] = 152; // 95 fixed + 56 key data != 152.
@@ -1002,44 +1210,62 @@ namespace
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3 ||
             guard.lastReplayCounter() != first.replayCounter)
+        {
             return false;
+        }
         forged = third;
         std::memcpy(detachedNonce, third.nonce, sizeof(detachedNonce));
         forged.nonce = detachedNonce;
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.phase() != HandshakePhase::AwaitingMessage3)
+        {
             return false;
+        }
         forged = third;
         ++forged.replayCounter;
         if (guard.acceptVerifiedMessage3(forged, true) !=
                 EapolResult::InvalidKeyInformation ||
             guard.lastReplayCounter() != first.replayCounter)
+        {
             return false;
+        }
         forged = third;
         forged.eapolBytes = nullptr;
         if (guard.acceptVerifiedMessage3(forged, true) !=
             EapolResult::InvalidKeyInformation)
+        {
             return false;
+        }
         forged = third;
         --forged.eapolLength;
         if (guard.acceptVerifiedMessage3(forged, true) !=
             EapolResult::InvalidKeyInformation)
+        {
             return false;
+        }
         for (unsigned field = 0; field < 3; ++field)
         {
             forged = third;
             if (field == 0)
+            {
                 forged.keyRsc = detachedFields;
+            }
             else if (field == 1)
+            {
                 forged.mic = detachedFields;
+            }
             else
+            {
                 forged.keyData = detachedFields;
+            }
             if (guard.acceptVerifiedMessage3(forged, true) !=
                     EapolResult::InvalidKeyInformation ||
                 guard.phase() != HandshakePhase::AwaitingMessage3 ||
                 guard.lastReplayCounter() != first.replayCounter)
+            {
                 return false;
+            }
         }
         return guard.acceptVerifiedMessage3(third, true) == EapolResult::Ok &&
                guard.phase() == HandshakePhase::Message3MicVerified &&
@@ -1056,23 +1282,41 @@ namespace
 int main()
 {
     if (!rejectZeroMicCallback(1) || !rejectZeroMicCallback(3))
+    {
         return 48;
+    }
     if (!rejectMutatedSignedMessage3(65) || !rejectMutatedSignedMessage3(99))
+    {
         return 49;
+    }
     if (!rejectMutatedOutgoingMicInput(1) || !rejectMutatedOutgoingMicInput(3))
+    {
         return 50;
+    }
     if (!rejectTrailingHandshakeBytes())
+    {
         return 46;
+    }
     if (!rejectMalformedMessage2())
+    {
         return 40;
+    }
     if (!rejectWrongPairwiseKeyLengths())
+    {
         return 41;
+    }
     if (!rejectForgedReplayMetadata())
+    {
         return 39;
+    }
     if (!rejectForgedReplayWireMetadata())
+    {
         return 42;
+    }
     if (!rejectEapolParserInputAlias())
+    {
         return 25;
+    }
     FakeCrypto fake {};
     Wpa2Supplicant supplicant;
     uint8_t pmk[32] {};
@@ -1082,31 +1326,43 @@ int main()
     // station, even if both individual MACs are otherwise valid unicast.
     if (supplicant.begin(fakeCallbacks(fake), kStation, kStation, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
-        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        supplicant.state() != Wpa2State::Inactive || (fake.calls != 0U))
+    {
         return 38;
+    }
     callbacks.context = &supplicant;
     if (supplicant.begin(callbacks, kStation, kAp, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
-        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        supplicant.state() != Wpa2State::Inactive || (fake.calls != 0U))
+    {
         return 11;
+    }
     callbacks.context = &callbacks;
     if (supplicant.begin(callbacks, kStation, kAp, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
-        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        supplicant.state() != Wpa2State::Inactive || (fake.calls != 0U))
+    {
         return 12;
+    }
     callbacks = fakeCallbacks(fake);
     const auto *aliasedPmk = reinterpret_cast<const uint8_t *>(&supplicant);
     if (supplicant.begin(callbacks, kStation, kAp, aliasedPmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
-        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        supplicant.state() != Wpa2State::Inactive || (fake.calls != 0U))
+    {
         return 13;
+    }
     if (supplicant.begin(callbacks, kStation, kAp, pmk, aliasedPmk,
                          sizeof(kRsnIe)) != Wpa2Result::InvalidArgument ||
-        supplicant.state() != Wpa2State::Inactive || fake.calls)
+        supplicant.state() != Wpa2State::Inactive || (fake.calls != 0U))
+    {
         return 14;
+    }
     if (supplicant.begin(fakeCallbacks(fake), kStation, kAp, pmk, kRsnIe,
                          sizeof(kRsnIe)) != Wpa2Result::Ok)
+    {
         return 1;
+    }
 
     RxWord rx {};
     auto *m1 = reinterpret_cast<uint8_t *>(&rx);
@@ -1115,16 +1371,20 @@ int main()
     uint8_t response[256] {};
     if (supplicant.onMessage1(m1, 99, response, sizeof(response), rx.word) !=
             Wpa2Result::InvalidArgument ||
-        std::memcmp(&rx, &preserved, sizeof(rx)) || fake.calls ||
+        (std::memcmp(&rx, &preserved, sizeof(rx)) != 0) || (fake.calls != 0U) ||
         supplicant.state() != Wpa2State::AwaitingMessage1)
+    {
         return 2;
+    }
 
     size_t written = 99;
     if (supplicant.onMessage1(m1, 99, m1 + 4, 200, written) !=
             Wpa2Result::InvalidArgument ||
-        written != 99 || std::memcmp(&rx, &preserved, sizeof(rx)) ||
-        fake.calls || supplicant.state() != Wpa2State::AwaitingMessage1)
+        written != 99 || (std::memcmp(&rx, &preserved, sizeof(rx)) != 0) ||
+        (fake.calls != 0U) || supplicant.state() != Wpa2State::AwaitingMessage1)
+    {
         return 3;
+    }
 
     RxWord tx {};
     auto *txBytes = reinterpret_cast<uint8_t *>(&tx);
@@ -1132,43 +1392,57 @@ int main()
     const RxWord savedTx = tx;
     if (supplicant.onMessage1(m1, 99, txBytes, sizeof(tx), tx.word) !=
             Wpa2Result::InvalidArgument ||
-        std::memcmp(&tx, &savedTx, sizeof(tx)) || fake.calls)
+        (std::memcmp(&tx, &savedTx, sizeof(tx)) != 0) || (fake.calls != 0U))
+    {
         return 4;
+    }
 
     if (supplicant.onMessage1(m1, 99, response, sizeof(response),
                               fake.sentinel) != Wpa2Result::InvalidArgument ||
-        fake.sentinel != 1234567 || fake.calls)
+        fake.sentinel != 1234567 || (fake.calls != 0U))
+    {
         return 5;
+    }
     if (supplicant.onMessage1(m1, 99, reinterpret_cast<uint8_t *>(&fake), 121,
                               written) != Wpa2Result::InvalidArgument ||
-        fake.sentinel != 1234567 || fake.calls || written != 99)
+        fake.sentinel != 1234567 || (fake.calls != 0U) || written != 99)
+    {
         return 6;
+    }
 
     if (supplicant.onMessage1(m1, 99, response, sizeof(response), written) !=
             Wpa2Result::Ok ||
         written != 121 || fake.calls != 3 ||
         supplicant.state() != Wpa2State::AwaitingMessage3 ||
         response[3] != 117 || response[7] != 0 || response[8] != 0 ||
-        std::memcmp(&rx, &preserved, sizeof(rx)))
+        (std::memcmp(&rx, &preserved, sizeof(rx)) != 0))
+    {
         return 7;
+    }
 
     // M3 must reject the same aliases *before* clearing its output length,
     // even if the incoming frame is not itself a valid M3.
     if (supplicant.onMessage3(m1, 99, response, sizeof(response), rx.word) !=
             Wpa2Result::InvalidArgument ||
-        std::memcmp(&rx, &preserved, sizeof(rx)) || fake.calls != 3 ||
+        (std::memcmp(&rx, &preserved, sizeof(rx)) != 0) || fake.calls != 3 ||
         supplicant.state() != Wpa2State::AwaitingMessage3)
+    {
         return 8;
+    }
     if (supplicant.onMessage3(m1, 99, reinterpret_cast<uint8_t *>(&supplicant),
                               121, written) != Wpa2Result::InvalidArgument ||
         written != 121 || supplicant.state() != Wpa2State::AwaitingMessage3 ||
         fake.calls != 3)
+    {
         return 9;
+    }
     if (supplicant.onMessage3(m1, 99, response, sizeof(response), written) !=
             Wpa2Result::WrongMessage ||
-        written || fake.calls != 3 ||
+        (written != 0U) || fake.calls != 3 ||
         supplicant.state() != Wpa2State::AwaitingMessage3)
+    {
         return 10;
+    }
     supplicant.reset();
     const HandshakeCase scenarios[] = {
         HandshakeCase::Success,       HandshakeCase::PairwiseFailure,
@@ -1176,12 +1450,21 @@ int main()
         HandshakeCase::InvalidReplay, HandshakeCase::InvalidMic,
         HandshakeCase::ChangedRsn,    HandshakeCase::MutatedWrappedData,
         HandshakeCase::MutatedM3Key,  HandshakeCase::MutatedUnwrapKey,
-        HandshakeCase::MutatedM4Key};
+        HandshakeCase::MutatedM4Key,
+    };
     for (const auto scenario : scenarios)
+    {
         if (!exerciseM3(scenario))
+        {
             return 15 + static_cast<int>(scenario);
+        }
+    }
     for (unsigned stage = 0; stage <= 7; ++stage)
+    {
         if (!rejectRevokedCallback(stage))
+        {
             return 30 + static_cast<int>(stage);
+        }
+    }
     return 0;
 }

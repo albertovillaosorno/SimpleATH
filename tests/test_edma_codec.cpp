@@ -52,50 +52,62 @@ int main()
     TxPointerBlock pointer {};
     pointer.queue = 9;
     pointer.segmentCount = 2;
-    pointer.segment[0] = {0x00001000ull, 512};
-    pointer.segment[1] = {0x00004000ull, 48};
+    pointer.segment[0] = {0x00001000ULL, 512};
+    pointer.segment[1] = {0x00004000ULL, 48};
     TxDescriptor descriptor {};
     if (encodeTxPointers(pointer, descriptor) != DescriptorError::Ok ||
         !validTxPointerDescriptor(descriptor) ||
-        descriptor.word[2] != 0x1000u || descriptor.word[3] != (512u << 16u) ||
-        descriptor.word[4] != 0x4000u || descriptor.word[5] != (48u << 16u) ||
+        descriptor.word[2] != 0x1000U || descriptor.word[3] != (512U << 16U) ||
+        descriptor.word[4] != 0x4000U || descriptor.word[5] != (48U << 16U) ||
         descriptor.word[10] != txPointerChecksum(descriptor))
+    {
         return 1;
+    }
 
     const TxDescriptor beforeInvalid = descriptor;
     if (setNextTxDescriptor(descriptor, 3) != DescriptorError::InvalidLink ||
         !same(descriptor, beforeInvalid) ||
-        setNextTxDescriptor(descriptor, 0x2000u) != DescriptorError::Ok ||
-        !validTxPointerDescriptor(descriptor) || descriptor.word[1] != 0x2000u)
+        setNextTxDescriptor(descriptor, 0x2000U) != DescriptorError::Ok ||
+        !validTxPointerDescriptor(descriptor) || descriptor.word[1] != 0x2000U)
+    {
         return 2;
+    }
     const TxDescriptor beforeCorruption = descriptor;
-    descriptor.word[3] |= 1u; // Reserved low bits forbidden.
+    descriptor.word[3] |= 1U; // Reserved low bits forbidden.
     if (validTxPointerDescriptor(descriptor) ||
-        setNextTxDescriptor(descriptor, 0x3000u) !=
+        setNextTxDescriptor(descriptor, 0x3000U) !=
             DescriptorError::InvalidDescriptor ||
         descriptor.word[1] != beforeCorruption.word[1])
+    {
         return 3;
+    }
     descriptor = beforeCorruption;
 
     TxPointerBlock invalid = pointer;
-    invalid.segment[1].busAddress = 0x100000000ull;
+    invalid.segment[1].busAddress = 0x100000000ULL;
     if (encodeTxPointers(invalid, descriptor) !=
             DescriptorError::InvalidAddress ||
         !same(descriptor, beforeCorruption))
+    {
         return 4;
+    }
     invalid = pointer;
     invalid.segmentCount = 0;
     if (encodeTxPointers(invalid, descriptor) !=
             DescriptorError::InvalidSegmentCount ||
         !same(descriptor, beforeCorruption))
+    {
         return 5;
+    }
     invalid = pointer;
-    invalid.segment[1].busAddress = 0xfffffff0ull;
+    invalid.segment[1].busAddress = 0xfffffff0ULL;
     invalid.segment[1].length = 48;
     if (encodeTxPointers(invalid, descriptor) !=
             DescriptorError::InvalidAddress ||
         !same(descriptor, beforeCorruption))
+    {
         return 6;
+    }
 
     TxControlRequest request {};
     request.onAirFrameLength =
@@ -104,7 +116,7 @@ int main()
     request.crypto = TxCrypto::Clear;
     request.keyCacheIndex = 0xff;
     request.rate[0].attempts = 2;
-    request.rate[0].rateCode = 0x0bu;
+    request.rate[0].rateCode = 0x0bU;
     request.rate[0].antennaChainMask = 1;
     request.rate[0].powerIndex = 1;
     TxSafetyPolicy policy {};
@@ -123,22 +135,26 @@ int main()
     TxPointerBlock shortPointer {};
     shortPointer.queue = 9;
     shortPointer.segmentCount = 1;
-    shortPointer.segment[0] = {0x6000ull, 1};
+    shortPointer.segment[0] = {0x6000ULL, 1};
     TxDescriptor shortDescriptor {};
     TxControlRequest shortRequest = request;
-    const uint16_t tooShort[] {5u, 9u, 13u};
+    const uint16_t tooShort[] {5U, 9U, 13U};
     for (uint16_t onAir : tooShort)
     {
-        shortPointer.segment[0].length = onAir - 4u;
+        shortPointer.segment[0].length = onAir - 4U;
         if (encodeTxPointers(shortPointer, shortDescriptor) !=
             DescriptorError::Ok)
+        {
             return 69;
+        }
         const TxDescriptor beforeShort = shortDescriptor;
         shortRequest.onAirFrameLength = onAir;
         if (encodeTxControls(shortRequest, policy, shortDescriptor) !=
                 TxControlError::FrameLengthInvalid ||
             !same(shortDescriptor, beforeShort))
+        {
             return 70;
+        }
     }
     shortPointer.segment[0].length = 10;
     shortRequest.onAirFrameLength = 14;
@@ -146,24 +162,34 @@ int main()
             DescriptorError::Ok ||
         encodeTxControls(shortRequest, policy, shortDescriptor) !=
             TxControlError::Ok ||
-        (shortDescriptor.word[11] & 0xfffu) != 14u)
+        (shortDescriptor.word[11] & 0xfffU) != 14U)
+    {
         return 71;
+    }
 
     const TxDescriptor beforeControl = descriptor;
     policy.boardCalibrationValidated = false;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::RegulatoryNotVerified ||
         !same(descriptor, beforeControl))
+    {
         return 7;
+    }
     policy.boardCalibrationValidated = true;
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor) ||
-        descriptor.word[11] != (564u | (1u << 16u)) ||
-        descriptor.word[13] != (2u << 16u) || descriptor.word[14] != 0x0bu)
+        descriptor.word[11] != (564U | (1U << 16U)) ||
+        descriptor.word[13] != (2U << 16U) || descriptor.word[14] != 0x0bU)
+    {
         return 8;
+    }
     for (size_t index = 0; index <= 10; ++index)
+    {
         if (descriptor.word[index] != beforeControl.word[index])
+        {
             return 9;
+        }
+    }
     // The descriptor's four pointer segment lengths cover 560 payload
     // octets. The control field includes exactly four further hardware FCS
     // octets, not an independently forged length that could mismatch DMA.
@@ -172,17 +198,23 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeLengthMismatch))
+    {
         return 28;
+    }
     request.onAirFrameLength = 563; // Even a one-byte shortfall is invalid.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeLengthMismatch))
+    {
         return 29;
+    }
     request.onAirFrameLength = 565; // Reject overreading the pointer payload.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeLengthMismatch))
+    {
         return 30;
+    }
     request.onAirFrameLength = 564;
     const TxDescriptor beforePolicyError = descriptor;
     request.crypto = TxCrypto::Ccmp;
@@ -190,14 +222,18 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::KeyUnavailable ||
         !same(descriptor, beforePolicyError))
+    {
         return 10;
+    }
     request.crypto = TxCrypto::Clear;
     request.keyCacheIndex = 0xff;
     request.rate[0].powerIndex = 9;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::InvalidPower ||
         !same(descriptor, beforePolicyError))
+    {
         return 11;
+    }
 
     // 1x1 AR9565 cannot use an arbitrary nonzero rate, multiple chains,
     // STBC, or HT-only flags on a legacy rate, regardless of caller policy.
@@ -206,25 +242,33 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::InvalidRate ||
         !same(descriptor, beforePolicyError))
+    {
         return 19;
+    }
     request.rate[0].rateCode = 0x04; // Unrecognized legacy encoding.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::InvalidRate ||
         !same(descriptor, beforePolicyError))
+    {
         return 20;
+    }
     request.rate[0].rateCode = 0x80;
     request.rate[0].antennaChainMask = 2;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::InvalidChain ||
         !same(descriptor, beforePolicyError))
+    {
         return 21;
+    }
     request.rate[0].antennaChainMask = 1;
     request.rate[0].stbc = true;
     policy.stbcSupported = true; // A forged policy cannot add a TX chain.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforePolicyError))
+    {
         return 22;
+    }
     request.rate[0].stbc = false;
     request.rate[0].rateCode = 0x0b;
     request.rate[0].shortGuardInterval = true;
@@ -232,32 +276,42 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforePolicyError))
+    {
         return 23;
+    }
     request.rate[0].shortGuardInterval = false;
     request.rate[0].ht40 = true;
     policy.ht40Authorized = true;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforePolicyError))
+    {
         return 24;
+    }
     request.rate[0].ht40 = false;
     request.rts = true;
     request.rtsCtsRateCode = 0x80; // RTS cannot use an HT modulation.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforePolicyError))
+    {
         return 25;
+    }
     request.rts = false;
     request.rtsCtsRateCode = 0x1b; // Stale control rate without an RTS/CTS.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforePolicyError))
+    {
         return 26;
+    }
     request.rtsCtsRateCode = 0;
     request.rate[0].rateCode = 0x80; // Single-stream MCS0 is supported.
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor))
+    {
         return 27;
+    }
 
     // Ordinary management Beacon/ProbeResponse frames are not CCMP
     // encrypted. This limited encoder has no BIP/PMF robust-management
@@ -270,18 +324,24 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedCipher ||
         !same(descriptor, beforeProtectedManagement))
+    {
         return 31;
+    }
     request.packetType = TxPacketType::ProbeResponse;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedCipher ||
         !same(descriptor, beforeProtectedManagement))
+    {
         return 32;
+    }
     // Valid CCMP data is still representable after independently verified
     // hardware key installation and matching TX length/power policy.
     request.packetType = TxPacketType::Normal;
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor))
+    {
         return 33;
+    }
 
     // Beacon is broadcast, carries no ACK exchange, and must use an
     // interoperable legacy basic rate. The control encoder must not allow
@@ -294,27 +354,35 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeBeaconPolicy))
+    {
         return 34;
+    }
     request.noAck = true;
     request.rts = true;
     request.rtsCtsRateCode = 0x1b;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeBeaconPolicy))
+    {
         return 35;
+    }
     request.rts = false;
     request.rtsCtsRateCode = 0;
     request.rate[0].rateCode = 0x80; // HT MCS0 is not a beacon basic rate.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeBeaconPolicy))
+    {
         return 36;
+    }
     request.rate[0].rateCode = 0x1b;
     request.rate[0].attempts = 1; // One broadcast Beacon attempt.
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor) ||
-        (descriptor.word[12] & 0x01000000u) == 0)
+        (descriptor.word[12] & 0x01000000U) == 0)
+    {
         return 37;
+    }
 
     // Probe Response is transmitted before association, so the recipient
     // cannot be assumed to support HT MCS rates. Reject HT management TX
@@ -327,11 +395,15 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeProbeRate))
+    {
         return 47;
+    }
     request.rate[0].rateCode = 0x1b;
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
         !validTxPointerDescriptor(descriptor))
+    {
         return 48;
+    }
     request.packetType = TxPacketType::Beacon;
     request.noAck = true;
 
@@ -343,20 +415,26 @@ int main()
         request.onAirFrameLength = onAir;
         if (encodeTxControls(request, policy, descriptor) !=
                 TxControlError::Ok ||
-            (descriptor.word[11] & 0xfffu) != onAir)
+            (descriptor.word[11] & 0xfffU) != onAir)
+        {
             return 38;
+        }
     }
     const TxDescriptor beforeInvalidPadding = descriptor;
     request.onAirFrameLength = 560; // Would need four padding bytes.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeInvalidPadding))
+    {
         return 39;
+    }
     request.onAirFrameLength = 565; // Too few mapped bytes for the frame.
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeInvalidPadding))
+    {
         return 40;
+    }
     // Other frame types never inherit the Beacon-only padding exception.
     request.packetType = TxPacketType::Normal;
     request.noAck = false;
@@ -364,12 +442,16 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeInvalidPadding))
+    {
         return 41;
+    }
     request.packetType = TxPacketType::ProbeResponse;
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(descriptor, beforeInvalidPadding))
+    {
         return 42;
+    }
 
     // No station ACKs broadcast beacons. Unlike data retries, a beacon
     // must have exactly one transmit attempt in its first rate series.
@@ -382,7 +464,9 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeBeaconRetries))
+    {
         return 43;
+    }
     request.rate[0].attempts = 1;
     request.rate[1].attempts = 1;
     request.rate[1].rateCode = 0x1b;
@@ -392,11 +476,15 @@ int main()
     if (encodeTxControls(request, policy, descriptor) !=
             TxControlError::UnsupportedControl ||
         !same(descriptor, beforeBeaconRetries))
+    {
         return 44;
+    }
     request.rate[1] = {};
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
-        ((descriptor.word[13] >> 16u) & 0xffffu) != 1u)
+        ((descriptor.word[13] >> 16U) & 0xffffU) != 1U)
+    {
         return 45;
+    }
     // Multi-rate retries are still supported for ordinary data frames.
     request.packetType = TxPacketType::Normal;
     request.noAck = false;
@@ -406,87 +494,112 @@ int main()
     request.rate[1].antennaChainMask = 1;
     request.rate[1].powerIndex = 1;
     if (encodeTxControls(request, policy, descriptor) != TxControlError::Ok ||
-        ((descriptor.word[13] >> 16u) & 0xffu) != 0x12u)
+        ((descriptor.word[13] >> 16U) & 0xffU) != 0x12U)
+    {
         return 46;
+    }
 
     RxStatusWords rx {};
-    rx.word[0] = 0x168c0000u;
-    rx.word[1] = 0x0b000000u;
-    rx.word[2] = 128u;
-    rx.word[3] = 7654u;
-    rx.word[5] = 0xd8000000u; // -40 dBm signed RSSI.
-    rx.word[11] = 3u;         // Done, valid frame.
+    rx.word[0] = 0x168c0000U;
+    rx.word[1] = 0x0b000000U;
+    rx.word[2] = 128U;
+    rx.word[3] = 7654U;
+    rx.word[5] = 0xd8000000U; // -40 dBm signed RSSI.
+    rx.word[11] = 3U;         // Done, valid frame.
     RxStatus decoded {};
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.completed || !decoded.frameValid ||
         decoded.frameLength != 128 || decoded.rateCode != 0x0b ||
-        decoded.timestamp != 7654u || decoded.combinedRssi != -40)
+        decoded.timestamp != 7654U || decoded.combinedRssi != -40)
+    {
         return 12;
+    }
     // AR9565 has one RX chain and cannot report a successful 2-stream MCS8
     // or arbitrary/undefined modulation. A forged DMA status claiming FCS
     // success must not authorize that packet for native delivery.
     const uint8_t unsupportedRates[] {0x00, 0x04, 0x88, 0xff};
     for (uint8_t rate : unsupportedRates)
     {
-        rx.word[1] = static_cast<uint32_t>(rate) << 24u;
+        rx.word[1] = static_cast<uint32_t>(rate) << 24U;
         decoded.completed = true;
         decoded.frameValid = true;
         decoded.frameLength = 128;
         if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-            decoded.completed || decoded.frameValid || decoded.frameLength)
+            decoded.completed || decoded.frameValid ||
+            (decoded.frameLength != 0U))
+        {
             return 62;
+        }
     }
-    rx.word[1] = 0x80000000u; // AR9565 MCS0 is a supported single stream.
+    rx.word[1] = 0x80000000U; // AR9565 MCS0 is a supported single stream.
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.frameValid || decoded.rateCode != 0x80)
+    {
         return 63;
-    rx.word[4] = 0x2u; // HT40 PHY flag is coherent with an HT rate only.
+    }
+    rx.word[4] = 0x2U; // HT40 PHY flag is coherent with an HT rate only.
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.frameValid || !decoded.ht40)
+    {
         return 64;
-    rx.word[1] = 0x0b000000u; // Legacy 6 Mbps cannot be HT40.
+    }
+    rx.word[1] = 0x0b000000U; // Legacy 6 Mbps cannot be HT40.
     if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 65;
+    }
     rx.word[4] = 0;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
         !decoded.frameValid || decoded.rateCode != 0x0b)
+    {
         return 66;
+    }
     // Without a reviewed A-MPDU deaggregation/reorder/BlockAck pipeline,
     // aggregate fragments cannot be authorized for native RX delivery solely
     // by a successful per-buffer CRC and DMA completion bit. The codec must
     // not publish any status that asserts aggregate membership or continuation.
-    const uint32_t aggregateFlags[] = {0x00010000u, 0x00020000u, 0x20000000u,
-                                       0x20030000u};
+    const uint32_t aggregateFlags[] = {
+        0x00010000U,
+        0x00020000U,
+        0x20000000U,
+        0x20030000U,
+    };
     for (uint32_t aggregate : aggregateFlags)
     {
-        rx.word[11] = 3u | aggregate;
+        rx.word[11] = 3U | aggregate;
         decoded.completed = true;
         decoded.frameValid = true;
         decoded.frameLength = 128;
         if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-            decoded.completed || decoded.frameValid || decoded.frameLength ||
-            decoded.aggregated || decoded.aggregationFirst ||
-            decoded.aggregationContinues)
+            decoded.completed || decoded.frameValid ||
+            (decoded.frameLength != 0U) || decoded.aggregated ||
+            decoded.aggregationFirst || decoded.aggregationContinues)
+        {
             return 61;
+        }
     }
-    rx.word[11] = 3u;
+    rx.word[11] = 3U;
     // AR_RxMore is a chained DMA buffer, not a complete on-air MPDU.
     // Even an apparently good FCS bit cannot authorize forwarding a partial
     // buffer without a separately verified RX-chain reassembly path.
-    rx.word[2] |= 0x1000u;
+    rx.word[2] |= 0x1000U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 49;
-    rx.word[2] &= ~0x1000u;
+    }
+    rx.word[2] &= ~0x1000U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
-        !decoded.frameValid || decoded.frameLength != 128u)
+        !decoded.frameValid || decoded.frameLength != 128U)
+    {
         return 50;
+    }
     // Even a control ACK/CTS MPDU has a ten-byte MAC header plus four
     // radio-received FCS octets. A forged completed status shorter than 14
     // bytes cannot be a valid 802.11 frame. Fourteen stays representable so
     // the downstream frame parser can classify/reject control subtypes.
-    const uint32_t invalidShortLengths[] {1u, 4u, 13u};
+    const uint32_t invalidShortLengths[] {1U, 4U, 13U};
     for (uint32_t tooShort : invalidShortLengths)
     {
         rx.word[2] = tooShort;
@@ -494,62 +607,85 @@ int main()
         decoded.frameValid = true;
         decoded.frameLength = static_cast<uint16_t>(tooShort);
         if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-            decoded.completed || decoded.frameValid || decoded.frameLength)
+            decoded.completed || decoded.frameValid ||
+            (decoded.frameLength != 0U))
+        {
             return 67;
+        }
     }
-    rx.word[2] = 14u;
+    rx.word[2] = 14U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
-        !decoded.frameValid || decoded.frameLength != 14u)
+        !decoded.frameValid || decoded.frameLength != 14U)
+    {
         return 68;
+    }
     // The single-buffer, non-aggregating RX path has no reviewed MPDU
     // larger than the IEEE 802.11 2346-octet limit including its FCS.
     // A 12-bit hardware length alone cannot authorize a 4095-byte frame.
-    rx.word[2] = 2346u;
+    rx.word[2] = 2346U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Ok ||
-        !decoded.frameValid || decoded.frameLength != 2346u)
+        !decoded.frameValid || decoded.frameLength != 2346U)
+    {
         return 51;
-    rx.word[2] = 2347u;
+    }
+    rx.word[2] = 2347U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 52;
-    rx.word[2] = 4095u;
+    }
+    rx.word[2] = 4095U;
     if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 53;
-    rx.word[2] = 128u;
+    }
+    rx.word[2] = 128U;
     rx.word[11] = 0;
     if (decodeRxStatus(rx, decoded) != DescriptorError::Incomplete ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 13;
-    rx.word[11] = 7u; // CRC error.
+    }
+    rx.word[11] = 7U; // CRC error.
     if (decodeRxStatus(rx, decoded) != DescriptorError::ReceiveError ||
-        decoded.completed || decoded.frameValid || decoded.frameLength)
+        decoded.completed || decoded.frameValid || (decoded.frameLength != 0U))
+    {
         return 14;
+    }
     rx.word[0] = 0;
     if (decodeRxStatus(rx, decoded) != DescriptorError::InvalidVendor ||
-        decoded.completed || decoded.frameLength)
+        decoded.completed || (decoded.frameLength != 0U))
+    {
         return 15;
+    }
 
     TxCompletionWords tx {};
-    tx.word[8] = 24u << 1u; // No Done yet, regardless of bogus vendor.
+    tx.word[8] = 24U << 1U; // No Done yet, regardless of bogus vendor.
     TxCompletion completed {};
     completed.frameTransmitOk = true;
     if (decodeTxCompletion(tx, completed) != DescriptorError::Incomplete ||
-        completed.frameTransmitOk || completed.sequenceNumber)
+        completed.frameTransmitOk || (completed.sequenceNumber != 0U))
+    {
         return 16;
-    tx.word[8] |= 1u; // Device has now set Done.
-    tx.word[0] = 0x168c8000u | (9u << 8u);
-    tx.word[3] = 1u;
-    tx.word[4] = 4433u;
+    }
+    tx.word[8] |= 1U; // Device has now set Done.
+    tx.word[0] = 0x168c8000U | (9U << 8U);
+    tx.word[3] = 1U;
+    tx.word[4] = 4433U;
     if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
         completed.queue != 9 || completed.sequenceNumber != 24 ||
-        completed.timestamp != 4433u || !completed.frameTransmitOk)
+        completed.timestamp != 4433U || !completed.frameTransmitOk)
+    {
         return 17;
-    tx.word[0] = 0x168c8000u | (15u << 8u);
+    }
+    tx.word[0] = 0x168c8000U | (15U << 8U);
     if (decodeTxCompletion(tx, completed) != DescriptorError::CorruptStatus ||
-        completed.queue || completed.frameTransmitOk ||
-        completed.sequenceNumber)
+        (completed.queue != 0U) || completed.frameTransmitOk ||
+        (completed.sequenceNumber != 0U))
+    {
         return 18;
+    }
 
     // A matching DMA pointer length does not make a 2347-byte standalone
     // MPDU legal. Aggregation/fragmentation are not implemented by this TX
@@ -557,11 +693,13 @@ int main()
     TxPointerBlock oversizedPointer {};
     oversizedPointer.queue = 9;
     oversizedPointer.segmentCount = 1;
-    oversizedPointer.segment[0] = {0x1000ull, 2343};
+    oversizedPointer.segment[0] = {0x1000ULL, 2343};
     TxDescriptor oversizedDescriptor {};
     if (encodeTxPointers(oversizedPointer, oversizedDescriptor) !=
         DescriptorError::Ok)
+    {
         return 54;
+    }
     TxControlRequest oversizedRequest {};
     oversizedRequest.onAirFrameLength = 2347;
     oversizedRequest.packetType = TxPacketType::Normal;
@@ -575,14 +713,18 @@ int main()
     if (encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
             TxControlError::FrameLengthInvalid ||
         !same(oversizedDescriptor, beforeOversizedTx))
+    {
         return 55;
+    }
     oversizedPointer.segment[0].length = 4091;
     oversizedRequest.onAirFrameLength = 4095;
     if (encodeTxPointers(oversizedPointer, oversizedDescriptor) !=
             DescriptorError::Ok ||
         encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
             TxControlError::FrameLengthInvalid)
+    {
         return 56;
+    }
     // Exactly 2346 on-air octets with the matching 2342-byte DMA payload
     // remain representable when all of the separate policy gates pass.
     oversizedPointer.segment[0].length = 2342;
@@ -591,64 +733,79 @@ int main()
             DescriptorError::Ok ||
         encodeTxControls(oversizedRequest, policy, oversizedDescriptor) !=
             TxControlError::Ok)
+    {
         return 57;
+    }
 
     // A completed descriptor cannot report both successful transmission and
     // a terminal failure. Reject forged/incoherent status words rather than
     // leaking a false success to the future TX completion handler.
-    tx.word[0] = 0x168c8000u | (9u << 8u);
-    tx.word[8] = (24u << 1u) | 1u;
+    tx.word[0] = 0x168c8000U | (9U << 8U);
+    tx.word[8] = (24U << 1U) | 1U;
     const uint32_t terminalFailureBits[] = {
-        0x00000002u, 0x00000004u, 0x00000008u, 0x00040000u, 0x00080000u};
+        0x00000002U, 0x00000004U, 0x00000008U, 0x00040000U, 0x00080000U,
+    };
     for (uint32_t terminal : terminalFailureBits)
     {
-        tx.word[3] = terminal | 1u; // AR_FrmXmitOK and a terminal failure.
+        tx.word[3] = terminal | 1U; // AR_FrmXmitOK and a terminal failure.
         completed.frameTransmitOk = true;
         if (decodeTxCompletion(tx, completed) !=
                 DescriptorError::CorruptStatus ||
             completed.frameTransmitOk || completed.excessiveRetries ||
-            completed.fifoUnderrun || completed.sequenceNumber)
+            completed.fifoUnderrun || (completed.sequenceNumber != 0U))
+        {
             return 58;
+        }
     }
-    tx.word[3] = 1u;
-    tx.word[8] |= 0x00020000u; // TXOP exceeded despite XmitOK.
+    tx.word[3] = 1U;
+    tx.word[8] |= 0x00020000U; // TXOP exceeded despite XmitOK.
     completed.frameTransmitOk = true;
     if (decodeTxCompletion(tx, completed) != DescriptorError::CorruptStatus ||
         completed.frameTransmitOk || completed.txOpportunityExceeded ||
-        completed.sequenceNumber)
+        (completed.sequenceNumber != 0U))
+    {
         return 59;
+    }
     // An ordinary failed TX retains its explicit diagnostic bits, but never
     // gets upgraded to a successful transmission.
-    tx.word[8] &= ~0x00020000u;
-    tx.word[3] = 0x00000002u;
+    tx.word[8] &= ~0x00020000U;
+    tx.word[3] = 0x00000002U;
     if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
         completed.frameTransmitOk || !completed.excessiveRetries ||
-        completed.sequenceNumber != 24u)
+        completed.sequenceNumber != 24U)
+    {
         return 60;
+    }
     // A completed failure may legitimately carry the FIFO diagnostic bit,
     // but it must not be reported as successful transmission.
-    tx.word[3] = 0x00000004u;
+    tx.word[3] = 0x00000004U;
     if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
         completed.frameTransmitOk || !completed.fifoUnderrun ||
-        completed.sequenceNumber != 24u)
+        completed.sequenceNumber != 24U)
+    {
         return 71;
+    }
     // AR_TxDataUnderrun and AR_TxDelimUnderrun are independent diagnostic
     // flags, unlike AR_FIFOUnderrun. Keep their exact status for a future TX
     // trigger-level owner without fabricating a terminal TX error.
-    const uint32_t warningBits[] {0x00010000u, 0x00020000u, 0x00030000u};
+    const uint32_t warningBits[] {0x00010000U, 0x00020000U, 0x00030000U};
     for (const uint32_t warning : warningBits)
     {
-        tx.word[3] = 1u | warning;
+        tx.word[3] = 1U | warning;
         if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
             !completed.frameTransmitOk ||
-            completed.delimiterUnderrun != ((warning & 0x00010000u) != 0) ||
-            completed.dataUnderrun != ((warning & 0x00020000u) != 0))
+            completed.delimiterUnderrun != ((warning & 0x00010000U) != 0) ||
+            completed.dataUnderrun != ((warning & 0x00020000U) != 0))
+        {
             return 72;
+        }
     }
-    tx.word[3] = 1u;
+    tx.word[3] = 1U;
     if (decodeTxCompletion(tx, completed) != DescriptorError::Ok ||
         !completed.frameTransmitOk || completed.delimiterUnderrun ||
         completed.dataUnderrun)
+    {
         return 73;
+    }
     return 0;
 }

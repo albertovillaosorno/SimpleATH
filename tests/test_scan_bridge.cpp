@@ -1,8 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Offline portable scan pipeline; this is NOT Apple80211, RF or device I/O.
+#include "wifi/Frames.hpp"
 #include "wifi/LegacyScanBridge.hpp"
+#include "wifi/ScanCache.hpp"
 #include "wifi/WifiEngine.hpp"
+#include "wifi/crypto/Wpa2CryptoAdapter.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace
 {
@@ -11,10 +16,14 @@ namespace
     void makeBeacon(uint8_t frame[kBeaconBytes], uint8_t channel)
     {
         for (size_t index = 0; index < kBeaconBytes; ++index)
+        {
             frame[index] = 0;
+        }
         frame[0] = 0x80; // Beacon management subtype.
         for (size_t index = 4; index < 10; ++index)
-            frame[index] = 0xff;      // Broadcast receiver.
+        {
+            frame[index] = 0xff; // Broadcast receiver.
+        }
         frame[10] = frame[16] = 0x02; // Source/BSSID unicast and identical.
         frame[11] = frame[17] = 0x11;
         frame[12] = frame[18] = 0x22;
@@ -58,7 +67,9 @@ namespace
         uint8_t advertised[kBeaconBytes] {};
         makeBeacon(advertised, 6);
         if (cache.observe(advertised, sizeof(advertised), -60, 1) != Result::Ok)
+        {
             return false;
+        }
 
         // A stronger AP with the same SSID requires an unknown mandatory
         // basic rate, even though another rate overlaps local capabilities.
@@ -66,12 +77,16 @@ namespace
         advertised[44] = 0xff;
         advertised[45] = 0x82;
         if (cache.observe(advertised, sizeof(advertised), -25, 2) != Result::Ok)
+        {
             return false;
+        }
         const uint8_t ssid[] {'T', 'e', 's', 't'};
         Bss choice {};
         if (!cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
             choice.beacon.bssid.bytes[5] != 0x55)
+        {
             return false;
+        }
 
         // Unknown optional rates do not prevent joining when a compatible
         // rate remains; a stronger compatible AP should still win.
@@ -80,7 +95,9 @@ namespace
                 Result::Ok ||
             !cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
             choice.beacon.bssid.bytes[5] != 0x66)
+        {
             return false;
+        }
 
         // Optional rates alone are insufficient without any common rate.
         advertised[45] = 0x7e;
@@ -95,7 +112,9 @@ int main()
 {
     using namespace simpleath::ieee80211;
     if (!preferCompatibleAssociationRates())
+    {
         return 35;
+    }
     // Persistent owner-style allocations, no OS driver or bus interactions.
     static ScanCache cache;
     static LegacyScanBridge bridge;
@@ -105,7 +124,9 @@ int main()
     if (cache.observe(cacheBytes, kBeaconBytes, -41, 1) !=
             Result::InvalidFrame ||
         cache.size() != 0)
+    {
         return 18;
+    }
     // Ordinary missing-SSID lookups clear a stale output, but a caller
     // accidentally pointing its SSID into that output must leave it intact.
     Bss aliasedResult {};
@@ -113,7 +134,9 @@ int main()
     const auto *badSsid = reinterpret_cast<const uint8_t *>(&aliasedResult);
     if (cache.strongest(badSsid, 4, 6, true, true, aliasedResult) ||
         aliasedResult.rssiDbm != 37 || cache.size() != 0)
+    {
         return 19;
+    }
     uint8_t beacon[kBeaconBytes] {};
     makeBeacon(beacon, 6);
     NativeBssSnapshot entry {};
@@ -125,12 +148,16 @@ int main()
         bridge.beginScan(0, ticket) != ScanBridgeResult::InvalidArgument ||
         bridge.completeScan(cache, ticket, true) !=
             ScanBridgeResult::InvalidState)
+    {
         return 1;
+    }
     if (bridge.beginScan(1, ticket) != ScanBridgeResult::Ok ||
         ticket.serial != 1 || ticket.generation == 0 ||
         bridge.beginScan(2, ignored) != ScanBridgeResult::ScanInProgress ||
         bridge.next(ticket, entry) != ScanBridgeResult::ScanInProgress)
+    {
         return 2;
+    }
     // A rejected duplicate scan request must not destroy the caller's live
     // ticket. Otherwise a status poll can orphan the active scan and prevent
     // its valid completion without any radio failure.
@@ -138,7 +165,9 @@ int main()
     if (bridge.beginScan(2, ticket) != ScanBridgeResult::ScanInProgress ||
         ticket.generation != liveTicket.generation ||
         ticket.serial != liveTicket.serial)
+    {
         return 32;
+    }
     if (cache.observe(beacon, sizeof(beacon), -41, 1000) != Result::Ok ||
         bridge.completeScan(cache, {ticket.generation, 2}, true) !=
             ScanBridgeResult::InvalidState ||
@@ -148,26 +177,36 @@ int main()
         completed.ticket.generation != ticket.generation ||
         completed.ticket.serial != ticket.serial || !completed.succeeded ||
         completed.resultCount != 1)
+    {
         return 3;
+    }
     // Another request while SCAN_DONE is pending must preserve the ticket
     // needed to acknowledge the pending completion and read its results.
     if (bridge.beginScan(2, ticket) != ScanBridgeResult::EventPending ||
         ticket.generation != liveTicket.generation ||
         ticket.serial != liveTicket.serial)
+    {
         return 33;
+    }
     if (bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok)
+    {
         return 3;
+    }
     // A duplicate request serial must likewise preserve a completed ticket.
     if (bridge.beginScan(1, ticket) != ScanBridgeResult::InvalidArgument ||
         ticket.generation != liveTicket.generation ||
         ticket.serial != liveTicket.serial)
+    {
         return 34;
+    }
     completedTicket = ticket;
     if (bridge.next(completedTicket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 6) || !entry.signalMeasured || entry.rssiDbm != -41 ||
         bridge.next(completedTicket, entry) != ScanBridgeResult::NoResult ||
-        entry.ssidLength)
+        (entry.ssidLength != 0U))
+    {
         return 4;
+    }
 
     // The native UI-facing snapshot is a value copy: neither clearing a live
     // cache nor starting a new radio operation can invent new scan results.
@@ -176,18 +215,24 @@ int main()
         bridge.beginScan(2, ticket) != ScanBridgeResult::Ok ||
         bridge.next(completedTicket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 6))
+    {
         return 5;
+    }
     if (bridge.completeScan(cache, ticket, false) !=
             ScanBridgeResult::InvalidState ||
         bridge.completion(completed) != ScanBridgeResult::Ok ||
         completed.succeeded || completed.resultCount != 0 ||
         bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok)
+    {
         return 6;
+    }
     if (bridge.rewind(completedTicket) != ScanBridgeResult::Ok ||
         bridge.next(completedTicket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 6) ||
         bridge.beginScan(2, ignored) != ScanBridgeResult::InvalidArgument)
+    {
         return 7;
+    }
 
     // An invalid channel never becomes a new accepted BSS. A genuinely
     // completed empty scan revokes the previous snapshot, unlike a failure.
@@ -198,11 +243,13 @@ int main()
         bridge.completeScan(cache, ticket, true) != ScanBridgeResult::Ok ||
         bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok ||
         bridge.next(ticket, entry) != ScanBridgeResult::NoResult ||
-        entry.ssidLength || bridge.status().resultCount != 0 ||
+        (entry.ssidLength != 0U) || bridge.status().resultCount != 0 ||
         !bridge.status().completeSnapshotAvailable ||
         bridge.next(completedTicket, entry) != ScanBridgeResult::InvalidState ||
-        entry.ssidLength)
+        (entry.ssidLength != 0U))
+    {
         return 8;
+    }
 
     // The next completed scan contains actual validated frame data, but is
     // still not proof that a native Apple80211 interface or radio exists.
@@ -213,7 +260,9 @@ int main()
         bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok ||
         bridge.next(ticket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 11) || entry.signalMeasured || entry.rssiDbm != 0)
+    {
         return 9;
+    }
 
     // Finally exercise the higher portable integration boundary, rather than
     // feeding the scan cache directly: a synthetic RX trust report must first
@@ -243,7 +292,9 @@ int main()
     {
     };
     if (engine.configureKeys(borrowedHardware))
+    {
         return 30;
+    }
     EngineAction action {};
     const InputTrust untrusted {true, true, false, false};
     const InputTrust syntheticVerifiedRx {true, true, true, false};
@@ -259,13 +310,17 @@ int main()
                         action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::LinkLost || action.bytes != 17 ||
         engine.scan().size() != 0)
+    {
         return 16;
+    }
     if (engine.encodeOutgoingEthernet(aliasedOwnerFrame, kBeaconBytes, 1,
                                       syntheticVerifiedRx, nullptr, 0,
                                       action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::LinkLost || action.bytes != 17 ||
         engine.scan().size() != 0)
+    {
         return 17;
+    }
     action = {};
 
     // Caller mistakes must not zero a DMA frame before its FCS/state is
@@ -281,51 +336,71 @@ int main()
     makeBeacon(aliasedFrame, 11);
     uint8_t preserved[kBeaconBytes] {};
     for (size_t i = 0; i < kBeaconBytes; ++i)
+    {
         preserved[i] = aliasedFrame[i];
+    }
     if (engine.acceptRx(aliasedFrame, kBeaconBytes, -45, 1300,
                         syntheticVerifiedRx, nullptr, 0,
                         aliased.action) != EngineResult::InvalidInput ||
         engine.scan().size() != 0)
+    {
         return 10;
+    }
     for (size_t i = 0; i < kBeaconBytes; ++i)
+    {
         if (aliasedFrame[i] != preserved[i])
+        {
             return 10;
+        }
+    }
     if (engine.acceptRx(beacon, sizeof(beacon), -45, 1300, syntheticVerifiedRx,
                         beacon, sizeof(beacon),
                         action) != EngineResult::InvalidInput ||
         engine.scan().size() != 0)
+    {
         return 10;
+    }
     if (engine.startScan(false, true) != EngineResult::RadioNotReady ||
         engine.startScan(true, true) != EngineResult::Ok ||
         engine.acceptRx(beacon, sizeof(beacon), -45, 1300, untrusted, nullptr,
                         0, action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None || engine.scan().size() != 0)
+    {
         return 10;
+    }
     if (engine.acceptRx(beacon, sizeof(beacon), -45, 1300, syntheticVerifiedRx,
                         nullptr, 0, action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         action.nativeInterfaceUsable || engine.scan().size() != 1)
+    {
         return 11;
+    }
     if (bridge.beginScan(5, ticket) != ScanBridgeResult::Ok ||
         bridge.completeScan(engine.scan(), ticket, true) !=
             ScanBridgeResult::Ok ||
         bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok ||
         bridge.next(ticket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 11) || !entry.signalMeasured || entry.rssiDbm != -45)
+    {
         return 12;
+    }
     engine.radioStopped(1301, true);
     if (bridge.rewind(ticket) != ScanBridgeResult::Ok ||
         engine.scan().size() != 0 ||
         bridge.next(ticket, entry) != ScanBridgeResult::Ok ||
         !isTestBss(entry, 11))
+    {
         return 13;
+    }
     // A fresh controller lifetime can reuse an OS-request serial, not a
     // generation. A retired owner may not complete or expose its last BSS.
     bridge.clear();
     if (bridge.rewind(ticket) != ScanBridgeResult::InvalidState ||
         bridge.next(ticket, entry) != ScanBridgeResult::NoResult ||
-        entry.ssidLength)
+        (entry.ssidLength != 0U))
+    {
         return 14;
+    }
     ScanBridgeTicket newLifetime {};
     if (bridge.beginScan(5, newLifetime) != ScanBridgeResult::Ok ||
         newLifetime.generation == ticket.generation ||
@@ -333,8 +408,10 @@ int main()
             ScanBridgeResult::InvalidState ||
         !bridge.status().radioScanRunning ||
         bridge.next(ticket, entry) != ScanBridgeResult::NoResult ||
-        entry.ssidLength)
+        (entry.ssidLength != 0U))
+    {
         return 15;
+    }
 
     // A full cache may evict a different BSSID whose channel and RSN match.
     // The newcomer's hidden beacon must never inherit that older BSSID's SSID.
@@ -346,47 +423,66 @@ int main()
         visible[15] = visible[21] = static_cast<uint8_t>(i + 1);
         if (recycledCache.observe(visible, sizeof(visible), -40, i + 10) !=
             Result::Ok)
+        {
             return 20;
+        }
     }
     makeBeacon(visible, 6);
     visible[15] = visible[21] = 0xfe;
     uint8_t hidden[45] {};
     for (size_t i = 0; i < 38; ++i)
+    {
         hidden[i] = visible[i];
+    }
     hidden[37] = 0; // Zero-length hidden SSID element.
     for (size_t i = 0; i < 7; ++i)
+    {
         hidden[38 + i] = visible[42 + i];
+    }
     if (recycledCache.observe(hidden, sizeof(hidden), -35, 1000) !=
             Result::Ok ||
         recycledCache.size() != ScanCache::kCapacity)
+    {
         return 21;
+    }
     bool foundNewBssid = false;
     Bss recycled {};
     for (size_t i = 0; i < ScanCache::kCapacity; ++i)
     {
         if (!recycledCache.snapshot(i, recycled))
+        {
             return 22;
+        }
         if (recycled.beacon.bssid.bytes[5] == 0xfe)
         {
             foundNewBssid = true;
-            if (!recycled.beacon.hiddenSsid || recycled.beacon.ssidLength)
+            if (!recycled.beacon.hiddenSsid ||
+                (recycled.beacon.ssidLength != 0U))
+            {
                 return 23;
+            }
         }
     }
     if (!foundNewBssid)
+    {
         return 24;
+    }
 
     // An actual visible SSID from the *same* BSSID may still be retained
     // when its subsequent advertisement hides the name.
     if (recycledCache.observe(visible, sizeof(visible), -35, 1001) !=
             Result::Ok ||
         recycledCache.observe(hidden, sizeof(hidden), -35, 1002) != Result::Ok)
+    {
         return 25;
+    }
     bool preservedSameBssid = false;
     for (size_t i = 0; i < ScanCache::kCapacity; ++i)
     {
         if (!recycledCache.snapshot(i, recycled))
+        {
             return 26;
+        }
         if (recycled.beacon.bssid.bytes[5] == 0xfe)
         {
             preservedSameBssid = !recycled.beacon.hiddenSsid &&
@@ -395,7 +491,9 @@ int main()
         }
     }
     if (!preservedSameBssid)
+    {
         return 27;
+    }
 
     // RX callbacks can arrive with a timestamp older than an already cached
     // observation. Such a delayed frame must not replace a newer BSSID's
@@ -405,14 +503,18 @@ int main()
     makeBeacon(ordered, 6);
     if (chronologicalCache.observe(ordered, sizeof(ordered), -40, 2000) !=
         Result::Ok)
+    {
         return 28;
+    }
     makeBeacon(ordered, 11);
     if (chronologicalCache.observe(ordered, sizeof(ordered), -25, 1999) !=
             Result::InvalidFrame ||
         !chronologicalCache.snapshot(0, recycled) ||
         recycled.lastSeenMs != 2000 || recycled.beacon.channel != 6 ||
         recycled.rssiDbm != -40)
+    {
         return 28;
+    }
 
     // With the cache full, a frame older than the newest observation must
     // not displace any BSSID just because another cached entry is older.
@@ -422,20 +524,26 @@ int main()
         ordered[15] = ordered[21] = static_cast<uint8_t>(i + 1);
         if (chronologicalCache.observe(ordered, sizeof(ordered), -40,
                                        2001 + i) != Result::Ok)
+        {
             return 29;
+        }
     }
     makeBeacon(ordered, 6);
-    ordered[15] = ordered[21] = 0xfdu;
+    ordered[15] = ordered[21] = 0xfdU;
     if (chronologicalCache.size() != ScanCache::kCapacity ||
         chronologicalCache.observe(ordered, sizeof(ordered), -20, 2030) !=
             Result::InvalidFrame ||
         chronologicalCache.size() != ScanCache::kCapacity)
+    {
         return 29;
+    }
     for (size_t i = 0; i < ScanCache::kCapacity; ++i)
     {
         if (!chronologicalCache.snapshot(i, recycled) ||
-            recycled.beacon.bssid.bytes[5] == 0xfdu)
+            recycled.beacon.bssid.bytes[5] == 0xfdU)
+        {
             return 29;
+        }
     }
     // Hidden beacons also use nonempty, all-zero SSID IEs. These are not
     // visible four-byte NUL network names and must never be selectable or
@@ -443,7 +551,9 @@ int main()
     uint8_t zeroNamed[kBeaconBytes] {};
     makeBeacon(zeroNamed, 6);
     for (size_t i = 38; i < 42; ++i)
+    {
         zeroNamed[i] = 0;
+    }
     Beacon zeroParsed {};
     static ScanCache zeroNameCache;
     const uint8_t nullName[4] {};
@@ -462,6 +572,8 @@ int main()
             ScanBridgeResult::Ok ||
         zeroNameBridge.status().resultCount != 0 ||
         zeroNameBridge.status().rejectedEntries != 1)
+    {
         return 31;
+    }
     return 0;
 }
