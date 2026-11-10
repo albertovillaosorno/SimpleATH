@@ -85,13 +85,13 @@ namespace simpleath
 
     struct CalibrationAndRegulatory
     {
-            bool eepromContentsVerified;
-            bool boardAntennaConfigurationVerified;
-            bool localCountryRulesAvailable;
-            bool channelPermitted;
-            bool txPowerLimitsVerified;
-            bool radioKillUnblocked;
-            bool coexistenceConfigurationVerified;
+            bool eepromContentsVerified {};
+            bool boardAntennaConfigurationVerified {};
+            bool localCountryRulesAvailable {};
+            bool channelPermitted {};
+            bool txPowerLimitsVerified {};
+            bool radioKillUnblocked {};
+            bool coexistenceConfigurationVerified {};
             RadioInitialization use {RadioInitialization::TransmitReceive};
     };
 
