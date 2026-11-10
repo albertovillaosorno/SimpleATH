@@ -41,14 +41,16 @@ class KernelPatcher
 
                 template <typename T>
                 RouteRequest(const char *symbol, T replacement, T &saved)
-                    : name_(symbol), original_(&saved)
+                    : name_(symbol), original_(static_cast<void *>(&saved))
                 {
                     static_assert(
                         sizeof(T) == sizeof(uintptr_t),
                         "x86_64 patch entry and address widths differ");
                     // Preserve the function pointer's native representation;
                     // never alias the saved function slot as uintptr_t *.
-                    __builtin_memcpy(&target_, &replacement, sizeof(target_));
+                    __builtin_memcpy(static_cast<void *>(&target_),
+                                     static_cast<const void *>(&replacement),
+                                     sizeof(target_));
                 }
 
                 const char *name() const

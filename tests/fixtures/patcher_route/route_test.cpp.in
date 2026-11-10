@@ -68,6 +68,17 @@ int main()
     // insufficient aggregate stub capacity before touching the first route.
     KernelPatcher::RouteRequest valid[] = {{"alpha", &replacement, savedA},
                                            {"beta", &replacement, savedB}};
+    // Check that the templated native function-pointer slot is preserved
+    // byte-for-byte, not decoded as an object or aliased as uintptr_t.
+    Function replacementPointer = &replacement;
+    uintptr_t replacementBits = 0;
+    static_assert(sizeof(replacementPointer) == sizeof(replacementBits),
+                  "x86_64 function pointer width mismatch");
+    std::memcpy(&replacementBits, &replacementPointer, sizeof(replacementBits));
+    if (valid[0].target() != replacementBits ||
+        valid[0].original() != static_cast<void *>(&savedA) ||
+        valid[1].original() != static_cast<void *>(&savedB))
+        return 20;
     Function shared = &original;
     KernelPatcher::RouteRequest reusedOutput[] = {
         {"alpha", &replacement, shared}, {"beta", &replacement, shared}};
