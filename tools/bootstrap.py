@@ -17,9 +17,14 @@ import subprocess  # ruff: ignore[suspicious-subprocess-import] - Shell-free pin
 import sys
 import zipfile
 
-from references.download import REPOSITORIES as SOURCE_REPOSITORIES
-from references.download import download
-from references.download import update_ledger
+if __package__:
+    from .references.download import REPOSITORIES as SOURCE_REPOSITORIES
+    from .references.download import download
+    from .references.download import update_ledger
+else:
+    from references.download import REPOSITORIES as SOURCE_REPOSITORIES
+    from references.download import download
+    from references.download import update_ledger
 
 ROOT = Path(__file__).resolve().parent.parent
 PARENT_COMPONENT = ".."
