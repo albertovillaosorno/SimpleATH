@@ -1,10 +1,12 @@
 # AR9565 power candidates and CTL interpretation — source only
 
 `Ar9565Power.*` is staged in the Xcode Sources phase. Its portable numerical
-EEPROM target/CTL interpretation is exercised by synthetic offline host tests,
-not by a physical device. This source has no device register or transmit path;
-it does not approve a regulatory domain, validate board calibration, or
-establish a legal measured transmit power.
+EEPROM target/CTL interpretation and separately gated chain-zero OLPC and
+per-rate TPC register programming are exercised by synthetic offline host
+tests, not by a physical device. These source-only MMIO stages are **not called
+by the native PCI owner**; the module does not approve a regulatory domain,
+validate live board calibration, enable a transmitter, or establish a legal
+measured transmit power.
 
 ## Calculations implemented
 
@@ -94,15 +96,17 @@ The packed AR9300 board input path now separately extracts `pwrTableOffset`
 into `PowerCandidates::txModal` next to the interpolated per-channel
 reference correction, voltage and temperature. This preserves the raw
 source inputs used by Linux ath9k's `ar9003_hw_power_control_override`
-without inventing live temperature, additional compensation or register
-settings. Invalid structural board admission blocks the output and clears
-stale values. The synthetic C++14 and C++17 sanitizer regressions exercise
+without inventing live temperature, additional compensation or hardware
+settings in this parsing step. The independent gated register stage is
+documented below. Invalid structural board admission blocks the output
+and clears stale values. The synthetic C++14 and C++17 sanitizer regressions exercise
 signed values and the power-candidate handoff; focused strict Tidy passes.
 
-This is **not** a hardware transmitter power-control implementation, a
-successful radio calibration, or an authorization to transmit. The native
-serialized owner still has to establish live board provenance, real TPC
-register programming/readback and the verified country/antenna/RF gates.
+The parser alone is **not** a hardware transmitter power-control
+implementation, a successful radio calibration, or permission to transmit.
+The native
+serialized owner still has to establish live board provenance, *apply and
+verify* TPC registers on physical hardware and enforce country/antenna/RF gates.
 
 ## Hardware TX rate-bank source stage — 2026-11-10
 
@@ -123,6 +127,34 @@ writes or revoked ownership require a reset. Fake-MMIO host tests cover
 success, write/read failure, readback mismatch and owner revocation. No live
 caller invokes this source; it **never enables the transmitter**, MAC, EDMA,
 automatic ACK or TX-ready flags. No hardware has been accessed by these tests.
+
+## Open-loop and ordered TX power programming — 2026-11-10
+
+`programAr9565TxOpenLoopCalibration` adapts the pinned ath9k
+`ar9003_hw_power_control_override` chain-zero path using the structurally
+admitted 2-GHz channel calibration and board modal values. It updates four
+AR9565 PHY registers: gain delta (`TPC_11_B0`), open-loop error-estimator
+mode (`TPC_6_B0`), signed thermal slope (`TPC_19`) and calibration-temperature
+reference (`TPC_18`). It only modifies the relevant bit fields, verifies each
+posted write against a readback, checks live ownership before every access,
+and requires reset after a failed or uncertain write. This is **not** a live
+thermal or voltage tracking system, and its inputs are factory-data fields,
+not measured calibrated transmitter power.
+
+`programAr9565TransmitPower` orders this OLPC stage before the existing
+12-word rate/TPC bank under a single immutable candidate, authorization and
+PCI-backend snapshot. A full BAR-length preflight rejects a device window too
+short for the *later* rate bank before OLPC can write anything. A second-stage
+failure retains the reset requirement from earlier OLPC writes, even if the
+later failure occurs before the bank's first write. Synthetic C++14/C++17
+ASan+UBSan fixtures verify positive register fields, protection against caller
+mutation during MMIO callbacks, invalid BAR, revoked permission, readback
+mismatch, partial failure and cross-stage reset obligations. Direct strict
+Clang-Tidy and formatting checks pass for the source and test.
+
+These source stages have no native PCI owner caller and grant neither TX
+readiness nor the country, antenna, MCI/coexistence, calibrated descriptor
+power or automatic-response safety authority required for actual transmission.
 
 ## What remains before any transmission
 
@@ -151,5 +183,5 @@ passes Clang formatting and diff checks. These synthetic checks exercise
 rate-group selection, CCK floor semantics, CTL padding and missing coverage,
 board identity and pier rejection, HT40 geometry and channel calibration.
 They do not replace a differential ath9k target/CTL vector audit or any
-physical TX-power calibration, regulatory approval, programmed readback or
-measurement. Those remain required before any transmission.
+physical TX-power calibration, regulatory approval, native register readback
+or physical measurement. Those remain required before any transmission.
