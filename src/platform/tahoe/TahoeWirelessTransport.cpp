@@ -423,7 +423,13 @@ namespace simpleath
             if (result == kIOReturnSuccess)
             {
                 IOLockLock(mailboxLock_);
-                scanGeneration_ = 0;
+                // A provider callback may synchronously notify a reset or
+                // supersede this ticket while cancelScan runs. Never erase
+                // a newer scan's generation with an older cancellation.
+                if (scanGeneration_ == generation)
+                {
+                    scanGeneration_ = 0;
+                }
                 IOLockUnlock(mailboxLock_);
             }
             return result;
@@ -488,7 +494,11 @@ namespace simpleath
                 return kIOReturnNotReady;
             }
             IOLockLock(mailboxLock_);
+            // No further EAPOL or ordinary data may escape the old station
+            // lease once teardown is requested. The provider may notify the
+            // end of association only after this native callback returns.
             receiveAuthorized_ = false;
+            eapolReceiveAuthorized_ = false;
             receiveHead_ = receiveCount_ = 0;
             memset(&frames_[0], 0, sizeof(frames_));
             IOLockUnlock(mailboxLock_);
