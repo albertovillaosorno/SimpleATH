@@ -13,6 +13,38 @@ Tahoe kext build. No kernel Wi-Fi, DMA or Dell hardware was exercised.
 Do not use the new code as a verified cryptographic provider. Do not
 claim that the device has a usable WPA2 association.
 
+## Portable primitive Clang-Tidy and differential check (2026-11-10)
+
+Commit `c41885c` refactors only `src/wifi/crypto/Wpa2Primitives.cpp`.
+A direct project-configured `clang-tidy --warnings-as-errors='*' -p .`
+run on that translation unit reports **0** diagnostics after the change,
+compared with **321** before it. The same strict configuration is used; no
+rules were disabled. The cleanup names published SHA-1/HMAC, AES, PBKDF2,
+PTK, MIC and RFC3394 bounds, uses explicit fixed-array access with local
+capacity checks, and avoids implicit C-array decay and signed bitwise
+promotion. `elementAt` performs a single bounded access, not a linear scan
+of secret-containing arrays. The public API remains unchanged.
+
+Host-only evidence collected before pushing:
+
+- C++14 and C++17 `-Wall -Wextra -Werror -fsanitize=address,undefined`
+  runs of `tests/test_wpa2_public_alias.cpp` together with the modified
+  primitives and `Frames.cpp` passed. The modified source also passed
+  the project Clang-Format dry run and `git diff --check`.
+- A separate deterministic host-only comparison compiled both original and
+  updated primitives independently, each under C++14 ASan/UBSan, and
+  compared a rolling digest of output bytes and error codes. It covered 12
+  passphrase/SSID PBKDF2 inputs, 384 synthetic PTK/MIC inputs, and 128
+  RFC3394 unwrap attempts including modified ciphertext. Both versions
+  produced `d108d233a992f100`. The ad hoc comparison harness was temporary,
+  not added as a permanent CI test.
+
+This proves equivalence only for these host inputs and checks. It does not
+prove constant-time execution, absence of timing side channels, a complete
+cryptographic audit, native Tahoe ABI compatibility, actual AES keycache
+programming or a usable Wi-Fi association. The zero diagnostic count is for
+this translation unit only; it is not a repository-wide lint result.
+
 ## New primitives and integration
 
 - Wpa2Primitives.cpp: 4096-round PBKDF2-HMAC-SHA1 to derive the 32-byte
