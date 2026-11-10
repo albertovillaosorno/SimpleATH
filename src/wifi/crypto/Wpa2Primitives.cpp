@@ -24,14 +24,103 @@ namespace simpleath
                 constexpr size_t kMaximumKeyData = 512U;
                 constexpr size_t kPmkLength = 32U;
                 constexpr size_t kPtkLength = 48U;
+                constexpr size_t kPbkdf2MinPasswordBytes = 8U;
+                constexpr size_t kPbkdf2MaxPasswordBytes = 63U;
+                constexpr size_t kPbkdf2MaxSsidBytes = 32U;
+                constexpr size_t kPbkdf2SaltCounterBytes = 4U;
+                constexpr size_t kPbkdf2SaltBytes =
+                    kPbkdf2MaxSsidBytes + kPbkdf2SaltCounterBytes;
+                constexpr uint32_t kPbkdf2Blocks = 2U;
+                constexpr unsigned kPbkdf2Rounds = 4096U;
+                constexpr size_t kPtkMacPairBytes = 2U * kMacAddressBytes;
+                constexpr size_t kPtkSecondNonceOffset =
+                    kPtkMacPairBytes + kNonceBytes;
+                constexpr size_t kPtkOrderedBytes =
+                    kPtkSecondNonceOffset + kNonceBytes;
+                constexpr uint8_t kPtkPrfBlocks = 3U;
+                constexpr size_t kPtkSliceCount = 4U;
+                constexpr size_t kMicMinimumEapolBytes = 99U;
+                constexpr size_t kMicMaximumEapolBytes = 2048U;
+                constexpr size_t kWrapUnitBytes = 8U;
+                constexpr size_t kWrapMinimumCipherBytes = 3U * kWrapUnitBytes;
+                constexpr int kWrapLastInverseRound = 5;
+                constexpr uint8_t kWrapIntegrityByte = 0xa6U;
+                constexpr unsigned kWordBits = 32U;
+                constexpr unsigned kByteBits = 8U;
+                constexpr unsigned kWordBytes = 4U;
+                constexpr unsigned kHighestWordShift = 24U;
+                constexpr unsigned kMiddleWordShift = 16U;
+                constexpr unsigned kLowerWordShift = kByteBits;
+                constexpr size_t kShaStateWords = 5U;
+                constexpr size_t kShaScheduleWords = 80U;
+                constexpr size_t kShaInitialWords = 16U;
+                constexpr size_t kShaRound1 = 20U;
+                constexpr size_t kShaRound2 = 40U;
+                constexpr size_t kShaRound3 = 60U;
+                constexpr size_t kShaLengthBytes = 8U;
+                constexpr size_t kShaPaddingOffset = 56U;
+                constexpr uint32_t kShaRoundConstant1 = 0x5a827999U;
+                constexpr uint32_t kShaRoundConstant2 = 0x6ed9eba1U;
+                constexpr uint32_t kShaRoundConstant3 = 0x8f1bbcdcU;
+                constexpr uint32_t kShaRoundConstant4 = 0xca62c1d6U;
+                constexpr uint32_t kShaInitialState0 = 0x67452301U;
+                constexpr uint32_t kShaInitialState1 = 0xefcdab89U;
+                constexpr uint32_t kShaInitialState2 = 0x98badcfeU;
+                constexpr uint32_t kShaInitialState3 = 0x10325476U;
+                constexpr uint32_t kShaInitialState4 = 0xc3d2e1f0U;
+                constexpr uint8_t kShaPaddingStart = 0x80U;
+                constexpr size_t kAesBlockBytes = 16U;
+                constexpr size_t kAesExpandedBytes = 176U;
+                constexpr size_t kAesColumnBytes = 4U;
+                constexpr size_t kAesRounds = 10U;
+                constexpr int kAesLastInverseRound = 9;
+                constexpr unsigned kAesRconStep = 2U;
+                constexpr uint8_t kGfHighBit = 0x80U;
+                constexpr uint8_t kGfReduction = 0x1bU;
+                constexpr uint8_t kMix09 = 9U;
+                constexpr uint8_t kMix11 = 11U;
+                constexpr uint8_t kMix13 = 13U;
+                constexpr uint8_t kMix14 = 14U;
+                constexpr uint8_t kHmacInnerPadByte = 0x36U;
+                constexpr uint8_t kHmacOuterPadByte = 0x5cU;
+                constexpr unsigned kShaRotateA = 5U;
+                constexpr unsigned kShaRotateB = 30U;
+                constexpr size_t kShaScheduleBackA = 3U;
+                constexpr size_t kShaScheduleBackB = 8U;
+                constexpr size_t kShaScheduleBackC = 14U;
+                constexpr size_t kShaScheduleBackD = 16U;
+
+                template <typename T, size_t N>
+                T &elementAt(T (&array)[N], size_t index)
+                {
+                    if (index >= N)
+                    {
+                        __builtin_trap();
+                    }
+                    // The explicit capacity check is sufficient for the
+                    // freestanding fixed-size crypto scratch arrays.
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                    return array[index];
+                }
+
+                template <typename T, size_t N> T *arrayData(T (&array)[N])
+                {
+                    return &array[0U];
+                }
+
+                template <typename T> T &byteAt(T *span, size_t offset)
+                {
+                    // Public call sites establish their buffer capacity.
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    return span[offset];
+                }
 
                 void wipe(void *storage, size_t length)
                 {
-                    volatile uint8_t *ptr =
-                        static_cast<volatile uint8_t *>(storage);
+                    auto *ptr = static_cast<volatile uint8_t *>(storage);
                     for (size_t i = 0; i < length; ++i)
                     {
-                        ptr[i] = 0;
+                        byteAt(ptr, i) = 0;
                     }
                 }
 
@@ -39,7 +128,7 @@ namespace simpleath
                 {
                     for (size_t i = 0; i < length; ++i)
                     {
-                        out[i] = in[i];
+                        byteAt(out, i) = byteAt(in, i);
                     }
                 }
 
@@ -47,11 +136,11 @@ namespace simpleath
                 {
                     for (size_t i = 0; i < length; ++i)
                     {
-                        if (a[i] < b[i])
+                        if (byteAt(a, i) < byteAt(b, i))
                         {
                             return true;
                         }
-                        if (a[i] > b[i])
+                        if (byteAt(a, i) > byteAt(b, i))
                         {
                             return false;
                         }
@@ -61,98 +150,108 @@ namespace simpleath
 
                 uint32_t rotl32(uint32_t a, unsigned n)
                 {
-                    return (a << n) | (a >> (32U - n));
+                    return (a << n) | (a >> (kWordBits - n));
                 }
 
                 uint32_t read32be(const uint8_t *p)
                 {
-                    return (static_cast<uint32_t>(p[0]) << 24U) |
-                           (static_cast<uint32_t>(p[1]) << 16U) |
-                           (static_cast<uint32_t>(p[2]) << 8U) | p[3];
+                    return (static_cast<uint32_t>(byteAt(p, 0U))
+                            << kHighestWordShift) |
+                           (static_cast<uint32_t>(byteAt(p, 1U))
+                            << kMiddleWordShift) |
+                           (static_cast<uint32_t>(byteAt(p, 2U))
+                            << kLowerWordShift) |
+                           byteAt(p, 3U);
                 }
 
                 void write32be(uint8_t *p, uint32_t v)
                 {
-                    p[0] = static_cast<uint8_t>(v >> 24U);
-                    p[1] = static_cast<uint8_t>(v >> 16U);
-                    p[2] = static_cast<uint8_t>(v >> 8U);
-                    p[3] = static_cast<uint8_t>(v);
+                    byteAt(p, 0U) =
+                        static_cast<uint8_t>(v >> kHighestWordShift);
+                    byteAt(p, 1U) = static_cast<uint8_t>(v >> kMiddleWordShift);
+                    byteAt(p, 2U) = static_cast<uint8_t>(v >> kLowerWordShift);
+                    byteAt(p, 3U) = static_cast<uint8_t>(v);
                 }
 
                 struct Sha1
                 {
-                        uint32_t state[5];
+                        uint32_t state[kShaStateWords];
                         uint64_t totalBytes;
-                        uint8_t block[64];
+                        uint8_t block[kShaBlock];
                         size_t buffered;
                 };
 
-                void shaBlock(Sha1 &ctx, const uint8_t bytes[64])
+                void shaBlock(Sha1 &ctx, const uint8_t bytes[kShaBlock])
                 {
-                    uint32_t words[80] {};
-                    for (size_t i = 0; i < 16; ++i)
+                    uint32_t words[kShaScheduleWords] {};
+                    for (size_t i = 0; i < kShaInitialWords; ++i)
                     {
-                        words[i] = read32be(bytes + (4 * i));
+                        elementAt(words, i) =
+                            read32be(&byteAt(bytes, kWordBytes * i));
                     }
-                    for (size_t i = 16; i < 80; ++i)
+                    for (size_t i = kShaInitialWords; i < kShaScheduleWords;
+                         ++i)
                     {
-                        words[i] = rotl32(words[i - 3] ^ words[i - 8] ^
-                                              words[i - 14] ^ words[i - 16],
-                                          1U);
+                        elementAt(words, i) =
+                            rotl32(elementAt(words, i - kShaScheduleBackA) ^
+                                       elementAt(words, i - kShaScheduleBackB) ^
+                                       elementAt(words, i - kShaScheduleBackC) ^
+                                       elementAt(words, i - kShaScheduleBackD),
+                                   1U);
                     }
-                    uint32_t a = ctx.state[0];
-                    uint32_t b = ctx.state[1];
-                    uint32_t c = ctx.state[2];
-                    uint32_t d = ctx.state[3];
-                    uint32_t e = ctx.state[4];
-                    for (size_t i = 0; i < 80; ++i)
+                    uint32_t a = elementAt(ctx.state, 0U);
+                    uint32_t b = elementAt(ctx.state, 1U);
+                    uint32_t c = elementAt(ctx.state, 2U);
+                    uint32_t d = elementAt(ctx.state, 3U);
+                    uint32_t e = elementAt(ctx.state, 4U);
+                    for (size_t i = 0; i < kShaScheduleWords; ++i)
                     {
                         uint32_t f = 0;
                         uint32_t k = 0;
-                        if (i < 20)
+                        if (i < kShaRound1)
                         {
                             f = (b & c) | (~b & d);
-                            k = 0x5a827999U;
+                            k = kShaRoundConstant1;
                         }
-                        else if (i < 40)
+                        else if (i < kShaRound2)
                         {
                             f = b ^ c ^ d;
-                            k = 0x6ed9eba1U;
+                            k = kShaRoundConstant2;
                         }
-                        else if (i < 60)
+                        else if (i < kShaRound3)
                         {
                             f = (b & c) | (b & d) | (c & d);
-                            k = 0x8f1bbcdcU;
+                            k = kShaRoundConstant3;
                         }
                         else
                         {
                             f = b ^ c ^ d;
-                            k = 0xca62c1d6U;
+                            k = kShaRoundConstant4;
                         }
-                        const uint32_t tmp =
-                            rotl32(a, 5U) + f + e + k + words[i];
+                        const uint32_t tmp = rotl32(a, kShaRotateA) + f + e +
+                                             k + elementAt(words, i);
                         e = d;
                         d = c;
-                        c = rotl32(b, 30U);
+                        c = rotl32(b, kShaRotateB);
                         b = a;
                         a = tmp;
                     }
-                    ctx.state[0] += a;
-                    ctx.state[1] += b;
-                    ctx.state[2] += c;
-                    ctx.state[3] += d;
-                    ctx.state[4] += e;
-                    wipe(words, sizeof(words));
+                    elementAt(ctx.state, 0U) += a;
+                    elementAt(ctx.state, 1U) += b;
+                    elementAt(ctx.state, 2U) += c;
+                    elementAt(ctx.state, 3U) += d;
+                    elementAt(ctx.state, 4U) += e;
+                    wipe(arrayData(words), sizeof(words));
                 }
 
                 void shaInit(Sha1 &ctx)
                 {
                     ctx = {};
-                    ctx.state[0] = 0x67452301U;
-                    ctx.state[1] = 0xefcdab89U;
-                    ctx.state[2] = 0x98badcfeU;
-                    ctx.state[3] = 0x10325476U;
-                    ctx.state[4] = 0xc3d2e1f0U;
+                    elementAt(ctx.state, 0U) = kShaInitialState0;
+                    elementAt(ctx.state, 1U) = kShaInitialState1;
+                    elementAt(ctx.state, 2U) = kShaInitialState2;
+                    elementAt(ctx.state, 3U) = kShaInitialState3;
+                    elementAt(ctx.state, 4U) = kShaInitialState4;
                 }
 
                 void shaUpdate(Sha1 &ctx, const uint8_t *data, size_t length)
@@ -160,10 +259,10 @@ namespace simpleath
                     ctx.totalBytes += length;
                     for (size_t i = 0; i < length; ++i)
                     {
-                        ctx.block[ctx.buffered++] = data[i];
+                        elementAt(ctx.block, ctx.buffered++) = byteAt(data, i);
                         if (ctx.buffered == kShaBlock)
                         {
-                            shaBlock(ctx, ctx.block);
+                            shaBlock(ctx, arrayData(ctx.block));
                             ctx.buffered = 0;
                         }
                     }
@@ -171,25 +270,27 @@ namespace simpleath
 
                 void shaFinal(Sha1 &ctx, uint8_t out[kShaDigest])
                 {
-                    const uint64_t bits = ctx.totalBytes * 8U;
-                    const uint8_t one = 0x80U;
+                    const uint64_t bits = ctx.totalBytes * kByteBits;
+                    const uint8_t one = kShaPaddingStart;
                     const uint8_t zero = 0;
                     shaUpdate(ctx, &one, 1U);
-                    while (ctx.buffered != 56)
+                    while (ctx.buffered != kShaPaddingOffset)
                     {
                         shaUpdate(ctx, &zero, 1U);
                     }
-                    uint8_t length[8] {};
-                    for (size_t i = 0; i < 8; ++i)
+                    uint8_t length[kShaLengthBytes] {};
+                    for (size_t i = 0; i < kShaLengthBytes; ++i)
                     {
-                        length[7U - i] = static_cast<uint8_t>(bits >> (8U * i));
+                        elementAt(length, kShaLengthBytes - 1U - i) =
+                            static_cast<uint8_t>(bits >> (kByteBits * i));
                     }
-                    shaUpdate(ctx, length, sizeof(length));
-                    for (size_t i = 0; i < 5; ++i)
+                    shaUpdate(ctx, arrayData(length), sizeof(length));
+                    for (size_t i = 0; i < kShaStateWords; ++i)
                     {
-                        write32be(out + (4U * i), ctx.state[i]);
+                        write32be(&byteAt(out, kWordBytes * i),
+                                  elementAt(ctx.state, i));
                     }
-                    wipe(length, sizeof(length));
+                    wipe(arrayData(length), sizeof(length));
                     wipe(&ctx, sizeof(ctx));
                 }
 
@@ -209,169 +310,214 @@ namespace simpleath
                         Sha1 temp {};
                         shaInit(temp);
                         shaUpdate(temp, key, keyLength);
-                        shaFinal(temp, normalized);
+                        shaFinal(temp, arrayData(normalized));
                     }
                     else
                     {
-                        bytesCopy(normalized, key, keyLength);
+                        bytesCopy(arrayData(normalized), key, keyLength);
                     }
                     uint8_t innerPad[kShaBlock] {};
                     uint8_t outerPad[kShaBlock] {};
                     for (size_t i = 0; i < kShaBlock; ++i)
                     {
-                        innerPad[i] = normalized[i] ^ 0x36U;
-                        outerPad[i] = normalized[i] ^ 0x5cU;
+                        elementAt(innerPad, i) =
+                            elementAt(normalized, i) ^ kHmacInnerPadByte;
+                        elementAt(outerPad, i) =
+                            elementAt(normalized, i) ^ kHmacOuterPadByte;
                     }
                     uint8_t inner[kShaDigest] {};
                     Sha1 ctx {};
                     shaInit(ctx);
-                    shaUpdate(ctx, innerPad, kShaBlock);
+                    shaUpdate(ctx, arrayData(innerPad), kShaBlock);
                     for (size_t i = 0; i < count; ++i)
                     {
-                        shaUpdate(ctx, items[i].data, items[i].length);
+                        shaUpdate(ctx, byteAt(items, i).data,
+                                  byteAt(items, i).length);
                     }
-                    shaFinal(ctx, inner);
+                    shaFinal(ctx, arrayData(inner));
                     shaInit(ctx);
-                    shaUpdate(ctx, outerPad, kShaBlock);
-                    shaUpdate(ctx, inner, sizeof(inner));
+                    shaUpdate(ctx, arrayData(outerPad), kShaBlock);
+                    shaUpdate(ctx, arrayData(inner), sizeof(inner));
                     shaFinal(ctx, digest);
-                    wipe(normalized, sizeof(normalized));
-                    wipe(inner, sizeof(inner));
-                    wipe(innerPad, sizeof(innerPad));
-                    wipe(outerPad, sizeof(outerPad));
+                    wipe(arrayData(normalized), sizeof(normalized));
+                    wipe(arrayData(inner), sizeof(inner));
+                    wipe(arrayData(innerPad), sizeof(innerPad));
+                    wipe(arrayData(outerPad), sizeof(outerPad));
                 }
 
-                uint8_t gfMultiply(uint8_t a, uint8_t b)
+                struct GfFactors
                 {
+                        uint8_t multiplicand;
+                        uint8_t multiplier;
+                };
+
+                uint8_t gfMultiply(const GfFactors &factors)
+                {
+                    uint8_t a = factors.multiplicand;
+                    uint8_t b = factors.multiplier;
                     uint8_t product = 0;
-                    for (unsigned i = 0; i < 8; ++i)
+                    for (unsigned i = 0; i < kByteBits; ++i)
                     {
                         if ((b & 1U) != 0U)
                         {
                             product ^= a;
                         }
-                        const bool high = (a & 0x80U) != 0;
-                        a = static_cast<uint8_t>((a << 1U) ^
-                                                 (high ? 0x1bU : 0));
+                        const bool high = (a & kGfHighBit) != 0;
+                        a = static_cast<uint8_t>(
+                            (static_cast<unsigned>(a) << 1U) ^
+                            (high ? kGfReduction : 0U));
                         b >>= 1U;
                     }
                     return product;
                 }
 
-                void expandAes128(const uint8_t key[16], uint8_t expanded[176])
+                void expandAes128(const uint8_t key[kAesBlockBytes],
+                                  uint8_t expanded[kAesExpandedBytes])
                 {
-                    bytesCopy(expanded, key, 16);
+                    bytesCopy(expanded, key, kAesBlockBytes);
                     uint8_t rcon = 1;
-                    size_t i = 16;
-                    while (i < 176)
+                    size_t i = kAesBlockBytes;
+                    while (i < kAesExpandedBytes)
                     {
-                        uint8_t tmp[4] = {
-                            expanded[i - 4],
-                            expanded[i - 3],
-                            expanded[i - 2],
-                            expanded[i - 1],
+                        uint8_t tmp[kAesColumnBytes] = {
+                            byteAt(expanded, i - kAesColumnBytes),
+                            byteAt(expanded, i - (kAesColumnBytes - 1U)),
+                            byteAt(expanded, i - (kAesColumnBytes - 2U)),
+                            byteAt(expanded, i - 1),
                         };
-                        if (i % 16 == 0)
+                        if (i % kAesBlockBytes == 0)
                         {
-                            const uint8_t first = tmp[0];
-                            tmp[0] = kAesSbox[tmp[1]] ^ rcon;
-                            tmp[1] = kAesSbox[tmp[2]];
-                            tmp[2] = kAesSbox[tmp[3]];
-                            tmp[3] = kAesSbox[first];
-                            rcon = gfMultiply(rcon, 2);
+                            const uint8_t first = elementAt(tmp, 0);
+                            elementAt(tmp, 0) =
+                                elementAt(kAesSbox, elementAt(tmp, 1)) ^ rcon;
+                            elementAt(tmp, 1) =
+                                elementAt(kAesSbox, elementAt(tmp, 2));
+                            elementAt(tmp, 2) =
+                                elementAt(kAesSbox, elementAt(tmp, 3));
+                            elementAt(tmp, 3) = elementAt(kAesSbox, first);
+                            rcon = gfMultiply({rcon, kAesRconStep});
                         }
-                        for (unsigned char k : tmp)
+                        for (const unsigned char k : tmp)
                         {
                             // C++14 does not order lhs post-increment against
                             // rhs evaluation.
-                            expanded[i] =
-                                static_cast<uint8_t>(expanded[i - 16] ^ k);
+                            byteAt(expanded, i) = static_cast<uint8_t>(
+                                byteAt(expanded, i - kAesBlockBytes) ^ k);
                             ++i;
                         }
-                        wipe(tmp, sizeof(tmp));
+                        wipe(arrayData(tmp), sizeof(tmp));
                     }
                 }
 
-                void addRoundKey(uint8_t state[16], const uint8_t expanded[176],
+                void addRoundKey(uint8_t state[kAesBlockBytes],
+                                 const uint8_t expanded[kAesExpandedBytes],
                                  size_t round)
                 {
-                    for (size_t i = 0; i < 16; ++i)
+                    for (size_t i = 0; i < kAesBlockBytes; ++i)
                     {
-                        state[i] ^= expanded[(round * 16U) + i];
+                        byteAt(state, i) ^=
+                            byteAt(expanded, (round * kAesBlockBytes) + i);
                     }
                 }
 
-                void inverseShiftRows(uint8_t state[16])
+                void inverseShiftRows(uint8_t state[kAesBlockBytes])
                 {
-                    uint8_t old[16] {};
-                    bytesCopy(old, state, sizeof(old));
+                    uint8_t old[kAesBlockBytes] {};
+                    bytesCopy(arrayData(old), state, sizeof(old));
                     // AES state is column major.
-                    for (size_t col = 0; col < 4; ++col)
+                    for (size_t col = 0; col < kAesColumnBytes; ++col)
                     {
-                        state[4 * col] = old[4 * col];
-                        state[(4 * col) + 1] = old[(4 * ((col + 3U) % 4U)) + 1];
-                        state[(4 * col) + 2] = old[(4 * ((col + 2U) % 4U)) + 2];
-                        state[(4 * col) + 3] = old[(4 * ((col + 1U) % 4U)) + 3];
+                        byteAt(state, kAesColumnBytes * col) =
+                            elementAt(old, kAesColumnBytes * col);
+                        byteAt(state, (kAesColumnBytes * col) + 1) = elementAt(
+                            old, (4 * ((col + 3U) % kAesColumnBytes)) + 1);
+                        byteAt(state, (kAesColumnBytes * col) + 2) = elementAt(
+                            old, (4 * ((col + 2U) % kAesColumnBytes)) + 2);
+                        byteAt(state, (kAesColumnBytes * col) + 3) = elementAt(
+                            old, (4 * ((col + 1U) % kAesColumnBytes)) + 3);
                     }
-                    wipe(old, sizeof(old));
+                    wipe(arrayData(old), sizeof(old));
                 }
 
-                void inverseMixColumns(uint8_t state[16])
+                void inverseMixColumns(uint8_t state[kAesBlockBytes])
                 {
-                    for (size_t col = 0; col < 4; ++col)
+                    for (size_t col = 0; col < kAesColumnBytes; ++col)
                     {
-                        const size_t offset = col * 4;
-                        const uint8_t a = state[offset];
-                        const uint8_t b = state[offset + 1];
-                        const uint8_t c = state[offset + 2];
-                        const uint8_t d = state[offset + 3];
-                        state[offset] = gfMultiply(a, 14) ^ gfMultiply(b, 11) ^
-                                        gfMultiply(c, 13) ^ gfMultiply(d, 9);
-                        state[offset + 1] =
-                            gfMultiply(a, 9) ^ gfMultiply(b, 14) ^
-                            gfMultiply(c, 11) ^ gfMultiply(d, 13);
-                        state[offset + 2] =
-                            gfMultiply(a, 13) ^ gfMultiply(b, 9) ^
-                            gfMultiply(c, 14) ^ gfMultiply(d, 11);
-                        state[offset + 3] =
-                            gfMultiply(a, 11) ^ gfMultiply(b, 13) ^
-                            gfMultiply(c, 9) ^ gfMultiply(d, 14);
+                        const size_t offset = col * kAesColumnBytes;
+                        const uint8_t a = byteAt(state, offset);
+                        const uint8_t b = byteAt(state, offset + 1);
+                        const uint8_t c = byteAt(state, offset + 2);
+                        const uint8_t d = byteAt(state, offset + 3);
+                        byteAt(state, offset) =
+                            static_cast<unsigned>(gfMultiply({a, kMix14})) ^
+                            gfMultiply({b, kMix11}) ^ gfMultiply({c, kMix13}) ^
+                            gfMultiply({d, kMix09});
+                        byteAt(state, offset + 1) =
+                            static_cast<unsigned>(gfMultiply({a, kMix09})) ^
+                            gfMultiply({b, kMix14}) ^ gfMultiply({c, kMix11}) ^
+                            gfMultiply({d, kMix13});
+                        byteAt(state, offset + 2) =
+                            static_cast<unsigned>(gfMultiply({a, kMix13})) ^
+                            gfMultiply({b, kMix09}) ^ gfMultiply({c, kMix14}) ^
+                            gfMultiply({d, kMix11});
+                        byteAt(state, offset + 3) =
+                            static_cast<unsigned>(gfMultiply({a, kMix11})) ^
+                            gfMultiply({b, kMix13}) ^ gfMultiply({c, kMix09}) ^
+                            gfMultiply({d, kMix14});
                     }
                 }
 
-                void aes128DecryptBlock(const uint8_t expanded[176],
-                                        const uint8_t encrypted[16],
-                                        uint8_t plain[16])
+                struct AesDecryptInputs
                 {
-                    uint8_t state[16] {};
-                    bytesCopy(state, encrypted, sizeof(state));
-                    addRoundKey(state, expanded, 10);
-                    for (int round = 9; round >= 1; --round)
+                        const uint8_t *expanded;
+                        const uint8_t *encrypted;
+                };
+
+                void aes128DecryptBlock(const AesDecryptInputs &inputs,
+                                        uint8_t plain[kAesBlockBytes])
+                {
+                    const auto *expanded = inputs.expanded;
+                    const auto *encrypted = inputs.encrypted;
+                    uint8_t state[kAesBlockBytes] {};
+                    bytesCopy(arrayData(state), encrypted, sizeof(state));
+                    addRoundKey(arrayData(state), expanded, kAesRounds);
+                    for (int round = kAesLastInverseRound; round >= 1; --round)
                     {
-                        inverseShiftRows(state);
+                        inverseShiftRows(arrayData(state));
                         for (uint8_t &v : state)
                         {
-                            v = kAesInverseSbox[v];
+                            v = elementAt(kAesInverseSbox, v);
                         }
-                        addRoundKey(state, expanded,
+                        addRoundKey(arrayData(state), expanded,
                                     static_cast<size_t>(round));
-                        inverseMixColumns(state);
+                        inverseMixColumns(arrayData(state));
                     }
-                    inverseShiftRows(state);
+                    inverseShiftRows(arrayData(state));
                     for (uint8_t &v : state)
                     {
-                        v = kAesInverseSbox[v];
+                        v = elementAt(kAesInverseSbox, v);
                     }
-                    addRoundKey(state, expanded, 0);
-                    bytesCopy(plain, state, sizeof(state));
-                    wipe(state, sizeof(state));
+                    addRoundKey(arrayData(state), expanded, 0);
+                    bytesCopy(plain, arrayData(state), sizeof(state));
+                    wipe(arrayData(state), sizeof(state));
                 }
 
-                bool disjoint(const uint8_t *a, size_t aLength,
-                              const uint8_t *b, size_t bLength)
+                uintptr_t addressOf(const void *pointer)
                 {
-                    const uintptr_t left = reinterpret_cast<uintptr_t>(a);
-                    const uintptr_t right = reinterpret_cast<uintptr_t>(b);
+                    static_assert(sizeof(pointer) == sizeof(uintptr_t),
+                                  "crypto pointers must fit a native address");
+                    uintptr_t address = 0U;
+                    __builtin_memcpy(&address,
+                                     static_cast<const void *>(&pointer),
+                                     sizeof(address));
+                    return address;
+                }
+
+                bool disjoint(const void *a, size_t aLength, const void *b,
+                              size_t bLength)
+                {
+                    const uintptr_t left = addressOf(a);
+                    const uintptr_t right = addressOf(b);
                     return left <= right ? right - left >= aLength
                                          : left - right >= bLength;
                 }
@@ -380,71 +526,88 @@ namespace simpleath
 
             Error derivePmk(const uint8_t *passphrase, size_t passphraseLength,
                             const uint8_t *ssid, size_t ssidLength,
-                            uint8_t outputPmk[32])
+                            uint8_t outputPmk[kPmkLength])
             {
                 if ((passphrase == nullptr) || (ssid == nullptr) ||
                     (outputPmk == nullptr))
                 {
                     return Error::InvalidArgument;
                 }
-                if (passphraseLength < 8 || passphraseLength > 63)
+                if (passphraseLength < kPbkdf2MinPasswordBytes ||
+                    passphraseLength > kPbkdf2MaxPasswordBytes)
                 {
                     return Error::InvalidPassword;
                 }
-                if (ssidLength == 0 || ssidLength > 32)
+                if (ssidLength == 0 || ssidLength > kPbkdf2MaxSsidBytes)
                 {
                     return Error::InvalidSsid;
                 }
-                if (!disjoint(passphrase, passphraseLength, outputPmk, 32) ||
-                    !disjoint(ssid, ssidLength, outputPmk, 32))
+                if (!disjoint(passphrase, passphraseLength, outputPmk,
+                              kPmkLength) ||
+                    !disjoint(ssid, ssidLength, outputPmk, kPmkLength))
                 {
                     return Error::InvalidArgument;
                 }
-                uint8_t salt[36] {};
-                bytesCopy(salt, ssid, ssidLength);
-                uint8_t result[32] {};
-                for (uint32_t block = 1; block <= 2; ++block)
+                uint8_t salt[kPbkdf2SaltBytes] {};
+                bytesCopy(arrayData(salt), ssid, ssidLength);
+                uint8_t result[kPmkLength] {};
+                for (uint32_t block = 1; block <= kPbkdf2Blocks; ++block)
                 {
-                    salt[ssidLength] = static_cast<uint8_t>(block >> 24U);
-                    salt[ssidLength + 1] = static_cast<uint8_t>(block >> 16U);
-                    salt[ssidLength + 2] = static_cast<uint8_t>(block >> 8U);
-                    salt[ssidLength + 3] = static_cast<uint8_t>(block);
-                    const Slice piece {salt, ssidLength + 4U};
+                    elementAt(salt, ssidLength) =
+                        static_cast<uint8_t>(block >> kHighestWordShift);
+                    elementAt(salt, ssidLength + 1U) =
+                        static_cast<uint8_t>(block >> kMiddleWordShift);
+                    elementAt(salt, ssidLength + 2U) =
+                        static_cast<uint8_t>(block >> kLowerWordShift);
+                    elementAt(salt, ssidLength + 3U) =
+                        static_cast<uint8_t>(block);
+                    const Slice piece {
+                        arrayData(salt),
+                        ssidLength + kPbkdf2SaltCounterBytes,
+                    };
                     uint8_t previous[kShaDigest] {};
                     hmacSha1Slices(passphrase, passphraseLength, &piece, 1,
-                                   previous);
+                                   arrayData(previous));
                     uint8_t xorValue[kShaDigest] {};
-                    bytesCopy(xorValue, previous, sizeof(xorValue));
-                    for (unsigned round = 1; round < 4096; ++round)
+                    bytesCopy(arrayData(xorValue), arrayData(previous),
+                              sizeof(xorValue));
+                    for (unsigned round = 1; round < kPbkdf2Rounds; ++round)
                     {
-                        const Slice prev {previous, sizeof(previous)};
+                        const Slice prev {
+                            arrayData(previous),
+                            sizeof(previous),
+                        };
                         uint8_t next[kShaDigest] {};
                         hmacSha1Slices(passphrase, passphraseLength, &prev, 1,
-                                       next);
+                                       arrayData(next));
                         for (size_t i = 0; i < kShaDigest; ++i)
                         {
-                            xorValue[i] ^= next[i];
+                            elementAt(xorValue, i) ^= elementAt(next, i);
                         }
-                        bytesCopy(previous, next, sizeof(previous));
-                        wipe(next, sizeof(next));
+                        bytesCopy(arrayData(previous), arrayData(next),
+                                  sizeof(previous));
+                        wipe(arrayData(next), sizeof(next));
                     }
                     const size_t start = (block - 1U) * kShaDigest;
                     const size_t count = start + kShaDigest <= kPmkLength
                                              ? kShaDigest
                                              : kPmkLength - start;
-                    bytesCopy(result + start, xorValue, count);
-                    wipe(previous, sizeof(previous));
-                    wipe(xorValue, sizeof(xorValue));
+                    bytesCopy(&elementAt(result, start), arrayData(xorValue),
+                              count);
+                    wipe(arrayData(previous), sizeof(previous));
+                    wipe(arrayData(xorValue), sizeof(xorValue));
                 }
-                bytesCopy(outputPmk, result, sizeof(result));
-                wipe(result, sizeof(result));
-                wipe(salt, sizeof(salt));
+                bytesCopy(outputPmk, arrayData(result), sizeof(result));
+                wipe(arrayData(result), sizeof(result));
+                wipe(arrayData(salt), sizeof(salt));
                 return Error::Ok;
             }
 
-            Error derivePtk(const uint8_t pmk[32], const Mac &ap,
-                            const Mac &station, const uint8_t aNonce[32],
-                            const uint8_t sNonce[32], uint8_t outputPtk[48])
+            Error derivePtk(const uint8_t pmk[kPmkLength], const Mac &ap,
+                            const Mac &station,
+                            const uint8_t aNonce[kNonceBytes],
+                            const uint8_t sNonce[kNonceBytes],
+                            uint8_t outputPtk[kPtkLength])
             {
                 if ((pmk == nullptr) || (aNonce == nullptr) ||
                     (sNonce == nullptr) || (outputPtk == nullptr))
@@ -463,90 +626,109 @@ namespace simpleath
                 // not necessarily detached values. Even though the derivation
                 // reads them before publishing the PTK, never overwrite an AP
                 // or station identity through an aliased output buffer.
-                if (!disjoint(pmk, 32, outputPtk, kPtkLength) ||
-                    !disjoint(aNonce, 32, outputPtk, kPtkLength) ||
-                    !disjoint(sNonce, 32, outputPtk, kPtkLength) ||
-                    !disjoint(ap.bytes, sizeof(ap.bytes), outputPtk,
+                if (!disjoint(pmk, kPmkLength, outputPtk, kPtkLength) ||
+                    !disjoint(aNonce, kNonceBytes, outputPtk, kPtkLength) ||
+                    !disjoint(sNonce, kNonceBytes, outputPtk, kPtkLength) ||
+                    !disjoint(arrayData(ap.bytes), sizeof(ap.bytes), outputPtk,
                               kPtkLength) ||
-                    !disjoint(station.bytes, sizeof(station.bytes), outputPtk,
-                              kPtkLength))
+                    !disjoint(arrayData(station.bytes), sizeof(station.bytes),
+                              outputPtk, kPtkLength))
                 {
                     return Error::InvalidArgument;
                 }
                 uint8_t ptk[kPtkLength] {};
-                uint8_t ordered[76] {};
-                const bool macOrder = byteLess(ap.bytes, station.bytes, 6);
-                const bool nonceOrder = byteLess(aNonce, sNonce, 32);
-                bytesCopy(ordered, macOrder ? ap.bytes : station.bytes, 6);
-                bytesCopy(ordered + 6, macOrder ? station.bytes : ap.bytes, 6);
-                bytesCopy(ordered + 12, nonceOrder ? aNonce : sNonce, 32);
-                bytesCopy(ordered + 44, nonceOrder ? sNonce : aNonce, 32);
-                constexpr char label[] = "Pairwise key expansion";
+                uint8_t ordered[kPtkOrderedBytes] {};
+                const bool macOrder =
+                    byteLess(arrayData(ap.bytes), arrayData(station.bytes),
+                             kMacAddressBytes);
+                const bool nonceOrder = byteLess(aNonce, sNonce, kNonceBytes);
+                bytesCopy(arrayData(ordered),
+                          macOrder ? arrayData(ap.bytes)
+                                   : arrayData(station.bytes),
+                          kMacAddressBytes);
+                bytesCopy(&elementAt(ordered, kMacAddressBytes),
+                          macOrder ? arrayData(station.bytes)
+                                   : arrayData(ap.bytes),
+                          kMacAddressBytes);
+                bytesCopy(&elementAt(ordered, kPtkMacPairBytes),
+                          nonceOrder ? aNonce : sNonce, kNonceBytes);
+                bytesCopy(&elementAt(ordered, kPtkSecondNonceOffset),
+                          nonceOrder ? sNonce : aNonce, kNonceBytes);
+                constexpr uint8_t label[] = {
+                    'P', 'a', 'i', 'r', 'w', 'i', 's', 'e', ' ', 'k', 'e',
+                    'y', ' ', 'e', 'x', 'p', 'a', 'n', 's', 'i', 'o', 'n',
+                };
                 const uint8_t separator = 0;
-                for (uint8_t counter = 0; counter < 3; ++counter)
+                for (uint8_t counter = 0; counter < kPtkPrfBlocks; ++counter)
                 {
                     const Slice parts[] = {
                         {
-                            reinterpret_cast<const uint8_t *>(label),
-                            sizeof(label) - 1U,
+                            arrayData(label),
+                            sizeof(label),
                         },
                         {&separator, 1U},
-                        {ordered, sizeof(ordered)},
+                        {arrayData(ordered), sizeof(ordered)},
                         {&counter, 1U},
                     };
                     uint8_t digest[kShaDigest] {};
-                    hmacSha1Slices(pmk, 32, parts, 4, digest);
+                    hmacSha1Slices(pmk, kPmkLength, arrayData(parts),
+                                   kPtkSliceCount, arrayData(digest));
                     const size_t offset =
                         static_cast<size_t>(counter) * kShaDigest;
                     const size_t remaining = kPtkLength - offset;
-                    bytesCopy(ptk + offset, digest,
+                    bytesCopy(&elementAt(ptk, offset), arrayData(digest),
                               remaining < sizeof(digest) ? remaining
                                                          : sizeof(digest));
-                    wipe(digest, sizeof(digest));
+                    wipe(arrayData(digest), sizeof(digest));
                 }
-                bytesCopy(outputPtk, ptk, sizeof(ptk));
-                wipe(ptk, sizeof(ptk));
-                wipe(ordered, sizeof(ordered));
+                bytesCopy(outputPtk, arrayData(ptk), sizeof(ptk));
+                wipe(arrayData(ptk), sizeof(ptk));
+                wipe(arrayData(ordered), sizeof(ordered));
                 return Error::Ok;
             }
 
-            Error calculateMic(const uint8_t kck[16], const uint8_t *eapol,
-                               size_t frameBytes, uint8_t outputMic[16])
+            Error calculateMic(const uint8_t kck[kAesKeyBytes],
+                               const uint8_t *eapol, size_t frameBytes,
+                               uint8_t outputMic[kAesKeyBytes])
             {
                 if ((kck == nullptr) || (eapol == nullptr) ||
-                    (outputMic == nullptr) || frameBytes < 99U ||
-                    frameBytes > 2048U)
+                    (outputMic == nullptr) ||
+                    frameBytes < kMicMinimumEapolBytes ||
+                    frameBytes > kMicMaximumEapolBytes)
                 {
                     return Error::InvalidArgument;
                 }
                 // The output must not overwrite the KCK or signed input.
                 // In particular, returning a MIC in the key buffer would
                 // silently destroy the caller's live session secret.
-                if (!disjoint(outputMic, 16, kck, 16) ||
-                    !disjoint(outputMic, 16, eapol, frameBytes))
+                if (!disjoint(outputMic, kAesKeyBytes, kck, kAesKeyBytes) ||
+                    !disjoint(outputMic, kAesKeyBytes, eapol, frameBytes))
                 {
                     return Error::InvalidArgument;
                 }
                 const Slice input {eapol, frameBytes};
                 uint8_t digest[kShaDigest] {};
-                hmacSha1Slices(kck, 16, &input, 1, digest);
-                bytesCopy(outputMic, digest, 16);
-                wipe(digest, sizeof(digest));
+                hmacSha1Slices(kck, kAesKeyBytes, &input, 1U,
+                               arrayData(digest));
+                bytesCopy(outputMic, arrayData(digest), kAesKeyBytes);
+                wipe(arrayData(digest), sizeof(digest));
                 return Error::Ok;
             }
 
-            Error unwrapKey(const uint8_t kek[16], const uint8_t *wrapped,
-                            size_t wrappedBytes, uint8_t *output,
-                            size_t outputCapacity, size_t &outputBytes)
+            Error unwrapKey(const uint8_t kek[kAesKeyBytes],
+                            const uint8_t *wrapped, size_t wrappedBytes,
+                            uint8_t *output, size_t outputCapacity,
+                            size_t &outputBytes)
             {
                 // outputBytes is a writable reference and could be forged to
                 // refer into the KEK, wrapped ciphertext or plaintext output.
                 // Reject such aliases BEFORE clearing it, so invalid calls
                 // cannot mutate the key or the packet being authenticated.
                 const auto *countBytes =
-                    reinterpret_cast<const uint8_t *>(&outputBytes);
+                    static_cast<const void *>(&outputBytes);
                 if (((kek != nullptr) &&
-                     !disjoint(countBytes, sizeof(outputBytes), kek, 16)) ||
+                     !disjoint(countBytes, sizeof(outputBytes), kek,
+                               kAesKeyBytes)) ||
                     ((wrapped != nullptr) &&
                      !disjoint(countBytes, sizeof(outputBytes), wrapped,
                                wrappedBytes)) ||
@@ -562,66 +744,76 @@ namespace simpleath
                 {
                     return Error::InvalidArgument;
                 }
-                if (wrappedBytes < 24 || wrappedBytes > kMaximumKeyData ||
-                    wrappedBytes % 8U != 0)
+                if (wrappedBytes < kWrapMinimumCipherBytes ||
+                    wrappedBytes > kMaximumKeyData ||
+                    wrappedBytes % kWrapUnitBytes != 0)
                 {
                     return Error::BadWrappedLength;
                 }
-                const size_t plainBytes = wrappedBytes - 8U;
+                const size_t plainBytes = wrappedBytes - kWrapUnitBytes;
                 if (outputCapacity < plainBytes)
                 {
                     return Error::BufferTooSmall;
                 }
-                if (!disjoint(kek, 16, output, plainBytes) ||
+                if (!disjoint(kek, kAesKeyBytes, output, plainBytes) ||
                     !disjoint(wrapped, wrappedBytes, output, plainBytes))
                 {
                     return Error::InvalidArgument;
                 }
-                uint8_t expanded[176] {};
-                expandAes128(kek, expanded);
-                uint8_t a[8] {};
-                bytesCopy(a, wrapped, 8);
+                uint8_t expanded[kAesExpandedBytes] {};
+                expandAes128(kek, arrayData(expanded));
+                uint8_t a[kWrapUnitBytes] {};
+                bytesCopy(arrayData(a), wrapped, kWrapUnitBytes);
                 uint8_t result[kMaximumKeyData] {};
-                bytesCopy(result, wrapped + 8, plainBytes);
-                const size_t n = plainBytes / 8U;
-                for (int j = 5; j >= 0; --j)
+                bytesCopy(arrayData(result), &byteAt(wrapped, kWrapUnitBytes),
+                          plainBytes);
+                const size_t n = plainBytes / kWrapUnitBytes;
+                for (int j = kWrapLastInverseRound; j >= 0; --j)
                 {
                     for (size_t i = n; i > 0; --i)
                     {
-                        uint8_t encrypted[16] {};
-                        uint8_t decrypted[16] {};
-                        bytesCopy(encrypted, a, 8);
+                        uint8_t encrypted[kAesBlockBytes] {};
+                        uint8_t decrypted[kAesBlockBytes] {};
+                        bytesCopy(arrayData(encrypted), arrayData(a),
+                                  kWrapUnitBytes);
                         const uint64_t t = (static_cast<uint64_t>(n) *
                                             static_cast<uint64_t>(j)) +
                                            i;
-                        for (size_t index = 0; index < 8; ++index)
+                        for (size_t index = 0; index < kWrapUnitBytes; ++index)
                         {
-                            encrypted[7U - index] ^=
-                                static_cast<uint8_t>(t >> (8U * index));
+                            elementAt(encrypted, kWrapUnitBytes - 1U - index) ^=
+                                static_cast<uint8_t>(t >> (kByteBits * index));
                         }
-                        bytesCopy(encrypted + 8, result + ((i - 1U) * 8U), 8);
-                        aes128DecryptBlock(expanded, encrypted, decrypted);
-                        bytesCopy(a, decrypted, 8);
-                        bytesCopy(result + ((i - 1U) * 8U), decrypted + 8, 8);
-                        wipe(encrypted, sizeof(encrypted));
-                        wipe(decrypted, sizeof(decrypted));
+                        bytesCopy(&elementAt(encrypted, kWrapUnitBytes),
+                                  &elementAt(result, (i - 1U) * kWrapUnitBytes),
+                                  kWrapUnitBytes);
+                        aes128DecryptBlock(
+                            {arrayData(expanded), arrayData(encrypted)},
+                            arrayData(decrypted));
+                        bytesCopy(arrayData(a), arrayData(decrypted),
+                                  kWrapUnitBytes);
+                        bytesCopy(&elementAt(result, (i - 1U) * kWrapUnitBytes),
+                                  &elementAt(decrypted, kWrapUnitBytes),
+                                  kWrapUnitBytes);
+                        wipe(arrayData(encrypted), sizeof(encrypted));
+                        wipe(arrayData(decrypted), sizeof(decrypted));
                     }
                 }
                 uint8_t mismatch = 0;
-                for (unsigned char i : a)
+                for (const unsigned char i : a)
                 {
-                    mismatch |= static_cast<uint8_t>(i ^ 0xa6U);
+                    mismatch |= static_cast<uint8_t>(i ^ kWrapIntegrityByte);
                 }
-                wipe(a, sizeof(a));
-                wipe(expanded, sizeof(expanded));
+                wipe(arrayData(a), sizeof(a));
+                wipe(arrayData(expanded), sizeof(expanded));
                 if (mismatch != 0)
                 {
-                    wipe(result, sizeof(result));
+                    wipe(arrayData(result), sizeof(result));
                     return Error::KeyWrapIntegrityError;
                 }
-                bytesCopy(output, result, plainBytes);
+                bytesCopy(output, arrayData(result), plainBytes);
                 outputBytes = plainBytes;
-                wipe(result, sizeof(result));
+                wipe(arrayData(result), sizeof(result));
                 return Error::Ok;
             }
 
