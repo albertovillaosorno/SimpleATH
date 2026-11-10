@@ -23,13 +23,13 @@ namespace simpleath
         MappingFailed,
         CoreRejected,
         ProviderUnavailable,
-        DecodeRestoreFailed
+        DecodeRestoreFailed,
     };
 
     enum class ProviderAccess : uint8_t
     {
         Available,
-        Unavailable
+        Unavailable,
     };
 
     // Contract for a future verified IOPCIFamily or PCIDriverKit adapter.
@@ -96,6 +96,8 @@ namespace simpleath
             ~PciReadOnlySession();
             PciReadOnlySession(const PciReadOnlySession &) = delete;
             PciReadOnlySession &operator=(const PciReadOnlySession &) = delete;
+            PciReadOnlySession(PciReadOnlySession &&) = delete;
+            PciReadOnlySession &operator=(PciReadOnlySession &&) = delete;
             PciSessionResult start(const PciSessionBackend &backend);
             // On core inspection failure, immediately revoke callbacks,
             // unmap, and conservatively restore memory decode if possible.

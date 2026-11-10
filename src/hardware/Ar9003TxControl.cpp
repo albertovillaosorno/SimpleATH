@@ -103,7 +103,7 @@ namespace simpleath
             uint32_t mappedPayloadBytes = 0;
             for (size_t slot = 0; slot < 4; ++slot)
             {
-                mappedPayloadBytes += descriptor.word[3U + 2U * slot] >> 16U;
+                mappedPayloadBytes += descriptor.word[3U + (2U * slot)] >> 16U;
             }
             const uint32_t payloadBytes =
                 static_cast<uint32_t>(request.onAirFrameLength) -
@@ -256,7 +256,7 @@ namespace simpleath
                 }
 
                 tries |= static_cast<uint32_t>(series.attempts)
-                         << (16U + 4U * i);
+                         << (16U + (4U * i));
                 rates |= static_cast<uint32_t>(series.rateCode) << (8U * i);
                 const uint32_t durationSlot =
                     (static_cast<uint32_t>(series.rtsCtsDuration) |
@@ -268,10 +268,10 @@ namespace simpleath
                 }
                 if (series.shortGuardInterval)
                 {
-                    rateFlags |= 1U << (5U * i + 1U);
+                    rateFlags |= 1U << ((5U * i) + 1U);
                 }
                 rateFlags |= static_cast<uint32_t>(series.antennaChainMask)
-                             << (5U * i + 2U);
+                             << ((5U * i) + 2U);
                 if (series.stbc)
                 {
                     rateFlags |= 1U << (28U + i);

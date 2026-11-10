@@ -170,6 +170,8 @@ namespace simpleath
             ~NvmBoardLease();
             NvmBoardLease(const NvmBoardLease &) = delete;
             NvmBoardLease &operator=(const NvmBoardLease &) = delete;
+            NvmBoardLease(NvmBoardLease &&) = delete;
+            NvmBoardLease &operator=(NvmBoardLease &&) = delete;
             NvmDiscoveryResult acquire(const NvmReadBackend &backend,
                                        const Identity &physicalIdentity,
                                        uint64_t ownerEpoch, uint8_t *storage,
@@ -182,10 +184,10 @@ namespace simpleath
         private:
             void eraseBoard();
             NvmBoardSelection board_;
-            uint64_t activeEpoch_;
-            uint64_t lastEpoch_;
-            bool acquiring_;
-            bool revoked_;
+            uint64_t activeEpoch_ {0};
+            uint64_t lastEpoch_ {0};
+            bool acquiring_ {false};
+            bool revoked_ {false};
     };
 
 } // namespace simpleath

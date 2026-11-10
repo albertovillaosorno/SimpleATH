@@ -49,7 +49,7 @@ namespace simpleath
 
         uint16_t frequency(uint8_t bin)
         {
-            return static_cast<uint16_t>(2300u + bin);
+            return static_cast<uint16_t>(2300U + bin);
         }
 
         // Layout offsets come from packed ar9300_eeprom, not a native structure
@@ -72,16 +72,25 @@ namespace simpleath
                 // malformed 5 GHz or zero bin must not become an implicit
                 // extrapolation endpoint for a 2.4 GHz power budget.
                 if (ended || bin < 112 || bin > 184 ||
-                    (pier && bin <= bytes[binsOffset + pier - 1]))
+                    ((pier != 0U) && bin <= bytes[binsOffset + pier - 1]))
+                {
                     return PowerResult::InvalidCurve;
+                }
                 for (size_t rate = 0; rate < rates; ++rate)
-                    if (bytes[powerOffset + pier * rates + rate] > 63)
+                {
+                    if (bytes[powerOffset + (pier * rates) + rate] > 63)
+                    {
                         return PowerResult::InvalidCurve;
+                    }
+                }
                 ++count;
             }
-            if (!count)
+            if (count == 0U)
+            {
                 return PowerResult::InvalidCurve;
-            size_t low = 0, high = 0;
+            }
+            size_t low = 0;
+            size_t high = 0;
             if (mhz >= frequency(bytes[binsOffset + count - 1]))
             {
                 low = high = count - 1;
@@ -89,29 +98,36 @@ namespace simpleath
             else if (mhz > frequency(bytes[binsOffset]))
             {
                 for (high = 1; high < count; ++high)
+                {
                     if (mhz <= frequency(bytes[binsOffset + high]))
+                    {
                         break;
+                    }
+                }
                 low = high - 1;
             }
             for (size_t rate = 0; rate < rates; ++rate)
             {
-                const int32_t y0 = bytes[powerOffset + low * rates + rate];
+                const int32_t y0 = bytes[powerOffset + (low * rates) + rate];
                 int32_t value = y0;
                 if (high != low)
                 {
                     const int32_t x0 = frequency(bytes[binsOffset + low]);
                     const int32_t x1 = frequency(bytes[binsOffset + high]);
-                    const int32_t y1 = bytes[powerOffset + high * rates + rate];
+                    const int32_t y1 =
+                        bytes[powerOffset + (high * rates) + rate];
                     // Preserve ath9k interpolate(): signed division truncates
                     // toward zero; factor/2 + factor%2 handles positive and
                     // negative slopes.
                     const int32_t factor = 2 * (y1 - y0) *
                                            (static_cast<int32_t>(mhz) - x0) /
                                            (x1 - x0);
-                    value += factor / 2 + factor % 2;
+                    value += (factor / 2) + (factor % 2);
                 }
                 if (value < 0 || value > 63)
+                {
                     return PowerResult::InvalidCurve;
+                }
                 out[rate] = static_cast<uint8_t>(value);
             }
             return PowerResult::Ok;
@@ -120,8 +136,8 @@ namespace simpleath
         PowerResult edgeLimit(const uint8_t *bytes, size_t row, uint16_t mhz,
                               uint8_t &out)
         {
-            const uint8_t *bins = bytes + 322 + row * 4;
-            const uint8_t *edges = bytes + 370 + row * 4;
+            const uint8_t *bins = bytes + 322 + (row * 4);
+            const uint8_t *edges = bytes + 370 + (row * 4);
             size_t count = 0;
             bool ended = false;
             for (size_t i = 0; i < 4; ++i)
@@ -138,25 +154,29 @@ namespace simpleath
                 // Zero/0xff padding is handled above. All live CTL edges
                 // must be in the 2.4 GHz bin range, not a different band.
                 if (ended || bins[i] < 112 || bins[i] > 184 ||
-                    (i && bins[i] <= bins[i - 1]))
+                    ((i != 0U) && bins[i] <= bins[i - 1]))
+                {
                     return PowerResult::InvalidCtlEdges;
+                }
                 ++count;
             }
-            if (!count)
+            if (count == 0U)
+            {
                 return PowerResult::MissingCtlCoverage;
+            }
             for (size_t i = 0; i < count; ++i)
             {
                 if (mhz == frequency(bins[i]))
                 {
-                    out = edges[i] & 0x3fu;
+                    out = edges[i] & 0x3fU;
                     return PowerResult::Ok;
                 }
-                if (i && mhz < frequency(bins[i]))
+                if ((i != 0U) && mhz < frequency(bins[i]))
                 {
                     if (mhz > frequency(bins[i - 1]) &&
                         (edges[i - 1] >> 6) != 0)
                     {
-                        out = edges[i - 1] & 0x3fu;
+                        out = edges[i - 1] & 0x3fU;
                         return PowerResult::Ok;
                     }
                     break;
@@ -179,29 +199,41 @@ namespace simpleath
             for (size_t row = 0; row < 12; ++row)
             {
                 if (bytes[310 + row] == 0)
+                {
                     terminated = true;
+                }
                 else if (terminated)
+                {
                     return PowerResult::InvalidCtlIndexes;
+                }
             }
             bool found = false;
             uint8_t selected = 63;
-            for (size_t row = 0; row < 12 && bytes[310 + row]; ++row)
+            for (size_t row = 0; row < 12 && (bytes[310 + row] != 0U); ++row)
             {
                 const uint8_t index = bytes[310 + row];
-                if ((index & 0x0fu) != mode ||
-                    (group != 0xe0 && (index & 0xf0u) != group))
+                if ((index & 0x0fU) != mode ||
+                    (group != 0xe0 && (index & 0xf0U) != group))
+                {
                     continue;
+                }
                 uint8_t limit = 0;
                 const PowerResult result = edgeLimit(bytes, row, mhz, limit);
                 if (result != PowerResult::Ok)
+                {
                     return result;
+                }
                 found = true;
                 selected = minimum(selected, limit);
                 if (group != 0xe0)
+                {
                     break; // Same first-specific-entry order as ath9k.
+                }
             }
             if (!found)
+            {
                 return PowerResult::MissingCtl;
+            }
             out = selected;
             return PowerResult::Ok;
         }
@@ -213,10 +245,14 @@ namespace simpleath
             uint8_t edge = 0;
             const PowerResult result = ctlLimit(bytes, group, mode, mhz, edge);
             if (result != PowerResult::Ok)
+            {
                 return result;
+            }
             const uint8_t cap = minimum(edge, ceiling);
             for (size_t rate = 0; rate < count; ++rate)
+            {
                 powers[rate] = minimum(powers[rate], cap);
+            }
             return PowerResult::Ok;
         }
     } // namespace
@@ -231,11 +267,15 @@ namespace simpleath
         if (overlaps(&out, sizeof(out), &image, sizeof(image)) ||
             overlaps(&out, sizeof(out), &channel, sizeof(channel)) ||
             overlaps(&out, sizeof(out), &ceilings, sizeof(ceilings)))
+        {
             return PowerResult::InvalidArgument;
+        }
         out = {};
         BoardDataSummary board {};
         if (summarizeBoardData(image, board) != EepromResult::Ok)
+        {
             return PowerResult::InvalidBoard;
+        }
         // Use the same structural identity, calibration-pier and supported
         // gain-index gate as discovery's gain selection. Otherwise a caller
         // can compute plausible power limits from the pinned generic template
@@ -244,28 +284,40 @@ namespace simpleath
         TxGainProfile txGain = TxGainProfile::Unknown;
         RxGainProfile rxGain = RxGainProfile::Unknown;
         if (selectBoardGainProfiles(board, txGain, rxGain) != EepromResult::Ok)
+        {
             return PowerResult::InvalidBoard;
-        if ((ceilings.ctlGroup & 0x0fu) || ceilings.ctlGroup == 0xf0)
+        }
+        if (((ceilings.ctlGroup & 0x0fU) != 0U) || ceilings.ctlGroup == 0xf0)
+        {
             return PowerResult::InvalidCtlGroup;
-        Channel primary {}, secondary {};
+        }
+        Channel primary {};
+        Channel secondary {};
         if (mapChannel(channel.primary, primary) != Result::Ok)
+        {
             return PowerResult::InvalidChannel;
+        }
         PowerCandidates candidate {};
         candidate.controlMhz = primary.centerMhz;
         candidate.synthMhz = primary.centerMhz;
         candidate.legacyOnlyChannel14 = channel.primary == 14;
-        candidate.ht20Present =
-            !candidate.legacyOnlyChannel14 && !(board.operationFlags & 0x20u);
-        if (channel.secondary)
+        candidate.ht20Present = !candidate.legacyOnlyChannel14 &&
+                                ((board.operationFlags & 0x20U) == 0U);
+        if (channel.secondary != 0U)
         {
             if (channel.primary == 14 || channel.secondary == 14 ||
-                !candidate.ht20Present || (board.operationFlags & 0x08u) ||
+                !candidate.ht20Present ||
+                ((board.operationFlags & 0x08U) != 0U) ||
                 mapChannel(channel.secondary, secondary) != Result::Ok)
+            {
                 return PowerResult::InvalidChannel;
+            }
             const int32_t difference =
                 static_cast<int32_t>(secondary.centerMhz) - primary.centerMhz;
             if (difference != 20 && difference != -20)
+            {
                 return PowerResult::InvalidChannel;
+            }
             candidate.extensionMhz = secondary.centerMhz;
             candidate.synthMhz = static_cast<uint16_t>(
                 (primary.centerMhz + secondary.centerMhz) / 2);
@@ -282,39 +334,55 @@ namespace simpleath
                           ? ceilings.conductedHalfDbm
                           : eirpConducted;
         if (cap < 0)
+        {
             return PowerResult::UnsupportedPowerLimit;
+        }
         if (cap > 63)
+        {
             cap = 63;
+        }
         candidate.conductedCeilingHalfDbm = static_cast<uint8_t>(cap);
         const uint8_t *bytes = image.bytes;
         PowerResult result =
             targets(bytes, 195, 206, 2, 4, candidate.controlMhz, candidate.cck);
         if (result == PowerResult::Ok)
+        {
             result = clamp(bytes, ceilings.ctlGroup, 1, candidate.controlMhz,
                            static_cast<uint8_t>(cap), candidate.cck, 4);
+        }
         if (result != PowerResult::Ok)
+        {
             return result;
+        }
         if (!candidate.legacyOnlyChannel14)
         {
             result = targets(bytes, 197, 214, 3, 4, candidate.controlMhz,
                              candidate.ofdm);
             if (result == PowerResult::Ok)
+            {
                 result =
                     clamp(bytes, ceilings.ctlGroup, 2, candidate.controlMhz,
                           static_cast<uint8_t>(cap), candidate.ofdm, 4);
+            }
             if (result != PowerResult::Ok)
+            {
                 return result;
+            }
         }
         if (candidate.ht20Present)
         {
             result = targets(bytes, 200, 226, 3, kHtTargetPowerGroups,
                              candidate.controlMhz, candidate.ht20);
             if (result == PowerResult::Ok)
+            {
                 result = clamp(bytes, ceilings.ctlGroup, 5,
                                candidate.controlMhz, static_cast<uint8_t>(cap),
                                candidate.ht20, kHtTargetPowerGroups);
+            }
             if (result != PowerResult::Ok)
+            {
                 return result;
+            }
         }
         if (candidate.ht40Present)
         {
@@ -324,11 +392,15 @@ namespace simpleath
             result = targets(bytes, 203, 268, 3, kHtTargetPowerGroups,
                              candidate.controlMhz, candidate.ht40);
             if (result == PowerResult::Ok)
+            {
                 result = clamp(bytes, ceilings.ctlGroup, 7, candidate.synthMhz,
                                static_cast<uint8_t>(cap), candidate.ht40,
                                kHtTargetPowerGroups);
+            }
             if (result != PowerResult::Ok)
+            {
                 return result;
+            }
         }
         out = candidate;
         return PowerResult::Ok;
@@ -339,7 +411,9 @@ namespace simpleath
                                       uint8_t &halfDbm)
     {
         if (overlaps(&halfDbm, sizeof(halfDbm), &candidate, sizeof(candidate)))
+        {
             return PowerResult::InvalidArgument;
+        }
         halfDbm = 0;
         // Require a populated, geometrically valid candidate, not a default
         // object.
@@ -348,13 +422,17 @@ namespace simpleath
              (candidate.controlMhz < 2412 || candidate.controlMhz > 2472 ||
               (candidate.controlMhz - 2407) % 5 != 0)) ||
             candidate.legacyOnlyChannel14 != channel14)
+        {
             return PowerResult::InvalidChannel;
+        }
         // This selector is public: callers can supply arbitrary candidate
         // structs. A set HT40 flag is not proof of a valid extension channel.
         // Check the geometry that calculatePowerCandidates would produce.
         if (candidate.conductedCeilingHalfDbm > 63 ||
             (channel14 && candidate.ht20Present))
+        {
             return PowerResult::InvalidCurve;
+        }
         if (candidate.ht40Present)
         {
             const int32_t delta = static_cast<int32_t>(candidate.extensionMhz) -
@@ -362,11 +440,13 @@ namespace simpleath
             if (!candidate.ht20Present || channel14 ||
                 candidate.extensionMhz < 2412 ||
                 candidate.extensionMhz > 2472 ||
-                (candidate.extensionMhz - 2407u) % 5u != 0 ||
+                (candidate.extensionMhz - 2407U) % 5U != 0 ||
                 (delta != 20 && delta != -20) ||
                 candidate.synthMhz !=
-                    (candidate.controlMhz + candidate.extensionMhz) / 2u)
+                    (candidate.controlMhz + candidate.extensionMhz) / 2U)
+            {
                 return PowerResult::InvalidChannel;
+            }
         }
         else if (candidate.extensionMhz != 0 ||
                  candidate.synthMhz != candidate.controlMhz)
@@ -374,23 +454,31 @@ namespace simpleath
             return PowerResult::InvalidChannel;
         }
         if (ht40 && !candidate.ht40Present)
+        {
             return PowerResult::InvalidChannel;
+        }
         uint8_t selected = 0;
         if (rateCode >= 0x80 && rateCode <= 0x87 &&
             !candidate.legacyOnlyChannel14)
         {
             if (!ht40 && !candidate.ht20Present)
+            {
                 return PowerResult::UnsupportedRate;
-            const uint8_t mcs = rateCode & 7u;
-            const size_t index = mcs <= 3 ? (mcs ? 1 : 0) : mcs - 2;
+            }
+            const uint8_t mcs = rateCode & 7U;
+            const size_t index = mcs <= 3 ? ((mcs != 0U) ? 1 : 0) : mcs - 2;
             selected = (ht40 ? candidate.ht40 : candidate.ht20)[index];
             if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+            {
                 return PowerResult::InvalidCurve;
+            }
             halfDbm = selected;
             return PowerResult::Ok;
         }
         if (ht40)
+        {
             return PowerResult::UnsupportedRate;
+        }
         switch (rateCode)
         {
             case 0x1b: // 1 Mbps, long preamble.
@@ -411,7 +499,9 @@ namespace simpleath
                 break;
             default:
                 if (candidate.legacyOnlyChannel14)
+                {
                     return PowerResult::UnsupportedRate;
+                }
                 switch (rateCode)
                 {
                     case 0x0b:
@@ -435,7 +525,9 @@ namespace simpleath
                 }
         }
         if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+        {
             return PowerResult::InvalidCurve;
+        }
         halfDbm = selected;
         return PowerResult::Ok;
     }

@@ -225,7 +225,7 @@ namespace simpleath
             RegisterBus bus_;
             // Detach invalidates even a callback that reattaches an identical
             // function/context before an outstanding read returns.
-            uint64_t busEpoch_;
+            uint64_t busEpoch_ {0};
     };
 
 } // namespace simpleath

@@ -147,10 +147,10 @@ namespace simpleath
 
             private:
                 bool matches(const TxSlotToken &token) const;
-                RingSlot slots_[kMaximumSlots];
-                size_t capacity_;
-                size_t active_;
-                uint32_t generation_;
+                RingSlot slots_[kMaximumSlots] {};
+                size_t capacity_ {0};
+                size_t active_ {0};
+                uint32_t generation_ {0};
         };
 
         struct RxSlotToken
@@ -212,10 +212,10 @@ namespace simpleath
                 bool matches(const RxSlotToken &token) const;
                 // Each caller has already checked index < capacity_.
                 RingSlot &mutableSlot(size_t index);
-                RingSlot slots_[kMaximumSlots];
-                size_t capacity_;
-                size_t active_;
-                uint32_t generation_;
+                RingSlot slots_[kMaximumSlots] {};
+                size_t capacity_ {0};
+                size_t active_ {0};
+                uint32_t generation_ {0};
         };
 
     } // namespace dma

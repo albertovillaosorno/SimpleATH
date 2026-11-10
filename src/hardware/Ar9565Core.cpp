@@ -162,7 +162,7 @@ namespace simpleath
         for (size_t index = 0; index < 3; ++index)
         {
             candidate[index * 2] = static_cast<uint8_t>(words[index] >> 8U);
-            candidate[index * 2 + 1] =
+            candidate[(index * 2) + 1] =
                 static_cast<uint8_t>(words[index] & kMaxMacOctetValue);
         }
         if (!validatePermanentMac(candidate))
@@ -221,7 +221,7 @@ namespace simpleath
         return plan;
     }
 
-    Device::Device() : status_ {}, bus_ {}, busEpoch_(0)
+    Device::Device() : status_ {}, bus_ {}
     {
         status_.stage = Stage::Detached;
         status_.lastResult = Result::Ok;

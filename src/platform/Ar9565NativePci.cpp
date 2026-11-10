@@ -138,7 +138,7 @@ namespace simpleath
                                         uint32_t *value)
     {
         auto &self = *static_cast<NativePciBackend *>(context);
-        if (!value || (offset & 3u) || offset > 0xfcu ||
+        if (!value || (offset & 3U) || offset > 0xfcU ||
             overlapsStorage(value, sizeof(*value), &self, sizeof(self)) ||
             overlapsStorage(value, sizeof(*value), self.power_.context, 1) ||
             (self.bar_ && overlapsStorage(value, sizeof(*value),
@@ -148,7 +148,7 @@ namespace simpleath
             !inD0(context))
             return false;
         const uint32_t observed = self.pci_->extendedConfigRead32(offset);
-        if (observed == 0xffffffffu)
+        if (observed == 0xffffffffU)
             return false;
         *value = observed;
         return true;
@@ -157,8 +157,8 @@ namespace simpleath
     bool NativePciBackend::commandWrite16(void *context, uint16_t value)
     {
         uint32_t current = 0;
-        if ((value & 0x0004u) || !configRead32(context, 0x04, &current) ||
-            ((static_cast<uint16_t>(current) ^ value) & ~0x0002u) ||
+        if ((value & 0x0004U) || !configRead32(context, 0x04, &current) ||
+            ((static_cast<uint16_t>(current) ^ value) & ~0x0002U) ||
             !inD0(context))
             return false;
         auto &self = *static_cast<NativePciBackend *>(context);
@@ -187,15 +187,15 @@ namespace simpleath
             return false;
         uint32_t command = 0, bar = 0, upper = 0;
         if (!configRead32(context, 0x04, &command) ||
-            (command & 0x0006u) != 0x0002u ||
-            !configRead32(context, 0x10, &bar) || (bar & 0x09u))
+            (command & 0x0006U) != 0x0002U ||
+            !configRead32(context, 0x10, &bar) || (bar & 0x09U))
             return false;
-        const uint32_t kind = (bar >> 1) & 3u;
+        const uint32_t kind = (bar >> 1) & 3U;
         if (kind != 0 && kind != 2)
             return false;
         if (kind == 2 && !configRead32(context, 0x14, &upper))
             return false;
-        if (!(bar & 0xfffffff0u) && !upper)
+        if (!(bar & 0xfffffff0U) && !upper)
             return false;
         // Map the PCI family's assigned BAR by CONFIG REGISTER, never array
         // index, raw physical address, an injected registry value, or
@@ -209,7 +209,7 @@ namespace simpleath
         // The provider supplies a virtual address and length separately.
         // Reject a wrapping window before publishing it or later deriving
         // a register pointer by adding an offset to the mapped base.
-        if (!inD0(context) || !address || (address & 3u) ||
+        if (!inD0(context) || !address || (address & 3U) ||
             length < kRtcStatusRegister + sizeof(uint32_t) ||
             length > UINT32_MAX || length > UINTPTR_MAX - address)
         {
@@ -252,7 +252,7 @@ namespace simpleath
         const auto address = self.bar_->getVirtualAddress();
         // A mapping invalidated or unexpectedly changed after publication
         // must never wrap the address calculation in OSReadLittleInt32.
-        if (!address || (address & 3u) || self.length_ > UINTPTR_MAX - address)
+        if (!address || (address & 3U) || self.length_ > UINTPTR_MAX - address)
             return false;
         // The pinned SDK's OSSynchronizeIO is empty on Intel. Use Clang's full
         // hardware/compiler fence around the volatile little-endian MMIO load.
@@ -262,7 +262,7 @@ namespace simpleath
                                   static_cast<uintptr_t>(address)),
                               offset);
         __sync_synchronize();
-        if (observed == 0xffffffffu)
+        if (observed == 0xffffffffU)
             return false;
         *value = observed;
         return true;

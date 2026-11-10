@@ -147,7 +147,7 @@ def _emit_mode(
         f"static const RegisterValue {symbol}[] __attribute__((unused)) = {{"
     ]
     lines.extend(
-        f"    {{0x{row[0]:08x}u, 0x{row[selected]:08x}u}}," for row in rows
+        f"    {{0x{row[0]:08x}U, 0x{row[selected]:08x}U}}," for row in rows
     )
     contents = f"{{{symbol}, sizeof({symbol}) / sizeof({symbol}[0])}};"
     declaration = (

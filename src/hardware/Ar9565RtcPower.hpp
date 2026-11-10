@@ -27,7 +27,7 @@ namespace simpleath
         BootstrapPowerOn,
         EnsureAwake,
         WarmReset,
-        ColdReset
+        ColdReset,
     };
     enum class RtcResult : uint8_t
     {
@@ -46,7 +46,7 @@ namespace simpleath
         OperationTimeout,
         ResetTimeout,
         WakeTimeout,
-        CoexistenceUnavailable
+        CoexistenceUnavailable,
     };
 
     // ACTIVE access, never the passive RegisterBus. The controller supplies

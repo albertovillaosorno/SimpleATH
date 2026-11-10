@@ -63,14 +63,20 @@ namespace simpleath
                     // call, including wait timestamps, requires a fresh D0
                     // preflight rather than relying on the previous MMIO read.
                     if (!backend_.ownerInD0(backend_.context))
+                    {
                         return NvmResult::SessionUnavailable;
+                    }
                     now = backend_.nowMicros(backend_.context);
                     // The clock callback itself may revoke the same owner.
                     // Fail before any next read32/delay through that context.
                     if (!backend_.ownerInD0(backend_.context))
+                    {
                         return NvmResult::SessionUnavailable;
+                    }
                     if (now < lastMicros_)
+                    {
                         return NvmResult::InvalidClock;
+                    }
                     lastMicros_ = now;
                     return NvmResult::Ok;
                 }
@@ -80,7 +86,9 @@ namespace simpleath
                     uint64_t now = 0;
                     const NvmResult result = clock(now);
                     if (result != NvmResult::Ok)
+                    {
                         return result;
+                    }
                     return now - started_ >= kCaptureMicros
                                ? NvmResult::CaptureTimeout
                                : NvmResult::Ok;
@@ -90,14 +98,21 @@ namespace simpleath
                 {
                     NvmResult result = budget();
                     if (result != NvmResult::Ok)
+                    {
                         return result;
-                    if ((offset & 3u) || offset > backend_.barLengthBytes ||
+                    }
+                    if (((offset & 3U) != 0U) ||
+                        offset > backend_.barLengthBytes ||
                         backend_.barLengthBytes - offset < 4)
+                    {
                         return NvmResult::InvalidRegister;
+                    }
                     status_.lastRegister = offset;
                     status_.lastValue = 0;
                     if (!backend_.read32(backend_.context, offset, &value))
+                    {
                         return NvmResult::RegisterReadFailed;
+                    }
                     status_.lastValue = value;
                     return budget();
                 }
@@ -108,41 +123,63 @@ namespace simpleath
                     uint64_t wordStarted = 0;
                     NvmResult result = clock(wordStarted);
                     if (result != NvmResult::Ok)
+                    {
                         return result;
+                    }
                     for (uint32_t i = 0; i <= timeoutMicros / kPollMicros; ++i)
                     {
                         if (status_.polls >= kMaximumPolls)
+                        {
                             return NvmResult::CaptureTimeout;
+                        }
                         ++status_.polls;
                         result = read(reg, value);
                         if (result != NvmResult::Ok)
+                        {
                             return result;
-                        if (value == 0xffffffffu)
+                        }
+                        if (value == 0xffffffffU)
+                        {
                             return NvmResult::RegisterReadFailed;
+                        }
                         uint64_t now = 0;
                         result = clock(now);
                         if (result != NvmResult::Ok)
+                        {
                             return result;
+                        }
                         if (reg == kEepromData)
                         {
-                            if (value & kEepromAbsentAccess)
+                            if ((value & kEepromAbsentAccess) != 0U)
+                            {
                                 return NvmResult::StorageAbsent;
+                            }
                             // Protection is a terminal access fault, not a
                             // transient busy condition. Repeatedly polling a
                             // denied EEPROM word cannot make it readable.
-                            if (value & kEepromProtected)
+                            if ((value & kEepromProtected) != 0U)
+                            {
                                 return NvmResult::ProtectedAccess;
+                            }
                         }
                         if (now - wordStarted >= timeoutMicros)
+                        {
                             break;
+                        }
                         if ((value & mask) == expected)
+                        {
                             return NvmResult::Ok;
+                        }
                         if (i == timeoutMicros / kPollMicros)
+                        {
                             break;
+                        }
                         // The last clock callback may itself revoke D0. Do
                         // not issue a delay through its now-invalid context.
                         if (!backend_.ownerInD0(backend_.context))
+                        {
                             return NvmResult::SessionUnavailable;
+                        }
                         backend_.delayMicros(backend_.context, kPollMicros);
                     }
                     return NvmResult::WordTimeout;
@@ -160,7 +197,7 @@ namespace simpleath
         {
             const auto first = reinterpret_cast<uintptr_t>(a);
             const auto second = reinterpret_cast<uintptr_t>(b);
-            return aBytes && bBytes &&
+            return (aBytes != 0U) && (bBytes != 0U) &&
                    (first >= second ? first - second < bBytes
                                     : second - first < aBytes);
         }
@@ -168,7 +205,9 @@ namespace simpleath
         void clearBytes(uint8_t *destination, size_t length)
         {
             for (size_t i = 0; i < length; ++i)
+            {
                 destination[i] = 0;
+            }
         }
 
         // This preflight is shared by raw discovery and the epoch lease.
@@ -192,7 +231,8 @@ namespace simpleath
                 {&board, sizeof(board)},
                 {&status, sizeof(status)},
                 {&backend, sizeof(backend)},
-                {&physicalIdentity, sizeof(physicalIdentity)}};
+                {&physicalIdentity, sizeof(physicalIdentity)},
+            };
             for (size_t i = 0; i < sizeof(spans) / sizeof(spans[0]); ++i)
             {
                 // The provider may mutate its opaque context while polling.
@@ -201,13 +241,17 @@ namespace simpleath
                 // two inputs are not writable output buffers.
                 if (overlaps(spans[i].address, spans[i].bytes, backend.context,
                              1))
+                {
                     return false;
+                }
                 for (size_t j = i + 1; j < sizeof(spans) / sizeof(spans[0]);
                      ++j)
                 {
                     if (overlaps(spans[i].address, spans[i].bytes,
                                  spans[j].address, spans[j].bytes))
+                    {
                         return false;
+                    }
                 }
             }
             return true;
@@ -249,7 +293,9 @@ namespace simpleath
                      sizeof(borrowedBackend)) ||
             overlaps(borrowedBackend.context, 1, &borrowedIdentity,
                      sizeof(borrowedIdentity)))
+        {
             return NvmResult::InvalidArgument;
+        }
         // Preserve callback routing and progress independently of pointers a
         // callback might have retained to the caller-owned input/outputs.
         const NvmReadBackend backend = borrowedBackend;
@@ -280,46 +326,67 @@ namespace simpleath
         status = {};
         status.source = source;
         const size_t maximum = source == NvmSource::Eeprom ? 4096 : 1024;
-        if (!destination || byteCount == 0 || firstByte >= maximum ||
-            byteCount > maximum - firstByte ||
+        if ((destination == nullptr) || byteCount == 0 ||
+            firstByte >= maximum || byteCount > maximum - firstByte ||
             (source != NvmSource::Eeprom && source != NvmSource::Otp))
+        {
             return status.result = NvmResult::InvalidArgument;
+        }
         clearBytes(destination, byteCount);
-        if (!backend.context || !backend.ownerInD0 || !backend.read32 ||
-            !backend.nowMicros || !backend.delayMicros)
+        if ((backend.context == nullptr) || (backend.ownerInD0 == nullptr) ||
+            (backend.read32 == nullptr) || (backend.nowMicros == nullptr) ||
+            (backend.delayMicros == nullptr))
+        {
             return status.result = NvmResult::InvalidArgument;
+        }
         if (!isSupportedPci(physicalIdentity.vendorId,
                             physicalIdentity.deviceId) ||
             physicalIdentity.spoofPossible)
+        {
             return status.result = NvmResult::UnsupportedIdentity;
+        }
         // The monotonic clock can belong to the same revoked PCI owner as
         // MMIO. Do not invoke it during Capture construction before the first
         // ownership check. Capture::budget rechecks ownership before reads.
         if (!backend.ownerInD0(backend.context))
+        {
             return status.result = NvmResult::SessionUnavailable;
+        }
         Capture capture(backend, status);
         uint32_t value = 0;
         NvmResult result = capture.read(kRevisionRegister, value);
         if (result != NvmResult::Ok)
+        {
             return status.result = result;
+        }
         // A disconnected BAR can read as all ones. This is a transport fault,
         // not evidence that a different silicon revision was discovered.
-        if (value == 0xffffffffu)
+        if (value == 0xffffffffU)
+        {
             return status.result = NvmResult::RegisterReadFailed;
+        }
         if (decodeRevision(value, status.silicon) != Result::Ok)
+        {
             return status.result = NvmResult::UnsupportedSilicon;
+        }
         result = capture.read(kRtcStatusRegister, value);
         if (result != NvmResult::Ok)
+        {
             return status.result = result;
-        if (value == 0xffffffffu)
+        }
+        if (value == 0xffffffffU)
+        {
             return status.result = NvmResult::RegisterReadFailed;
+        }
         if ((value & kRtcStatusMask) != kRtcOn)
+        {
             return status.result = NvmResult::RadioAsleep;
+        }
 
         const uint32_t wordBytes = source == NvmSource::Eeprom ? 2 : 4;
         const size_t firstWord = firstByte / wordBytes;
         const size_t words =
-            (firstByte % wordBytes + byteCount + wordBytes - 1) / wordBytes;
+            ((firstByte % wordBytes) + byteCount + wordBytes - 1) / wordBytes;
         // Validate the entire requested MMIO span BEFORE a trigger read.
         const uint32_t lastTrigger =
             (source == NvmSource::Eeprom ? kEepromWindow : kOtpWindow) +
@@ -330,7 +397,9 @@ namespace simpleath
                 : kOtpData;
         if (lastRegister > backend.barLengthBytes ||
             backend.barLengthBytes - lastRegister < 4)
+        {
             return status.result = NvmResult::InvalidRegister;
+        }
         for (size_t word = 0; word < words; ++word)
         {
             const uint32_t trigger =
@@ -339,53 +408,75 @@ namespace simpleath
             result =
                 capture.read(trigger, value); // Starts the NVM transaction.
             if (result != NvmResult::Ok)
+            {
                 break;
+            }
             result =
                 source == NvmSource::Eeprom
                     ? capture.wait(kEepromData, kEepromBusy | kEepromProtected,
                                    0, 100000, value)
                     : capture.wait(kOtpStatus, 7, 4, 1000, value);
             if (result != NvmResult::Ok)
+            {
                 break;
+            }
             if (source == NvmSource::Eeprom)
             {
                 // ath_pci_eeprom_read performs a SECOND status/data read
                 // after the ready wait. The wait-loop sample is not payload.
                 result = capture.read(kEepromData, value);
                 if (result != NvmResult::Ok)
+                {
                     break;
-                if (value == 0xffffffffu)
+                }
+                if (value == 0xffffffffU)
+                {
                     result = NvmResult::RegisterReadFailed;
+                }
                 else if ((value & kEepromAbsentAccess) != 0)
+                {
                     result = NvmResult::StorageAbsent;
+                }
                 else if ((value & kEepromProtected) != 0)
+                {
                     result = NvmResult::ProtectedAccess;
+                }
                 else if ((value & (kEepromBusy | kEepromBusyAccess)) != 0)
+                {
                     // BUSY_ACCESS is separate from the upstream wait mask.
                     // Never accept a still-active second sample as data.
                     result = NvmResult::UnstableStatus;
+                }
                 if (result != NvmResult::Ok)
+                {
                     break;
+                }
             }
             else
             {
                 result = capture.read(kOtpData, value);
                 if (result != NvmResult::Ok)
+                {
                     break;
+                }
             }
             for (uint32_t byte = 0; byte < wordBytes; ++byte)
             {
-                const size_t absolute = (firstWord + word) * wordBytes + byte;
+                const size_t absolute = ((firstWord + word) * wordBytes) + byte;
                 if (absolute >= firstByte && absolute - firstByte < byteCount)
+                {
                     destination[status.bytesAcquired++] =
                         static_cast<uint8_t>(value >> (byte * 8));
+                }
             }
         }
         // The last post-read D0 gate can succeed before the provider is
         // revoked while these bytes are copied to the caller's buffer.
         // Recheck ownership before publishing even a direct raw capture.
         if (result == NvmResult::Ok && !backend.ownerInD0(backend.context))
+        {
             result = NvmResult::SessionUnavailable;
+        }
         if (result != NvmResult::Ok)
         {
             clearBytes(destination, byteCount);
@@ -418,7 +509,9 @@ namespace simpleath
         if (!discoveryInputsDisjoint(backend, physicalIdentity, storage,
                                      storageBytes, scratch, scratchBytes, board,
                                      status))
+        {
             return NvmDiscoveryResult::InvalidArgument;
+        }
         // Use one immutable owner/identity snapshot across both the header
         // probe and the selected full reconstruction capture.
         const NvmReadBackend stableBackend = backend;
@@ -427,9 +520,11 @@ namespace simpleath
         board.txGain = TxGainProfile::Unknown;
         board.rxGain = RxGainProfile::Unknown;
         status = {};
-        if (!storage || storageBytes < 4096 || !scratch ||
-            scratchBytes < kAr9565EepromScratchBytes)
+        if ((storage == nullptr) || storageBytes < 4096 ||
+            (scratch == nullptr) || scratchBytes < kAr9565EepromScratchBytes)
+        {
             return status.result = NvmDiscoveryResult::InvalidArgument;
+        }
 
         struct Candidate
         {
@@ -439,11 +534,11 @@ namespace simpleath
 
         // The reference search falls back to OTP only after EEPROM has no
         // usable header. Never infer an EEPROM's size from a BAR window.
-        constexpr Candidate candidates[] = {{NvmSource::Eeprom, 0x3ff},
-                                            {NvmSource::Eeprom, 0xfff},
-                                            {NvmSource::Eeprom, 0x1ff},
-                                            {NvmSource::Otp, 0x3ff},
-                                            {NvmSource::Otp, 0x1ff}};
+        constexpr Candidate candidates[] = {
+            {NvmSource::Eeprom, 0x3ff}, {NvmSource::Eeprom, 0xfff},
+            {NvmSource::Eeprom, 0x1ff}, {NvmSource::Otp, 0x3ff},
+            {NvmSource::Otp, 0x1ff},
+        };
         NvmDiscoveryResult outcome = NvmDiscoveryResult::NoValidImage;
         const EepromTemplates templates = pinnedEepromTemplates();
         for (const auto &candidate : candidates)
@@ -461,20 +556,25 @@ namespace simpleath
                              length - sizeof(header), header, sizeof(header),
                              status.lastCapture);
             if (probeResult == NvmResult::StorageAbsent)
+            {
                 continue;
+            }
             if (probeResult != NvmResult::Ok)
             {
                 outcome = NvmDiscoveryResult::CaptureFailed;
                 break;
             }
-            bool empty = true, erased = true;
+            bool empty = true;
+            bool erased = true;
             for (const uint8_t byte : header)
             {
                 empty = empty && byte == 0;
                 erased = erased && byte == 0xff;
             }
             if (empty || erased)
+            {
                 continue;
+            }
             const uint32_t probedSrev = status.lastCapture.silicon.rawSrev;
             // A second bounded capture gathers the entire chosen storage
             // chain. StorageAbsent here is a fatal mid-transaction fault.
@@ -497,9 +597,11 @@ namespace simpleath
             // and full acquisition (including a disappearing/replaced NVM).
             bool headerStable = true;
             for (size_t i = 0; i < sizeof(header); ++i)
+            {
                 headerStable =
                     headerStable &&
                     header[i] == storage[length - sizeof(header) + i];
+            }
             if (!headerStable)
             {
                 outcome = NvmDiscoveryResult::CorruptImage;
@@ -542,12 +644,17 @@ namespace simpleath
                 size_t templateLength = 0;
                 const uint8_t *defaults =
                     templates.find(templates.context, id, &templateLength);
-                if (!defaults || templateLength != sizeof(board.image.bytes))
+                if ((defaults == nullptr) ||
+                    templateLength != sizeof(board.image.bytes))
+                {
                     continue;
+                }
                 bool identical = true;
                 for (size_t i = 0; i < sizeof(board.summary.mac); ++i)
+                {
                     identical =
                         identical && board.summary.mac[i] == defaults[2 + i];
+                }
                 if (identical)
                 {
                     placeholderMac = true;
@@ -599,9 +706,8 @@ namespace simpleath
         return status.result = outcome;
     }
 
-    NvmBoardLease::NvmBoardLease()
-        : board_ {}, activeEpoch_(0), lastEpoch_(0), acquiring_(false),
-          revoked_(false)
+    NvmBoardLease::NvmBoardLease() : board_ {}
+
     {
         board_.txGain = TxGainProfile::Unknown;
         board_.rxGain = RxGainProfile::Unknown;
@@ -620,7 +726,9 @@ namespace simpleath
         // retaining the prior board MAC, calibration and regulatory fields.
         volatile uint8_t *bytes = reinterpret_cast<volatile uint8_t *>(&board_);
         for (size_t i = 0; i < sizeof(board_); ++i)
+        {
             bytes[i] = 0;
+        }
         board_.txGain = TxGainProfile::Unknown;
         board_.rxGain = RxGainProfile::Unknown;
         activeEpoch_ = 0;
@@ -642,8 +750,8 @@ namespace simpleath
 
     const NvmBoardSelection *NvmBoardLease::view(uint64_t ownerEpoch) const
     {
-        return ownerEpoch && activeEpoch_ == ownerEpoch && !acquiring_ &&
-                       !revoked_ && board_.valid
+        return (ownerEpoch != 0U) && activeEpoch_ == ownerEpoch &&
+                       !acquiring_ && !revoked_ && board_.valid
                    ? &board_
                    : nullptr;
     }
@@ -666,11 +774,13 @@ namespace simpleath
             overlaps(&backend, sizeof(backend), this, sizeof(*this)) ||
             overlaps(&physicalIdentity, sizeof(physicalIdentity), this,
                      sizeof(*this)))
+        {
             return NvmDiscoveryResult::InvalidArgument;
+        }
         // Any non-alias attempt invalidates a prior board. An epoch may only
         // advance, never roll back or reuse a previously retired generation.
         invalidate();
-        if (!ownerEpoch || ownerEpoch <= lastEpoch_)
+        if ((ownerEpoch == 0U) || ownerEpoch <= lastEpoch_)
         {
             // A rejected generation must not expose the previous successful
             // capture status after invalidating its board lease. Aliases were
@@ -689,7 +799,9 @@ namespace simpleath
             const bool wasRevoked = revoked_;
             invalidate();
             if (wasRevoked)
+            {
                 status.result = NvmDiscoveryResult::OwnerEpochRevoked;
+            }
             return wasRevoked ? NvmDiscoveryResult::OwnerEpochRevoked : result;
         }
         activeEpoch_ = ownerEpoch;

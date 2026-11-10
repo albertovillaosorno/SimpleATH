@@ -131,7 +131,7 @@ namespace simpleath
                                 Direction::FromDevice);
         }
 
-        TxRing::TxRing() : slots_ {}, capacity_(0), active_(0), generation_(0)
+        TxRing::TxRing()
         {
         }
 
@@ -330,7 +330,7 @@ namespace simpleath
             return index < capacity_ ? &slots_[index] : nullptr;
         }
 
-        RxRing::RxRing() : slots_ {}, capacity_(0), active_(0), generation_(0)
+        RxRing::RxRing()
         {
         }
 
