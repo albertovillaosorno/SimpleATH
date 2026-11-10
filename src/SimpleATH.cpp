@@ -424,10 +424,21 @@ class SimpleATH final : public IOService
                     memcmp(key.peer, link.bssid.bytes,
                            simpleath::tahoe::kWirelessMacBytes) == 0)
                 {
+                    // During a GTK rotation, removing the retired slot must
+                    // not close the OS-controlled port while a separately
+                    // installed new GTK remains. A retired slot stays
+                    // unusable for the rest of this physical key epoch;
+                    // reinstalling it would roll its receive PN floor back.
+                    if (!self.nativeGroupRx_[key.keyId].installed())
+                        return kIOReturnUnsupported;
                     self.nativeGroupRx_[key.keyId].revoke();
                     self.nativeGroupKeyRevokedMask_ |=
                         static_cast<uint8_t>(1U << key.keyId);
-                    self.controlledPortAuthorized_ = false;
+                    if (!self.nativeGroupInstalled())
+                    {
+                        self.controlledPortAuthorized_ = false;
+                        self.notifyWirelessChange(false);
+                    }
                     return kIOReturnSuccess;
                 }
                 return kIOReturnUnsupported;
@@ -437,7 +448,7 @@ class SimpleATH final : public IOService
                 memcmp(key.peer, link.bssid.bytes,
                        simpleath::tahoe::kWirelessMacBytes) != 0 ||
                 self.nativePairwiseKeyRevoked_ ||
-                self.controlledPortAuthorized_)
+                (key.pairwise && self.controlledPortAuthorized_))
                 return kIOReturnUnsupported;
             if (!key.pairwise)
             {
@@ -448,9 +459,12 @@ class SimpleATH final : public IOService
                     !self.nativePairwiseRx_.installed() ||
                     self.nativeGroupRx_[key.keyId].installed())
                     return kIOReturnUnsupported;
-                // A GTK is receive-only. Never use it to transmit station
-                // unicast data, and never trust the packet's KeyID to select
-                // a key before independently parsing and validating its IV.
+                // An OS-owned Group1/Group2 handshake may install a new
+                // receive-only GTK in an unused slot while the data port is
+                // open. Existing slot and pairwise PN state remain intact;
+                // replacing the same slot without a fresh epoch is refused.
+                // Never use the GTK to transmit station unicast data or
+                // trust unauthenticated packet KeyID as a key selector.
                 const auto installed = self.nativeGroupRx_[key.keyId].install(
                     key.material, link.bssid.bytes, key.keyId, self.epoch_, 0,
                     key.receivePacketNumber);
