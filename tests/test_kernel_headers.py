@@ -36,6 +36,13 @@ INCLUDE = re.compile(r"^\s*#\s*include\s*<([^>]+)>")
 ACTIVE_STD = re.compile(r"\bstd::[a-zA-Z_]")
 HOST_PLACEMENT_HEADER = "new"
 NATIVE_STD_NEXT = "std::next"
+POWER_SOURCE_UNITS = (
+    "hardware/Ar9565Power.cpp",
+    "hardware/Ar9565Eeprom.cpp",
+    "hardware/Ar9565Core.cpp",
+    "hardware/Ar9565InitCatalog.cpp",
+)
+FREESTANDING_CXX_STANDARDS = ("c++14", "c++17")
 
 
 def _check_native_includes(path: Path) -> None:
@@ -155,3 +162,54 @@ void construct() {
             timeout=20,
         )
         assert result.returncode == 0, result.stderr
+
+    @staticmethod
+    def test_tx_power_units_compile_without_hosted_headers() -> None:
+        """Reject any future libc++/userspace dependency in AR9565 power.
+
+        Compile each actual C++ translation unit, not a mock header or a
+        freshly copied production implementation. This is a host syntax-only
+        regression, never an Apple kext build or device/hardware test.
+        """
+        compiler = shutil.which("clang++")
+        assert compiler is not None, "Clang compiler is required"
+        resource = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            [compiler, "-print-resource-dir"],
+            shell=False,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+        builtin = Path(resource) / "include"
+        assert (builtin / "stddef.h").is_file()
+        for standard in FREESTANDING_CXX_STANDARDS:
+            for unit in POWER_SOURCE_UNITS:
+                result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                    [
+                        compiler,
+                        f"-std={standard}",
+                        "-ffreestanding",
+                        "-fno-exceptions",
+                        "-fno-rtti",
+                        "-nostdinc",
+                        "-isystem",
+                        str(builtin),
+                        "-I",
+                        str(SOURCES),
+                        "-Wall",
+                        "-Wextra",
+                        "-Werror",
+                        "-fsyntax-only",
+                        str(SOURCES / unit),
+                    ],
+                    shell=False,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                assert result.returncode == 0, (
+                    f"{unit} {standard}: unsupported kernel header dependency\n"
+                    f"{result.stderr}"
+                )
