@@ -47,6 +47,9 @@ namespace ath
     constexpr size_t scanIELengthOffset = 0x8A;
     constexpr size_t scanIEOffset = 0x8C;
     constexpr size_t legacyScanIECapacity = 0x400;
+    constexpr unsigned bitsPerByte = 8U;
+    constexpr unsigned bitsPerHalfWord = 16U;
+    constexpr unsigned bitsPerThreeBytes = 24U;
 
     enum class AirPortBackend : uint8_t
     {
@@ -288,14 +291,16 @@ namespace ath
             return false;
         }
         auto length = static_cast<uint16_t>(
-            buffer[scanIELengthOffset] |
-            (static_cast<uint16_t>(buffer[scanIELengthOffset + 1]) << 8));
+            static_cast<uint32_t>(buffer[scanIELengthOffset]) |
+            (static_cast<uint32_t>(buffer[scanIELengthOffset + 1])
+             << bitsPerByte));
         if (length > legacyScanIECapacity)
         {
             length = legacyScanIECapacity;
         }
         buffer[scanIELengthOffset] = static_cast<uint8_t>(length);
-        buffer[scanIELengthOffset + 1] = static_cast<uint8_t>(length >> 8);
+        buffer[scanIELengthOffset + 1] =
+            static_cast<uint8_t>(length >> bitsPerByte);
         request.length = legacyScanResultSize;
         return true;
     }
@@ -345,16 +350,17 @@ namespace ath
     inline uint32_t readUInt32(const uint8_t *buffer)
     {
         return static_cast<uint32_t>(buffer[0]) |
-               (static_cast<uint32_t>(buffer[1]) << 8) |
-               (static_cast<uint32_t>(buffer[2]) << 16) |
-               (static_cast<uint32_t>(buffer[3]) << 24);
+               (static_cast<uint32_t>(buffer[1]) << bitsPerByte) |
+               (static_cast<uint32_t>(buffer[2]) << bitsPerHalfWord) |
+               (static_cast<uint32_t>(buffer[3]) << bitsPerThreeBytes);
     }
 
     inline void writeUInt32(uint8_t *buffer, uint32_t value)
     {
         for (size_t index = 0; index < sizeof(value); ++index)
         {
-            buffer[index] = static_cast<uint8_t>(value >> (index * 8));
+            buffer[index] =
+                static_cast<uint8_t>(value >> (index * bitsPerByte));
         }
     }
 
@@ -372,7 +378,7 @@ namespace ath
         }
         for (size_t index = 0; index < readUInt32(buffer + 8); ++index)
         {
-            if (readUInt32(buffer + 0x10 + index * 0x28) > 32)
+            if (readUInt32(buffer + 0x10 + (index * 0x28)) > 32)
             {
                 return false;
             }
@@ -405,7 +411,7 @@ namespace ath
         uint32_t available = 0;
         for (size_t index = 0; index < radios; ++index)
         {
-            const auto value = readUInt32(power + 8 + index * 4);
+            const auto value = readUInt32(power + 8 + (index * 4));
             if (value > 1)
             {
                 return false;
@@ -490,9 +496,9 @@ namespace ath
             buffer[offset] = buffer[offset + 4];
         }
         buffer[6] = static_cast<uint8_t>(lower);
-        buffer[7] = static_cast<uint8_t>(lower >> 8);
+        buffer[7] = static_cast<uint8_t>(lower >> bitsPerByte);
         buffer[8] = static_cast<uint8_t>(upper);
-        buffer[9] = static_cast<uint8_t>(upper >> 8);
+        buffer[9] = static_cast<uint8_t>(upper >> bitsPerByte);
         buffer[10] = buffer[11] = 0;
         for (size_t offset = 0x215; offset < 0x218; ++offset)
         {
@@ -620,7 +626,7 @@ namespace ath
             {
                 if ((ring == nullptr) || (state == nullptr) ||
                     (name == nullptr) || capacity < 4096 ||
-                    capacity > 0x80000 || ((capacity & 3) != 0U) ||
+                    capacity > 0x80000 || ((capacity & 3U) != 0U) ||
                     length > maximumEventPayload ||
                     ((length != 0U) && (payload == nullptr)))
                 {
@@ -654,7 +660,7 @@ namespace ath
                 const uint32_t read =
                     __atomic_load_n(&state->read, __ATOMIC_ACQUIRE);
                 if (read >= capacity || write >= capacity ||
-                    (((read | write) & 3) != 0U))
+                    (((read | write) & 3U) != 0U))
                 {
                     return RingResult::Invalid;
                 }
