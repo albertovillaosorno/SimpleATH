@@ -913,6 +913,32 @@ issue requires follow-up under the repository's change-history policy.
 No kext build, CI, native Tahoe ABI test, device access or network operation
 was performed in this source-only continuation.
 
+## WPA2 callback integrity and final frozen check, 2026-11-09
+
+Two focused DCO-signed source/test commits were pushed directly to `main`:
+`765e2a2` rejects changes to the MIC-authenticated M3 EAPOL image across
+GTK unwrap before installing any keys; `fdb2889` rejects modifications to
+the call-local PTK snapshot after M3 MIC, GTK unwrap or M4 MIC callbacks.
+The deliberately const-violating callbacks caused two red-before host
+regressions (exits 22 and 23), followed by green C++14 and C++17 strict
+warning, AddressSanitizer and UndefinedBehaviorSanitizer runs. Both the
+WPA2 public alias and adapter entropy fixtures passed in both dialects.
+No real provider, physical keycache or device was exercised.
+
+The final `python3 -B tools/validate.py --no-cache` on clean, pushed
+**`fdb2889`** completed with `scope=repository`, `validation_mode=macos`,
+`source_only=true`, `tests_requested=true`: **163 source files, 416 checks,
+0 cached, 416 executed, 365 passed, 51 failed, 0 skipped**. All failed
+checks were Clang-Tidy translation units; Clang-Format, Ruff, BasedPyright
+and offline host tests did not fail. The source snapshot had no drift,
+`main` remained origin-synchronized and process JSON matched the saved
+`.cache/validate/report.json` byte-for-byte (SHA-256:
+`70609973ed2470540f76ae98a4dc9c22d0a49c95d5134afe0cc70b083d3da0c3`).
+The validator correctly exited nonzero. Missing authentic Apple SDK/KDK
+headers on the Linux host and other existing Tidy diagnostics were not
+converted to passes or skips. **P0 remains OPEN**; neither source-only
+host tests nor a zero-skip report prove native Tahoe Wi-Fi or RF operation.
+
 ## Acceptance
 
 - [ ] Review the interrupted changes for syntax, types, APIs, CLI behavior,

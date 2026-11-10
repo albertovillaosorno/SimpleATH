@@ -41,6 +41,14 @@ claim that the device has a usable WPA2 association.
   Synthetic C++14/C++17 red/green tests modify M3 RSC and ciphertext and
   outgoing M2/M4 fields via deliberately contract-violating callbacks.
   This is not proof that a malicious or buggy provider computes a valid MIC.
+- The same authenticated M3 snapshot is now checked again after GTK unwrap,
+  preventing a callback from modifying signed ciphertext before hardware key
+  installation. Call-local PTK bytes are also compared with retained session
+  keys after M3 MIC, GTK unwrap and M4 MIC callbacks: a provider writing
+  through const KCK/KEK inputs must fail before installing keys or emitting
+  M4. Fake callbacks that mutate these inputs failed the original regression
+  and now pass C++14/C++17 ASan/UBSan rejection cases. This tests defensive
+  source boundaries, not native keycache, crypto assurance or radio behavior.
 
 These are new AGPL-3.0-only C++ sources built from published specifications
 (FIPS 180-4, RFC 2104, RFC 2898, FIPS 197, RFC 3394, IEEE 802.11).
