@@ -73,6 +73,18 @@ Useful regressions: hidden SSID after BSSID/channel/security changes, truncated
 rates/RSN, failed auth/assoc retry, TX-buffer exhaustion before a state change,
 beacon timeout across suspend, and stale events from a previous connection.
 
+The portable `WifiEngine` now tracks a bounded 64-sequence receive history
+per QoS TID plus a separate legacy data class, independently for
+unicast and group-addressed frames on the currently selected association. Only an already accepted, FCS-/DMA-validated and security-gated
+non-EAPOL MSDU can advance the history. Retries, repeated sequence numbers,
+and stale out-of-window frames do not emit a second native-delivery action;
+small out-of-order gaps and 12-bit sequence wrapping have explicit behavior.
+The history is cleared on candidate replacement, radio stop and engine reset.
+Offline C++14/C++17 ASan/UBSan regressions cover duplicate/retry, rejected
+protected frames, per-TID independence and 4095-to-0 rollover. This remains a
+non-aggregating data path; negotiated BlockAck, A-MPDU reorder and actual
+native RX delivery are still missing and must not be marked complete.
+
 Portable link-loss admission now validates the complete optional IE suffix of
 FCS-verified deauthentication and disassociation frames before revoking the
 selected link. An otherwise credible AP reason code followed by a one-byte or

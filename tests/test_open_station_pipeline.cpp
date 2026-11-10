@@ -1615,6 +1615,116 @@ int main()
         return 53;
     }
 
+    // A verified, associated MPDU must never be delivered twice, even when
+    // its retry flag is missing. The filter runs after security validation.
+    incoming[1] |= 0x08U;
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1031}, tx, sizeof(tx),
+                        action) != EngineResult::NoAction ||
+        action.kind != ActionKind::None)
+    {
+        return 57;
+    }
+    incoming[1] &= static_cast<uint8_t>(~0x08U);
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1032}, tx, sizeof(tx),
+                        action) != EngineResult::NoAction ||
+        action.kind != ActionKind::None)
+    {
+        return 58;
+    }
+    incoming[22] = 0x20;  // Sequence 2, fragment 0.
+    incoming[1] |= 0x40U; // Unsupported protected Open-link payload.
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1033}, tx, sizeof(tx),
+                        action) != EngineResult::InvalidReceivedFrame ||
+        action.kind != ActionKind::None)
+    {
+        return 59;
+    }
+    incoming[1] &= static_cast<uint8_t>(~0x40U);
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1034}, tx, sizeof(tx),
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 60;
+    }
+    incoming[22] = 0; // Old sequence 0 remains in the receive window.
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1035}, tx, sizeof(tx),
+                        action) != EngineResult::NoAction ||
+        action.kind != ActionKind::None)
+    {
+        return 61;
+    }
+
+    // The hardware may interleave independent QoS traffic identifiers.
+    // A repeated sequence within one TID is a duplicate, but the same
+    // sequence in another TID is not a duplicate. Sequence 4095 wraps to 0.
+    uint8_t qos[26 + 8 + 3] {};
+    qos[0] = 0x88; // QoS data, FromDS.
+    qos[1] = 0x02;
+    std::memcpy(qos + 4, kStation, 6);
+    std::memcpy(qos + 10, kAp, 6);
+    std::memcpy(qos + 16, kAp, 6);
+    std::memcpy(qos + 26, incoming + 24, 11);
+    qos[22] = 0x40; // Sequence 4.
+    qos[24] = 0;    // TID 0, no A-MSDU.
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1036}, tx,
+                        sizeof(tx), action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 62;
+    }
+    qos[24] = 1; // TID 1 retains a different sequence window.
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1037}, tx,
+                        sizeof(tx), action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 63;
+    }
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1038}, tx,
+                        sizeof(tx), action) != EngineResult::NoAction ||
+        action.kind != ActionKind::None)
+    {
+        return 64;
+    }
+    // Group-addressed QoS traffic may use a distinct AP sequence counter.
+    // It must not be discarded due to an identical unicast TID and SN.
+    std::memset(qos + 4, 0xff, 6);
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1038}, tx,
+                        sizeof(tx), action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 68;
+    }
+    std::memcpy(qos + 4, kStation, 6);
+    qos[24] = 2;
+    qos[22] = 0xf0;
+    qos[23] = 0xff; // 12-bit sequence 4095.
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1039}, tx,
+                        sizeof(tx), action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 65;
+    }
+    qos[22] = qos[23] = 0; // Wrap to sequence 0.
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1040}, tx,
+                        sizeof(tx), action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 66;
+    }
+    qos[22] = 0xf0;
+    qos[23] = 0xff;
+    if (engine.acceptRx(qos, sizeof(qos), syntheticTrust, {-42, 1041}, tx,
+                        sizeof(tx), action) != EngineResult::NoAction ||
+        action.kind != ActionKind::None)
+    {
+        return 67;
+    }
+
     uint8_t ethernet[17] {};
     std::memcpy(ethernet, kAp, 6);
     std::memcpy(ethernet + 6, kStation, 6);

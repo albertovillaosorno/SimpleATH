@@ -256,6 +256,23 @@ namespace simpleath
                                           size_t capacity,
                                           EngineAction &action);
                 const ScanChannelDwell &currentScanChannel() const;
+                // A 64-sequence bitmap for each QoS TID (plus legacy),
+                // independently for unicast and group addressed MPDUs,
+                // prevents duplicate/stale data from being delivered twice.
+                // It is valid only for the current association; the caller
+                // must have verified DMA/FCS, addresses and CCMP replay first.
+                static constexpr size_t kRxTrafficClasses = 34;
+
+                struct RxSequenceWindow
+                {
+                        uint64_t seen {0};
+                        uint16_t newest {0};
+                        bool initialized {false};
+                };
+
+                bool acceptDataSequence(const uint8_t *frame, bool qosFrame);
+                void resetDataSequences();
+                RxSequenceWindow rxSequences_[kRxTrafficClasses] {};
                 // Rejecting an auth/association response is recoverable only
                 // after forgetting the rejected candidate and supplicant.
                 void abandonCandidate();

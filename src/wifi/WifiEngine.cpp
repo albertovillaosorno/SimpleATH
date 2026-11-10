@@ -31,6 +31,14 @@ namespace simpleath
             constexpr uint8_t kEtherTypeLowEapol = 0x8eU;
             constexpr uint8_t kEtherTypeShift = 8U;
             constexpr uint16_t kSequenceMask = 0xfffU;
+            constexpr uint16_t kSequenceModulus = 4096U;
+            constexpr uint16_t kSequenceHalfRange = kSequenceModulus / 2U;
+            constexpr uint16_t kRxSequenceHistory = 64U;
+            constexpr size_t kRxLegacyTid = 16U;
+            constexpr size_t kRxPerDestinationClasses = 17U;
+            constexpr size_t kRxCopiedHeaderBytes = 26U;
+            constexpr size_t kRxQosControlOffset = 24U;
+            constexpr uint8_t kRxTidMask = 0x0fU;
             constexpr uint16_t kMinimumPassiveDwellMs = 10;
             constexpr uint16_t kMaximumPassiveDwellMs = 1000;
             constexpr size_t kEthernetHeader = 14U;
@@ -101,6 +109,89 @@ namespace simpleath
 
         WifiEngine::~WifiEngine() = default;
 
+        void WifiEngine::resetDataSequences()
+        {
+            for (RxSequenceWindow &window : rxSequences_)
+            {
+                window = {};
+            }
+        }
+
+        bool WifiEngine::acceptDataSequence(const uint8_t *frame, bool qosFrame)
+        {
+            // inspectStationRx has already accepted a complete, single-DS,
+            // unfragmented data MPDU; the sequence and QoS bytes are within
+            // its validated span. Copy a fixed-size header so no raw pointer
+            // indexing crosses a DMA-backed buffer boundary.
+            uint8_t header[kRxCopiedHeaderBytes] {};
+            __builtin_memcpy(&header[0], frame, sizeof(header));
+            size_t tid = qosFrame
+                             ? static_cast<size_t>(header[kRxQosControlOffset] &
+                                                   kRxTidMask)
+                             : kRxLegacyTid;
+            // A QoS AP can maintain separate sequence spaces for a station
+            // receiver and group-addressed traffic. Do not suppress a valid
+            // group MPDU because unicast used the same sequence number.
+            if ((header[4] & 1U) != 0)
+            {
+                tid += kRxPerDestinationClasses;
+            }
+            RxSequenceWindow *window = nullptr;
+            for (RxSequenceWindow &entry : rxSequences_)
+            {
+                if (tid == 0)
+                {
+                    window = &entry;
+                    break;
+                }
+                --tid;
+            }
+            if (window == nullptr)
+            {
+                return false; // Validated TID must fit the destination table.
+            }
+            const auto sequence = static_cast<uint16_t>(
+                ((static_cast<uint32_t>(header[23]) << 8U) |
+                 static_cast<uint32_t>(header[22])) >>
+                4U);
+            if (!window->initialized)
+            {
+                *window = {1U, sequence, true};
+                return true;
+            }
+            const auto forward =
+                static_cast<uint16_t>((static_cast<uint32_t>(sequence) +
+                                       kSequenceModulus - window->newest) &
+                                      kSequenceMask);
+            if (forward == 0)
+            {
+                // Even a peer omitting Retry cannot deliver a second copy.
+                return false;
+            }
+            if (forward < kSequenceHalfRange)
+            {
+                window->seen = forward >= kRxSequenceHistory
+                                   ? 1U
+                                   : (window->seen << forward) | 1U;
+                window->newest = sequence;
+                return true;
+            }
+            const uint16_t behind = kSequenceModulus - forward;
+            if (behind >= kRxSequenceHistory)
+            {
+                // With no block-ack reorder contract, an MPDU outside the
+                // bounded history is too old to safely deliver.
+                return false;
+            }
+            const uint64_t bit = uint64_t {1} << behind;
+            if ((window->seen & bit) != 0)
+            {
+                return false;
+            }
+            window->seen |= bit;
+            return true;
+        }
+
         void WifiEngine::clear()
         {
             // The supplicant must remove installed keys while the PCI backend
@@ -115,6 +206,7 @@ namespace simpleath
             keysConfigured_ = false;
             channelAuthorized_ = false;
             nextSequence_ = 0;
+            resetDataSequences();
             scanConfigured_ = false;
             scanOnChannel_ = false;
             scanComplete_ = false;
@@ -416,6 +508,7 @@ namespace simpleath
                 return EngineResult::InvalidInput;
             }
             selected_ = true;
+            resetDataSequences();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -429,6 +522,7 @@ namespace simpleath
             station_.reset();
             link_.clear();
             stationAddress_ = {};
+            resetDataSequences();
             selected_ = false;
         }
 
@@ -691,6 +785,14 @@ namespace simpleath
                 {
                     return EngineResult::CryptoUnavailable;
                 }
+                // Only an RX that passed the entire address, FCS, MAC and
+                // security contract is allowed to advance duplicate state.
+                // Suppress both Retry-marked retransmissions and malformed
+                // second deliveries lacking Retry; keep QoS TIDs separate.
+                if (!acceptDataSequence(frame, msdu.qosFrame))
+                {
+                    return EngineResult::NoAction;
+                }
                 EngineAction result {};
                 result.kind = ActionKind::ReceivedPayload;
                 result.etherType = msdu.etherType;
@@ -881,6 +983,7 @@ namespace simpleath
             cache_.clear();
             stationAddress_ = {};
             nextSequence_ = 0;
+            resetDataSequences();
             selected_ = false;
             keysConfigured_ = false;
             channelAuthorized_ = false;
