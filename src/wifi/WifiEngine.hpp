@@ -235,7 +235,8 @@ namespace simpleath
                 // same-association sessions, verified EDMA/FCS status, and
                 // disjoint scratch; it must submit the returned protected MPDU
                 // or tear down the association if submission fails. A failed
-                // post-install protection revokes the supplicant and link.
+                // post-install protection revokes both supplied CCMP sessions,
+                // the supplicant and link.
                 // OS-owned WPA2 never uses this driver handshake path.
                 EngineResult acceptProtectedGroupRekey(
                     const uint8_t *encrypted, size_t encryptedBytes,

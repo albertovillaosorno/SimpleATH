@@ -1351,6 +1351,12 @@ namespace simpleath
                 capacity, packet);
             if (encoded != DataPathResult::Ok)
             {
+                // GTK replacement has already succeeded, but the response
+                // cannot be protected. Revoke the external CCMP pairwise PN
+                // owners as well as the supplicant and link: clear() alone
+                // does not own these caller-provided sessions.
+                receive.revoke();
+                transmit.revoke();
                 clear();
                 return encoded == DataPathResult::BufferTooSmall
                            ? EngineResult::BufferTooSmall

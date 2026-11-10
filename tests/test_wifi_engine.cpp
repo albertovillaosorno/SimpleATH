@@ -466,6 +466,7 @@ namespace
                 output.size(), action) != EngineResult::CryptoFailure ||
             provider.groups != 3 || provider.revocations != 1 ||
             engine.stationState() != StationState::Inactive ||
+            stationRx.installed() || missingTx.installed() ||
             action.kind != ActionKind::None)
         {
             return (__LINE__ % kFailureModulo) + 1;
