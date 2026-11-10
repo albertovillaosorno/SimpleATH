@@ -81,6 +81,48 @@ namespace simpleath
                 bool rxFrameIncludesFcs = false;
         };
 
+        // A scheduled passive scan is a sequence of authorized RX channels.
+        // The native owner must tune and verify the channel before
+        // acknowledging a hop; no probe frames, RF writes or timer are issued
+        // by this layer.
+        struct ScanChannelDwell
+        {
+                uint8_t channel;
+                uint16_t dwellMs;
+        };
+
+        struct ScanScheduleRequest
+        {
+                const ScanChannelDwell *channels;
+                size_t count;
+                uint64_t nowMs;
+                bool radioReady;
+                bool countryApproved;
+        };
+
+        struct ScanTuneConfirmation
+        {
+                uint64_t generation;
+                uint8_t channel;
+                uint64_t nowMs;
+                bool hardwareConfirmed;
+        };
+
+        enum class ScanProgressKind : uint8_t
+        {
+            TuneRequired,
+            Dwelling,
+            Complete,
+        };
+
+        struct ScanProgress
+        {
+                ScanProgressKind kind;
+                uint64_t generation;
+                uint8_t channel;
+                uint64_t deadlineMs;
+        };
+
         // Caller allocates this relatively large object on a persistent
         // OS-owned heap, not the small kernel interrupt stack. All access must
         // be serialized by the future native adapter's work loop. No callbacks
@@ -99,6 +141,21 @@ namespace simpleath
                 bool configureKeys(const crypto::KeyHardware &hardware);
                 EngineResult startScan(bool radioInitialized,
                                        bool countryChannelAllowed);
+                // An explicit passive dwell itinerary is required for real
+                // multi-channel scanning. Only channels independently approved
+                // by the board, country and RF owner may appear here. The
+                // generation is invalidated by restart, cancel and radio stop;
+                // the native owner must ALSO validate its PCI/IRQ epoch.
+                EngineResult
+                beginChannelScan(const ScanScheduleRequest &request,
+                                 uint64_t &generation);
+                // Poll on the serialized owner work loop. TuneRequired is a
+                // REQUEST, never proof that hardware has changed channels.
+                EngineResult pollChannelScan(uint64_t nowMs,
+                                             ScanProgress &progress);
+                EngineResult acknowledgeChannelTune(
+                    const ScanTuneConfirmation &confirmation);
+                EngineResult cancelChannelScan(uint64_t generation);
                 // requestedChannel MUST be the explicitly permitted primary
                 // channel; 0 (wildcard) is refused. An explicit nonempty SSID
                 // is also mandatory: no wildcard association. Country policy
@@ -165,6 +222,19 @@ namespace simpleath
                 static EngineResult emitPrepared(ActionKind kind,
                                                  size_t written,
                                                  EngineAction &action);
+                EngineResult handleAuthenticationResponse(const uint8_t *frame,
+                                                          size_t length,
+                                                          uint8_t *out,
+                                                          size_t capacity,
+                                                          EngineAction &action);
+                EngineResult handleAssociationResponse(const uint8_t *frame,
+                                                       size_t length,
+                                                       EngineAction &action,
+                                                       uint64_t nowMs);
+                EngineResult observeScanFrame(const uint8_t *frame,
+                                              size_t macBytes, int8_t rssi,
+                                              uint64_t nowMs,
+                                              EngineAction &action);
                 EngineResult handleManagement(const uint8_t *frame,
                                               size_t length, uint64_t nowMs,
                                               uint8_t *out, size_t capacity,
@@ -176,6 +246,7 @@ namespace simpleath
                                           size_t messageBytes, uint8_t *out,
                                           size_t capacity,
                                           EngineAction &action);
+                const ScanChannelDwell &currentScanChannel() const;
                 // Rejecting an auth/association response is recoverable only
                 // after forgetting the rejected candidate and supplicant.
                 void abandonCandidate();
@@ -185,11 +256,22 @@ namespace simpleath
                 LinkMonitor link_;
                 Wpa2Supplicant supplicant_;
                 crypto::Adapter crypto_;
-                Mac stationAddress_;
-                uint16_t nextSequence_;
-                bool selected_;
-                bool keysConfigured_;
-                bool channelAuthorized_;
+                Mac stationAddress_ {};
+                uint16_t nextSequence_ {0};
+                bool selected_ {false};
+                bool keysConfigured_ {false};
+                bool channelAuthorized_ {false};
+                static constexpr size_t kMaximumScanChannels = 14;
+                ScanChannelDwell scanChannels_[kMaximumScanChannels] {};
+                size_t scanCount_ {0};
+                size_t scanIndex_ {0};
+                uint64_t scanGeneration_ {0};
+                uint64_t scanLastClockMs_ {0};
+                uint64_t scanTuneStartMs_ {0};
+                uint64_t scanDeadlineMs_ {0};
+                bool scanConfigured_ {false};
+                bool scanOnChannel_ {false};
+                bool scanComplete_ {false};
         };
 
     } // namespace ieee80211

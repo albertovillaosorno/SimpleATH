@@ -20,6 +20,19 @@ namespace simpleath
         {
 
             constexpr uint16_t kEtherTypeEapol = 0x888eU;
+            constexpr uint8_t kMaximum2GhzChannel = 14;
+            constexpr uint8_t kAuthResponseSubtype = 11;
+            constexpr uint8_t kAssociationResponseSubtype = 1;
+            constexpr uint8_t kBeaconSubtype = 8;
+            constexpr uint8_t kProbeResponseSubtype = 5;
+            constexpr size_t kEtherTypeHighOffset = 12;
+            constexpr size_t kEtherTypeLowOffset = 13;
+            constexpr uint8_t kEtherTypeHighEapol = 0x88U;
+            constexpr uint8_t kEtherTypeLowEapol = 0x8eU;
+            constexpr uint8_t kEtherTypeShift = 8U;
+            constexpr uint16_t kSequenceMask = 0xfffU;
+            constexpr uint16_t kMinimumPassiveDwellMs = 10;
+            constexpr uint16_t kMaximumPassiveDwellMs = 1000;
             constexpr size_t kEthernetHeader = 14U;
             constexpr size_t kMaximumEapolReply = 256U;
             // WPA2 M2 is 121 bytes EAPOL plus 802.11 header and 8-byte
@@ -34,8 +47,14 @@ namespace simpleath
                 {
                     return false;
                 }
-                const auto first = reinterpret_cast<uintptr_t>(a);
-                const auto second = reinterpret_cast<uintptr_t>(b);
+                uintptr_t first = 0;
+                uintptr_t second = 0;
+                static_assert(sizeof(first) == sizeof(a),
+                              "pointer and uintptr_t must have equal width");
+                __builtin_memcpy(&first, static_cast<const void *>(&a),
+                                 sizeof(first));
+                __builtin_memcpy(&second, static_cast<const void *>(&b),
+                                 sizeof(second));
                 return first <= second ? second - first < aBytes
                                        : first - second < bBytes;
             }
@@ -63,10 +82,7 @@ namespace simpleath
 
             void copyBytes(uint8_t *dest, const uint8_t *src, size_t count)
             {
-                for (size_t i = 0; i < count; ++i)
-                {
-                    dest[i] = src[i];
-                }
+                __builtin_memmove(dest, src, count);
             }
 
             EngineResult mapPrepared(Result value)
@@ -81,19 +97,9 @@ namespace simpleath
 
         } // namespace
 
-        WifiEngine::WifiEngine()
-            : cache_ {}, station_ {}, link_ {}, supplicant_ {}, crypto_ {},
-              stationAddress_ {}, nextSequence_(0), selected_(false),
-              keysConfigured_(false), channelAuthorized_(false)
-        {
-        }
+        WifiEngine::WifiEngine() = default;
 
-        WifiEngine::~WifiEngine()
-        {
-            // Owner MUST stop hardware and call clear() before destroying
-            // crypto backend context. This destructor only wipes local
-            // supplicant secrets.
-        }
+        WifiEngine::~WifiEngine() = default;
 
         void WifiEngine::clear()
         {
@@ -109,6 +115,12 @@ namespace simpleath
             keysConfigured_ = false;
             channelAuthorized_ = false;
             nextSequence_ = 0;
+            scanConfigured_ = false;
+            scanOnChannel_ = false;
+            scanComplete_ = false;
+            scanCount_ = 0;
+            scanIndex_ = 0;
+            scanDeadlineMs_ = 0;
         }
 
         bool WifiEngine::configureKeys(const crypto::KeyHardware &hardware)
@@ -130,7 +142,7 @@ namespace simpleath
         EngineResult WifiEngine::startScan(bool radioInitialized,
                                            bool countryChannelAllowed)
         {
-            if (selected_)
+            if (selected_ || (scanConfigured_ && !scanComplete_))
             {
                 return EngineResult::InvalidState;
             }
@@ -150,6 +162,183 @@ namespace simpleath
             }
             cache_.clear();
             channelAuthorized_ = countryChannelAllowed;
+            scanConfigured_ = false;
+            scanOnChannel_ = false;
+            scanComplete_ = false;
+            scanCount_ = 0;
+            scanIndex_ = 0;
+            return EngineResult::Ok;
+        }
+
+        EngineResult
+        WifiEngine::beginChannelScan(const ScanScheduleRequest &request,
+                                     uint64_t &generation)
+        {
+            if (request.count == 0 || request.count > kMaximumScanChannels ||
+                request.channels == nullptr ||
+                overlaps(request.channels,
+                         request.count * sizeof(*request.channels), this,
+                         sizeof(*this)) ||
+                overlaps(&request, sizeof(request), this, sizeof(*this)) ||
+                overlaps(&generation, sizeof(generation), this,
+                         sizeof(*this)) ||
+                overlaps(&generation, sizeof(generation), request.channels,
+                         request.count * sizeof(*request.channels)) ||
+                overlaps(&generation, sizeof(generation), &request,
+                         sizeof(request)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            if (scanGeneration_ == UINT64_MAX)
+            {
+                return EngineResult::InvalidState;
+            }
+            ScanChannelDwell copy[kMaximumScanChannels] {};
+            __builtin_memcpy(&copy[0], request.channels,
+                             request.count * sizeof(*request.channels));
+            uint16_t seenChannels = 0;
+            size_t checked = 0;
+            for (const ScanChannelDwell &entry : copy)
+            {
+                if (checked++ == request.count)
+                {
+                    break;
+                }
+                // Passive-only: regulatory authority belongs to the native
+                // channel policy. Refuse duplicates and unbounded dwells.
+                if (entry.channel == 0 || entry.channel > kMaximum2GhzChannel ||
+                    entry.dwellMs < kMinimumPassiveDwellMs ||
+                    entry.dwellMs > kMaximumPassiveDwellMs)
+                {
+                    return EngineResult::InvalidInput;
+                }
+                const auto bit = static_cast<uint16_t>(1U << entry.channel);
+                if ((seenChannels & bit) != 0)
+                {
+                    return EngineResult::InvalidInput;
+                }
+                seenChannels = static_cast<uint16_t>(seenChannels | bit);
+            }
+            const EngineResult started =
+                startScan(request.radioReady, request.countryApproved);
+            if (started != EngineResult::Ok)
+            {
+                return started;
+            }
+            __builtin_memcpy(&scanChannels_[0], &copy[0],
+                             request.count * sizeof(*request.channels));
+            scanCount_ = request.count;
+            scanIndex_ = 0;
+            scanLastClockMs_ = request.nowMs;
+            scanTuneStartMs_ = 0;
+            scanDeadlineMs_ = 0;
+            scanOnChannel_ = false;
+            scanComplete_ = false;
+            scanConfigured_ = true;
+            generation = ++scanGeneration_;
+            return EngineResult::Ok;
+        }
+
+        const ScanChannelDwell &WifiEngine::currentScanChannel() const
+        {
+            size_t index = 0;
+            for (const ScanChannelDwell &entry : scanChannels_)
+            {
+                if (index++ == scanIndex_)
+                {
+                    return entry;
+                }
+            }
+            // scanIndex_ is bounded by validated plan length and checked
+            // before every access; any violation is an internal logic fault.
+            __builtin_trap();
+        }
+
+        EngineResult WifiEngine::pollChannelScan(uint64_t nowMs,
+                                                 ScanProgress &progress)
+        {
+            if (overlaps(&progress, sizeof(progress), this, sizeof(*this)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            progress = {};
+            if (!scanConfigured_ || scanComplete_ ||
+                station_.state() != StationState::Scanning)
+            {
+                return EngineResult::NoAction;
+            }
+            if (nowMs < scanLastClockMs_)
+            {
+                return EngineResult::InvalidInput;
+            }
+            scanLastClockMs_ = nowMs;
+            if (scanOnChannel_ && nowMs >= scanDeadlineMs_)
+            {
+                scanOnChannel_ = false;
+                ++scanIndex_;
+                if (scanIndex_ == scanCount_)
+                {
+                    scanComplete_ = true;
+                    progress.kind = ScanProgressKind::Complete;
+                    progress.generation = scanGeneration_;
+                    return EngineResult::Ok;
+                }
+            }
+            progress.kind = scanOnChannel_ ? ScanProgressKind::Dwelling
+                                           : ScanProgressKind::TuneRequired;
+            progress.generation = scanGeneration_;
+            progress.channel = currentScanChannel().channel;
+            progress.deadlineMs = scanOnChannel_ ? scanDeadlineMs_ : 0;
+            return EngineResult::Ok;
+        }
+
+        EngineResult WifiEngine::acknowledgeChannelTune(
+            const ScanTuneConfirmation &confirmation)
+        {
+            if (overlaps(&confirmation, sizeof(confirmation), this,
+                         sizeof(*this)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            if (!scanConfigured_ || scanComplete_ || scanOnChannel_ ||
+                station_.state() != StationState::Scanning ||
+                confirmation.generation != scanGeneration_ ||
+                confirmation.channel != currentScanChannel().channel)
+            {
+                return EngineResult::InvalidState;
+            }
+            if (!confirmation.hardwareConfirmed)
+            {
+                return EngineResult::RadioNotReady;
+            }
+            const uint64_t dwell = currentScanChannel().dwellMs;
+            if (confirmation.nowMs < scanLastClockMs_ ||
+                confirmation.nowMs > UINT64_MAX - dwell)
+            {
+                return EngineResult::InvalidInput;
+            }
+            scanLastClockMs_ = confirmation.nowMs;
+            scanTuneStartMs_ = confirmation.nowMs;
+            scanDeadlineMs_ = confirmation.nowMs + dwell;
+            scanOnChannel_ = true;
+            return EngineResult::Ok;
+        }
+
+        EngineResult WifiEngine::cancelChannelScan(uint64_t generation)
+        {
+            if (!scanConfigured_ || scanComplete_ ||
+                generation != scanGeneration_)
+            {
+                return EngineResult::InvalidState;
+            }
+            scanConfigured_ = false;
+            scanOnChannel_ = false;
+            scanComplete_ = false;
+            scanCount_ = 0;
+            scanIndex_ = 0;
+            cache_.clear();
+            station_.reset();
+            channelAuthorized_ = false;
             return EngineResult::Ok;
         }
 
@@ -160,17 +349,18 @@ namespace simpleath
                                                bool allowOpen, bool allowWpa2,
                                                const uint8_t pmk[kWpa2PmkBytes])
         {
-            if (selected_ || station_.state() != StationState::Scanning)
+            if (selected_ || station_.state() != StationState::Scanning ||
+                (scanConfigured_ && !scanComplete_))
             {
                 return EngineResult::InvalidState;
             }
             if (!channelAuthorized_ || requestedChannel < 1U ||
-                requestedChannel > 14U)
+                requestedChannel > kMaximum2GhzChannel)
             {
                 return EngineResult::CountryNotAuthorized;
             }
             if (!validStationMac(station) || (ssid == nullptr) ||
-                ssidLength == 0 || ssidLength > 32)
+                ssidLength == 0 || ssidLength > kMaxSsidBytes)
             {
                 return EngineResult::InvalidInput;
             }
@@ -178,8 +368,12 @@ namespace simpleath
             // scan result is never authorization to join an arbitrary BSS.
             Bss candidate {};
             if (!cache_.strongest(ssid,
-                                  ScanSelection {ssidLength, requestedChannel,
-                                                 allowOpen, allowWpa2},
+                                  ScanSelection {
+                                      ssidLength,
+                                      requestedChannel,
+                                      allowOpen,
+                                      allowWpa2,
+                                  },
                                   candidate))
             {
                 return EngineResult::NoMatchingBss;
@@ -206,7 +400,7 @@ namespace simpleath
                 if ((callbacks.context == nullptr) ||
                     supplicant_.begin(
                         callbacks, station, candidate.beacon.bssid, pmk,
-                        candidate.beacon.rsnIe,
+                        &candidate.beacon.rsnIe[0],
                         candidate.beacon.rsnIeLength) != Wpa2Result::Ok)
                 {
                     return EngineResult::CryptoFailure;
@@ -265,14 +459,105 @@ namespace simpleath
                 return EngineResult::InvalidState;
             }
             size_t written = 0;
-            Result result = station_.authenticationRequest(sequence, out,
-                                                           capacity, written);
+            const Result result = station_.authenticationRequest(
+                sequence, out, capacity, written);
             if (result != Result::Ok)
             {
                 return mapPrepared(result);
             }
-            nextSequence_ = static_cast<uint16_t>((sequence + 1U) & 0xfffU);
+            nextSequence_ =
+                static_cast<uint16_t>((sequence + 1U) & kSequenceMask);
             return emitPrepared(ActionKind::TransmitAuthentication, written,
+                                action);
+        }
+
+        EngineResult WifiEngine::handleAuthenticationResponse(
+            const uint8_t *frame, size_t length, uint8_t *out, size_t capacity,
+            EngineAction &action)
+        {
+            // First validate the AP response without changing station
+            // state. A rejection or malformed RX requires no association
+            // TX buffer; checking capacity first would mask the AP's
+            // refusal and leave a rejected candidate active indefinitely.
+            const Beacon &network = station_.candidate().beacon;
+            uint16_t statusCode = UINT16_MAX;
+            if (parseAuthenticationResponse(frame, length, stationAddress_,
+                                            network.bssid,
+                                            statusCode) != Result::Ok)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            if (statusCode != 0)
+            {
+                abandonCandidate();
+                return EngineResult::AccessPointRejected;
+            }
+            // Successful authentication needs a serialized association
+            // request. Reserve its exact capacity before consuming the
+            // state transition so the caller can retry a small buffer.
+            const size_t associationBytes = associationRequestLength(network);
+            if (associationBytes == 0)
+            {
+                return EngineResult::InvalidState;
+            }
+            if ((out == nullptr) || capacity < associationBytes)
+            {
+                return EngineResult::BufferTooSmall;
+            }
+            const StationResult authenticated =
+                station_.onAuthenticationResponse(frame, length);
+            if (authenticated == StationResult::AssociationRejected)
+            {
+                abandonCandidate();
+                return EngineResult::AccessPointRejected;
+            }
+            if (authenticated != StationResult::Ok)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            size_t written = 0;
+            const Result prepared = station_.associationRequest(
+                nextSequence_, out, capacity, written);
+            if (prepared != Result::Ok)
+            {
+                return mapPrepared(prepared);
+            }
+            nextSequence_ =
+                static_cast<uint16_t>((nextSequence_ + 1U) & kSequenceMask);
+            return emitPrepared(ActionKind::TransmitAssociation, written,
+                                action);
+        }
+
+        EngineResult WifiEngine::handleAssociationResponse(const uint8_t *frame,
+                                                           size_t length,
+                                                           EngineAction &action,
+                                                           uint64_t nowMs)
+        {
+            const StationResult response =
+                station_.onAssociationResponse(frame, length);
+            if (response == StationResult::AssociationRejected)
+            {
+                abandonCandidate();
+                return EngineResult::AccessPointRejected;
+            }
+            if (response != StationResult::Wpa2CryptoNotImplemented &&
+                response != StationResult::NetworkInterfaceNotImplemented)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            const Bss &candidate = station_.candidate();
+            if (link_.started(stationAddress_, candidate.beacon.bssid,
+                              candidate.beacon.intervalTu, nowMs, false,
+                              false) != LinkMonitorResult::Ok)
+            {
+                return EngineResult::InvalidState;
+            }
+            if (response == StationResult::Wpa2CryptoNotImplemented)
+            {
+                return emitPrepared(ActionKind::AssociatedAwaitingKeys, 0,
+                                    action);
+            }
+            return emitPrepared(ActionKind::OpenAssociationEstablished, 0,
                                 action);
         }
 
@@ -288,90 +573,15 @@ namespace simpleath
             }
             const StationState state = station_.state();
             if (state == StationState::AuthenticationFramePrepared &&
-                header.subtype == 11)
+                header.subtype == kAuthResponseSubtype)
             {
-                // First validate the AP response without changing station
-                // state. A rejection or malformed RX requires no association
-                // TX buffer; checking capacity first would mask the AP's
-                // refusal and leave a rejected candidate active indefinitely.
-                const Beacon &network = station_.candidate().beacon;
-                uint16_t statusCode = UINT16_MAX;
-                if (parseAuthenticationResponse(frame, length, stationAddress_,
-                                                network.bssid,
-                                                statusCode) != Result::Ok)
-                {
-                    return EngineResult::InvalidReceivedFrame;
-                }
-                if (statusCode != 0)
-                {
-                    abandonCandidate();
-                    return EngineResult::AccessPointRejected;
-                }
-                // Successful authentication needs a serialized association
-                // request. Reserve its exact capacity before consuming the
-                // state transition so the caller can retry a small buffer.
-                const size_t associationBytes =
-                    associationRequestLength(network);
-                if (associationBytes == 0)
-                {
-                    return EngineResult::InvalidState;
-                }
-                if ((out == nullptr) || capacity < associationBytes)
-                {
-                    return EngineResult::BufferTooSmall;
-                }
-                const StationResult authenticated =
-                    station_.onAuthenticationResponse(frame, length);
-                if (authenticated == StationResult::AssociationRejected)
-                {
-                    abandonCandidate();
-                    return EngineResult::AccessPointRejected;
-                }
-                if (authenticated != StationResult::Ok)
-                {
-                    return EngineResult::InvalidReceivedFrame;
-                }
-                size_t written = 0;
-                const Result prepared = station_.associationRequest(
-                    nextSequence_, out, capacity, written);
-                if (prepared != Result::Ok)
-                {
-                    return mapPrepared(prepared);
-                }
-                nextSequence_ =
-                    static_cast<uint16_t>((nextSequence_ + 1U) & 0xfffU);
-                return emitPrepared(ActionKind::TransmitAssociation, written,
-                                    action);
+                return handleAuthenticationResponse(frame, length, out,
+                                                    capacity, action);
             }
             if (state == StationState::AssociationFramePrepared &&
-                header.subtype == 1)
+                header.subtype == kAssociationResponseSubtype)
             {
-                const StationResult response =
-                    station_.onAssociationResponse(frame, length);
-                if (response == StationResult::AssociationRejected)
-                {
-                    abandonCandidate();
-                    return EngineResult::AccessPointRejected;
-                }
-                if (response != StationResult::Wpa2CryptoNotImplemented &&
-                    response != StationResult::NetworkInterfaceNotImplemented)
-                {
-                    return EngineResult::InvalidReceivedFrame;
-                }
-                const Bss &candidate = station_.candidate();
-                if (link_.started(stationAddress_, candidate.beacon.bssid,
-                                  candidate.beacon.intervalTu, nowMs, false,
-                                  false) != LinkMonitorResult::Ok)
-                {
-                    return EngineResult::InvalidState;
-                }
-                if (response == StationResult::Wpa2CryptoNotImplemented)
-                {
-                    return emitPrepared(ActionKind::AssociatedAwaitingKeys, 0,
-                                        action);
-                }
-                return emitPrepared(ActionKind::OpenAssociationEstablished, 0,
-                                    action);
+                return handleAssociationResponse(frame, length, action, nowMs);
             }
             if (link_.status().state == LinkState::Associated)
             {
@@ -401,11 +611,14 @@ namespace simpleath
             // LLC/SNAP.
             uint8_t ethernet[kEthernetHeader + kMaximumEapolReply] {};
             const Mac &ap = station_.candidate().beacon.bssid;
-            copyBytes(ethernet, ap.bytes, 6);
-            copyBytes(ethernet + 6, stationAddress_.bytes, 6);
-            ethernet[12] = static_cast<uint8_t>(kEtherTypeEapol >> 8U);
-            ethernet[13] = static_cast<uint8_t>(kEtherTypeEapol);
-            copyBytes(ethernet + kEthernetHeader, message, messageBytes);
+            copyBytes(&ethernet[0], &ap.bytes[0], kMacAddressBytes);
+            copyBytes(&ethernet[kMacAddressBytes], &stationAddress_.bytes[0],
+                      kMacAddressBytes);
+            ethernet[kEtherTypeHighOffset] =
+                static_cast<uint8_t>(kEtherTypeEapol >> kEtherTypeShift);
+            ethernet[kEtherTypeLowOffset] =
+                static_cast<uint8_t>(kEtherTypeEapol);
+            copyBytes(&ethernet[kEthernetHeader], message, messageBytes);
             LinkContext link {};
             link.station = stationAddress_;
             link.bssid = ap;
@@ -416,9 +629,9 @@ namespace simpleath
             link.channelPermitted = channelAuthorized_;
             link.pairwiseAndGroupKeysInstalled = supplicant_.keysInstalled();
             SerializedData packet {};
-            const DataPathResult encoded =
-                prepareStationTx(link, ethernet, kEthernetHeader + messageBytes,
-                                 nextSequence_, out, capacity, packet);
+            const DataPathResult encoded = prepareStationTx(
+                link, &ethernet[0], kEthernetHeader + messageBytes,
+                nextSequence_, out, capacity, packet);
             if (encoded != DataPathResult::Ok)
             {
                 return encoded == DataPathResult::BufferTooSmall
@@ -426,7 +639,7 @@ namespace simpleath
                            : EngineResult::InvalidState;
             }
             nextSequence_ =
-                static_cast<uint16_t>((nextSequence_ + 1U) & 0xfffU);
+                static_cast<uint16_t>((nextSequence_ + 1U) & kSequenceMask);
             return emitPrepared(ActionKind::TransmitEapol, packet.frameBytes,
                                 action);
         }
@@ -508,13 +721,13 @@ namespace simpleath
             {
                 security =
                     supplicant_.onMessage1(msdu.payload, msdu.payloadLength,
-                                           reply, sizeof(reply), written);
+                                           &reply[0], sizeof(reply), written);
             }
             else if (key.message == KeyMessage::Pairwise3)
             {
                 security =
                     supplicant_.onMessage3(msdu.payload, msdu.payloadLength,
-                                           reply, sizeof(reply), written);
+                                           &reply[0], sizeof(reply), written);
             }
             else
             {
@@ -530,7 +743,40 @@ namespace simpleath
             {
                 return EngineResult::CryptoFailure;
             }
-            return packageEapol(reply, written, out, capacity, action);
+            return packageEapol(&reply[0], written, out, capacity, action);
+        }
+
+        EngineResult WifiEngine::observeScanFrame(const uint8_t *frame,
+                                                  size_t macBytes, int8_t rssi,
+                                                  uint64_t nowMs,
+                                                  EngineAction &action)
+        {
+            if (scanConfigured_)
+            {
+                // Only the confirmed, still-dwelling RF channel may
+                // contribute BSS records. A frame from a prior hop cannot
+                // contaminate the next scan channel.
+                if (!scanOnChannel_ || nowMs < scanTuneStartMs_ ||
+                    nowMs < scanLastClockMs_ || nowMs >= scanDeadlineMs_)
+                {
+                    return EngineResult::NoAction;
+                }
+                Beacon advertised {};
+                if (parseBeacon(frame, macBytes, advertised) != Result::Ok ||
+                    advertised.channel != currentScanChannel().channel)
+                {
+                    return EngineResult::NoAction;
+                }
+            }
+            if (cache_.observe(frame, ScanObservation {
+                                          macBytes,
+                                          rssi,
+                                          nowMs,
+                                      }) == Result::Ok)
+            {
+                return emitPrepared(ActionKind::ScanCacheUpdated, 0, action);
+            }
+            return EngineResult::NoAction;
         }
 
         EngineResult WifiEngine::acceptRx(const uint8_t *frame, size_t length,
@@ -567,17 +813,15 @@ namespace simpleath
 
             if (header.type == FrameType::Management)
             {
-                if (header.subtype == 8 || header.subtype == 5)
+                if (station_.state() == StationState::Scanning &&
+                    (header.subtype == kBeaconSubtype ||
+                     header.subtype == kProbeResponseSubtype))
                 {
-                    if (station_.state() == StationState::Scanning)
+                    const EngineResult scanResult =
+                        observeScanFrame(frame, macBytes, rssi, nowMs, action);
+                    if (scanResult == EngineResult::Ok || scanConfigured_)
                     {
-                        if (cache_.observe(
-                                frame, ScanObservation {macBytes, rssi,
-                                                        nowMs}) == Result::Ok)
-                        {
-                            return emitPrepared(ActionKind::ScanCacheUpdated, 0,
-                                                action);
-                        }
+                        return scanResult;
                     }
                 }
                 return handleManagement(frame, macBytes, nowMs, out, capacity,
@@ -626,6 +870,11 @@ namespace simpleath
             selected_ = false;
             keysConfigured_ = false;
             channelAuthorized_ = false;
+            scanConfigured_ = false;
+            scanOnChannel_ = false;
+            scanComplete_ = false;
+            scanCount_ = 0;
+            scanIndex_ = 0;
         }
 
         EngineResult WifiEngine::encodeOutgoingEthernet(
@@ -662,10 +911,15 @@ namespace simpleath
             // a separately reviewed, policy-checked rekey transport, not the
             // unprotected Ethernet-II serializer.
             if (context.security == LinkSecurity::Wpa2Ccmp &&
-                (ethernet != nullptr) && length >= kEthernetHeader &&
-                ethernet[12] == 0x88U && ethernet[13] == 0x8eU)
+                (ethernet != nullptr) && length >= kEthernetHeader)
             {
-                return EngineResult::CryptoUnavailable;
+                uint8_t header[kEthernetHeader] {};
+                __builtin_memcpy(&header[0], ethernet, sizeof(header));
+                if (header[kEtherTypeHighOffset] == kEtherTypeHighEapol &&
+                    header[kEtherTypeLowOffset] == kEtherTypeLowEapol)
+                {
+                    return EngineResult::CryptoUnavailable;
+                }
             }
             SerializedData serialized {};
             const DataPathResult result = prepareStationTx(

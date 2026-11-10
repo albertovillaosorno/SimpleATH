@@ -60,6 +60,129 @@ namespace
                entry.security == Security::Open;
     }
 
+    bool scheduledPassiveScanRequiresVerifiedTune()
+    {
+        using namespace simpleath::ieee80211;
+        static WifiEngine engine;
+        const ScanChannelDwell bad[] {{6, 20}, {6, 40}};
+        const ScanChannelDwell invalidChannel[] {{15, 20}};
+        const ScanChannelDwell invalidDwell[] {{6, 0}};
+        const ScanChannelDwell channels[] {{6, 20}, {11, 30}};
+        uint64_t generation = 0;
+        if (engine.beginChannelScan({invalidChannel, 1, 100, true, true},
+                                    generation) != EngineResult::InvalidInput ||
+            engine.beginChannelScan({invalidDwell, 1, 100, true, true},
+                                    generation) != EngineResult::InvalidInput ||
+            engine.beginChannelScan({bad, 2, 100, true, true}, generation) !=
+                EngineResult::InvalidInput ||
+            engine.beginChannelScan({channels, 2, 100, false, true},
+                                    generation) !=
+                EngineResult::RadioNotReady ||
+            engine.beginChannelScan({channels, 2, 100, true, true},
+                                    generation) != EngineResult::Ok ||
+            generation == 0)
+        {
+            return false;
+        }
+        ScanProgress step {};
+        EngineAction action {};
+        const InputTrust verified {true, true, true, false};
+        uint8_t frame[kBeaconBytes] {};
+        makeBeacon(frame, 6);
+        if (engine.pollChannelScan(100, step) != EngineResult::Ok ||
+            step.kind != ScanProgressKind::TuneRequired || step.channel != 6 ||
+            step.generation != generation ||
+            engine.beginChannelScan({channels, 2, 101, true, true},
+                                    generation) != EngineResult::InvalidState ||
+            engine.acknowledgeChannelTune({generation, 6, 100, false}) !=
+                EngineResult::RadioNotReady ||
+            engine.acceptRx(frame, sizeof(frame), -30, 100, verified, nullptr,
+                            0, action) != EngineResult::NoAction ||
+            engine.scan().size() != 0 ||
+            engine.acknowledgeChannelTune({generation + 1, 6, 100, true}) !=
+                EngineResult::InvalidState ||
+            engine.acknowledgeChannelTune({generation, 11, 100, true}) !=
+                EngineResult::InvalidState ||
+            engine.acknowledgeChannelTune({generation, 6, 100, true}) !=
+                EngineResult::Ok)
+        {
+            return false;
+        }
+        makeBeacon(frame, 11);
+        if (engine.acceptRx(frame, sizeof(frame), -30, 110, verified, nullptr,
+                            0, action) != EngineResult::NoAction ||
+            engine.pollChannelScan(119, step) != EngineResult::Ok ||
+            step.kind != ScanProgressKind::Dwelling || step.deadlineMs != 120 ||
+            engine.scan().size() != 0)
+        {
+            return false;
+        }
+        makeBeacon(frame, 6);
+        if (engine.acceptRx(frame, sizeof(frame), -30, 110, verified, nullptr,
+                            0, action) != EngineResult::NoAction ||
+            engine.scan().size() != 0)
+        {
+            return false;
+        }
+        const Mac station {{0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee}};
+        const uint8_t ssid[] {'T', 'e', 's', 't'};
+        if (engine.acceptRx(frame, sizeof(frame), -30, 119, verified, nullptr,
+                            0, action) != EngineResult::Ok ||
+            action.kind != ActionKind::ScanCacheUpdated ||
+            engine.scan().size() != 1 ||
+            engine.chooseNetwork(station, ssid, sizeof(ssid), 6, true, false,
+                                 nullptr) != EngineResult::InvalidState ||
+            engine.pollChannelScan(120, step) != EngineResult::Ok ||
+            step.kind != ScanProgressKind::TuneRequired || step.channel != 11 ||
+            engine.acceptRx(frame, sizeof(frame), -30, 120, verified, nullptr,
+                            0, action) != EngineResult::NoAction ||
+            engine.acknowledgeChannelTune({generation, 11, 119, true}) !=
+                EngineResult::InvalidInput ||
+            engine.acknowledgeChannelTune({generation, 11, 120, true}) !=
+                EngineResult::Ok)
+        {
+            return false;
+        }
+        makeBeacon(frame, 11);
+        if (engine.acceptRx(frame, sizeof(frame), -30, 150, verified, nullptr,
+                            0, action) != EngineResult::NoAction ||
+            engine.pollChannelScan(150, step) != EngineResult::Ok ||
+            step.kind != ScanProgressKind::Complete ||
+            step.generation != generation ||
+            engine.pollChannelScan(151, step) != EngineResult::NoAction ||
+            engine.chooseNetwork(station, ssid, sizeof(ssid), 6, true, false,
+                                 nullptr) != EngineResult::Ok ||
+            engine.cancelChannelScan(generation) != EngineResult::InvalidState)
+        {
+            return false;
+        }
+        engine.radioStopped(151, true);
+        uint64_t second = 0;
+        if (engine.beginChannelScan({channels, 2, 200, true, true}, second) !=
+                EngineResult::Ok ||
+            second == generation ||
+            engine.acknowledgeChannelTune({generation, 6, 200, true}) !=
+                EngineResult::InvalidState ||
+            engine.cancelChannelScan(second) != EngineResult::Ok ||
+            engine.pollChannelScan(201, step) != EngineResult::NoAction ||
+            engine.cancelChannelScan(second) != EngineResult::InvalidState ||
+            engine.chooseNetwork(station, ssid, sizeof(ssid), 6, true, false,
+                                 nullptr) != EngineResult::InvalidState)
+        {
+            return false;
+        }
+        if (engine.beginChannelScan({channels, 2, UINT64_MAX - 4, true, true},
+                                    second) != EngineResult::Ok ||
+            engine.pollChannelScan(UINT64_MAX - 4, step) != EngineResult::Ok ||
+            engine.acknowledgeChannelTune({second, 6, UINT64_MAX - 4, true}) !=
+                EngineResult::InvalidInput)
+        {
+            return false;
+        }
+        engine.radioStopped(UINT64_MAX - 4, false);
+        return true;
+    }
+
     bool preferCompatibleAssociationRates()
     {
         using namespace simpleath::ieee80211;
@@ -118,6 +241,10 @@ namespace
 int main()
 {
     using namespace simpleath::ieee80211;
+    if (!scheduledPassiveScanRequiresVerifiedTune())
+    {
+        return 36;
+    }
     if (!preferCompatibleAssociationRates())
     {
         return 35;
