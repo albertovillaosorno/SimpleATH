@@ -48,3 +48,32 @@ owner-controlled acceptance TODO, which remains open until the owner closes it.
 https://support.apple.com/en-ie/guide/security-pdf/sec2261183f4/web
 https://github.com/seemoo-lab/owl
 https://arxiv.org/abs/1812.06743
+
+## Source progress — 2026-11-10: bounded AWDL action-frame ingress
+
+`src/wifi/AwdlAction.{hpp,cpp}` is compiled into the **ordinary** Xcode
+production source target. It parses the documented 802.11 vendor-specific
+AWDL action format (Apple BSSID and OUI, type 8, version 1.0, PSF/MIF),
+reads both little-endian 32-bit transmit timestamps, and bounds each
+16-bit-length TLV before publishing a header/count snapshot. It permits
+only the documented one- or two-octet zero padding and rejects malformed
+lengths, fragments, wrong vendor/version, unauthorized protected frames and
+aliased output. Individual TLV payload views remain borrowed until the RX
+owner releases the frame. Unknown TLV values are deliberately opaque.
+
+Evidence: the independent AWDL layout described by Stute et al.,
+https://arxiv.org/abs/1808.03156, and Project Zero's AWDL protocol
+analysis:
+https://projectzero.google/2020/12/an-ios-zero-click-radio-proximity.html.
+`tests/test_awdl_action.cpp` exercises synthetic PSF/MIF, negative wire
+syntax, aliasing and short/trailing data. Focused C++14/C++17 ASan+UBSan,
+strict Clang-Tidy on both new translation units, and formatting passed.
+The latest full `tools/validate.py --tidy --tests --json` reported **582
+checks, 548 passes, 34 previously known Tidy failures, zero skips** and no
+new failing files. Existing strict Tidy violations remain unresolved.
+
+**Not integrated yet:** physical RF RX provenance, native AWDL interface,
+peer election/timing, channel dwell, regulatory scheduling, BLE service
+policy, AirDrop/Continuity host linkage and actual IPv6 transfer. Merely
+compiling this fail-closed syntax parser does not imply any macOS AWDL or
+Bluetooth functionality. This P0 TODO remains open.
