@@ -48,6 +48,9 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
     constexpr size_t kMaxFirmwareName = 48;
     constexpr size_t kMaxFirmwareBytes = size_t {1024U} * 1024U;
     constexpr unsigned int kRegistryPropertyBits = 32U;
+    constexpr uint8_t kDeferredResetPending = 0U;
+    constexpr uint8_t kDeferredResetCancelled = 1U;
+    constexpr uint8_t kDeferredResetRunning = 2U;
 
     // The device lease belongs to this independent thread call. The USB
     // service itself can terminate without leaving a callback to freed
@@ -56,6 +59,7 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
     {
             IOUSBHostDevice *device;
             IOService *owner;
+            bool (*allowed)(void *);
             simpleath::Ath3kUsbIdentity identity;
             thread_call_t call;
     };
@@ -68,13 +72,18 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
         IOUSBHostDevice *const device = request->device;
         const auto *descriptor =
             device->isInactive() ? nullptr : device->getDeviceDescriptor();
-        // If the controller already switched product/revision, a reset of
-        // the old retained provider would disrupt a new Bluetooth host.
-        if (descriptor != nullptr &&
+        // If external stop revoked the owner or the controller already
+        // changed identity, never reset the replacement Bluetooth host.
+        const bool sameIdentity =
+            descriptor != nullptr &&
             USBToHost16(descriptor->idVendor) == request->identity.vendorId &&
             USBToHost16(descriptor->idProduct) == request->identity.productId &&
             USBToHost16(descriptor->bcdDevice) ==
-                request->identity.deviceRevision)
+                request->identity.deviceRevision;
+        const bool ownerMayReset =
+            sameIdentity && request->allowed(request->owner);
+        if (simpleath::mayExecuteAth3kReset(
+                ownerMayReset, descriptor != nullptr, sameIdentity))
         {
             (void)device->reset();
         }
@@ -88,7 +97,8 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
     };
 
     bool requestReenumeration(IOUSBHostDevice * device, IOService * owner,
-                              const simpleath::Ath3kUsbIdentity &identity)
+                              const simpleath::Ath3kUsbIdentity &identity,
+                              bool (*allowed)(void *))
     {
         if (device == nullptr)
         {
@@ -103,6 +113,7 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
         }
         request->device = device;
         request->owner = owner;
+        request->allowed = allowed;
         request->identity = identity;
         owner->retain();
         request->call = thread_call_allocate_with_priority(
@@ -155,6 +166,21 @@ IOService *SimpleATHUsbBluetooth::probe(IOService *provider, SInt32 *score)
         return nullptr;
     }
     return IOService::probe(provider, score);
+}
+
+bool SimpleATHUsbBluetooth::resetAllowed(void *context)
+{
+    auto &self = *static_cast<SimpleATHUsbBluetooth *>(context);
+    // A separate kernel worker and the external stop path race to claim
+    // one reset lease. The loser cannot initiate another physical reset.
+    if (self.isInactive())
+    {
+        return false;
+    }
+    uint8_t expected = kDeferredResetPending;
+    return __atomic_compare_exchange_n(&self.resetState_, &expected,
+                                       kDeferredResetRunning, false,
+                                       __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 bool SimpleATHUsbBluetooth::permitted(void *context, uint64_t epoch)
@@ -275,7 +301,7 @@ bool SimpleATHUsbBluetooth::start(IOService *provider)
         if (device != nullptr)
         {
             const bool resetQueued =
-                requestReenumeration(device, this, identity);
+                requestReenumeration(device, this, identity, resetAllowed);
             setProperty("SimpleATHBluetoothResetQueued", resetQueued);
             if (!resetQueued)
             {
@@ -290,7 +316,8 @@ bool SimpleATHUsbBluetooth::start(IOService *provider)
     // missing/stale provider or unallocatable reset worker must not leave
     // an apparently live bootstrap service holding the old USB identity.
     const bool deviceRetained = device != nullptr;
-    const bool resetQueued = requestReenumeration(device, this, identity);
+    const bool resetQueued =
+        requestReenumeration(device, this, identity, resetAllowed);
     setProperty("SimpleATHBluetoothResetQueued", resetQueued);
     if (!resetQueued)
     {
@@ -305,6 +332,14 @@ bool SimpleATHUsbBluetooth::start(IOService *provider)
     setProperty("SimpleATHBluetoothAwaitReenumeration", true);
     registerService();
     return true;
+}
+
+void SimpleATHUsbBluetooth::cancelDeferredReset()
+{
+    uint8_t expected = kDeferredResetPending;
+    (void)__atomic_compare_exchange_n(&resetState_, &expected,
+                                      kDeferredResetCancelled, false,
+                                      __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
 }
 
 void SimpleATHUsbBluetooth::revoke()
@@ -326,18 +361,21 @@ bool SimpleATHUsbBluetooth::willTerminate(IOService *provider,
 {
     // Close before provider revocation; IOUSBHostInterface may block USB
     // re-enumeration until every client's open session has closed.
+    cancelDeferredReset();
     revoke();
     return IOService::willTerminate(provider, options);
 }
 
 void SimpleATHUsbBluetooth::stop(IOService *provider)
 {
+    cancelDeferredReset();
     revoke();
     IOService::stop(provider);
 }
 
 void SimpleATHUsbBluetooth::free()
 {
+    cancelDeferredReset();
     revoke();
     IOService::free();
 }

@@ -1736,6 +1736,36 @@ namespace
             0U,
             false,
         };
+        // The worker cannot use a queued-but-revoked lease, disappeared
+        // device or switched HCI identity to authorize a late reset.
+        if (!mayExecuteAth3kReset(true, true, true) ||
+            mayExecuteAth3kReset(false, true, true) ||
+            mayExecuteAth3kReset(true, false, true) ||
+            mayExecuteAth3kReset(true, true, false))
+        {
+            return false;
+        }
+        // An external stop must prevent a delayed worker from claiming the
+        // USB reset; a worker that already won cannot claim it twice.
+        auto cancelled = static_cast<uint8_t>(Ath3kResetLeaseState::Pending);
+        cancelAth3kResetLease(cancelled);
+        if (cancelled !=
+                static_cast<uint8_t>(Ath3kResetLeaseState::Cancelled) ||
+            tryClaimAth3kResetLease(cancelled))
+        {
+            return false;
+        }
+        auto running = static_cast<uint8_t>(Ath3kResetLeaseState::Pending);
+        if (!tryClaimAth3kResetLease(running) ||
+            tryClaimAth3kResetLease(running))
+        {
+            return false;
+        }
+        cancelAth3kResetLease(running);
+        if (running != static_cast<uint8_t>(Ath3kResetLeaseState::Running))
+        {
+            return false;
+        }
         return shouldReenumerateAth3k(switched, true) &&
                shouldReenumerateAth3k(partial, true) &&
                !shouldReenumerateAth3k(switched, false) &&

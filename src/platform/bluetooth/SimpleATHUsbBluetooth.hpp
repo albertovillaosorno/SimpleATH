@@ -52,6 +52,8 @@ class SimpleATHUsbBluetooth final : public IOService
 
     private:
         static bool permitted(void *context, uint64_t epoch);
+        static bool resetAllowed(void *context);
+        void cancelDeferredReset();
         static bool firmware(void *context, const char *name,
                              simpleath::Ath3kFirmwareImage *image);
         void revoke();
@@ -61,6 +63,9 @@ class SimpleATHUsbBluetooth final : public IOService
         IOUSBHostInterface *interface_ {nullptr};
         uint64_t epoch_ {0};
         bool stopping_ {false};
+        // Atomically claim a queued reset vs. external shutdown. Internal
+        // start-failure cleanup deliberately does not cancel recovery.
+        uint8_t resetState_ {0U};
 };
 
 #endif

@@ -93,6 +93,43 @@ namespace simpleath
                progress.result != Ath3kBootResult::IdentityLost;
     }
 
+    // The asynchronous kernel reset worker must recheck external shutdown,
+    // physical-device presence and the original boot identity. This is a
+    // safety predicate, not a guarantee that macOS executed a USB reset.
+    constexpr bool mayExecuteAth3kReset(bool ownerCurrent, bool deviceActive,
+                                        bool samePhysicalIdentity)
+    {
+        return ownerCurrent && deviceActive && samePhysicalIdentity;
+    }
+
+    // The reset worker and external stop race for one kernel-owned lease.
+    // An already-claimed reset cannot be canceled retroactively; canceling
+    // first prevents a worker from starting a new physical reset later.
+    enum class Ath3kResetLeaseState : uint8_t
+    {
+        Pending,
+        Cancelled,
+        Running,
+    };
+
+    inline bool tryClaimAth3kResetLease(uint8_t &state)
+    {
+        auto expected = static_cast<uint8_t>(Ath3kResetLeaseState::Pending);
+        return __atomic_compare_exchange_n(
+            &state, &expected,
+            static_cast<uint8_t>(Ath3kResetLeaseState::Running), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    }
+
+    inline void cancelAth3kResetLease(uint8_t &state)
+    {
+        auto expected = static_cast<uint8_t>(Ath3kResetLeaseState::Pending);
+        (void)__atomic_compare_exchange_n(
+            &state, &expected,
+            static_cast<uint8_t>(Ath3kResetLeaseState::Cancelled), false,
+            __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
+    }
+
     // Linux ath3k v6.12 has independent USB IDs for its AR3012 bootstrap.
     // The WLAN PCI 168c:0036 ID is NOT a USB matching criterion. Matching
     // these published USB IDs is necessary, not proof of Dell board identity.
