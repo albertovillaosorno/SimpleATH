@@ -26,11 +26,28 @@ namespace
             }
             writes += recipe.phases[i].count;
         }
+        constexpr RegisterPhase expected[] {
+            RegisterPhase::SocPreamble,
+            RegisterPhase::MacCore,
+            RegisterPhase::BasebandCore,
+            RegisterPhase::RadioCore,
+            RegisterPhase::SocPostamble,
+            RegisterPhase::MacPostamble,
+            RegisterPhase::BasebandPostamble,
+            RegisterPhase::RadioPostamble,
+            RegisterPhase::RxGain,
+            RegisterPhase::TxGain,
+        };
+        for (size_t i = 0; i < sizeof(expected) / sizeof(expected[0]); ++i)
+        {
+            if (recipe.phases[i].phase != expected[i])
+            {
+                return false;
+            }
+        }
         return writes == recipe.registerWrites &&
-               recipe.phases[0].phase == RegisterPhase::SocPreamble &&
-               recipe.phases[4].phase == RegisterPhase::RxGain &&
-               recipe.phases[5].phase == RegisterPhase::TxGain &&
-               recipe.phases[9].phase == RegisterPhase::RadioPostamble;
+               (expectedPhases == 10 ||
+                recipe.phases[10].phase == RegisterPhase::Japan2484Txfir);
     }
 } // namespace
 
@@ -65,7 +82,7 @@ int main()
                          TxGainProfile::LowOb, RxGainProfile::Standard,
                          requirements, v11) != Result::Ok ||
         !validRecipe(v11, 10) || !v11.regulatoryAuthorized ||
-        v11.phases[9].data == v10.phases[9].data ||
+        v11.phases[7].data == v10.phases[7].data ||
         canBeginHardwareInitialization(v11, requirements))
     {
         return 3;
@@ -76,7 +93,7 @@ int main()
     {
         return 4;
     }
-    forged.phases[9] = v10.phases[9];
+    forged.phases[7] = v10.phases[7];
     if (canBeginHardwareInitialization(forged, requirements))
     {
         return 5;
@@ -87,9 +104,9 @@ int main()
                          TxGainProfile::HighPower,
                          RxGainProfile::WithoutExternalLna, requirements,
                          ht40) != Result::Ok ||
-        !validRecipe(ht40, 10) || ht40.phases[4].data == v11.phases[4].data ||
-        ht40.phases[5].data == v11.phases[5].data ||
+        !validRecipe(ht40, 10) || ht40.phases[8].data == v11.phases[8].data ||
         ht40.phases[9].data == v11.phases[9].data ||
+        ht40.phases[7].data == v11.phases[7].data ||
         canBeginHardwareInitialization(ht40, requirements))
     {
         return 6;
@@ -159,7 +176,7 @@ int main()
         !validRecipe(aliased, 10) || aliased.channel.number != channel.number ||
         aliased.channel.centerMhz != channel.centerMhz ||
         aliased.channel.requiresJapanAuthorization ||
-        aliased.phases[5].data != ht40.phases[5].data ||
+        aliased.phases[9].data != ht40.phases[9].data ||
         !aliased.regulatoryAuthorized)
     {
         return 13;

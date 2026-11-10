@@ -174,8 +174,6 @@ namespace simpleath
                ht20 ? ini::kBasebandCoreHt20View : ini::kBasebandCoreHt40View);
         append(recipe, RegisterPhase::RadioCore,
                ht20 ? ini::kRadioCoreHt20View : ini::kRadioCoreHt40View);
-        append(recipe, RegisterPhase::RxGain, rxGain(rx, width));
-        append(recipe, RegisterPhase::TxGain, txGain(tx, width));
         append(recipe, RegisterPhase::SocPostamble,
                ht20 ? ini::kSocPostambleHt20View : ini::kSocPostambleHt40View);
         append(recipe, RegisterPhase::MacPostamble,
@@ -195,6 +193,12 @@ namespace simpleath
                    ht20 ? ini::kRadioPostamble10Ht20View
                         : ini::kRadioPostamble10Ht40View);
         }
+
+        // Linux ar9003_hw_process_ini() programs all SOC/MAC/BB/RADIO
+        // pre/core/post split tables before RX/TX gain mode arrays. Gains
+        // before radio postamble can be overwritten by postamble settings.
+        append(recipe, RegisterPhase::RxGain, rxGain(rx, width));
+        append(recipe, RegisterPhase::TxGain, txGain(tx, width));
 
         if (requestedChannel.number == kJapanChannel)
         {
