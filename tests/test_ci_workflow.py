@@ -27,6 +27,7 @@ CI_REQUIREMENTS = (
     "--only-binary :all:",
     "python3 -B tools/validate.py --no-cache --stdout-only",
     "tools/generate_compile_commands.py",
+    "python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi",
     "RUFF_NO_CACHE: '1'",
     "xcrun --sdk macosx --show-sdk-path",
 )
@@ -51,6 +52,7 @@ BUILD_REQUIREMENTS = (
     "#include <stdint.h>",
     "SYSTEM_HEADER_SEARCH_PATHS",
     "KERNEL_FRAMEWORK_HEADERS",
+    "python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi",
     "actions/upload-artifact@v7",
 )
 BUILD_FORBIDDEN = (
@@ -116,7 +118,11 @@ class WorkflowContract(unittest.TestCase):
             assert forbidden not in content
         first = content.index("Checkout exact authorized commit")
         second = content.index("Enforce authorized CalVer tag")
-        assert first < second
+        preflight = content.index(
+            "Test Tahoe ABI inheritance against native Apple SDK"
+        )
+        compilation = content.index("Build unsigned x86_64 kernel extension")
+        assert first < second < preflight < compilation
 
     @staticmethod
     def test_release_requires_a_successful_strict_ci_result() -> None:

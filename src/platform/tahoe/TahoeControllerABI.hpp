@@ -120,13 +120,11 @@ class IO80211Controller : public IOEthernetController
         IOReturn getHardwareAddress(IOEthernetAddress * /*addrP*/) override;
         IOReturn setMulticastMode(bool /*active*/) override;
         IOReturn setPromiscuousMode(bool /*active*/) override;
-        // These two occupied IONetworkController reserve slots in the older
-        // SDK.
-    private:
-        void _RESERVEDIONetworkController6() __asm__(
-            "__ZN19IONetworkController20allocatePacketNoWaitEj") override;
-        void _RESERVEDIONetworkController7() __asm__(
-            "__ZN19IONetworkController18setHardwareAssistsEjj") override;
+        // Current native IONetworkController already declares virtual
+        // allocatePacketNoWait(UInt32) and setHardwareAssists(UInt32, UInt32)
+        // in the formerly reserved slots 6 and 7. Inherit those slots without
+        // redeclaring them: legacy _RESERVED* names cannot override the actual
+        // methods, and adding replacement virtuals would corrupt the vtable.
 
     public:
         virtual bool isCommandProhibited(int) = 0; // slot 0x0c50

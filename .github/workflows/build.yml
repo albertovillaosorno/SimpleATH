@@ -65,6 +65,11 @@ jobs:
           echo "kernel=$kernel" >> "$GITHUB_OUTPUT"
           echo "builtin=$builtin" >> "$GITHUB_OUTPUT"
 
+      - name: Test Tahoe ABI inheritance against native Apple SDK
+        # This narrow C++ syntax preflight is part of build compilation,
+        # never the separate source CI job and never a kext link.
+        run: python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi
+
       - name: Build unsigned x86_64 kernel extension
         run: |
           sdk="${{ steps.native_headers.outputs.sdk }}"

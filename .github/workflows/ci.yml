@@ -71,6 +71,9 @@ jobs:
           }
           echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
 
+      - name: Test Tahoe ABI inheritance against native Apple SDK
+        run: python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi
+
       - name: Refresh checkout-local Clang-Tidy commands
         run: python3 -B tools/generate_compile_commands.py
 
