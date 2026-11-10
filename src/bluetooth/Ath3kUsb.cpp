@@ -398,6 +398,18 @@ namespace simpleath
             progress.result = Ath3kBootResult::VersionMismatch;
             return progress;
         }
+        // The ROM reference clock determines the configuration resource.
+        // Reject an unsupported clock before patch transfer, rather than
+        // modifying firmware and then discovering a guaranteed failure.
+        // An already-loaded configuration does not need clock selection.
+        FirmwareName configurationResource {};
+        if ((state & kConfigurationLoaded) == 0U &&
+            !configurationName(configurationResource, boardVersion))
+        {
+            progress.result = Ath3kBootResult::UnsupportedClock;
+            progress.phase = Ath3kBootPhase::LoadConfiguration;
+            return progress;
+        }
         FirmwareName name {};
         if ((state & kPatchLoaded) == 0U)
         {
@@ -411,13 +423,8 @@ namespace simpleath
         if ((state & kConfigurationLoaded) == 0U)
         {
             progress.phase = Ath3kBootPhase::LoadConfiguration;
-            name.fill('\0');
-            if (!configurationName(name, boardVersion))
-            {
-                progress.result = Ath3kBootResult::UnsupportedClock;
-                return progress;
-            }
-            if (!loadImage(io, name.data(), false, rom, build, progress))
+            if (!loadImage(io, configurationResource.data(), false, rom, build,
+                           progress))
             {
                 return progress;
             }

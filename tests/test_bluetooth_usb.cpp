@@ -33,6 +33,8 @@ namespace
     constexpr uint8_t kEventInEndpoint = 0x81U;
     constexpr uint8_t kAclInEndpoint = 0x82U;
     constexpr uint8_t kInvalidClock = 0xffU;
+    constexpr uint8_t kLoadedPatchState = 0x80U;
+    constexpr uint8_t kLoadedConfigurationState = 0x40U;
     constexpr uint8_t kLoadedNormalState = 0xc0U | 0x0eU;
     constexpr uint16_t kAtherosUsbVendor = 0x0cf3U;
     constexpr uint16_t kAtherosUsbProduct = 0x0036U;
@@ -275,7 +277,34 @@ namespace
         fake.version.at(kClockOffset) = kInvalidClock;
         result = bootstrapAth3kUsb(identity, usbIo(fake));
         if (result.result != Ath3kBootResult::UnsupportedClock ||
-            !result.requiresUsbReset || fake.vendorWrites != 1U)
+            result.phase != Ath3kBootPhase::LoadConfiguration ||
+            result.requiresUsbReset || fake.vendorWrites != 0U ||
+            fake.bulkWrites != 0U || fake.firmwareCalls != 0U)
+        {
+            return false;
+        }
+        // A loaded configuration needs no reference-clock filename; even
+        // an unknown reported clock must not block unrelated patch startup.
+        fake = newFake();
+        fake.state = kLoadedConfigurationState;
+        fake.version.at(kClockOffset) = kInvalidClock;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::AwaitReenumeration ||
+            result.firmwareBytesTransferred != kImageBytes ||
+            fake.firmwareCalls != 1U || fake.vendorWrites != 3U ||
+            !result.requiresUsbReset)
+        {
+            return false;
+        }
+        // Even with an already-loaded patch, unknown configuration clocks
+        // must be rejected before loading a firmware resource or USB write.
+        fake = newFake();
+        fake.state = kLoadedPatchState;
+        fake.version.at(kClockOffset) = kInvalidClock;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::UnsupportedClock ||
+            result.requiresUsbReset || fake.firmwareCalls != 0U ||
+            fake.vendorWrites != 0U)
         {
             return false;
         }
