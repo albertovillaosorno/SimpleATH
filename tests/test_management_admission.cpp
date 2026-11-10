@@ -99,6 +99,32 @@ namespace
         return true;
     }
 
+    bool rejectOversizedManagementMpdu()
+    {
+        // A single legacy management MPDU cannot exceed 2346 bytes on air.
+        // The parser must reject a corrupt oversized DMA length before
+        // walking an attacker-controlled information-element stream.
+        constexpr size_t kMaximumMpduBytes = 2346;
+        uint8_t frame[kMaximumMpduBytes + 1] {};
+        makeBeacon(frame);
+        Frame header {};
+        if (parseFrame(frame, kMaximumMpduBytes, header) != Result::Ok ||
+            header.type != FrameType::Management)
+            return false;
+        if (parseFrame(frame, sizeof(frame), header) != Result::InvalidFrame ||
+            header.headerLength || header.subtype)
+            return false;
+        Beacon beacon {};
+        if (parseBeacon(frame, sizeof(frame), beacon) != Result::InvalidFrame ||
+            beacon.ssidLength ||
+            beacon.rsn.security != Security::UnsupportedRsn)
+            return false;
+        // Data MPDUs keep their own, stricter admission/fragmentation gates.
+        frame[0] = 0x08;
+        return parseFrame(frame, sizeof(frame), header) == Result::Ok &&
+               header.type == FrameType::Data;
+    }
+
     bool validBeacon()
     {
         uint8_t frame[kBeaconBytes] {};
@@ -1131,5 +1157,7 @@ int main()
         return 24;
     if (!rejectChannel14NonCckAssociation())
         return 25;
+    if (!rejectOversizedManagementMpdu())
+        return 26;
     return 0;
 }

@@ -13,6 +13,7 @@ namespace simpleath
         static constexpr size_t kTimestampBytes = 8;
         static constexpr size_t kLegacyRateCount = 8;
         static constexpr size_t kExtendedRateCount = 4;
+        static constexpr size_t kMaximumLegacyMpduBytesIncludingFcs = 2346;
 
         static uint16_t readLittle16(const uint8_t *bytes)
         {
@@ -286,6 +287,11 @@ namespace simpleath
             if (type == FrameType::Management &&
                 (toDs || fromDs || ordered || (control & 0x0400u) != 0))
                 return Result::UnsupportedFrame;
+            // Management frames are never A-MPDU payloads. Reject an RX
+            // length above the legacy on-air MPDU ceiling before IE walking.
+            if (type == FrameType::Management &&
+                length > kMaximumLegacyMpduBytesIncludingFcs)
+                return Result::InvalidFrame;
 
             size_t headerLength = 24;
             if (type == FrameType::Data)
