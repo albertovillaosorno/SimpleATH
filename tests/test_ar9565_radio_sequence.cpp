@@ -38,10 +38,12 @@ namespace
         Ht40 = 13,
         Revocation = 14,
         Mode = 15,
+        BoardSnapshot = 16,
     };
 
     constexpr uint64_t kEpoch = 69;
     constexpr uint8_t kJapanChannel = 14;
+    constexpr uint8_t kTamperedEepromVersion = 0xffU;
     constexpr uint8_t kChannel6 = 6;
     constexpr uint8_t kInvalidSecondary = 9;
     constexpr size_t kMinIniWrites = 500;
@@ -88,6 +90,7 @@ namespace
             bool grantNever {};
             bool delayChecked {};
             bool badMeasurement {};
+            EepromImage *boardToAlter {};
     };
 
     bool basePermit(void *context, uint64_t epoch)
@@ -173,6 +176,11 @@ namespace
             return false;
         }
         fake.registers.at(offset / sizeof(uint32_t)) = value;
+        if (fake.writes == 1 && fake.boardToAlter != nullptr)
+        {
+            fake.boardToAlter->restored = false;
+            fake.boardToAlter->bytes[0] = kTamperedEepromVersion;
+        }
         if (fake.revokeAfterWrite != 0 && fake.writes == fake.revokeAfterWrite)
         {
             fake.powered = false;
@@ -372,6 +380,19 @@ int main()
         good.registers.at(kSelfgenMask / sizeof(uint32_t)) != 0)
     {
         return static_cast<int>(TestExit::Success);
+    }
+    // Native MMIO callbacks must never be able to change the already
+    // validated board consumed by a later radio stage.
+    EepromImage originalBoard = board();
+    Fake mutated {};
+    mutated.boardToAlter = &originalBoard;
+    const auto snapshot = run(mutated, channel(), authorized(), originalBoard);
+    if (snapshot.result != RadioSequenceResult::Ok ||
+        snapshot.stage != RadioSequenceStage::Completed ||
+        originalBoard.restored ||
+        originalBoard.bytes[0] != kTamperedEepromVersion)
+    {
+        return static_cast<int>(TestExit::BoardSnapshot);
     }
     const int admission = checkAdmissionAndChannelModes();
     if (admission != 0)

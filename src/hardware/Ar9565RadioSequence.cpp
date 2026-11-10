@@ -151,7 +151,9 @@ namespace simpleath
             return progress;
         }
         progress.stage = RadioSequenceStage::BoardModal;
-        progress.board = programAr9565BoardModal2G(physicalBoard, allowed,
+        // Later callbacks must consume the same immutable board that
+        // passed preflight; MMIO callbacks may change caller-owned storage.
+        progress.board = programAr9565BoardModal2G(verifiedBoard, allowed,
                                                    diversity, stable.baseband);
         if (progress.board.result != BoardModalResult::Ok)
         {
