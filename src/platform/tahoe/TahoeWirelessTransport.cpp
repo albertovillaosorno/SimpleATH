@@ -1,0 +1,676 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+#include "TahoeWirelessTransport.hpp"
+#include "platform/tahoe/NativeWirelessOwner.hpp"
+#include "wifi/LegacyScanBridge.hpp"
+#include <IOKit/IOLocks.h>
+#include <IOKit/IOReturn.h>
+#include <IOKit/IOService.h>
+#include <cstddef>
+#include <cstdint>
+#include <string.h>
+
+namespace simpleath
+{
+    namespace tahoe
+    {
+        namespace
+        {
+            constexpr size_t kMinEthernetFrame = 14;
+            constexpr uint8_t kMaxChannel2G = 14;
+            constexpr uint32_t kCcmpPacketNumberBits = 48;
+
+            bool validMac(const uint8_t address[kWirelessMacBytes])
+            {
+                if (address == nullptr)
+                {
+                    return false;
+                }
+
+                struct MacCopy
+                {
+                        uint8_t octets[kWirelessMacBytes];
+                } copy {};
+
+                memcpy(&copy, address, sizeof(copy));
+                if ((copy.octets[0] & 1U) != 0U)
+                {
+                    return false;
+                }
+                uint8_t aggregate = 0;
+                for (const uint8_t byte : copy.octets)
+                {
+                    aggregate |= byte;
+                }
+                return aggregate != 0;
+            }
+
+            bool validContract(const WirelessOwnerV1 &owner)
+            {
+                return owner.abiVersion == kWirelessOwnerAbi &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV1) &&
+                       (owner.context != nullptr) &&
+                       (owner.snapshot != nullptr) &&
+                       (owner.setPower != nullptr) &&
+                       (owner.setMac != nullptr) &&
+                       (owner.beginScan != nullptr) &&
+                       (owner.cancelScan != nullptr) &&
+                       (owner.nextBss != nullptr) &&
+                       (owner.connect != nullptr) &&
+                       (owner.disconnect != nullptr) &&
+                       (owner.installKey != nullptr) &&
+                       (owner.authorizePort != nullptr) &&
+                       (owner.transmitEthernet != nullptr) &&
+                       (owner.subscribe != nullptr) &&
+                       (owner.unsubscribe != nullptr);
+            }
+
+            // Disallow callers writing into the transport's own mailbox or
+            // metadata. A large packet must never corrupt the queue indices.
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                uintptr_t address = 0;
+                static_assert(sizeof(address) == sizeof(pointer),
+                              "pointer address width");
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
+
+            bool overlapsObject(const void *dest, size_t length,
+                                const void *object, size_t objectLength)
+            {
+                const uintptr_t first = pointerAddress(dest);
+                const uintptr_t second = pointerAddress(object);
+                return first >= second ? first - second < objectLength
+                                       : second - first < length;
+            }
+
+            bool validConnect(const NativeConnectRequest &request)
+            {
+                return validMac(&request.bssid[0]) && request.ssidLength != 0 &&
+                       request.ssidLength <= sizeof(request.ssid) &&
+                       request.channel != 0 && request.channel <= kMaxChannel2G;
+            }
+        } // namespace
+
+        TahoeWirelessTransport::~TahoeWirelessTransport()
+        {
+            unbind();
+        }
+
+        bool TahoeWirelessTransport::bound() const
+        {
+            if (!subscribed_ || (provider_ == nullptr) ||
+                (owner_.context == nullptr) || (mailboxLock_ == nullptr))
+            {
+                return false;
+            }
+            IOLockLock(mailboxLock_);
+            const bool valid = epoch_ != 0 && !providerStopped_;
+            IOLockUnlock(mailboxLock_);
+            return valid;
+        }
+
+        void TahoeWirelessTransport::invalidateMailboxes()
+        {
+            // Called under mailboxLock_, never while invoking an owner.
+            receiveAuthorized_ = false;
+            eventHead_ = eventCount_ = 0;
+            receiveHead_ = receiveCount_ = 0;
+            scanGeneration_ = 0;
+            previousScanGeneration_ = 0;
+            memset(&events_[0], 0, sizeof(events_));
+            memset(&frames_[0], 0, sizeof(frames_));
+        }
+
+        IOReturn TahoeWirelessTransport::bind(IOService *provider)
+        {
+            if ((provider == nullptr) || (provider_ != nullptr) ||
+                (mailboxLock_ != nullptr))
+            {
+                return kIOReturnBadArgument;
+            }
+            IOLock *lock = IOLockAlloc();
+            if (lock == nullptr)
+            {
+                return kIOReturnNoMemory;
+            }
+            WirelessOwnerV1 candidate {};
+            candidate.abiVersion = kWirelessOwnerAbi;
+            candidate.structureBytes = sizeof(candidate);
+            const IOReturn lookup = provider->callPlatformFunction(
+                &kWirelessOwnerFunction[0], false, &candidate, nullptr, nullptr,
+                nullptr);
+            if (lookup != kIOReturnSuccess || !validContract(candidate))
+            {
+                IOLockFree(lock);
+                return lookup == kIOReturnSuccess ? kIOReturnUnsupported
+                                                  : lookup;
+            }
+            WirelessSnapshot snapshotValue {};
+            const IOReturn status =
+                candidate.snapshot(candidate.context, &snapshotValue);
+            if (status != kIOReturnSuccess || snapshotValue.epoch == 0)
+            {
+                IOLockFree(lock);
+                return status == kIOReturnSuccess ? kIOReturnNotReady : status;
+            }
+            provider->retain();
+            provider_ = provider;
+            owner_ = candidate;
+            mailboxLock_ = lock;
+            epoch_ = snapshotValue.epoch;
+            providerStopped_ = false;
+            IOLockLock(lock);
+            receiveAuthorized_ =
+                snapshotValue.radioAvailable && snapshotValue.powered &&
+                snapshotValue.associated && snapshotValue.controlledPortOpen &&
+                !snapshotValue.rfKillBlocked;
+            IOLockUnlock(lock);
+            // A synchronous subscribe may invoke notify before returning;
+            // the mailbox and initial owner epoch already exist.
+            const IOReturn result =
+                owner_.subscribe(owner_.context, this, notify, receive);
+            if (result != kIOReturnSuccess)
+            {
+                // Subscription is atomic by owner contract: failure means
+                // the owner did not retain these callback addresses.
+                owner_ = {};
+                provider_ = nullptr;
+                mailboxLock_ = nullptr;
+                epoch_ = 0;
+                providerStopped_ = false;
+                IOLockFree(lock);
+                provider->release();
+                return result;
+            }
+            subscribed_ = true;
+            // A replacement/reset during subscription must not make old
+            // mailbox data appear to belong to the new owner epoch.
+            WirelessSnapshot after {};
+            const IOReturn checked = this->snapshot(after);
+            if (checked != kIOReturnSuccess)
+            {
+                unbind();
+                return checked;
+            }
+            return kIOReturnSuccess;
+        }
+
+        void TahoeWirelessTransport::unbind()
+        {
+            if (provider_ == nullptr)
+            {
+                return;
+            }
+            if (mailboxLock_ != nullptr)
+            {
+                IOLockLock(mailboxLock_);
+                epoch_ = 0;
+                providerStopped_ = true;
+                invalidateMailboxes();
+                IOLockUnlock(mailboxLock_);
+            }
+            if (subscribed_)
+            {
+                owner_.unsubscribe(owner_.context, this);
+            }
+            subscribed_ = false;
+            owner_ = {};
+            IOService const *oldProvider = provider_;
+            provider_ = nullptr;
+            IOLock *oldLock = mailboxLock_;
+            mailboxLock_ = nullptr;
+            if (oldLock != nullptr)
+            {
+                IOLockFree(oldLock);
+            }
+            if (oldProvider != nullptr)
+            {
+                oldProvider->release();
+            }
+        }
+
+        IOReturn TahoeWirelessTransport::snapshot(WirelessSnapshot &out)
+        {
+            out = {};
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            WirelessSnapshot current {};
+            const IOReturn result = owner_.snapshot(owner_.context, &current);
+            if (result != kIOReturnSuccess || (current.epoch == 0U))
+            {
+                return result == kIOReturnSuccess ? kIOReturnNotReady : result;
+            }
+            IOLockLock(mailboxLock_);
+            if (providerStopped_)
+            {
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            if (current.epoch != epoch_)
+            {
+                epoch_ = current.epoch;
+                invalidateMailboxes();
+            }
+            receiveAuthorized_ = current.radioAvailable && current.powered &&
+                                 current.associated &&
+                                 current.controlledPortOpen &&
+                                 !current.rfKillBlocked;
+            IOLockUnlock(mailboxLock_);
+            out = current;
+            return kIOReturnSuccess;
+        }
+
+        IOReturn TahoeWirelessTransport::setPower(bool on)
+        {
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            if (on)
+            {
+                WirelessSnapshot state {};
+                const IOReturn result = snapshot(state);
+                if (result != kIOReturnSuccess)
+                {
+                    return result;
+                }
+                if (!state.radioAvailable || state.rfKillBlocked)
+                {
+                    return kIOReturnNotReady;
+                }
+            }
+            const IOReturn result = owner_.setPower(owner_.context, on);
+            if (result == kIOReturnSuccess && !on)
+            {
+                IOLockLock(mailboxLock_);
+                invalidateMailboxes();
+                IOLockUnlock(mailboxLock_);
+            }
+            return result;
+        }
+
+        IOReturn
+        TahoeWirelessTransport::setMac(const uint8_t address[kWirelessMacBytes])
+        {
+            if ((address == nullptr) || !validMac(address))
+            {
+                return kIOReturnBadArgument;
+            }
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            return owner_.setMac(owner_.context, address);
+        }
+
+        IOReturn TahoeWirelessTransport::startScan(uint64_t &generation)
+        {
+            generation = 0;
+            WirelessSnapshot state {};
+            const IOReturn status = snapshot(state);
+            if (status != kIOReturnSuccess)
+            {
+                return status;
+            }
+            if (!state.radioAvailable || !state.powered ||
+                state.rfKillBlocked || state.scanning)
+            {
+                return kIOReturnNotReady;
+            }
+            uint64_t ticket = 0;
+            const IOReturn result = owner_.beginScan(owner_.context, &ticket);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            if (ticket == 0U)
+            {
+                return kIOReturnError;
+            }
+            IOLockLock(mailboxLock_);
+            const bool stillCurrent =
+                epoch_ == state.epoch && !providerStopped_;
+            if (stillCurrent)
+            {
+                previousScanGeneration_ = scanGeneration_;
+                scanGeneration_ = ticket;
+            }
+            IOLockUnlock(mailboxLock_);
+            if (!stillCurrent)
+            {
+                (void)owner_.cancelScan(owner_.context, ticket);
+                return kIOReturnNotReady;
+            }
+            generation = ticket;
+            return kIOReturnSuccess;
+        }
+
+        IOReturn TahoeWirelessTransport::cancelScan(uint64_t generation)
+        {
+            if (!bound() || (generation == 0U))
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            const bool current = generation == scanGeneration_;
+            IOLockUnlock(mailboxLock_);
+            if (!current)
+            {
+                return kIOReturnNotReady;
+            }
+            const IOReturn result =
+                owner_.cancelScan(owner_.context, generation);
+            if (result == kIOReturnSuccess)
+            {
+                IOLockLock(mailboxLock_);
+                scanGeneration_ = 0;
+                IOLockUnlock(mailboxLock_);
+            }
+            return result;
+        }
+
+        IOReturn
+        TahoeWirelessTransport::nextBss(uint64_t generation,
+                                        ieee80211::NativeBssSnapshot &out)
+        {
+            out = {};
+            if (!bound() || (generation == 0U))
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            // The completed results from the preceding generation remain
+            // enumerable while a new physical scan is in progress. The PCI
+            // owner's ticket check still determines snapshot eligibility.
+            const bool current = generation == scanGeneration_ ||
+                                 generation == previousScanGeneration_;
+            IOLockUnlock(mailboxLock_);
+            return current ? owner_.nextBss(owner_.context, generation, &out)
+                           : kIOReturnNotReady;
+        }
+
+        IOReturn
+        TahoeWirelessTransport::connect(const NativeConnectRequest &request)
+        {
+            if (!validConnect(request))
+            {
+                return kIOReturnBadArgument;
+            }
+            WirelessSnapshot state {};
+            const IOReturn status = snapshot(state);
+            if (status != kIOReturnSuccess)
+            {
+                return status;
+            }
+            if (!state.powered || !state.radioAvailable ||
+                state.rfKillBlocked || state.scanning)
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            receiveAuthorized_ = false;
+            IOLockUnlock(mailboxLock_);
+            return owner_.connect(owner_.context, &request);
+        }
+
+        IOReturn TahoeWirelessTransport::disconnect(uint16_t reason)
+        {
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            receiveAuthorized_ = false;
+            receiveHead_ = receiveCount_ = 0;
+            memset(&frames_[0], 0, sizeof(frames_));
+            IOLockUnlock(mailboxLock_);
+            return owner_.disconnect(owner_.context, reason);
+        }
+
+        IOReturn TahoeWirelessTransport::installKey(const NativeCcmpKey &key)
+        {
+            if (!bound() || key.keyId > 3 ||
+                (key.pairwise && (key.keyId != 0 || !validMac(&key.peer[0]))) ||
+                (!key.remove &&
+                 key.receivePacketNumber >= (1ULL << kCcmpPacketNumberBits)))
+            {
+                return kIOReturnBadArgument;
+            }
+            return owner_.installKey(owner_.context, &key);
+        }
+
+        IOReturn TahoeWirelessTransport::authorizePort(bool open)
+        {
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            if (open)
+            {
+                WirelessSnapshot state {};
+                const IOReturn result = snapshot(state);
+                if (result != kIOReturnSuccess)
+                {
+                    return result;
+                }
+                if (!state.associated || !state.powered ||
+                    !state.radioAvailable || state.rfKillBlocked)
+                {
+                    return kIOReturnNotReady;
+                }
+            }
+            const IOReturn result = owner_.authorizePort(owner_.context, open);
+            if (result == kIOReturnSuccess && !open)
+            {
+                IOLockLock(mailboxLock_);
+                receiveAuthorized_ = false;
+                receiveHead_ = receiveCount_ = 0;
+                memset(&frames_[0], 0, sizeof(frames_));
+                IOLockUnlock(mailboxLock_);
+            }
+            return result;
+        }
+
+        IOReturn TahoeWirelessTransport::transmitEthernet(const uint8_t *bytes,
+                                                          size_t length)
+        {
+            if ((bytes == nullptr) || length < kMinEthernetFrame ||
+                length > kMaxEthernetFrame)
+            {
+                return kIOReturnBadArgument;
+            }
+            WirelessSnapshot state {};
+            const IOReturn result = snapshot(state);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            if (!state.associated || !state.controlledPortOpen ||
+                !state.radioAvailable || !state.powered || state.rfKillBlocked)
+            {
+                return kIOReturnNotReady;
+            }
+            return owner_.transmitEthernet(owner_.context, bytes, length);
+        }
+
+        void TahoeWirelessTransport::notify(void *observer, WirelessEvent event,
+                                            uint64_t epoch)
+        {
+            if (observer == nullptr)
+            {
+                return;
+            }
+            auto &self = *static_cast<TahoeWirelessTransport *>(observer);
+            IOLock *lock = self.mailboxLock_;
+            if (lock == nullptr)
+            {
+                return;
+            }
+            IOLockLock(lock);
+            if ((epoch == 0U) || epoch != self.epoch_ ||
+                event > WirelessEvent::ProviderStopped)
+            {
+                IOLockUnlock(lock);
+                return;
+            }
+            if (event == WirelessEvent::ProviderStopped ||
+                event == WirelessEvent::LinkChanged ||
+                event == WirelessEvent::AssociationChanged ||
+                event == WirelessEvent::RadioChanged)
+            {
+                self.receiveAuthorized_ = false;
+                self.receiveCount_ = 0;
+                self.receiveHead_ = 0;
+                memset(&self.frames_[0], 0, sizeof(self.frames_));
+            }
+            if (event == WirelessEvent::ProviderStopped)
+            {
+                self.providerStopped_ = true;
+                self.epoch_ = 0;
+                self.scanGeneration_ = 0;
+            }
+            if (self.eventCount_ == kEventCapacity)
+            {
+                ++self.eventDrops_;
+            }
+            else
+            {
+                const size_t tail =
+                    (self.eventHead_ + self.eventCount_) % kEventCapacity;
+                self.events_[tail] = {event, epoch};
+                ++self.eventCount_;
+            }
+            IOLockUnlock(lock);
+        }
+
+        void TahoeWirelessTransport::receive(void *observer,
+                                             const uint8_t *bytes,
+                                             size_t length)
+        {
+            if (observer == nullptr)
+            {
+                return;
+            }
+            auto &self = *static_cast<TahoeWirelessTransport *>(observer);
+            IOLock *lock = self.mailboxLock_;
+            if (lock == nullptr)
+            {
+                return;
+            }
+            IOLockLock(lock);
+            if ((bytes == nullptr) || length < kMinEthernetFrame ||
+                length > kMaxEthernetFrame || (self.epoch_ == 0U) ||
+                !self.receiveAuthorized_ || self.receiveCount_ == kRxCapacity)
+            {
+                ++self.receiveDrops_;
+            }
+            else
+            {
+                const size_t tail =
+                    (self.receiveHead_ + self.receiveCount_) % kRxCapacity;
+                ReceiveRecord &packet = self.frames_[tail];
+                packet.epoch = self.epoch_;
+                packet.length = length;
+                memcpy(&packet.bytes[0], bytes, length);
+                ++self.receiveCount_;
+            }
+            IOLockUnlock(lock);
+        }
+
+        IOReturn TahoeWirelessTransport::takeEvent(WirelessEvent &event,
+                                                   uint64_t &epoch)
+        {
+            if (mailboxLock_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            if (eventCount_ == 0U)
+            {
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotFound;
+            }
+            const EventRecord record = events_[eventHead_];
+            events_[eventHead_] = {};
+            eventHead_ = (eventHead_ + 1) % kEventCapacity;
+            --eventCount_;
+            IOLockUnlock(mailboxLock_);
+            event = record.event;
+            epoch = record.epoch;
+            return kIOReturnSuccess;
+        }
+
+        IOReturn TahoeWirelessTransport::takeEthernet(uint8_t *bytes,
+                                                      size_t capacity,
+                                                      size_t &length)
+        {
+            // A caller may not write a returned length into this object's
+            // bookkeeping or use its internal receive storage as output.
+            if (overlapsObject(&length, sizeof(length), this, sizeof(*this)))
+            {
+                return kIOReturnBadArgument;
+            }
+            length = 0;
+            if ((bytes == nullptr) || (mailboxLock_ == nullptr) ||
+                overlapsObject(bytes, capacity, this, sizeof(*this)))
+            {
+                return kIOReturnBadArgument;
+            }
+            IOLockLock(mailboxLock_);
+            if ((receiveCount_ == 0U) || !receiveAuthorized_ || (epoch_ == 0U))
+            {
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            ReceiveRecord &packet = frames_[receiveHead_];
+            if (packet.epoch != epoch_)
+            {
+                memset(&packet, 0, sizeof(packet));
+                receiveHead_ = (receiveHead_ + 1) % kRxCapacity;
+                --receiveCount_;
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            if (capacity < packet.length)
+            {
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNoSpace;
+            }
+            memcpy(bytes, &packet.bytes[0], packet.length);
+            length = packet.length;
+            memset(&packet, 0, sizeof(packet));
+            receiveHead_ = (receiveHead_ + 1) % kRxCapacity;
+            --receiveCount_;
+            IOLockUnlock(mailboxLock_);
+            return kIOReturnSuccess;
+        }
+
+        uint64_t TahoeWirelessTransport::droppedReceiveFrames() const
+        {
+            if (mailboxLock_ == nullptr)
+            {
+                return receiveDrops_;
+            }
+            IOLockLock(mailboxLock_);
+            const uint64_t result = receiveDrops_;
+            IOLockUnlock(mailboxLock_);
+            return result;
+        }
+
+        uint64_t TahoeWirelessTransport::droppedEvents() const
+        {
+            if (mailboxLock_ == nullptr)
+            {
+                return eventDrops_;
+            }
+            IOLockLock(mailboxLock_);
+            const uint64_t result = eventDrops_;
+            IOLockUnlock(mailboxLock_);
+            return result;
+        }
+    } // namespace tahoe
+} // namespace simpleath

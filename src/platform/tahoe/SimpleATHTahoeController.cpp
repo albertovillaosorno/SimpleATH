@@ -1,0 +1,320 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+#include "SimpleATHTahoeController.hpp"
+#ifndef __IO80211_TARGET
+#define __IO80211_TARGET 10
+#endif
+#include "platform/tahoe/NativeWirelessOwner.hpp"
+#include "platform/tahoe/TahoeControllerABI.hpp"
+#include "wifi/LegacyScanBridge.hpp"
+#include <IOKit/80211/apple80211_var.h>
+#include <IOKit/IOReturn.h>
+#include <IOKit/IOService.h>
+#include <IOKit/network/IOEthernetController.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <libkern/c++/OSMetaClass.h>
+#include <string.h>
+
+// The modern Tahoe IO80211Controller superclass comes from the exact KDK
+// binary, not the older MacKernelSDK's legacy controller declaration. These
+// source-level value layouts are only accepted when their version matches.
+#include <IOKit/80211/apple80211_ioctl.h>
+
+OSDefineMetaClassAndStructors(SimpleATHTahoeController, IO80211Controller)
+
+    namespace
+{
+    constexpr char kDriverVersion[] = "SimpleATH native AR9565";
+    constexpr char kHardwareVersion[] = "Qualcomm Atheros AR9565";
+
+    IOReturn copyVersion(void *buffer, const char *string)
+    {
+        if ((buffer == nullptr) || (string == nullptr))
+        {
+            return kIOReturnBadArgument;
+        }
+        auto *out = static_cast<apple80211_version_data *>(buffer);
+        if (out->version != APPLE80211_VERSION)
+        {
+            return kIOReturnUnsupported;
+        }
+        const size_t size = strlen(string);
+        if (size >= sizeof(out->string))
+        {
+            return kIOReturnNoSpace;
+        }
+        memset(&out->string[0], 0, sizeof(out->string));
+        memcpy(&out->string[0], string, size);
+        out->string_len = static_cast<uint16_t>(size);
+        return kIOReturnSuccess;
+    }
+}
+
+bool SimpleATHTahoeController::start(IOService *provider)
+{
+    if (provider == nullptr)
+    {
+        return false;
+    }
+    // Require an actual PCI epoch, radio owner and callback contract before
+    // allowing the native superclass to publish any interface state.
+    if (transport_.bind(provider) != kIOReturnSuccess)
+    {
+        return false;
+    }
+    if (!IO80211Controller::start(provider))
+    {
+        transport_.unbind();
+        return false;
+    }
+    started_ = true;
+    return true;
+}
+
+void SimpleATHTahoeController::stop(IOService *provider)
+{
+    if (started_)
+    {
+        started_ = false;
+        IO80211Controller::stop(provider);
+    }
+    transport_.unbind();
+}
+
+void SimpleATHTahoeController::free()
+{
+    transport_.unbind();
+    IO80211Controller::free();
+}
+
+bool SimpleATHTahoeController::isCommandProhibited(int command)
+{
+    // Tahoe passes an internal protocol command number, not necessarily a
+    // legacy Apple80211 IOC. Permit normal dispatch only while a physical
+    // radio owner is present; each concrete protocol operation still must
+    // validate its request and report unsupported capability honestly.
+    if (command < 0)
+    {
+        return true;
+    }
+    simpleath::tahoe::WirelessSnapshot state {};
+    return transport_.snapshot(state) != kIOReturnSuccess ||
+           !state.radioAvailable || state.rfKillBlocked;
+}
+
+IOReturn SimpleATHTahoeController::getHardwareAddress(IOEthernetAddress *out)
+{
+    if (out == nullptr)
+    {
+        return kIOReturnBadArgument;
+    }
+    simpleath::tahoe::WirelessSnapshot state {};
+    const IOReturn result = transport_.snapshot(state);
+    if (result != kIOReturnSuccess)
+    {
+        return result;
+    }
+    memcpy(&out->bytes[0], &state.currentMac[0], sizeof(out->bytes));
+    return kIOReturnSuccess;
+}
+
+IOReturn SimpleATHTahoeController::getDRIVER_VERSION(
+    IO80211SkywalkInterface * /*unused*/, void *buffer)
+{
+    return copyVersion(buffer, &kDriverVersion[0]);
+}
+
+IOReturn SimpleATHTahoeController::getHARDWARE_VERSION(
+    IO80211SkywalkInterface * /*unused*/, void *buffer)
+{
+    return copyVersion(buffer, &kHardwareVersion[0]);
+}
+
+IOReturn SimpleATHTahoeController::getCARD_CAPABILITIES(
+    IO80211SkywalkInterface * /*unused*/, void *buffer)
+{
+    // The modern 25G332 capability byte layout and dispatch are not confirmed
+    // by the legacy SDK. Reject instead of advertising 5 GHz, HT40, AWDL or
+    // WPA3 capabilities that AR9565 does not provide.
+    return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
+}
+
+IOReturn
+SimpleATHTahoeController::getPOWER(IO80211SkywalkInterface * /*unused*/,
+                                   void *buffer)
+{
+    if (buffer == nullptr)
+    {
+        return kIOReturnBadArgument;
+    }
+    auto *out = static_cast<apple80211_power_data *>(buffer);
+    if (out->version != APPLE80211_VERSION)
+    {
+        return kIOReturnUnsupported;
+    }
+    simpleath::tahoe::WirelessSnapshot state {};
+    const IOReturn result = transport_.snapshot(state);
+    if (result != kIOReturnSuccess)
+    {
+        return result;
+    }
+    out->num_radios = 1;
+    for (auto &radio : out->power_state)
+    {
+        radio = APPLE80211_POWER_OFF;
+    }
+    out->power_state[0] =
+        state.radioAvailable && state.powered && !state.rfKillBlocked
+            ? APPLE80211_POWER_ON
+            : APPLE80211_POWER_OFF;
+    return kIOReturnSuccess;
+}
+
+IOReturn
+SimpleATHTahoeController::setPOWER(IO80211SkywalkInterface * /*unused*/,
+                                   void *buffer)
+{
+    if (buffer == nullptr)
+    {
+        return kIOReturnBadArgument;
+    }
+    const auto *request = static_cast<const apple80211_power_data *>(buffer);
+    if (request->version != APPLE80211_VERSION || request->num_radios != 1)
+    {
+        return kIOReturnUnsupported;
+    }
+    if (request->power_state[0] != APPLE80211_POWER_ON &&
+        request->power_state[0] != APPLE80211_POWER_OFF)
+    {
+        return kIOReturnUnsupported;
+    }
+    return transport_.setPower(request->power_state[0] == APPLE80211_POWER_ON);
+}
+
+IOReturn
+SimpleATHTahoeController::getCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
+                                          void *buffer)
+{
+    if (buffer == nullptr)
+    {
+        return kIOReturnBadArgument;
+    }
+    auto *out = static_cast<apple80211_country_code_data *>(buffer);
+    if (out->version != APPLE80211_VERSION)
+    {
+        return kIOReturnUnsupported;
+    }
+    simpleath::tahoe::WirelessSnapshot state {};
+    const IOReturn result = transport_.snapshot(state);
+    if (result != kIOReturnSuccess)
+    {
+        return result;
+    }
+    if (state.country[0] == 0 || state.country[1] == 0)
+    {
+        return kIOReturnNotReady;
+    }
+    memset(&out->cc[0], 0, sizeof(out->cc));
+    memcpy(&out->cc[0], &state.country[0],
+           sizeof(state.country) < sizeof(out->cc) ? sizeof(state.country)
+                                                   : sizeof(out->cc));
+    return kIOReturnSuccess;
+}
+
+IOReturn
+SimpleATHTahoeController::setCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
+                                          void *buffer)
+{
+    // Changing a registry country cannot authorize illegal RF channels or
+    // raise power. Only a verified native regulatory policy may approve it.
+    return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
+}
+
+IOReturn SimpleATHTahoeController::setGET_DEBUG_INFO(
+    IO80211SkywalkInterface * /*unused*/, void *buffer)
+{
+    return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
+}
+
+int32_t SimpleATHTahoeController::handleCardSpecific(
+    IO80211SkywalkInterface * /*unused*/, unsigned long /*unused*/,
+    void * /*unused*/, bool /*unused*/)
+{
+    return kIOReturnUnsupported;
+}
+
+CCLogStream *SimpleATHTahoeController::getLogger() const
+{
+    return nullptr;
+}
+
+CommonFaultReporter *SimpleATHTahoeController::getFaultReporterFromDriver()
+{
+    return nullptr;
+}
+
+IOReturn
+SimpleATHTahoeController::radioSnapshot(simpleath::tahoe::WirelessSnapshot &out)
+{
+    return transport_.snapshot(out);
+}
+
+IOReturn SimpleATHTahoeController::scanStart(uint64_t &generation)
+{
+    return transport_.startScan(generation);
+}
+
+IOReturn SimpleATHTahoeController::scanCancel(uint64_t generation)
+{
+    return transport_.cancelScan(generation);
+}
+
+IOReturn
+SimpleATHTahoeController::scanNext(uint64_t generation,
+                                   simpleath::ieee80211::NativeBssSnapshot &out)
+{
+    return transport_.nextBss(generation, out);
+}
+
+IOReturn SimpleATHTahoeController::stationJoin(
+    const simpleath::tahoe::NativeConnectRequest &request)
+{
+    return transport_.connect(request);
+}
+
+IOReturn SimpleATHTahoeController::stationLeave(uint16_t reason)
+{
+    return transport_.disconnect(reason);
+}
+
+IOReturn
+SimpleATHTahoeController::setCcmpKey(const simpleath::tahoe::NativeCcmpKey &key)
+{
+    return transport_.installKey(key);
+}
+
+IOReturn SimpleATHTahoeController::setControlledPort(bool enabled)
+{
+    return transport_.authorizePort(enabled);
+}
+
+IOReturn SimpleATHTahoeController::sendEthernet(const uint8_t *packet,
+                                                size_t length)
+{
+    return transport_.transmitEthernet(packet, length);
+}
+
+IOReturn
+SimpleATHTahoeController::nextRadioEvent(simpleath::tahoe::WirelessEvent &event,
+                                         uint64_t &epoch)
+{
+    return transport_.takeEvent(event, epoch);
+}
+
+IOReturn SimpleATHTahoeController::receiveEthernet(uint8_t *packet,
+                                                   size_t capacity,
+                                                   size_t &length)
+{
+    return transport_.takeEthernet(packet, capacity, length);
+}

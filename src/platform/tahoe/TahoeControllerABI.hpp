@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 SimpleATH contributors.
+// Independently declared ABI from the Intel 25G332 KDK symbol/vtable image.
+#ifndef SIMPLEATH_TAHOE_CONTROLLER_ABI_HPP
+#define SIMPLEATH_TAHOE_CONTROLLER_ABI_HPP
+#include <IOKit/IOCommandGate.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/network/IOEthernetController.h>
+#include <stdint.h>
+class IO80211SkywalkInterface;
+class CCLogStream;
+class CCPipe;
+class CommonFaultReporter;
+
+class IO80211WorkQueue : public IOWorkLoop
+{
+    OSDeclareAbstractStructors(IO80211WorkQueue) private
+        : uint8_t nativeStorage_[0x50 - sizeof(IOWorkLoop)];
+};
+
+static_assert(sizeof(IO80211WorkQueue) == 0x50,
+              "25G332 IO80211 work queue size");
+
+// Native-owned methods with opaque private parameter types are imported at
+// their exact slots below. They have no replacement implementation and must
+// never be called through these opaque source declarations. Typed methods and
+// required driver overrides retain the actual x86_64 calling convention.
+class IO80211Controller : public IOEthernetController
+{
+    OSDeclareAbstractStructors(IO80211Controller) public : void free() override;
+        bool init(OSDictionary * /*properties*/) override;
+        IOReturn configureReport(IOReportChannelList * /*channels*/,
+                                 unsigned int /*action*/, void * /*result*/,
+                                 void * /*destination*/) override;
+        IOReturn updateReport(IOReportChannelList * /*channels*/,
+                              unsigned int /*action*/, void * /*result*/,
+                              void * /*destination*/) override;
+        bool start(IOService * /*provider*/) override;
+        void stop(IOService * /*provider*/) override;
+        IOWorkLoop *getWorkLoop() const override;
+        const char *stringFromReturn(int /*rtn*/) override;
+        int errnoFromReturn(int /*rtn*/) override;
+        UInt32 getFeatures() const override;
+        const OSString *newVendorString() const override;
+        const OSString *newModelString() const override;
+        bool createWorkLoop() override;
+        IOReturn getHardwareAddress(IOEthernetAddress * /*addrP*/) override;
+        IOReturn setMulticastMode(bool /*active*/) override;
+        IOReturn setPromiscuousMode(bool /*active*/) override;
+        // These two occupied IONetworkController reserve slots in the older
+        // SDK.
+        void _RESERVEDIONetworkController6() __asm__(
+            "__ZN19IONetworkController20allocatePacketNoWaitEj") override;
+        void _RESERVEDIONetworkController7() __asm__(
+            "__ZN19IONetworkController18setHardwareAssistsEjj") override;
+
+        virtual bool isCommandProhibited(int) = 0; // slot 0x0c50
+
+        virtual bool createWorkQueue(); // slot 0x0c58
+    private:
+        virtual void
+        nativeSlot0C60() __asm__("__ZN17IO80211Controller14debugStateInitEv");
+
+    public:
+        virtual IO80211WorkQueue *getWorkQueue() const; // slot 0x0c68
+
+        virtual void requestPacketTx(void *, unsigned int); // slot 0x0c70
+
+        virtual IOCommandGate *getIO80211CommandGate() const; // slot 0x0c78
+
+        virtual IO80211SkywalkInterface *
+        getPrimarySkywalkInterface(); // slot 0x0c80
+
+        virtual int bpfOutputPacket(OSObject *, unsigned int,
+                                    mbuf_t); // slot 0x0c88
+
+        virtual int32_t monitorModeSetEnabled(bool,
+                                              unsigned int); // slot 0x0c90
+
+        virtual int32_t handleCardSpecific(IO80211SkywalkInterface *,
+                                           unsigned long, void *,
+                                           bool) = 0; // slot 0x0c98
+
+        virtual uint32_t hardwareOutputQueueDepth(); // slot 0x0ca0
+    private:
+        virtual void
+        nativeSlot0CA8() __asm__("__"
+                                 "ZN17IO80211Controller27performCountryCodeOper"
+                                 "ationE20IO80211CountryCodeOp");
+
+    public:
+        virtual void dataLinkLayerAttachComplete(); // slot 0x0cb0
+    private:
+        virtual void nativeSlot0CB8() __asm__(
+            "__ZN17IO80211Controller13enableFeatureE18IO80211FeatureCodePv");
+
+    public:
+        virtual IOReturn getDRIVER_VERSION(IO80211SkywalkInterface *,
+                                           void *) = 0; // slot 0x0cc0
+
+        virtual IOReturn getHARDWARE_VERSION(IO80211SkywalkInterface *,
+                                             void *) = 0; // slot 0x0cc8
+
+        virtual IOReturn getCARD_CAPABILITIES(IO80211SkywalkInterface *,
+                                              void *) = 0; // slot 0x0cd0
+
+        virtual IOReturn getPOWER(IO80211SkywalkInterface *,
+                                  void *) = 0; // slot 0x0cd8
+
+        virtual IOReturn setPOWER(IO80211SkywalkInterface *,
+                                  void *) = 0; // slot 0x0ce0
+
+        virtual IOReturn getCOUNTRY_CODE(IO80211SkywalkInterface *,
+                                         void *) = 0; // slot 0x0ce8
+
+        virtual IOReturn setCOUNTRY_CODE(IO80211SkywalkInterface *,
+                                         void *) = 0; // slot 0x0cf0
+
+        virtual IOReturn setGET_DEBUG_INFO(IO80211SkywalkInterface *,
+                                           void *) = 0; // slot 0x0cf8
+    private:
+        virtual void nativeSlot0D00() __asm__(
+            "__ZN17IO80211Controller18getPLATFORM_"
+            "CONFIGEP23IO80211SkywalkInterfaceP26apple80211_platform_config");
+
+        virtual void
+        nativeSlot0D08() __asm__("__"
+                                 "ZN17IO80211Controller22enableVirtualInterface"
+                                 "EP23IO80211VirtualInterface");
+
+        virtual void
+        nativeSlot0D10() __asm__("__"
+                                 "ZN17IO80211Controller23disableVirtualInterfac"
+                                 "eEP23IO80211VirtualInterface");
+
+    public:
+        virtual bool requiresExplicitMBufRelease(); // slot 0x0d18
+
+        virtual bool flowIdSupported(); // slot 0x0d20
+    private:
+        virtual void nativeSlot0D28() __asm__(
+            "__ZN17IO80211Controller16requestFlowQueueEPK14FlowIdMetadata");
+
+        virtual void nativeSlot0D30() __asm__(
+            "__ZN17IO80211Controller16releaseFlowQueueEP16IO80211FlowQueue");
+
+    public:
+        virtual bool getLogPipes(CCPipe **, CCPipe **,
+                                 CCPipe **); // slot 0x0d38
+
+        virtual CCLogStream *getLogger() const = 0; // slot 0x0d40
+    private:
+        virtual void nativeSlot0D48() __asm__(
+            "__ZN17IO80211Controller28enableFeatureForLoggingFlagsEy");
+
+        virtual void nativeSlot0D50() __asm__(
+            "__ZN17IO80211Controller26requestQueueSizeAndTimeoutEPtS0_");
+
+        virtual void nativeSlot0D58() __asm__(
+            "__ZN17IO80211Controller24enablePacketTimestampingEv");
+
+        virtual void nativeSlot0D60() __asm__(
+            "__ZN17IO80211Controller25disablePacketTimestampingEv");
+
+        virtual void nativeSlot0D68() __asm__(
+            "__ZN17IO80211Controller18getPacketTSCounterEv");
+
+        virtual void
+        nativeSlot0D70() __asm__("__ZN17IO80211Controller16getDriverTextLogEv");
+
+        virtual void nativeSlot0D78() __asm__(
+            "__ZN17IO80211Controller21selfDiagnosticsReportEiPKcj");
+
+    public:
+        virtual CommonFaultReporter *
+        getFaultReporterFromDriver() = 0; // slot 0x0d80
+    private:
+        virtual void nativeSlot0D88() __asm__(
+            "__ZN17IO80211Controller25allocIO80211RecursiveLockEv");
+
+        virtual void nativeSlot0D90() __asm__(
+            "__ZN17IO80211Controller17getDataQueueDepthEP8OSObject");
+
+        virtual void nativeSlot0D98() __asm__(
+            "__ZN17IO80211Controller23wasDynSARInFailSafeModeEv");
+
+        virtual void nativeSlot0DA0() __asm__(
+            "__ZN17IO80211Controller26updateAdvisoryScoresIfNeedEv");
+
+        virtual void
+        nativeSlot0DA8() __asm__("__"
+                                 "ZN17IO80211Controller18getAVCAdvisoryInfoEP27"
+                                 "IO80211InterfaceAVCAdvisory");
+
+        virtual void nativeSlot0DB0() __asm__(
+            "__ZN17IO80211Controller26getActionFramePoolCapacityEv");
+
+        virtual void
+        nativeSlot0DB8() __asm__("__ZN17IO80211Controller13getPostOfficeEv");
+
+        virtual void
+        nativeSlot0DC0() __asm__("__ZN17IO80211Controller16CreatePostOfficeEv");
+
+    public:
+        virtual bool attachInterface(OSObject *, IOService *); // slot 0x0dc8
+
+        virtual void detachInterface(OSObject *, bool); // slot 0x0dd0
+    private:
+        virtual void nativeSlot0DD8() __asm__(
+            "__ZN17IO80211Controller22createVirtualInterfaceEP10ether_addrj");
+
+        virtual void
+        nativeSlot0DE0() __asm__("__"
+                                 "ZN17IO80211Controller22attachVirtualInterface"
+                                 "EPP23IO80211VirtualInterfaceP10ether_addrjb");
+
+        virtual void
+        nativeSlot0DE8() __asm__("__"
+                                 "ZN17IO80211Controller22detachVirtualInterface"
+                                 "EP23IO80211VirtualInterfaceb");
+
+        virtual void nativeSlot0DF0() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller0Ev");
+
+        virtual void nativeSlot0DF8() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller1Ev");
+
+        virtual void nativeSlot0E00() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller2Ev");
+
+        virtual void nativeSlot0E08() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller3Ev");
+
+        virtual void nativeSlot0E10() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller4Ev");
+
+        virtual void nativeSlot0E18() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller5Ev");
+
+        virtual void nativeSlot0E20() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller6Ev");
+
+        virtual void nativeSlot0E28() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller7Ev");
+
+        virtual void nativeSlot0E30() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller8Ev");
+
+        virtual void nativeSlot0E38() __asm__(
+            "__ZN17IO80211Controller27_RESERVEDIO80211Controller9Ev");
+
+        virtual void nativeSlot0E40() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller10Ev");
+
+        virtual void nativeSlot0E48() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller11Ev");
+
+        virtual void nativeSlot0E50() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller12Ev");
+
+        virtual void nativeSlot0E58() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller13Ev");
+
+        virtual void nativeSlot0E60() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller14Ev");
+
+        virtual void nativeSlot0E68() __asm__(
+            "__ZN17IO80211Controller28_RESERVEDIO80211Controller15Ev");
+
+    public:
+        virtual IOReturn setMulticastList(const struct EtherAddr *,
+                                          unsigned int); // slot 0x0e70
+    private:
+        uint8_t nativeStorage_[0x128 - sizeof(IOEthernetController)];
+};
+
+static_assert(sizeof(IOEthernetController) == 0x118,
+              "25G332 Ethernet controller size");
+static_assert(sizeof(IO80211Controller) == 0x128,
+              "25G332 wireless controller size");
+#endif
