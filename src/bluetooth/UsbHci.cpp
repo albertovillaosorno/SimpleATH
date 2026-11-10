@@ -653,6 +653,29 @@ namespace simpleath
         state = {};
     }
 
+    UsbHciStatus classifyUsbHciRead(bool ownerCurrent, bool completed,
+                                    bool timedOut, size_t transferred,
+                                    size_t capacity)
+    {
+        if (!ownerCurrent)
+        {
+            return UsbHciStatus::OwnershipLost;
+        }
+        if (completed && timedOut)
+        {
+            return UsbHciStatus::TransferFailed;
+        }
+        if (timedOut && transferred == 0U)
+        {
+            return UsbHciStatus::Idle;
+        }
+        if (!completed || transferred == 0U || transferred > capacity)
+        {
+            return UsbHciStatus::TransferFailed;
+        }
+        return UsbHciStatus::Ok;
+    }
+
     UsbHciStatus sendUsbHciCommand(UsbHciState &state,
                                    const UsbHciHostCallbacks &host,
                                    const uint8_t *command, size_t bytes)

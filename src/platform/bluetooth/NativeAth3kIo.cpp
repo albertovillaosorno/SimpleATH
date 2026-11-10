@@ -277,23 +277,19 @@ namespace simpleath
             // An IN poll may outlive device removal or a host-controller
             // reset. Never parse borrowed USB bytes once the owning epoch
             // has been revoked, even when the transfer returned success.
-            if (!hciPermit(&native, native.epoch))
-            {
-                return UsbHciStatus::OwnershipLost;
-            }
             // Interrupt IN can be silent for an arbitrary period. A finite
-            // timeout makes shutdown bounded; a zero-byte timeout is idle,
-            // not a controller fault. Partial/ambiguous failures still latch
-            // the HCI transport fault and require a fresh session.
-            if (status == kIOReturnTimeout && transferred == 0U)
-            {
-                return UsbHciStatus::Idle;
-            }
-            if (status != kIOReturnSuccess || transferred == 0U ||
-                transferred > sizeof(buffer))
+            // timeout makes shutdown bounded, while partial/ambiguous I/O
+            // failures still require a fresh controller transport session.
+            const UsbHciStatus read = classifyUsbHciRead(
+                hciPermit(&native, native.epoch), status == kIOReturnSuccess,
+                status == kIOReturnTimeout, transferred, sizeof(buffer));
+            if (read == UsbHciStatus::TransferFailed)
             {
                 native.stream.faulted = true;
-                return UsbHciStatus::TransferFailed;
+            }
+            if (read != UsbHciStatus::Ok)
+            {
+                return read;
             }
             if (kind == UsbHciPacketKind::Event)
             {

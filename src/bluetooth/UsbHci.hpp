@@ -135,6 +135,17 @@ namespace simpleath
                               const UsbHciHostCallbacks &host);
     void detachUsbHci(UsbHciState &state);
 
+    // Classify one native USB IN result after the blocking transfer returns.
+    // A zero-byte timeout is idle; partial timeouts, unexpected empty
+    // successes and overcapacity transfers are physical faults. Revoked
+    // ownership takes precedence over even a successful-looking completion.
+    // This pure check does NOT establish USB lifetime or HCI readiness:
+    // the native owner must serialize I/O with provider detach, and latch a
+    // TransferFailed result as a transport fault before any packet delivery.
+    UsbHciStatus classifyUsbHciRead(bool ownerCurrent, bool completed,
+                                    bool timedOut, size_t transferred,
+                                    size_t capacity);
+
     // Host-issued HCI commands use USB class control transfer (0x20, req 0)
     // at interface 0. The native callback supplies that exact USB setup.
     // No new command can overtake a pending Command Complete/Status, exceed
