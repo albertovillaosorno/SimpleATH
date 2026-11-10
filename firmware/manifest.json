@@ -1,0 +1,115 @@
+{
+  "assets": [
+    {
+      "bytes": 55244,
+      "file": "AthrBT_0x01020001.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "24844c16de86a54b44d34c83c78b67ef561c09a228769d8cb6975a0a8db455db"
+    },
+    {
+      "bytes": 40724,
+      "file": "AthrBT_0x01020200.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "c064839aea2f8c5ea11da08ed1814adf26c0b74f0da5c7b92f9576bf1b43773b"
+    },
+    {
+      "bytes": 48188,
+      "file": "AthrBT_0x01020201.dfu",
+      "license": "LICENSE.QualcommAtheros_ar3k",
+      "sha256": "b7dad005c0d019f2785b302e470df7f483879af971a3dde16c4993eada4d4a26"
+    },
+    {
+      "bytes": 36828,
+      "file": "AthrBT_0x11020000.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "a15ce5593f65a3c099a70efed1238f7e0f87ca374d70c72fbdfe397dd1ab3bb3"
+    },
+    {
+      "bytes": 46852,
+      "file": "AthrBT_0x11020100.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "0504043d9d17ce09ac829e5ae7dba6af739e136160c842e76d772d5fcb02a019"
+    },
+    {
+      "bytes": 40652,
+      "file": "AthrBT_0x31010000.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "d0bc433c0ff69e53c54cb728f6852dd5467f417c615813b2e72b5b7dd556439d"
+    },
+    {
+      "bytes": 37796,
+      "file": "AthrBT_0x31010100.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "d0e20e32c84b42684829743475a53225e7116089393ac4c4970be136b8f3a2f6"
+    },
+    {
+      "bytes": 31500,
+      "file": "AthrBT_0x41020000.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "0807e12526dc8e0d6e0655710afb245ea7b097cd5b25495c86b7100429a703a3"
+    },
+    {
+      "bytes": 1224,
+      "file": "ramps_0x01020001_26.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "515e51ac2b21afba8ba9a87ac8b53713b72f6461f316f1da0eb405f580e36ead"
+    },
+    {
+      "bytes": 1274,
+      "file": "ramps_0x01020200_26.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "57a67ed2e45b4c826b7a3cafcee5328d511d25643105f15f82f310071ba339e3"
+    },
+    {
+      "bytes": 1204,
+      "file": "ramps_0x01020200_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "162f381675f859e75e79a3d0327167e87f4c6e326a85972a12abefd569ed2ea4"
+    },
+    {
+      "bytes": 264,
+      "file": "ramps_0x01020201_26.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    },
+    {
+      "bytes": 1796,
+      "file": "ramps_0x11020000_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "7e776dab8b7f74f830cb2b19629751717b5316c05a160a6430ee842d4dc666f6"
+    },
+    {
+      "bytes": 1802,
+      "file": "ramps_0x11020100_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "d10b989e90b1b18fa015df3c88d3beac6dba04c586663c0a7132e1fa2feb3f59"
+    },
+    {
+      "bytes": 1926,
+      "file": "ramps_0x31010000_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "c8404e5abc29ab8adb310fb13109009ca744f6145e3e7c9bd49b84680c5db615"
+    },
+    {
+      "bytes": 1922,
+      "file": "ramps_0x31010100_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "a2f99c2d9565d55040c6956427d0662911c6c9dd6f12965f1470169b75b274ae"
+    },
+    {
+      "bytes": 1820,
+      "file": "ramps_0x41020000_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "4c20a37cb8af73948c2247eb1947bce127a0956c6b91b446104a413e4151c546"
+    },
+    {
+      "bytes": 264,
+      "file": "ramps_0x01020201_40.dfu",
+      "license": "LICENCE.atheros_firmware",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    }
+  ],
+  "schema": "simpleath.ath3k.firmware.v1",
+  "source": "linux-firmware AR3012 entries in WHENCE, Fedora atheros-firmware-20261019-1.fc44.noarch",
+  "upstream": "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git"
+}

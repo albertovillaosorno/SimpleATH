@@ -84,3 +84,22 @@ OpenBSD-derived networking source keeps its own permissive file notices.
 Current scope is modern WCL request/event and native lifetime comparison;
 any adapted implementation is identified in its destination source header.
 Intel firmware and hardware code are not included for the AR9565.
+
+## Qualcomm/Atheros AR3012 USB Bluetooth firmware
+
+Source:
+https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+Local provenance: Fedora `atheros-firmware-20261019-1.fc44.noarch`,
+`/usr/share/licenses/linux-firmware-whence/WHENCE` AR3012 DFU entries.
+
+The 18 unmodified AR3012 `.dfu` firmware images under `firmware/ar3k/`
+retain the original license terms and source SHA-256 hashes listed in
+`firmware/manifest.json`. `firmware/LICENCE.atheros_firmware` covers the
+ordinary Atheros DFU payloads; `firmware/LICENSE.QualcommAtheros_ar3k`
+covers `AthrBT_0x01020201.dfu`. Both notices are reproduced intact.
+Firmware is redistributed as exact binary files and byte-identical encoded
+`OSData` in the two supported-vendor `src/Info.plist` USB personalities.
+The kext probes each actual USB device descriptor and exact published
+AR3012 product before initiating a firmware transfer; the WLAN PCI identity
+is not a substitute for USB identification. This source packaging does not
+prove Tahoe Bluetooth host attachment, firmware execution or BLE/AirDrop.

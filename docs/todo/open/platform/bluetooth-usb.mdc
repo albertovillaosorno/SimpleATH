@@ -238,3 +238,21 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   source fails this new test (exit 174); the revised C++14/C++17 sanitizer
   fixtures and strict Clang-Tidy/format checks pass. No native Bluetooth
   registration or physical scanning is implied.
+
+- AR3012 boot resource availability is now implemented in source as part of
+  the standard kext Info.plist. The 18 exact unmodified `.dfu` images from
+  the installed Fedora `atheros-firmware-20261019-1.fc44.noarch` source set
+  are retained under `firmware/ar3k/`, with their original separate Atheros
+  and Qualcomm Atheros redistribution notices under `firmware/` and all
+  SHA-256 hashes and license mappings in `firmware/manifest.json`.
+  `tools/firmware/embed_ar3k.py` constructs two vendor-scoped USB boot
+  personalities containing `SimpleATHAth3kFirmware` as actual OSData;
+  native `SimpleATHUsbBluetooth::probe` still verifies the exact physical
+  USB product and boot revision. This eliminates the previous missing
+  firmware-dictionary rejection for published USB identities; it does not
+  identify the user's Dell USB function or prove successful USB bootstrap.
+  Five offline tests cover byte-exact embedded payloads, hashes, notices,
+  idempotent generation, missing licenses and invalid resource paths.
+  Strict Ruff and BasedPyright for the new source and tests pass, with no
+  rule suppressions. Post-reenumeration macOS Bluetooth host registration,
+  native BLE policy and Wi-Fi coexistence integration remain open.
