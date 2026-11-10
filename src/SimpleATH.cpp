@@ -10,6 +10,8 @@
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
+#include "wifi/DataFrames.hpp"
+#include "wifi/Frames.hpp"
 #include "wifi/WifiEngine.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
@@ -35,6 +37,7 @@ namespace
 
     bool gSimpleATHEnabled = true;
     constexpr size_t kNvmStorageBytes = 4096;
+    constexpr size_t kNativeEthernetCapacity = 1518;
     constexpr unsigned int kRfPropertyWidthBits = 32;
     constexpr uint32_t kRfKillInputRegister = 0x404c;
     // IOService copies this table when registering the power driver.
@@ -611,6 +614,51 @@ class SimpleATH final : public IOService
             ++self.receivedFrames_;
             self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
                              64);
+            // The engine accepts a data MSDU only after association,
+            // address/security checks and duplicate suppression. The native
+            // owner additionally requires its physical radio and controlled
+            // port to remain live; never deliver unverified WPA2/CCMP bytes.
+            if (result != simpleath::ieee80211::EngineResult::Ok ||
+                action.kind !=
+                    simpleath::ieee80211::ActionKind::ReceivedPayload ||
+                !self.channelAuthorized_ || !self.controlledPortAuthorized_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                !trust.dmaAndFcsVerified ||
+                self.engine_.linkStatus().state !=
+                    simpleath::ieee80211::LinkState::Associated ||
+                self.observerLock_ == nullptr)
+            {
+                return;
+            }
+            simpleath::ieee80211::Msdu msdu {};
+            if (simpleath::ieee80211::decodeLlcData(
+                    frame, bytes, trust.rxFrameIncludesFcs,
+                    trust.ccmpMicAndReplayVerified,
+                    msdu) != simpleath::ieee80211::Result::Ok ||
+                msdu.payload != action.receivedPayload ||
+                msdu.payloadLength != action.receivedPayloadBytes ||
+                msdu.etherType != action.etherType)
+            {
+                return;
+            }
+            size_t ethernetBytes = 0;
+            if (simpleath::ieee80211::encodeReceivedEthernet(
+                    msdu, &self.ethernetRx_[0], sizeof(self.ethernetRx_),
+                    ethernetBytes) != simpleath::ieee80211::Result::Ok)
+            {
+                return;
+            }
+            IOLockLock(self.observerLock_);
+            if (self.wirelessObserver_ != nullptr &&
+                self.wirelessReceive_ != nullptr && self.radioOperational_ &&
+                self.channelAuthorized_ && self.controlledPortAuthorized_)
+            {
+                // Tahoe's callback copies synchronously into its bounded
+                // mailbox; the bytes are never retained from this IRQ pool.
+                self.wirelessReceive_(self.wirelessObserver_,
+                                      &self.ethernetRx_[0], ethernetBytes);
+            }
+            IOLockUnlock(self.observerLock_);
         }
 
         static void
@@ -1083,6 +1131,7 @@ class SimpleATH final : public IOService
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
         uint8_t managementReply_[4096] {};
+        uint8_t ethernetRx_[kNativeEthernetCapacity] {};
         uint64_t receivedFrames_ {0};
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};

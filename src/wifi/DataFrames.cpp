@@ -25,6 +25,9 @@ namespace simpleath
         static constexpr size_t kMaximumMpduBytesIncludingFcs = 2346;
         static constexpr size_t kLlcSnapBytes = 8;
         static constexpr uint32_t kBitsPerByte = 8;
+        static constexpr size_t kEthernetHeaderBytes = 14;
+        static constexpr size_t kEtherTypeHighOffset = 12;
+        static constexpr size_t kEtherTypeLowOffset = 13;
 
         static bool overlaps(const void *const firstBuffer, size_t firstBytes,
                              const void *const secondBuffer, size_t secondBytes)
@@ -197,6 +200,58 @@ namespace simpleath
             data.protectedFrame = header.protectedFrame;
             data.qosFrame = (header.subtype & kQosSubtype) != 0;
             out = data;
+            return Result::Ok;
+        }
+
+        Result encodeReceivedEthernet(const Msdu &msdu, uint8_t *out,
+                                      size_t capacity, size_t &written)
+        {
+            // No caller-controlled output may mutate the validated MSDU,
+            // borrowed DMA payload or the output length during serialization.
+            if (overlaps(&written, sizeof(written), &msdu, sizeof(msdu)) ||
+                overlaps(&written, sizeof(written), out, capacity) ||
+                overlaps(&written, sizeof(written), msdu.payload,
+                         msdu.payloadLength) ||
+                overlaps(out, capacity, &msdu, sizeof(msdu)) ||
+                overlaps(out, capacity, msdu.payload, msdu.payloadLength))
+            {
+                return Result::OverlappingBuffers;
+            }
+            written = 0;
+            if (out == nullptr || msdu.payload == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            if (msdu.etherType < kEthernetIiMin ||
+                msdu.payloadLength >
+                    kMaximumMpduBytesIncludingFcs - kEthernetHeaderBytes)
+            {
+                return Result::InvalidFrame;
+            }
+            const size_t total = kEthernetHeaderBytes + msdu.payloadLength;
+            if (capacity < total)
+            {
+                return Result::BufferTooSmall;
+            }
+            uint8_t header[kEthernetHeaderBytes] {};
+            __builtin_memcpy(&header[0], &msdu.destination.bytes[0],
+                             kMacAddressBytes);
+            __builtin_memcpy(&header[kMacAddressBytes], &msdu.source.bytes[0],
+                             kMacAddressBytes);
+            header[kEtherTypeHighOffset] =
+                static_cast<uint8_t>(msdu.etherType >> kBitsPerByte);
+            header[kEtherTypeLowOffset] = static_cast<uint8_t>(msdu.etherType);
+            __builtin_memcpy(out, &header[0], sizeof(header));
+            uintptr_t tailAddress = 0;
+            __builtin_memcpy(static_cast<void *>(&tailAddress),
+                             static_cast<const void *>(&out), sizeof(out));
+            tailAddress += sizeof(header);
+            uint8_t *tail = nullptr;
+            __builtin_memcpy(static_cast<void *>(&tail),
+                             static_cast<const void *>(&tailAddress),
+                             sizeof(tail));
+            __builtin_memcpy(tail, msdu.payload, msdu.payloadLength);
+            written = total;
             return Result::Ok;
         }
 

@@ -36,6 +36,16 @@ namespace simpleath
                              bool containsFcs, bool verifiedDecryptionAndMic,
                              Msdu &out);
 
+        // Ethernet-II packet handoff into a native OS-owned receive pool.
+        // Caller must first prove DMA/FCS, station association, destination,
+        // duplicate suppression and, for protected frames, CCMP MIC/replay.
+        // This routine only copies an already accepted borrowed MSDU; it
+        // neither authorizes its security state nor retains its payload.
+        // On ordinary errors written is cleared; aliases are rejected before
+        // any output mutation. Never call with a DMA lifetime that expired.
+        Result encodeReceivedEthernet(const Msdu &msdu, uint8_t *out,
+                                      size_t capacity, size_t &written);
+
     } // namespace ieee80211
 } // namespace simpleath
 #endif

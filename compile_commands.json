@@ -1524,6 +1524,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_ethernet_delivery.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_ethernet_delivery.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_init_catalog.cpp",
     "arguments": [
       "clang++",
