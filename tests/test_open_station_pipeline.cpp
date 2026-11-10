@@ -1000,8 +1000,8 @@ namespace
         uint8_t output[256] {};
         EngineAction action {};
         const InputTrust verifiedRx {true, true, true, false};
-        if (engine.acceptRx(advertisement, sizeof(advertisement), -40, 1000,
-                            verifiedRx, output, sizeof(output),
+        if (engine.acceptRx(advertisement, sizeof(advertisement), verifiedRx,
+                            {-40, 1000}, output, sizeof(output),
                             action) != EngineResult::Ok ||
             engine.scan().size() != 1)
         {
@@ -1296,8 +1296,8 @@ namespace
         uint8_t tx[128] {};
         EngineAction action {};
         if (engine.startScan(true, true) != EngineResult::Ok ||
-            engine.acceptRx(advertisement, sizeof(advertisement), -40, 1000,
-                            trusted, tx, sizeof(tx),
+            engine.acceptRx(advertisement, sizeof(advertisement), trusted,
+                            {-40, 1000}, tx, sizeof(tx),
                             action) != EngineResult::Ok ||
             engine.chooseNetwork(station,
                                  reinterpret_cast<const uint8_t *>("Test"), 4,
@@ -1311,7 +1311,7 @@ namespace
         uint8_t response[30] {};
         authenticationResponse(response);
         response[28] = 13; // AP rejected Open System authentication.
-        if (engine.acceptRx(response, sizeof(response), 0, 1010, trusted,
+        if (engine.acceptRx(response, sizeof(response), trusted, {0, 1010},
                             nullptr, 0,
                             action) != EngineResult::AccessPointRejected ||
             engine.stationState() != StationState::Inactive ||
@@ -1322,8 +1322,8 @@ namespace
 
         // A malformed response also must not request TX buffer capacity.
         if (engine.startScan(true, true) != EngineResult::Ok ||
-            engine.acceptRx(advertisement, sizeof(advertisement), -40, 2000,
-                            trusted, tx, sizeof(tx),
+            engine.acceptRx(advertisement, sizeof(advertisement), trusted,
+                            {-40, 2000}, tx, sizeof(tx),
                             action) != EngineResult::Ok ||
             engine.chooseNetwork(station,
                                  reinterpret_cast<const uint8_t *>("Test"), 4,
@@ -1335,7 +1335,7 @@ namespace
         }
         authenticationResponse(response);
         response[26] = 3; // Not transaction 2.
-        if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
+        if (engine.acceptRx(response, sizeof(response), trusted, {0, 2010},
                             nullptr, 0,
                             action) != EngineResult::InvalidReceivedFrame ||
             engine.stationState() !=
@@ -1345,7 +1345,7 @@ namespace
             return false;
         }
         authenticationResponse(response);
-        if (engine.acceptRx(response, sizeof(response), 0, 2010, trusted,
+        if (engine.acceptRx(response, sizeof(response), trusted, {0, 2010},
                             nullptr, 0,
                             action) != EngineResult::BufferTooSmall ||
             engine.stationState() != StationState::AuthenticationFramePrepared)
@@ -1354,8 +1354,8 @@ namespace
         }
         // A valid retry still emits the association body after an output
         // allocation is supplied, and never reports native Wi-Fi success.
-        return engine.acceptRx(response, sizeof(response), 0, 2010, trusted, tx,
-                               sizeof(tx), action) == EngineResult::Ok &&
+        return engine.acceptRx(response, sizeof(response), trusted, {0, 2010},
+                               tx, sizeof(tx), action) == EngineResult::Ok &&
                action.kind == ActionKind::TransmitAssociation &&
                engine.stationState() == StationState::AssociationFramePrepared;
     }
@@ -1467,13 +1467,13 @@ int main()
     {
         return 55;
     }
-    if (engine.acceptRx(probe, sizeof(probe), -42, 1000, defaultTrust, tx,
+    if (engine.acceptRx(probe, sizeof(probe), defaultTrust, {-42, 1000}, tx,
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)
     {
         return 56;
     }
-    if (engine.acceptRx(probe, sizeof(probe), -42, 1000, unverifiedFrame, tx,
+    if (engine.acceptRx(probe, sizeof(probe), unverifiedFrame, {-42, 1000}, tx,
                         sizeof(tx), action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None)
     {
@@ -1481,8 +1481,8 @@ int main()
     }
     // An inconsistent FCS layout cannot underflow the MAC frame length.
     const uint8_t truncatedFcs[3] {0x08, 0x02, 0xff};
-    if (engine.acceptRx(truncatedFcs, sizeof(truncatedFcs), -42, 999,
-                        verifiedRxWithFcs, tx, sizeof(tx),
+    if (engine.acceptRx(truncatedFcs, sizeof(truncatedFcs), verifiedRxWithFcs,
+                        {-42, 999}, tx, sizeof(tx),
                         action) != EngineResult::InvalidReceivedFrame ||
         action.kind != ActionKind::None)
     {
@@ -1495,15 +1495,15 @@ int main()
     std::memcpy(probeWithFcs, probe, sizeof(probe));
     probeWithFcs[sizeof(probe)] = 0xfe;
     probeWithFcs[sizeof(probe) + 1] = 0xff;
-    if (engine.acceptRx(probeWithFcs, sizeof(probeWithFcs), -42, 999,
-                        verifiedRxWithFcs, tx, sizeof(tx),
+    if (engine.acceptRx(probeWithFcs, sizeof(probeWithFcs), verifiedRxWithFcs,
+                        {-42, 999}, tx, sizeof(tx),
                         action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         engine.scan().size() != 1)
     {
         return 52;
     }
-    if (engine.acceptRx(probe, sizeof(probe), -42, 1000, syntheticTrust, tx,
+    if (engine.acceptRx(probe, sizeof(probe), syntheticTrust, {-42, 1000}, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         action.nativeInterfaceUsable || engine.scan().size() != 1)
@@ -1527,7 +1527,7 @@ int main()
     authenticationResponse(auth);
     // Exact selected-rate capacity must work before authentication is
     // consumed; the former fixed 12-rate estimate rejected this 38-byte TX.
-    if (engine.acceptRx(auth, sizeof(auth), 0, 1010, syntheticTrust, tx, 38,
+    if (engine.acceptRx(auth, sizeof(auth), syntheticTrust, {0, 1010}, tx, 38,
                         action) != EngineResult::Ok ||
         action.kind != ActionKind::TransmitAssociation || action.bytes != 38 ||
         action.nativeInterfaceUsable)
@@ -1539,7 +1539,7 @@ int main()
     // A changed AP privacy capability cannot silently turn our selected
     // Open BSS into a protected association; retain retryable TX state.
     assoc[24] |= 0x10U;
-    if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
+    if (engine.acceptRx(assoc, sizeof(assoc), syntheticTrust, {0, 1020}, tx,
                         sizeof(tx),
                         action) != EngineResult::InvalidReceivedFrame ||
         engine.stationState() != StationState::AssociationFramePrepared ||
@@ -1548,7 +1548,7 @@ int main()
         return 27;
     }
     assoc[24] &= static_cast<uint8_t>(~0x10U);
-    if (engine.acceptRx(assoc, sizeof(assoc), 0, 1020, syntheticTrust, tx,
+    if (engine.acceptRx(assoc, sizeof(assoc), syntheticTrust, {0, 1020}, tx,
                         sizeof(tx), action) != EngineResult::Ok ||
         action.kind != ActionKind::OpenAssociationEstablished ||
         engine.stationState() != StationState::AssociatedOpen ||
@@ -1575,8 +1575,8 @@ int main()
     incoming[36] = 0xfb;
     incoming[37] = 0xfc;
     incoming[38] = 0xfd;
-    if (engine.acceptRx(incoming, sizeof(incoming), -42, 1030,
-                        verifiedRxWithFcs, tx, sizeof(tx),
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 1030}, tx, sizeof(tx),
                         action) != EngineResult::Ok ||
         action.kind != ActionKind::ReceivedPayload ||
         action.receivedPayload != incoming + 32 ||

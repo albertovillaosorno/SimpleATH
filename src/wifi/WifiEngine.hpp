@@ -123,6 +123,14 @@ namespace simpleath
                 uint64_t deadlineMs;
         };
 
+        // RX metadata arrives as one verified observation; callers cannot
+        // accidentally exchange RSSI and the event timestamp.
+        struct EngineRxObservation
+        {
+                int8_t rssiDbm;
+                uint64_t nowMs;
+        };
+
         // Caller allocates this relatively large object on a persistent
         // OS-owned heap, not the small kernel interrupt stack. All access must
         // be serialized by the future native adapter's work loop. No callbacks
@@ -178,9 +186,10 @@ namespace simpleath
                 // Data payloads are rejected when LinkMonitor has moved to
                 // ReconnectPending, even before native key/DMA teardown.
                 EngineResult acceptRx(const uint8_t *frame, size_t length,
-                                      int8_t rssi, uint64_t nowMs,
-                                      const InputTrust &trust, uint8_t *out,
-                                      size_t capacity, EngineAction &action);
+                                      const InputTrust &trust,
+                                      const EngineRxObservation &observation,
+                                      uint8_t *out, size_t capacity,
+                                      EngineAction &action);
 
                 EngineResult checkBeaconTimeout(uint64_t nowMs,
                                                 EngineAction &action);

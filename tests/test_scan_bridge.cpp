@@ -96,7 +96,7 @@ namespace
                                     generation) != EngineResult::InvalidState ||
             engine.acknowledgeChannelTune({generation, 6, 100, false}) !=
                 EngineResult::RadioNotReady ||
-            engine.acceptRx(frame, sizeof(frame), -30, 100, verified, nullptr,
+            engine.acceptRx(frame, sizeof(frame), verified, {-30, 100}, nullptr,
                             0, action) != EngineResult::NoAction ||
             engine.scan().size() != 0 ||
             engine.acknowledgeChannelTune({generation + 1, 6, 100, true}) !=
@@ -109,7 +109,7 @@ namespace
             return false;
         }
         makeBeacon(frame, 11);
-        if (engine.acceptRx(frame, sizeof(frame), -30, 110, verified, nullptr,
+        if (engine.acceptRx(frame, sizeof(frame), verified, {-30, 110}, nullptr,
                             0, action) != EngineResult::NoAction ||
             engine.pollChannelScan(119, step) != EngineResult::Ok ||
             step.kind != ScanProgressKind::Dwelling || step.deadlineMs != 120 ||
@@ -118,7 +118,7 @@ namespace
             return false;
         }
         makeBeacon(frame, 6);
-        if (engine.acceptRx(frame, sizeof(frame), -30, 110, verified, nullptr,
+        if (engine.acceptRx(frame, sizeof(frame), verified, {-30, 110}, nullptr,
                             0, action) != EngineResult::NoAction ||
             engine.scan().size() != 0)
         {
@@ -126,7 +126,7 @@ namespace
         }
         const Mac station {{0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee}};
         const uint8_t ssid[] {'T', 'e', 's', 't'};
-        if (engine.acceptRx(frame, sizeof(frame), -30, 119, verified, nullptr,
+        if (engine.acceptRx(frame, sizeof(frame), verified, {-30, 119}, nullptr,
                             0, action) != EngineResult::Ok ||
             action.kind != ActionKind::ScanCacheUpdated ||
             engine.scan().size() != 1 ||
@@ -134,7 +134,7 @@ namespace
                                  nullptr) != EngineResult::InvalidState ||
             engine.pollChannelScan(120, step) != EngineResult::Ok ||
             step.kind != ScanProgressKind::TuneRequired || step.channel != 11 ||
-            engine.acceptRx(frame, sizeof(frame), -30, 120, verified, nullptr,
+            engine.acceptRx(frame, sizeof(frame), verified, {-30, 120}, nullptr,
                             0, action) != EngineResult::NoAction ||
             engine.acknowledgeChannelTune({generation, 11, 119, true}) !=
                 EngineResult::InvalidInput ||
@@ -144,7 +144,7 @@ namespace
             return false;
         }
         makeBeacon(frame, 11);
-        if (engine.acceptRx(frame, sizeof(frame), -30, 150, verified, nullptr,
+        if (engine.acceptRx(frame, sizeof(frame), verified, {-30, 150}, nullptr,
                             0, action) != EngineResult::NoAction ||
             engine.pollChannelScan(150, step) != EngineResult::Ok ||
             step.kind != ScanProgressKind::Complete ||
@@ -442,8 +442,8 @@ int main()
     action.kind = ActionKind::LinkLost;
     action.bytes = 17;
     const auto *aliasedOwnerFrame = reinterpret_cast<const uint8_t *>(&engine);
-    if (engine.acceptRx(aliasedOwnerFrame, kBeaconBytes, -40, 1290,
-                        syntheticVerifiedRx, nullptr, 0,
+    if (engine.acceptRx(aliasedOwnerFrame, kBeaconBytes, syntheticVerifiedRx,
+                        {-40, 1290}, nullptr, 0,
                         action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::LinkLost || action.bytes != 17 ||
         engine.scan().size() != 0)
@@ -476,8 +476,8 @@ int main()
     {
         preserved[i] = aliasedFrame[i];
     }
-    if (engine.acceptRx(aliasedFrame, kBeaconBytes, -45, 1300,
-                        syntheticVerifiedRx, nullptr, 0,
+    if (engine.acceptRx(aliasedFrame, kBeaconBytes, syntheticVerifiedRx,
+                        {-45, 1300}, nullptr, 0,
                         aliased.action) != EngineResult::InvalidInput ||
         engine.scan().size() != 0)
     {
@@ -490,8 +490,8 @@ int main()
             return 10;
         }
     }
-    if (engine.acceptRx(beacon, sizeof(beacon), -45, 1300, syntheticVerifiedRx,
-                        beacon, sizeof(beacon),
+    if (engine.acceptRx(beacon, sizeof(beacon), syntheticVerifiedRx,
+                        {-45, 1300}, beacon, sizeof(beacon),
                         action) != EngineResult::InvalidInput ||
         engine.scan().size() != 0)
     {
@@ -499,14 +499,14 @@ int main()
     }
     if (engine.startScan(false, true) != EngineResult::RadioNotReady ||
         engine.startScan(true, true) != EngineResult::Ok ||
-        engine.acceptRx(beacon, sizeof(beacon), -45, 1300, untrusted, nullptr,
+        engine.acceptRx(beacon, sizeof(beacon), untrusted, {-45, 1300}, nullptr,
                         0, action) != EngineResult::InvalidInput ||
         action.kind != ActionKind::None || engine.scan().size() != 0)
     {
         return 10;
     }
-    if (engine.acceptRx(beacon, sizeof(beacon), -45, 1300, syntheticVerifiedRx,
-                        nullptr, 0, action) != EngineResult::Ok ||
+    if (engine.acceptRx(beacon, sizeof(beacon), syntheticVerifiedRx,
+                        {-45, 1300}, nullptr, 0, action) != EngineResult::Ok ||
         action.kind != ActionKind::ScanCacheUpdated ||
         action.nativeInterfaceUsable || engine.scan().size() != 1)
     {

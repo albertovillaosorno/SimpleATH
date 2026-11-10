@@ -779,17 +779,27 @@ namespace simpleath
             return EngineResult::NoAction;
         }
 
-        EngineResult WifiEngine::acceptRx(const uint8_t *frame, size_t length,
-                                          int8_t rssi, uint64_t nowMs,
-                                          const InputTrust &trust, uint8_t *out,
-                                          size_t capacity, EngineAction &action)
+        EngineResult WifiEngine::acceptRx(
+            const uint8_t *frame, size_t length, const InputTrust &trust,
+            const EngineRxObservation &observation, uint8_t *out,
+            size_t capacity, EngineAction &action)
         {
             if (aliasesEngineIo(this, action, frame, length, &trust,
-                                sizeof(trust), out, capacity))
+                                sizeof(trust), out, capacity) ||
+                overlaps(&observation, sizeof(observation), this,
+                         sizeof(*this)) ||
+                overlaps(&observation, sizeof(observation), frame, length) ||
+                overlaps(&observation, sizeof(observation), &trust,
+                         sizeof(trust)) ||
+                overlaps(&observation, sizeof(observation), out, capacity) ||
+                overlaps(&observation, sizeof(observation), &action,
+                         sizeof(action)))
             {
                 return EngineResult::InvalidInput;
             }
             action = {};
+            const auto rssi = observation.rssiDbm;
+            const auto nowMs = observation.nowMs;
             if ((frame == nullptr) || !trust.radioReady ||
                 !trust.channelAuthorized || !trust.dmaAndFcsVerified)
             {
