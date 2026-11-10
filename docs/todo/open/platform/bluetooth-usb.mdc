@@ -325,3 +325,21 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   registration, controller pairing, legal coexistence or AirDrop. This P0
   record remains open, and there is no current completed full-repository
   validation report for these commits.
+
+- **USB HCI same-epoch session replacement (2026-11-10):** DCO
+  `87d1bff` assigns a monotonic local generation to each HCI attach/detach,
+  including native `closeNativeUsbHciIo` reset, rather than relying solely on
+  the owner-provided USB epoch. Inline transport permission, command and ACL
+  callbacks, and packet delivery can detach/reattach with a reused epoch;
+  stale operations now return `OwnershipLost` without faulting or resetting
+  their replacement. Generation saturation fails closed rather than wrapping.
+  Synthetic permission-reentry regressions reproduced exit 25 against the
+  previous source and passed after the fix. Five Bluetooth fixture programs
+  under both C++14 and C++17 passed with ASan+UBSan (10/10 runs); direct
+  strict Clang-Tidy found zero diagnostics in the three edited translation
+  units, formatting passed on all four changed files, and native MacKernelSDK
+  C++14 `-Wall -Wextra -Werror` syntax checking passed. No complete new
+  `tools/validate.py` repository report was produced amid peer edits.
+  These tests do not attach a real macOS Bluetooth host or verify physical
+  USB firmware, controller operation, pairing, coexistence or AirDrop.
+  The P0 task remains open.
