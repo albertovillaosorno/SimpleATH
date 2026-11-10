@@ -53,11 +53,26 @@ device/RF tests and kext compilation remain unauthorized.
 Wpa2Supplicant::onMessage1/onMessage3 handles the initial exchange using
 Wpa2CryptoAdapter and portable Wpa2Primitives. Eapol.* supplies parsing/replay
 logic. KeyHardware is still a native callback contract; no AR9565 hardware
-key installer is connected. Existing AES/MIC code alone does not complete CCMP
-packet handling, group rekey or controlled-port lifetime.
+key installer is connected. `src/wifi/crypto/Ccmp.{hpp,cpp}` now implements
+source-only AES-CCM-128/8-byte MIC and 802.11 CCMP IV/AAD/nonce for bounded
+three-address, non-QoS, nonfragmented data MPDUs (without FCS). Its serialized
+`CcmpSession` rejects wrong epochs/transmitters, ambiguous buffer aliases,
+unsupported QoS/fragmentation, stale receive PNs, wrong key IDs, exhausted
+transmit PN, and failed authentication without disclosing decrypted bytes or
+advancing replay state. It erases ephemeral round keys and private session key
+on revoke/destruction. Offline tests include an independent OpenSSL AES-CCM
+ciphertext/MIC vector, tampering/replay and long-payload round trips. The
+software AES lookup-table implementation is **not timing-audited** and must
+not be enabled on an exposed shared kernel without cryptographic side-channel
+review or a constant-time native/hardware alternative. It is not connected to
+WifiEngine, DMA descriptors, native keycache or Tahoe, and is **not** evidence
+of an authorized protected network data port. Group rekey, owner-driven PN
+persistence across resets and source integration remain incomplete.
 
-Implement actual AR9565 keycache programming/removal and packet PN/replay
-handling, then group-key rekey, retry/timeouts and owner reset/rollback. Bind
+Connect the existing guarded AR9565 keycache programming/removal with the
+source-only CCMP packet engine under a single native epoch, then implement
+group-key rekey, retry/timeouts and owner reset/rollback. Never reuse a TK
+with a reset transmit PN, including sleep/reset/handover and failed M4. Bind
 message processing to the same immutable EAPOL snapshot, BSS RSNE and connection
 epoch. Treat cipher/decrypt/MIC/PN status as authenticated input before payload
 delivery. Define what happens if M2/M4 encoding/submission or any key operation
