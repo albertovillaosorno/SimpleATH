@@ -132,10 +132,11 @@ namespace
 
     bool verify(Mock &mock, const RfChannelRequest &channel,
                 uint16_t expectedCenter, uint16_t normal,
-                uint16_t shortInterval)
+                uint16_t shortInterval,
+                const CalibrationAndRegulatory &authorization = kRxOnly)
     {
         const auto progress =
-            programAr9565OfdmTiming(channel, kRxOnly, backend(mock));
+            programAr9565OfdmTiming(channel, authorization, backend(mock));
         if (progress.result != OfdmTimingResult::Ok || progress.requiresReset ||
             progress.completedReads != 4 || progress.completedWrites != 2 ||
             mock.reads != 4 || mock.writes != 2 ||
@@ -177,8 +178,10 @@ namespace
             return false;
         }
         mock = {};
+        auto japanAuthorized = kRxOnly;
+        japanAuthorized.localCountryRulesAvailable = true;
         return verify(mock, request(kCh14), kJapanCenter, kNormalJapan,
-                      kShortJapan);
+                      kShortJapan, japanAuthorized);
     }
 
     bool rejectedInputs()
@@ -194,7 +197,8 @@ namespace
                    result.completedWrites == 0 && mock.reads == 0 &&
                    mock.writes == 0 && !result.requiresReset;
         };
-        if (!denied(request(kCh14, ChannelWidth::Ht40, kCh10), kRxOnly) ||
+        if (!denied(request(kCh14), kRxOnly) ||
+            !denied(request(kCh14, ChannelWidth::Ht40, kCh10), kRxOnly) ||
             !denied(request(kCh6, ChannelWidth::Ht40, kInvalidHt40Secondary),
                     kRxOnly) ||
             !denied(request(kCh6, ChannelWidth::Ht20, kCh10), kRxOnly))

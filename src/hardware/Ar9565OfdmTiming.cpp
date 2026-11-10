@@ -240,8 +240,12 @@ namespace simpleath
             return progress;
         }
         progress.result = OfdmTimingResult::MissingAuthorization;
-        if (!radioInitializationAuthorized(authorization))
+        if (!radioInitializationAuthorized(authorization) ||
+            (request.control.requiresJapanAuthorization &&
+             !authorization.localCountryRulesAvailable))
         {
+            // Channel 14 is not a global receive-only exception: a trusted
+            // local channel policy must exist even when TX stays disabled.
             return progress;
         }
         progress.result = OfdmTimingResult::InvalidBar;
