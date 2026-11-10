@@ -254,31 +254,78 @@ namespace simpleath
             return LeAdvertisingResult::InvalidArgument;
         }
         if (!transport.attached || transport.faulted ||
-            transport.epoch != owner.epoch || host.ownerEpoch != owner.epoch ||
-            !owner.permit(owner.context, owner.epoch))
+            transport.epoch != owner.epoch || host.ownerEpoch != owner.epoch)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
-        // Take a private immutable snapshot before the policy callback and
-        // before clearing state. The caller's AD bytes may alias state or be
-        // modified by another owner callback; only these approved bytes may
-        // be sent later, after asynchronous parameter confirmation.
+        // Take a private immutable snapshot before calling external policy.
+        // Reserve the state before invoking ANY owner callback: both permit
+        // and authorize may synchronously reenter this producer. Until the
+        // host has approved the operation, no HCI command is in flight.
         UsbBytes<uint8_t, kLeAdvertisingDataBytes> approved {};
         for (size_t index = 0U; index < bytes; ++index)
         {
             approved.at(index) = *usbByteOffset(data, index);
         }
-        if (!owner.authorize(owner.context, owner.epoch, approved.data(), bytes,
-                             interval))
-        {
-            return LeAdvertisingResult::Unauthorized;
-        }
-        if (!owner.permit(owner.context, owner.epoch))
+        state = {};
+        state.epoch = owner.epoch;
+        state.phase = LeAdvertisingPhase::Authorizing;
+        const bool permitted = owner.permit(owner.context, owner.epoch);
+        if (state.phase != LeAdvertisingPhase::Authorizing ||
+            state.epoch != owner.epoch)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
-        state = {};
-        state.epoch = owner.epoch;
+        if (!permitted)
+        {
+            state = {};
+            return LeAdvertisingResult::OwnershipLost;
+        }
+        if (state.stopRequested)
+        {
+            state = {};
+            return LeAdvertisingResult::Ignored;
+        }
+        const bool approvedByHost = owner.authorize(
+            owner.context, owner.epoch, approved.data(), bytes, interval);
+        if (state.phase != LeAdvertisingPhase::Authorizing ||
+            state.epoch != owner.epoch)
+        {
+            return LeAdvertisingResult::OwnershipLost;
+        }
+        if (!approvedByHost)
+        {
+            state = {};
+            return LeAdvertisingResult::Unauthorized;
+        }
+        if (state.stopRequested)
+        {
+            state = {};
+            return LeAdvertisingResult::Ignored;
+        }
+        // Recheck physical transport and both callbacks after authorization.
+        // A callback can synchronously detach the old USB function and
+        // replace it before returning a stale successful policy result.
+        const bool transportLive = transport.attached && !transport.faulted &&
+                                   transport.epoch == owner.epoch &&
+                                   host.ownerEpoch == owner.epoch;
+        const bool stillPermitted =
+            transportLive && owner.permit(owner.context, owner.epoch);
+        if (state.phase != LeAdvertisingPhase::Authorizing ||
+            state.epoch != owner.epoch)
+        {
+            return LeAdvertisingResult::OwnershipLost;
+        }
+        if (!stillPermitted)
+        {
+            state = {};
+            return LeAdvertisingResult::OwnershipLost;
+        }
+        if (state.stopRequested)
+        {
+            state = {};
+            return LeAdvertisingResult::Ignored;
+        }
         state.interval = interval;
         state.dataBytes = bytes;
         for (size_t index = 0U; index < bytes; ++index)

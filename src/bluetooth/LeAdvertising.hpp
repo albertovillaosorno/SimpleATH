@@ -12,9 +12,12 @@ namespace simpleath
 {
     constexpr size_t kLeAdvertisingDataBytes = 31U;
 
+    // Authorizing reserves the session during synchronous host callbacks;
+    // no HCI advertising procedure has been submitted in that phase.
     enum class LeAdvertisingPhase : uint8_t
     {
         Idle,
+        Authorizing,
         AwaitParameters,
         AwaitData,
         AwaitEnable,

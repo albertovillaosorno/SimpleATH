@@ -73,6 +73,16 @@ namespace
             bool valid {true};
             bool allowAdvertising {true};
             bool revokeOnAuthorization {};
+            bool reenterOnAuthorization {};
+            bool reenterOnPermit {};
+            bool stopOnAuthorization {};
+            bool revokeStateOnAuthorization {};
+            void *reentryContext {};
+            LeAdvertisingResult (*reenter)(void *) {};
+            LeAdvertisingResult (*stop)(void *) {};
+            void (*revokeState)(void *) {};
+            LeAdvertisingResult reentryResult {LeAdvertisingResult::Ignored};
+            LeAdvertisingResult stopResult {LeAdvertisingResult::Ignored};
             bool failCommand {};
             const LeAdvertisingPhase *pendingPhase {};
             InlineReply inlineReply {InlineReply::None};
@@ -82,7 +92,12 @@ namespace
 
     bool permit(void *context, uint64_t epoch)
     {
-        const auto &fake = *static_cast<Fake *>(context);
+        auto &fake = *static_cast<Fake *>(context);
+        if (fake.reenterOnPermit && fake.reenter != nullptr)
+        {
+            fake.reenterOnPermit = false;
+            fake.reentryResult = fake.reenter(fake.reentryContext);
+        }
         return fake.valid && epoch == kOwnerEpoch;
     }
 
@@ -91,6 +106,21 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.authorizations;
+        if (fake.reenterOnAuthorization && fake.reenter != nullptr)
+        {
+            fake.reenterOnAuthorization = false;
+            fake.reentryResult = fake.reenter(fake.reentryContext);
+        }
+        if (fake.stopOnAuthorization && fake.stop != nullptr)
+        {
+            fake.stopOnAuthorization = false;
+            fake.stopResult = fake.stop(fake.reentryContext);
+        }
+        if (fake.revokeStateOnAuthorization && fake.revokeState != nullptr)
+        {
+            fake.revokeStateOnAuthorization = false;
+            fake.revokeState(fake.reentryContext);
+        }
         if (fake.revokeOnAuthorization)
         {
             fake.valid = false;
@@ -191,6 +221,21 @@ namespace
             LeAdvertisingState advertising_ {};
 
         public:
+            static LeAdvertisingResult reenterBegin(void *context)
+            {
+                return static_cast<Fixture *>(context)->begin();
+            }
+
+            static LeAdvertisingResult stopDuringAuthorization(void *context)
+            {
+                return static_cast<Fixture *>(context)->stop();
+            }
+
+            static void revokeDuringAuthorization(void *context)
+            {
+                static_cast<Fixture *>(context)->revoke();
+            }
+
             static bool deliverInline(void *context, const uint8_t *event,
                                       size_t bytes)
             {
@@ -485,6 +530,77 @@ namespace
         return 0;
     }
 
+    int policyReentry()
+    {
+        Fixture fixture {};
+        if (!fixture.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        fixture.fake().reenterOnAuthorization = true;
+        fixture.fake().reentryContext = &fixture;
+        fixture.fake().reenter = Fixture::reenterBegin;
+        // An external host authorization can synchronously reenter the LE
+        // producer. It must not start a second controller procedure while
+        // the original request is still being authorized.
+        if (fixture.begin() != LeAdvertisingResult::Ok ||
+            fixture.fake().reentryResult != LeAdvertisingResult::Busy ||
+            fixture.fake().commandCount != 1U ||
+            fixture.phase() != LeAdvertisingPhase::AwaitParameters ||
+            fixture.completeParameters() != LeAdvertisingResult::Ok ||
+            fixture.phase() != LeAdvertisingPhase::AwaitData)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture earlyPermit {};
+        if (!earlyPermit.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        earlyPermit.fake().reenterOnPermit = true;
+        earlyPermit.fake().reentryContext = &earlyPermit;
+        earlyPermit.fake().reenter = Fixture::reenterBegin;
+        if (earlyPermit.begin() != LeAdvertisingResult::Ok ||
+            earlyPermit.fake().reentryResult != LeAdvertisingResult::Busy ||
+            earlyPermit.fake().commandCount != 1U ||
+            earlyPermit.phase() != LeAdvertisingPhase::AwaitParameters)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture canceled {};
+        if (!canceled.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        canceled.fake().stopOnAuthorization = true;
+        canceled.fake().stop = Fixture::stopDuringAuthorization;
+        canceled.fake().reentryContext = &canceled;
+        if (canceled.begin() != LeAdvertisingResult::Ignored ||
+            canceled.fake().stopResult != LeAdvertisingResult::Ok ||
+            canceled.fake().commandCount != 0U ||
+            canceled.phase() != LeAdvertisingPhase::Idle ||
+            canceled.epoch() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture revoked {};
+        if (!revoked.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        revoked.fake().revokeStateOnAuthorization = true;
+        revoked.fake().revokeState = Fixture::revokeDuringAuthorization;
+        revoked.fake().reentryContext = &revoked;
+        if (revoked.begin() != LeAdvertisingResult::OwnershipLost ||
+            revoked.fake().commandCount != 0U ||
+            revoked.phase() != LeAdvertisingPhase::Idle ||
+            revoked.epoch() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int inlineControllerResponses()
     {
         Fixture rejectedBegin {};
@@ -621,6 +737,10 @@ int main()
     if (const int rejected = validation())
     {
         return rejected;
+    }
+    if (const int reentry = policyReentry())
+    {
+        return reentry;
     }
     if (const int inlineResult = inlineControllerResponses())
     {
