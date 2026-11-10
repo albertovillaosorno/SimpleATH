@@ -117,9 +117,99 @@ namespace ath
         return result;
     }
 
+    // The relocated Mach-O image comes from stored payload bytes. Prove that
+    // every subsequent in-place load-command and section write remains inside
+    // the mapped image before modifying any command or registering a kext.
+    static bool validateImageCommands(const LinkedImage &image)
+    {
+        if (image.payload == nullptr || image.memory == nullptr ||
+            image.registered || !image.editable)
+        {
+            return false;
+        }
+        const auto &payload = *image.payload;
+        if (payload.size < sizeof(mach_header_64) ||
+            payload.size > payload.mappedSize ||
+            image.address > UINTPTR_MAX - payload.mappedSize ||
+            image.address < vm_kernel_slide || payload.identifier == nullptr ||
+            payload.plist == nullptr || payload.kmodOffset > payload.size ||
+            sizeof(kmod_info_t) > payload.size - payload.kmodOffset ||
+            (payload.kmodOffset % alignof(kmod_info_t)) != 0U)
+        {
+            return false;
+        }
+
+        mach_header_64 header {};
+        memcpy(&header, image.memory, sizeof(header));
+        if (header.magic != MH_MAGIC_64 || header.ncmds == 0U ||
+            header.sizeofcmds > payload.size - sizeof(header) ||
+            payload.kmodOffset < sizeof(header) + header.sizeofcmds)
+        {
+            return false;
+        }
+        const uint64_t delta = image.address - vm_kernel_slide;
+        size_t cursor = sizeof(header);
+        size_t remaining = header.sizeofcmds;
+        for (uint32_t index = 0; index < header.ncmds; ++index)
+        {
+            if (remaining < sizeof(load_command))
+            {
+                return false;
+            }
+            load_command command {};
+            memcpy(&command, image.memory + cursor, sizeof(command));
+            if (command.cmdsize < sizeof(command) ||
+                command.cmdsize > remaining ||
+                (command.cmdsize % sizeof(uint64_t)) != 0U)
+            {
+                return false;
+            }
+            if (command.cmd == LC_SEGMENT_64)
+            {
+                if (command.cmdsize < sizeof(segment_command_64))
+                {
+                    return false;
+                }
+                segment_command_64 segment {};
+                memcpy(&segment, image.memory + cursor, sizeof(segment));
+                if (segment.nsects > (command.cmdsize - sizeof(segment)) /
+                                         sizeof(section_64) ||
+                    segment.vmaddr > payload.mappedSize ||
+                    segment.vmsize > payload.mappedSize - segment.vmaddr ||
+                    segment.vmaddr > UINT64_MAX - delta ||
+                    segment.vmsize > UINT64_MAX - (segment.vmaddr + delta))
+                {
+                    return false;
+                }
+                for (uint32_t sectionIndex = 0; sectionIndex < segment.nsects;
+                     ++sectionIndex)
+                {
+                    section_64 section {};
+                    memcpy(&section,
+                           image.memory + cursor + sizeof(segment) +
+                               static_cast<size_t>(sectionIndex) *
+                                   sizeof(section),
+                           sizeof(section));
+                    if (section.addr > payload.mappedSize ||
+                        section.addr > UINT64_MAX - delta)
+                    {
+                        return false;
+                    }
+                }
+            }
+            cursor += command.cmdsize;
+            remaining -= command.cmdsize;
+        }
+        return remaining == 0U;
+    }
+
     static bool registerImage(uint32_t index)
     {
         auto &image = images[index];
+        if (!validateImageCommands(image))
+        {
+            return false;
+        }
         const auto &p = *image.payload;
         auto *object = OSUnserializeXML(p.plist);
         auto *dictionary = OSDynamicCast(OSDictionary, object);
@@ -132,10 +222,16 @@ namespace ath
             return false;
         }
         char path[kPrelinkPathCapacity];
-        snprintf(path, sizeof(path),
-                 "/Library/Extensions/SimpleATH.kext/Embedded/%s",
-                 p.identifier);
+        const int pathBytes = snprintf(
+            path, sizeof(path),
+            "/Library/Extensions/SimpleATH.kext/Embedded/%s", p.identifier);
         const auto slide = PE_get_kc_slide(kKcKindUnknown);
+        if (pathBytes < 0 || static_cast<size_t>(pathBytes) >= sizeof(path) ||
+            slide > image.address)
+        {
+            dictionary->release();
+            return false;
+        }
         auto *kmod =
             reinterpret_cast<kmod_info_t *>(image.memory + p.kmodOffset);
         kmod->next = nullptr;
