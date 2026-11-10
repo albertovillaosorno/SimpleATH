@@ -184,6 +184,12 @@ namespace simpleath
                     const Mac &station, const Mac &bssid, const uint8_t *ssid,
                     size_t ssidLength, uint8_t requestedChannel,
                     const uint8_t pmk[kWpa2PmkBytes]);
+                // Driver-owned open joins must target the exact RX-observed
+                // BSSID, even when a WPA2 key backend is configured for
+                // another attempt. This never authorizes a usable port.
+                EngineResult chooseNetworkForDriverOpen(
+                    const Mac &station, const Mac &bssid, const uint8_t *ssid,
+                    size_t ssidLength, uint8_t requestedChannel);
                 // Native macOS owns PSK derivation/EAPOL/CCMP on this path.
                 // Select only the exact observed BSSID and security type;
                 // never start the portable supplicant or accept a PMK here.

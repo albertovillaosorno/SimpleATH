@@ -214,9 +214,60 @@ namespace
         return std::equal(kAp.begin(), kAp.end(),
                           std::next(tx.begin(), kAuthDestinationOffset));
     }
+
+    bool joinExactOpenWithConfiguredKeyBackend()
+    {
+        auto wire = joinBytes();
+        writeJoin<uint32_t>(wire, kJoinUpperAuthOffset, 0U);
+        writeJoin<uint32_t>(wire, kJoinKeyLengthOffset, 0U);
+        writeJoin<uint32_t>(wire, kJoinKeyCipherOffset, 0U);
+        JoinSelection join {};
+        const auto wpa2 = wpa2Beacon();
+        std::array<uint8_t, kBeaconPrefixBytes> open {};
+        std::copy_n(wpa2.begin(), open.size(), open.begin());
+        open.at(kBeaconCapOffset) = 1U; // Infrastructure, no privacy.
+        WifiEngine engine;
+        uint32_t callbacks = 1;
+        const crypto::KeyHardware hardware {
+            &callbacks, fakeRandom, fakePairwise, fakeGroup, fakeRemove,
+        };
+        const InputTrust trust {true, true, true, false};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        Mac ap {};
+        std::array<uint8_t, kTxCapacity> tx {};
+        EngineAction action {};
+        if (!decodeJoin(wire.data(), wire.size(), join) || join.wpa2Personal ||
+            !engine.configureKeys(hardware) ||
+            engine.startScan(true, true) != EngineResult::Ok ||
+            engine.acceptRx(open.data(), open.size(), trust,
+                            {kSignalDbm, kObservationTimeMs}, tx.data(),
+                            tx.size(), action) != EngineResult::Ok)
+        {
+            clearJoin(join);
+            return false;
+        }
+        std::copy(std::begin(join.bssid), std::end(join.bssid),
+                  std::begin(ap.bytes));
+        const auto selected = engine.chooseNetworkForDriverOpen(
+            station, ap, &join.ssid[0], join.ssidLength, join.channel);
+        clearJoin(join);
+        if (selected != EngineResult::Ok || engine.osSupplicantOwnsWpa2() ||
+            engine.requestAuthentication(kAuthenticationSequence, tx.data(),
+                                         tx.size(),
+                                         action) != EngineResult::Ok ||
+            action.nativeInterfaceUsable)
+        {
+            return false;
+        }
+        return std::equal(kAp.begin(), kAp.end(),
+                          std::next(tx.begin(), kAuthDestinationOffset));
+    }
 } // namespace
 
 int main()
 {
-    return joinViaDriverSupplicant() ? 0 : 1;
+    return (joinViaDriverSupplicant() &&
+            joinExactOpenWithConfiguredKeyBackend())
+               ? 0
+               : 1;
 }
