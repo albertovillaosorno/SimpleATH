@@ -115,6 +115,22 @@ Primary source: [IOCommandGate semantics](https://github.com/apple-oss-distribut
 [interrupt-filter context](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h),
 and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h).
 
+## Native security/packet integration evidence (2026-11-10)
+
+- DCO 9e91123 on main connects the native EDMA receive callback to the
+  source-backed authenticated CCMP pairwise/GTK replay gate, copies verified
+  Ethernet into a bounded native mailbox and scrubs plaintext scratch.
+  Pre-key EAPOL M1/M3 is separately admitted to the OS security owner.
+- Tahoe mailbox/controlled-port gates keep ordinary data blocked until
+  real association, authorized RF/DMA and OS-installed pairwise/GTK keys.
+  Link loss and DMA fault revoke the security epoch and packet authority.
+- Post-commit repository tools/validate.py: 570 checks, 534 pass,
+  36 existing strict Clang-Tidy failures, zero skips. No offline host-test
+  failures; focused Darwin C++14 syntax, format and diff checks passed.
+- Outstanding: actual native scan/connect control, calibrated radio,
+  exact Tahoe OS supplicant and Wi-Fi ABI, group-rekey completion,
+  Bluetooth and AWDL. No kext build or physical radio test occurred.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
