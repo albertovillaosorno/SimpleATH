@@ -80,6 +80,10 @@ namespace simpleath
                                     size_t length);
                 void invalidateMailboxes();
                 bool bound() const;
+                // Walk small fixed rings rather than unchecked arithmetic on
+                // native mailbox storage; invalid cursors fail closed.
+                EventRecord *eventAt(size_t ordinal);
+                ReceiveRecord *receiveAt(size_t ordinal);
 
                 // Lifecycle methods run only on the controller's own gate;
                 // the mailbox lock is never held across provider callbacks.

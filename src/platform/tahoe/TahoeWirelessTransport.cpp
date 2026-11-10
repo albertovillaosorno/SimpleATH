@@ -111,6 +111,34 @@ namespace simpleath
             return valid;
         }
 
+        TahoeWirelessTransport::EventRecord *
+        TahoeWirelessTransport::eventAt(size_t ordinal)
+        {
+            for (EventRecord &slot : events_)
+            {
+                if (ordinal == 0U)
+                {
+                    return &slot;
+                }
+                --ordinal;
+            }
+            return nullptr;
+        }
+
+        TahoeWirelessTransport::ReceiveRecord *
+        TahoeWirelessTransport::receiveAt(size_t ordinal)
+        {
+            for (ReceiveRecord &slot : frames_)
+            {
+                if (ordinal == 0U)
+                {
+                    return &slot;
+                }
+                --ordinal;
+            }
+            return nullptr;
+        }
+
         void TahoeWirelessTransport::invalidateMailboxes()
         {
             // Called under mailboxLock_, never while invoking an owner.
@@ -549,8 +577,19 @@ namespace simpleath
             {
                 const size_t tail =
                     (self.eventHead_ + self.eventCount_) % kEventCapacity;
-                self.events_[tail] = {event, epoch};
-                ++self.eventCount_;
+                EventRecord *slot = self.eventAt(tail);
+                if (slot == nullptr)
+                {
+                    // Impossible for a valid modulo cursor; do not write an
+                    // unchecked entry after corrupted mailbox bookkeeping.
+                    self.invalidateMailboxes();
+                    ++self.eventDrops_;
+                }
+                else
+                {
+                    *slot = {event, epoch};
+                    ++self.eventCount_;
+                }
             }
             IOLockUnlock(lock);
         }
@@ -580,11 +619,19 @@ namespace simpleath
             {
                 const size_t tail =
                     (self.receiveHead_ + self.receiveCount_) % kRxCapacity;
-                ReceiveRecord &packet = self.frames_[tail];
-                packet.epoch = self.epoch_;
-                packet.length = length;
-                memcpy(&packet.bytes[0], bytes, length);
-                ++self.receiveCount_;
+                ReceiveRecord *packet = self.receiveAt(tail);
+                if (packet == nullptr)
+                {
+                    self.invalidateMailboxes();
+                    ++self.receiveDrops_;
+                }
+                else
+                {
+                    packet->epoch = self.epoch_;
+                    packet->length = length;
+                    memcpy(&packet->bytes[0], bytes, length);
+                    ++self.receiveCount_;
+                }
             }
             IOLockUnlock(lock);
         }
@@ -602,8 +649,15 @@ namespace simpleath
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotFound;
             }
-            const EventRecord record = events_[eventHead_];
-            events_[eventHead_] = {};
+            EventRecord *slot = eventAt(eventHead_);
+            if (slot == nullptr)
+            {
+                invalidateMailboxes();
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            const EventRecord record = *slot;
+            *slot = {};
             eventHead_ = (eventHead_ + 1) % kEventCapacity;
             --eventCount_;
             IOLockUnlock(mailboxLock_);
@@ -634,7 +688,14 @@ namespace simpleath
                 IOLockUnlock(mailboxLock_);
                 return kIOReturnNotReady;
             }
-            ReceiveRecord &packet = frames_[receiveHead_];
+            ReceiveRecord *slot = receiveAt(receiveHead_);
+            if (slot == nullptr)
+            {
+                invalidateMailboxes();
+                IOLockUnlock(mailboxLock_);
+                return kIOReturnNotReady;
+            }
+            ReceiveRecord &packet = *slot;
             if (packet.epoch != epoch_)
             {
                 memset(&packet, 0, sizeof(packet));
