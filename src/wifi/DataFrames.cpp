@@ -34,30 +34,41 @@ namespace simpleath
             {
                 return false;
             }
-            const auto first = reinterpret_cast<uintptr_t>(firstBuffer);
-            const auto second = reinterpret_cast<uintptr_t>(secondBuffer);
+            uintptr_t first = 0;
+            uintptr_t second = 0;
+            static_assert(sizeof(uintptr_t) == sizeof(firstBuffer),
+                          "host pointer width must match uintptr_t");
+            __builtin_memcpy(&first, static_cast<const void *>(&firstBuffer),
+                             sizeof(firstBuffer));
+            __builtin_memcpy(&second, static_cast<const void *>(&secondBuffer),
+                             sizeof(secondBuffer));
             return first <= second ? second - first < firstBytes
                                    : first - second < secondBytes;
         }
 
         static Result validateSnap(const uint8_t *llc, uint16_t &etherType)
         {
-            if (llc[0] != kSnapSap || llc[1] != kSnapSap ||
-                llc[kSnapControlOffset] != kSnapControl)
+            // The caller verified the complete fixed LLC/SNAP header span;
+            // parse its private snapshot without unchecked pointer indices.
+            uint8_t bytes[kLlcSnapBytes] {};
+            __builtin_memcpy(&bytes[0], llc, sizeof(bytes));
+            if (bytes[0] != kSnapSap || bytes[1] != kSnapSap ||
+                bytes[kSnapControlOffset] != kSnapControl)
             {
                 return Result::UnsupportedFrame;
             }
-            const bool standardSnap = llc[3] == 0 && llc[4] == 0 && llc[5] == 0;
-            const bool bridgeTunnelSnap =
-                llc[3] == 0 && llc[4] == 0 && llc[5] == kBridgeTunnelOuiLast;
+            const bool standardSnap =
+                bytes[3] == 0 && bytes[4] == 0 && bytes[5] == 0;
+            const bool bridgeTunnelSnap = bytes[3] == 0 && bytes[4] == 0 &&
+                                          bytes[5] == kBridgeTunnelOuiLast;
             if (!standardSnap && !bridgeTunnelSnap)
             {
                 return Result::UnsupportedFrame;
             }
             const uint16_t parsedEtherType =
-                static_cast<uint16_t>(static_cast<uint16_t>(llc[6])
+                static_cast<uint16_t>(static_cast<uint16_t>(bytes[6])
                                       << kBitsPerByte) |
-                static_cast<uint16_t>(llc[7]);
+                static_cast<uint16_t>(bytes[7]);
             if (parsedEtherType < kEthernetIiMin)
             {
                 return Result::InvalidFrame;

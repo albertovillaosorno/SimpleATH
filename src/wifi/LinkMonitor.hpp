@@ -103,14 +103,32 @@ namespace simpleath
                 }
 
             private:
+                struct FrameTiming
+                {
+                        size_t frameLength;
+                        uint64_t nowMs;
+                };
+
+                struct DisconnectionEvidence
+                {
+                        const uint8_t *frame;
+                        size_t frameLength;
+                        uint64_t nowMs;
+                        bool protectedMicAndPnVerified;
+                };
+
+                struct LinkLossDetails
+                {
+                        uint16_t code;
+                        uint64_t nowMs;
+                };
+
                 LinkMonitorResult observeBeacon(const uint8_t *frame,
-                                                size_t frameLength,
-                                                uint64_t nowMs);
+                                                const FrameTiming &timing);
                 LinkMonitorResult
-                observeDisconnection(const Frame &header, const uint8_t *frame,
-                                     size_t frameLength, uint64_t nowMs,
-                                     bool protectedMicAndPnVerified);
-                void lost(LinkLoss reason, uint16_t code, uint64_t nowMs);
+                observeDisconnection(const Frame &header,
+                                     const DisconnectionEvidence &evidence);
+                void lost(LinkLoss reason, const LinkLossDetails &details);
                 uint64_t beaconDeadlineMs() const;
                 static bool isBroadcastOrStation(const Mac &address,
                                                  const Mac &station);

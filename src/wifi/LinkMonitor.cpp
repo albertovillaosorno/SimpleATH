@@ -11,6 +11,16 @@ namespace simpleath
     {
         namespace
         {
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                              "host pointer must fit an address-sized integer");
+                uintptr_t address = 0;
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
+
             constexpr uint8_t kMissedBeacons = 10;
             constexpr uint32_t kBitsPerByte = 8;
             constexpr uint64_t kMicrosPerBeaconTu = 1024;
@@ -30,15 +40,24 @@ namespace simpleath
             bool overlapsStorage(const void *first, size_t firstBytes,
                                  const void *second, size_t secondBytes)
             {
-                const auto a = reinterpret_cast<uintptr_t>(first);
-                const auto b = reinterpret_cast<uintptr_t>(second);
-                return a <= b ? b - a < firstBytes : a - b < secondBytes;
+                if (first == nullptr || second == nullptr || firstBytes == 0 ||
+                    secondBytes == 0)
+                {
+                    return false;
+                }
+                const uintptr_t firstAddress = pointerAddress(first);
+                const uintptr_t secondAddress = pointerAddress(second);
+                return firstAddress <= secondAddress
+                           ? secondAddress - firstAddress < firstBytes
+                           : firstAddress - secondAddress < secondBytes;
             }
 
             uint16_t readLittle16(const uint8_t *bytes)
             {
-                return static_cast<uint16_t>(bytes[0]) |
-                       static_cast<uint16_t>(static_cast<uint16_t>(bytes[1])
+                uint8_t octets[2] {};
+                __builtin_memcpy(&octets[0], bytes, sizeof(octets));
+                return static_cast<uint16_t>(octets[0]) |
+                       static_cast<uint16_t>(static_cast<uint16_t>(octets[1])
                                              << kBitsPerByte);
             }
 
@@ -118,21 +137,19 @@ namespace simpleath
             const uint64_t microseconds =
                 static_cast<uint64_t>(beaconIntervalTu_) * kMicrosPerBeaconTu *
                 kMissedBeacons;
-            uint64_t ms = (microseconds + kMicrosPerMillisecond - 1) /
-                          kMicrosPerMillisecond;
+            const uint64_t ms = (microseconds + kMicrosPerMillisecond - 1) /
+                                kMicrosPerMillisecond;
             if (ms < kMinimumTimeoutMs)
             {
-                ms = kMinimumTimeoutMs;
+                return kMinimumTimeoutMs;
             }
-            if (ms > kMaximumTimeoutMs)
-            {
-                ms = kMaximumTimeoutMs;
-            }
-            return ms;
+            return ms > kMaximumTimeoutMs ? kMaximumTimeoutMs : ms;
         }
 
-        void LinkMonitor::lost(LinkLoss reason, uint16_t code, uint64_t nowMs)
+        void LinkMonitor::lost(LinkLoss reason, const LinkLossDetails &details)
         {
+            const uint16_t code = details.code;
+            const uint64_t nowMs = details.nowMs;
             status_.state = LinkState::ReconnectPending;
             status_.reason = reason;
             status_.ieeeReasonCode = code;
@@ -143,9 +160,10 @@ namespace simpleath
         }
 
         LinkMonitorResult LinkMonitor::observeBeacon(const uint8_t *frame,
-                                                     size_t frameLength,
-                                                     uint64_t nowMs)
+                                                     const FrameTiming &timing)
         {
+            const size_t frameLength = timing.frameLength;
+            const uint64_t nowMs = timing.nowMs;
             // Beacons/probe responses update liveness only after full
             // parsing.
             Beacon beacon {};
@@ -166,10 +184,15 @@ namespace simpleath
             return LinkMonitorResult::Ok;
         }
 
-        LinkMonitorResult LinkMonitor::observeDisconnection(
-            const Frame &header, const uint8_t *frame, size_t frameLength,
-            uint64_t nowMs, bool protectedMicAndPnVerified)
+        LinkMonitorResult
+        LinkMonitor::observeDisconnection(const Frame &header,
+                                          const DisconnectionEvidence &evidence)
         {
+            const uint8_t *const frame = evidence.frame;
+            const size_t frameLength = evidence.frameLength;
+            const uint64_t nowMs = evidence.nowMs;
+            const bool protectedMicAndPnVerified =
+                evidence.protectedMicAndPnVerified;
             if (frameLength < header.headerLength + 2)
             {
                 return LinkMonitorResult::InvalidFrame;
@@ -217,7 +240,7 @@ namespace simpleath
             lost(header.subtype == kDeauthenticationSubtype
                      ? LinkLoss::Deauthentication
                      : LinkLoss::Disassociation,
-                 reason, nowMs);
+                 LinkLossDetails {reason, nowMs});
             return LinkMonitorResult::Ok;
         }
 
@@ -267,13 +290,18 @@ namespace simpleath
             if (header.subtype == kBeaconSubtype ||
                 header.subtype == kProbeResponseSubtype)
             {
-                return observeBeacon(frame, frameLength, nowMs);
+                return observeBeacon(frame, FrameTiming {frameLength, nowMs});
             }
             if (header.subtype == kDeauthenticationSubtype ||
                 header.subtype == kDisassociationSubtype)
             {
-                return observeDisconnection(header, frame, frameLength, nowMs,
-                                            protectedMicAndPnVerified);
+                return observeDisconnection(header,
+                                            DisconnectionEvidence {
+                                                frame,
+                                                frameLength,
+                                                nowMs,
+                                                protectedMicAndPnVerified,
+                                            });
             }
             return LinkMonitorResult::NoStateChange;
         }
@@ -292,7 +320,7 @@ namespace simpleath
             {
                 return LinkMonitorResult::NoStateChange;
             }
-            lost(LinkLoss::BeaconTimeout, 0, nowMs);
+            lost(LinkLoss::BeaconTimeout, LinkLossDetails {0, nowMs});
             return LinkMonitorResult::Ok;
         }
 
@@ -326,14 +354,13 @@ namespace simpleath
                 ++status_.reconnectAttempts;
             }
             const uint8_t exponent =
-                status_.reconnectAttempts < kMaximumRetryExponent
-                    ? status_.reconnectAttempts
-                    : kMaximumRetryExponent;
-            uint64_t delay = kBaseRetryMs << exponent;
-            if (delay > kMaximumRetryMs)
-            {
-                delay = kMaximumRetryMs;
-            }
+                status_.reconnectAttempts > kMaximumRetryExponent
+                    ? kMaximumRetryExponent
+                    : status_.reconnectAttempts;
+            const uint64_t unclampedDelay = kBaseRetryMs << exponent;
+            const uint64_t delay = unclampedDelay > kMaximumRetryMs
+                                       ? kMaximumRetryMs
+                                       : unclampedDelay;
             status_.nextReconnectAtMs = saturatingAdd(nowMs, delay);
             return true;
         }
