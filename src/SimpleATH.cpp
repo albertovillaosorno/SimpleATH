@@ -385,25 +385,11 @@ class SimpleATH final : public IOService
             return kIOReturnSuccess;
         }
 
-        static IOReturn ownerSnapshotAction(OSObject *object, void *arg,
-                                            void * /*unused*/,
-                                            void * /*unused*/,
-                                            void * /*unused*/)
+        // OS join phase is bookkeeping only: real link and controlled-port
+        // authority are verified separately against physical EDMA and RF.
+        void populateNativeJoinSnapshot(simpleath::tahoe::WirelessSnapshot &out)
         {
-            auto *typed = OSDynamicCast(SimpleATH, object);
-            if (typed == nullptr)
-            {
-                return kIOReturnBadArgument;
-            }
-            auto &self = *typed;
-            auto &out = *static_cast<simpleath::tahoe::WirelessSnapshot *>(arg);
-            out = {};
-            const auto *board = self.board_.view(self.epoch_);
-            if (!self.powered_ || self.stopping_ || (board == nullptr))
-            {
-                return kIOReturnNotReady;
-            }
-            out.epoch = self.epoch_;
+            const auto &self = *this;
             if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0)
             {
                 out.joinRequestId = self.joinRequestId_;
@@ -453,6 +439,28 @@ class SimpleATH final : public IOService
                     }
                 }
             }
+        }
+
+        static IOReturn ownerSnapshotAction(OSObject *object, void *arg,
+                                            void * /*unused*/,
+                                            void * /*unused*/,
+                                            void * /*unused*/)
+        {
+            auto *typed = OSDynamicCast(SimpleATH, object);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
+            auto &out = *static_cast<simpleath::tahoe::WirelessSnapshot *>(arg);
+            out = {};
+            const auto *board = self.board_.view(self.epoch_);
+            if (!self.powered_ || self.stopping_ || (board == nullptr))
+            {
+                return kIOReturnNotReady;
+            }
+            out.epoch = self.epoch_;
+            self.populateNativeJoinSnapshot(out);
             memcpy(&out.permanentMac[0], &board->summary.mac[0],
                    sizeof(out.permanentMac));
             memcpy(&out.currentMac[0], &board->summary.mac[0],
@@ -1153,6 +1161,57 @@ class SimpleATH final : public IOService
             return self.gate_->runAction(ownerDisconnectAction, &stable);
         }
 
+        // An OS key revocation is serialized with the native RX/TX owner;
+        // never retire live PN state while hardware has a pending descriptor.
+        IOReturn removeNativeOsKey(const simpleath::tahoe::NativeCcmpKey &key,
+                                   const simpleath::ieee80211::Mac &bssid)
+        {
+            auto &self = *this;
+
+            if (!self.queues_.hasTransmitSpace())
+            {
+                return kIOReturnBusy;
+            }
+            if (key.pairwise && key.keyId == 0 &&
+                memcmp(&key.peer[0], &bssid.bytes[0],
+                       simpleath::tahoe::kWirelessMacBytes) == 0)
+            {
+                self.nativePairwiseTx_.revoke();
+                self.nativePairwiseRx_.revoke();
+                for (auto &group : self.nativeGroupRx_)
+                {
+                    group.revoke();
+                }
+                self.nativePairwiseKeyRevoked_ = true;
+                self.controlledPortAuthorized_ = false;
+                return kIOReturnSuccess;
+            }
+            if (!key.pairwise && self.nativeGroupSlot(key.keyId) != nullptr &&
+                memcmp(&key.peer[0], &bssid.bytes[0],
+                       simpleath::tahoe::kWirelessMacBytes) == 0)
+            {
+                // During a GTK rotation, removing the retired slot must
+                // not close the OS-controlled port while a separately
+                // installed new GTK remains. A retired slot stays
+                // unusable for the rest of this physical key epoch;
+                // reinstalling it would roll its receive PN floor back.
+                if (!(*self.nativeGroupSlot(key.keyId)).installed())
+                {
+                    return kIOReturnUnsupported;
+                }
+                (*self.nativeGroupSlot(key.keyId)).revoke();
+                self.nativeGroupKeyRevokedMask_ |=
+                    static_cast<uint8_t>(1U << key.keyId);
+                if (!self.nativeGroupInstalled())
+                {
+                    self.controlledPortAuthorized_ = false;
+                    self.notifyWirelessChange(false);
+                }
+                return kIOReturnSuccess;
+            }
+            return kIOReturnUnsupported;
+        }
+
         static IOReturn ownerInstallKeyAction(OSObject *object, void *argument,
                                               void * /*unused*/,
                                               void * /*unused*/,
@@ -1189,49 +1248,7 @@ class SimpleATH final : public IOService
             // descriptor. On stop/sleep the queue is isolated first instead.
             if (key.remove)
             {
-                if (!self.queues_.hasTransmitSpace())
-                {
-                    return kIOReturnBusy;
-                }
-                if (key.pairwise && key.keyId == 0 &&
-                    memcmp(&key.peer[0], &link.bssid.bytes[0],
-                           simpleath::tahoe::kWirelessMacBytes) == 0)
-                {
-                    self.nativePairwiseTx_.revoke();
-                    self.nativePairwiseRx_.revoke();
-                    for (auto &group : self.nativeGroupRx_)
-                    {
-                        group.revoke();
-                    }
-                    self.nativePairwiseKeyRevoked_ = true;
-                    self.controlledPortAuthorized_ = false;
-                    return kIOReturnSuccess;
-                }
-                if (!key.pairwise &&
-                    self.nativeGroupSlot(key.keyId) != nullptr &&
-                    memcmp(&key.peer[0], &link.bssid.bytes[0],
-                           simpleath::tahoe::kWirelessMacBytes) == 0)
-                {
-                    // During a GTK rotation, removing the retired slot must
-                    // not close the OS-controlled port while a separately
-                    // installed new GTK remains. A retired slot stays
-                    // unusable for the rest of this physical key epoch;
-                    // reinstalling it would roll its receive PN floor back.
-                    if (!(*self.nativeGroupSlot(key.keyId)).installed())
-                    {
-                        return kIOReturnUnsupported;
-                    }
-                    (*self.nativeGroupSlot(key.keyId)).revoke();
-                    self.nativeGroupKeyRevokedMask_ |=
-                        static_cast<uint8_t>(1U << key.keyId);
-                    if (!self.nativeGroupInstalled())
-                    {
-                        self.controlledPortAuthorized_ = false;
-                        self.notifyWirelessChange(false);
-                    }
-                    return kIOReturnSuccess;
-                }
-                return kIOReturnUnsupported;
+                return self.removeNativeOsKey(key, link.bssid);
             }
             if (key.receivePacketNumber >
                     simpleath::ieee80211::crypto::kCcmpMaximumPacketNumber ||
@@ -1488,6 +1505,56 @@ class SimpleATH final : public IOService
             return result;
         }
 
+        // Clear EAPOL M2/M4 is permitted only in the OS-owned WPA2
+        // handshake. Other payloads cannot inherit this exception.
+        simpleath::ieee80211::EngineResult prepareNativeClearHandshake(
+            const NativeTransmitRequest &packet,
+            const simpleath::ieee80211::LinkContext &connection,
+            simpleath::ieee80211::EngineAction &action)
+        {
+            simpleath::ieee80211::SerializedData serialized {};
+            const auto clear = simpleath::ieee80211::prepareStationTx(
+                connection, packet.bytes, packet.length, txSequence_,
+                &ethernetTx_[0], sizeof(ethernetTx_), serialized);
+            if (clear != simpleath::ieee80211::DataPathResult::Ok ||
+                !serialized.isEapol)
+            {
+                return simpleath::ieee80211::EngineResult::CryptoUnavailable;
+            }
+            action.kind = simpleath::ieee80211::ActionKind::TransmitEapol;
+            action.bytes = serialized.frameBytes;
+            return simpleath::ieee80211::EngineResult::Ok;
+        }
+
+        // The native pairwise session owns the CCMP PN/MIC. An error cannot
+        // fall back to a clear data MPDU or fabricate OS-controlled-port trust.
+        simpleath::ieee80211::EngineResult prepareNativeEncryptedEthernet(
+            const NativeTransmitRequest &packet,
+            const simpleath::ieee80211::LinkContext &connection,
+            simpleath::ieee80211::EngineAction &action)
+        {
+            simpleath::ieee80211::SerializedData serialized {};
+            const auto encrypted =
+                simpleath::ieee80211::prepareProtectedStationTx(
+                    connection, packet.bytes, packet.length, txSequence_,
+                    nativePairwiseTx_, epoch_, &protectedScratch_[0],
+                    sizeof(protectedScratch_), &ethernetTx_[0],
+                    sizeof(ethernetTx_), serialized);
+            if (encrypted == simpleath::ieee80211::DataPathResult::Ok)
+            {
+                action.kind =
+                    serialized.isEapol
+                        ? simpleath::ieee80211::ActionKind::TransmitEapol
+                        : simpleath::ieee80211::ActionKind::TransmitData;
+                action.bytes = serialized.frameBytes;
+                return simpleath::ieee80211::EngineResult::Ok;
+            }
+            return encrypted ==
+                           simpleath::ieee80211::DataPathResult::BufferTooSmall
+                       ? simpleath::ieee80211::EngineResult::BufferTooSmall
+                       : simpleath::ieee80211::EngineResult::CryptoUnavailable;
+        }
+
         static IOReturn ownerTransmitEthernetAction(OSObject *object,
                                                     void *argument,
                                                     void * /*unused*/,
@@ -1549,70 +1616,30 @@ class SimpleATH final : public IOService
             const bool keysReady = protectedWpa2 &&
                                    self->nativePairwiseRx_.installed() &&
                                    self->nativeGroupInstalled();
+            const simpleath::ieee80211::LinkContext connection {
+                link.station,
+                link.bssid,
+                simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
+                true,
+                self->radioOperational_,
+                self->channelAuthorized_,
+                keysReady,
+            };
             simpleath::ieee80211::EngineResult prepared =
                 simpleath::ieee80211::EngineResult::CryptoUnavailable;
             bool softwareProtected = false;
             if (isEapol && nativeHandshake)
             {
-                const simpleath::ieee80211::LinkContext connection {
-                    link.station,
-                    link.bssid,
-                    simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
-                    true,
-                    self->radioOperational_,
-                    self->channelAuthorized_,
-                    keysReady,
-                };
-                simpleath::ieee80211::SerializedData serialized {};
-                const auto clear = simpleath::ieee80211::prepareStationTx(
-                    connection, packet.bytes, packet.length, self->txSequence_,
-                    &self->ethernetTx_[0], sizeof(self->ethernetTx_),
-                    serialized);
-                if (clear == simpleath::ieee80211::DataPathResult::Ok &&
-                    serialized.isEapol)
-                {
-                    action.kind =
-                        simpleath::ieee80211::ActionKind::TransmitEapol;
-                    action.bytes = serialized.frameBytes;
-                    prepared = simpleath::ieee80211::EngineResult::Ok;
-                }
+                prepared = self->prepareNativeClearHandshake(packet, connection,
+                                                             action);
             }
             if (prepared != simpleath::ieee80211::EngineResult::Ok &&
                 protectedWpa2)
             {
-                const simpleath::ieee80211::LinkContext connection {
-                    link.station,
-                    link.bssid,
-                    simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
-                    true,
-                    self->radioOperational_,
-                    self->channelAuthorized_,
-                    keysReady,
-                };
-                simpleath::ieee80211::SerializedData serialized {};
-                const auto encrypted =
-                    simpleath::ieee80211::prepareProtectedStationTx(
-                        connection, packet.bytes, packet.length,
-                        self->txSequence_, self->nativePairwiseTx_,
-                        self->epoch_, &self->protectedScratch_[0],
-                        sizeof(self->protectedScratch_), &self->ethernetTx_[0],
-                        sizeof(self->ethernetTx_), serialized);
-                if (encrypted == simpleath::ieee80211::DataPathResult::Ok)
-                {
-                    action.kind =
-                        serialized.isEapol
-                            ? simpleath::ieee80211::ActionKind::TransmitEapol
-                            : simpleath::ieee80211::ActionKind::TransmitData;
-                    action.bytes = serialized.frameBytes;
-                    prepared = simpleath::ieee80211::EngineResult::Ok;
-                    softwareProtected = true;
-                }
-                else if (encrypted ==
-                         simpleath::ieee80211::DataPathResult::BufferTooSmall)
-                {
-                    prepared =
-                        simpleath::ieee80211::EngineResult::BufferTooSmall;
-                }
+                prepared = self->prepareNativeEncryptedEthernet(
+                    packet, connection, action);
+                softwareProtected =
+                    prepared == simpleath::ieee80211::EngineResult::Ok;
             }
             else if (prepared != simpleath::ieee80211::EngineResult::Ok &&
                      !nativeHandshake && !protectedWpa2)
