@@ -75,6 +75,13 @@ namespace
             size_t length;
     };
 
+    struct NativeSubscribeRequest
+    {
+            void *observer;
+            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t);
+            void (*receive)(void *, const uint8_t *, size_t);
+    };
+
     // The native command gate may wait for an earlier radio operation. A
     // synchronously borrowed OS packet or key is not immutable during that
     // wait, so callbacks take an owned snapshot and erase it on return.
@@ -1058,31 +1065,58 @@ class SimpleATH final : public IOService
             return result;
         }
 
+        static IOReturn ownerSubscribeAction(OSObject *object, void *argument,
+                                             void * /*unused1*/,
+                                             void * /*unused2*/,
+                                             void * /*unused3*/)
+        {
+            // This action runs exclusively on the owner's registered gate.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto &request =
+                *static_cast<const NativeSubscribeRequest *>(argument);
+            // A separate snapshot followed by a non-gated registration can
+            // race a final provider stop. The same PCI work-loop gate must
+            // protect live epoch validation AND callback publication.
+            if (!self.started_ || !self.powered_ || self.stopping_ ||
+                self.pci_ == nullptr || self.pci_->isInactive() ||
+                self.epoch_ == 0 || self.board_.view(self.epoch_) == nullptr ||
+                self.observerLock_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(self.observerLock_);
+            IOReturn registered = kIOReturnExclusiveAccess;
+            if (self.wirelessObserver_ == nullptr)
+            {
+                self.wirelessObserver_ = request.observer;
+                self.wirelessNotify_ = request.notify;
+                self.wirelessReceive_ = request.receive;
+                registered = kIOReturnSuccess;
+            }
+            IOLockUnlock(self.observerLock_);
+            return registered;
+        }
+
         static IOReturn ownerSubscribe(
             void *context, void *observer,
             void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t),
             void (*receive)(void *, const uint8_t *, size_t))
         {
-            if (!context || !observer || !notify || !receive)
-                return kIOReturnBadArgument;
-            auto &self = *static_cast<SimpleATH *>(context);
-            if (!self.observerLock_ || !self.gate_)
-                return kIOReturnNotReady;
-            simpleath::tahoe::WirelessSnapshot snapshot {};
-            const IOReturn result = ownerSnapshot(context, &snapshot);
-            if (result != kIOReturnSuccess)
-                return result;
-            IOLockLock(self.observerLock_);
-            IOReturn registered = kIOReturnExclusiveAccess;
-            if (!self.wirelessObserver_)
+            if (context == nullptr || observer == nullptr ||
+                notify == nullptr || receive == nullptr)
             {
-                self.wirelessObserver_ = observer;
-                self.wirelessNotify_ = notify;
-                self.wirelessReceive_ = receive;
-                registered = kIOReturnSuccess;
+                return kIOReturnBadArgument;
             }
-            IOLockUnlock(self.observerLock_);
-            return registered;
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.observerLock_ == nullptr || self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            NativeSubscribeRequest request {observer, notify, receive};
+            // All validity and exclusive-registration checks run serially
+            // with stop/terminate, not on the client's own work loop.
+            return self.gate_->runAction(ownerSubscribeAction, &request);
         }
 
         static void ownerUnsubscribe(void *context, void *observer)
@@ -2124,37 +2158,56 @@ class SimpleATH final : public IOService
             setProperty("SimpleATHDriverReady", false);
         }
 
-        static IOReturn startAction(OSObject *owner, void *, void *, void *,
-                                    void *)
+        static IOReturn startAction(OSObject *owner, void * /*unused1*/,
+                                    void * /*unused2*/, void * /*unused3*/,
+                                    void * /*unused4*/)
         {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             return static_cast<SimpleATH *>(owner)->startHardware();
         }
 
-        static IOReturn sleepAction(OSObject *owner, void *, void *, void *,
-                                    void *)
+        static IOReturn sleepAction(OSObject *owner, void * /*unused1*/,
+                                    void * /*unused2*/, void * /*unused3*/,
+                                    void * /*unused4*/)
         {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(owner);
             self.stopHardware(simpleath::ProviderAccess::Available);
             self.stage("Suspended");
             return kIOReturnSuccess;
         }
 
-        static IOReturn stopAction(OSObject *owner, void *, void *, void *,
-                                   void *)
+        static IOReturn stopAction(OSObject *owner, void * /*unused1*/,
+                                   void * /*unused2*/, void * /*unused3*/,
+                                   void * /*unused4*/)
         {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(owner);
-            self.stopHardware(simpleath::ProviderAccess::Available);
-            self.stopping_ = true;
+            if (!self.stopping_)
+            {
+                // Final stop without an earlier willTerminate must emit the
+                // same provider-revocation event. Keep the hardware permit
+                // valid until keycache/DMA teardown completes, then revoke
+                // callbacks while the observer lock still exists.
+                self.stopHardware(simpleath::ProviderAccess::Available);
+                self.stopping_ = true;
+                self.notifyWirelessChange(true);
+            }
             self.stage("Stopped");
             return kIOReturnSuccess;
         }
 
-        static IOReturn terminateAction(OSObject *owner, void *, void *, void *,
-                                        void *)
+        static IOReturn terminateAction(OSObject *owner, void * /*unused1*/,
+                                        void * /*unused2*/, void * /*unused3*/,
+                                        void * /*unused4*/)
         {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(owner);
-            self.stopping_ = true;
-            self.stopHardware(simpleath::ProviderAccess::Unavailable);
+            if (!self.stopping_)
+            {
+                self.stopping_ = true;
+                self.stopHardware(simpleath::ProviderAccess::Unavailable);
+            }
             return kIOReturnSuccess;
         }
 
