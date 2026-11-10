@@ -256,6 +256,23 @@ namespace simpleath
             return Error::Ok;
         }
 
+        Error TxRing::retireQuiesced(const TxSlotToken &token, bool quiesced)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            RingSlot &slot = slots_[token.index];
+            if (!matches(token) || slot.state != SlotState::OwnedByHardware ||
+                !quiesced)
+            {
+                return Error::UnexpectedState;
+            }
+            slot.state = SlotState::Quiesced;
+            return Error::Ok;
+        }
+
         Error TxRing::release(const TxSlotToken &token)
         {
             if (token.index >= capacity_)
@@ -266,7 +283,8 @@ namespace simpleath
             if (!matches(token) || active_ == 0 ||
                 (slot.state != SlotState::Completed &&
                  slot.state != SlotState::Reserved &&
-                 slot.state != SlotState::ReadyForHardware))
+                 slot.state != SlotState::ReadyForHardware &&
+                 slot.state != SlotState::Quiesced))
             {
                 return Error::UnexpectedState;
             }

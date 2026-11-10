@@ -176,6 +176,21 @@ int main()
             preserved.descriptorCompleted ||
         ring.release(owned) != Error::Ok || ring.reset() != Error::Ok)
         return 9;
+    // After a verified device shutdown, a TX descriptor still owned at the
+    // time of stop must be reclaimed without manufacturing TX success.
+    if (ring.initialize(2) != Error::Ok ||
+        ring.reserve(owned, 121) != Error::Ok ||
+        ring.descriptorPrepared(owned, true, true) != Error::Ok ||
+        ring.handedToHardware(owned, true, true, true) != Error::Ok ||
+        ring.release(owned) != Error::UnexpectedState ||
+        ring.retireQuiesced(owned, false) != Error::UnexpectedState ||
+        ring.slot(owned.index)->state != SlotState::OwnedByHardware ||
+        ring.retireQuiesced(owned, true) != Error::Ok ||
+        ring.slot(owned.index)->state != SlotState::Quiesced ||
+        ring.complete(owned) != Error::UnexpectedState ||
+        ring.release(owned) != Error::Ok || ring.reset() != Error::Ok)
+        return 34;
+
     // A fabricated CPU span that wraps host uintptr_t cannot describe a
     // retained DMA allocation, even when the reported device IOVA is valid.
     // No CPU memory is dereferenced in this synthetic mapping regression.

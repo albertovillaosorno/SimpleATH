@@ -67,7 +67,9 @@ lifecycle with unique nonwrapping tokens, completion/sync gates, explicit
 quiesced retirement (a distinct non-packet `Quiesced` state) and independent
 `FromDevice` descriptor-ring mapping
 checks. Synthetic C++14/C++17 sanitizer regressions pass. These are
-owner-supplied attestations, not verified actual quiescence or completed RX;
+owner-supplied attestations, not verified actual quiescence or completed RX.
+TX also supports quiesced-but-unsuccessful retirement for device-owned slots
+only after the native owner has actually stopped DMA and drained callbacks;
 the native controller still must allocate/program coherent rings, synchronize
 real mappings, identify the completed descriptor, drain interrupts and safely
 publish the packet. This incremental source stage does **not** complete this

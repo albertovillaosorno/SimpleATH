@@ -80,7 +80,13 @@ for the **next separately authorized build**.
   preparation, handoff or release cannot act on a recycled slot. This does
   not prove that an actual DMA transfer completed or was quiesced. There is
   no IODMACommand allocation, IOMMU mapping, physical device access,
-  interrupt acknowledgement or hardware doorbell. A multi-descriptor ring
+  interrupt acknowledgement or hardware doorbell. TX now also has
+  `retireQuiesced`: when a real native owner has isolated DMA and drained
+  callbacks, a still-device-owned slot becomes `Quiesced` (not TX success)
+  and can be released. Without that external proof, the TX slot stays owned
+  and reset is blocked. This is a cleanup protocol, not implemented hardware
+  isolation or a transmit completion.
+  A multi-descriptor ring
   also requires each descriptor stride to preserve the specified alignment.
   The receive side now separately tracks nonwrapping RX slot generations,
   buffer reservation, DMA handoff, verified completion and release. Missing

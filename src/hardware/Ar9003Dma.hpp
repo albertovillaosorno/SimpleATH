@@ -79,7 +79,7 @@ namespace simpleath
             ReadyForHardware,
             OwnedByHardware,
             Completed,
-            // RX only: DMA was isolated, but no valid received frame exists.
+            // DMA was isolated; no valid RX packet or successful TX exists.
             Quiesced,
         };
 
@@ -122,6 +122,10 @@ namespace simpleath
                                        bool radioCalibrated,
                                        bool channelAllowed, bool keysReady);
                 Error complete(const TxSlotToken &token);
+                // On verified engine quiescence and drained completions, allow
+                // retiring a device-owned slot for cleanup without asserting
+                // that a frame was successfully transmitted.
+                Error retireQuiesced(const TxSlotToken &token, bool quiesced);
                 Error release(const TxSlotToken &token);
                 // A reset must not erase tokens still tied to mapped buffers
                 // or potentially hardware-owned descriptors. The caller must
