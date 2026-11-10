@@ -14,15 +14,7 @@ macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
 ## Author's Notes
 
-Go to hell if you hate AI because of "ethical concerns" or any other bullshit.
-
-This is an experiment for a Hackintosh (which is incredibly stupid, considering
-you could just buy a Mac).
-
 It’s just for fun—we’ll see if it works or not.
-
-I used some "**G**arbage & **P**oop **L**overs" license—I absolutely loathe it.
-I preferred having access to Linux source code to use for this project.
 
 GitHub lists this repository as **public**. Standard GitHub-hosted runners
 (including `macos-26-intel`) are free for public repositories; larger
