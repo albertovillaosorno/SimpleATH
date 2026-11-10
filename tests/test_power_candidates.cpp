@@ -220,6 +220,16 @@ int main()
     image.bytes[138] = 112;
     image.bytes[139] = 137;
     image.bytes[140] = 162;
+    // Synthetic open-loop chain0 measurements; not actual device calibration.
+    image.bytes[141] = 0xf8; // -8 correction.
+    image.bytes[142] = 100;
+    image.bytes[143] = 40;
+    image.bytes[147] = 16;
+    image.bytes[148] = 120;
+    image.bytes[149] = 50;
+    image.bytes[153] = 24;
+    image.bytes[154] = 140;
+    image.bytes[155] = 60;
     image.bytes[195] = image.bytes[197] = 112;
     image.bytes[196] = image.bytes[198] = 137;
     image.bytes[199] = 162;
@@ -244,7 +254,12 @@ int main()
             PowerResult::Ok ||
         output.controlMhz != 2412 || output.cck[0] != 24 ||
         output.ofdm[0] != 24 || output.ht20Present || output.ht40Present ||
-        output.conductedCeilingHalfDbm != 30)
+        output.conductedCeilingHalfDbm != 30 ||
+        output.channelCalibration.channelMhz != 2412 ||
+        output.channelCalibration.referenceCorrection != -8 ||
+        output.channelCalibration.voltageMeasurement != 100 ||
+        output.channelCalibration.temperatureMeasurement != 40 ||
+        output.channelCalibration.interpolated)
     {
         return 12;
     }
@@ -372,6 +387,22 @@ int main()
         output.cck[0] != 24 || output.ofdm[0] != 24)
     {
         return 23;
+    }
+    // The same plan carries the calibration piers selected for the actual
+    // control channel, not an arbitrary stale source or HT40 synth center.
+    channel.primary = 6;
+    if (calculatePowerCandidates(image, channel, ceiling, output) !=
+            PowerResult::Ok ||
+        output.controlMhz != 2437 ||
+        output.channelCalibration.channelMhz != 2437 ||
+        output.channelCalibration.lowerPierMhz != 2437 ||
+        output.channelCalibration.upperPierMhz != 2437 ||
+        output.channelCalibration.referenceCorrection != 16 ||
+        output.channelCalibration.voltageMeasurement != 120 ||
+        output.channelCalibration.temperatureMeasurement != 50 ||
+        output.channelCalibration.interpolated)
+    {
+        return 30;
     }
     return 0;
 }

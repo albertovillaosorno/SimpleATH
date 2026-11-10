@@ -56,6 +56,10 @@ namespace simpleath
             uint16_t extensionMhz;
             uint16_t synthMhz;
             uint8_t conductedCeilingHalfDbm;
+            // Source-side EEPROM measurements for this control channel. The
+            // future TPC writer still must validate live board provenance,
+            // correct temperature/voltage compensation and RF permissions.
+            BoardChannelCalibration2G channelCalibration;
             uint8_t cck[4];
             uint8_t ofdm[4];
             uint8_t ht20[kHtTargetPowerGroups];
