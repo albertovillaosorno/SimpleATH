@@ -34,6 +34,7 @@ namespace
     bool gSimpleATHEnabled = true;
     constexpr size_t kNvmStorageBytes = 4096;
     constexpr unsigned int kRfPropertyWidthBits = 32;
+    constexpr uint32_t kRfKillInputRegister = 0x404c;
     // IOService copies this table when registering the power driver.
     IOPMPowerState gPowerStates[2] = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -214,12 +215,41 @@ class SimpleATH final : public IOService
             };
         }
 
-        static bool rfPowerPermit(void *context, uint64_t epoch)
+        static bool rfBoardPermit(void *context, uint64_t epoch)
         {
             const auto &self = *static_cast<RegisterAccess *>(context)->owner;
             return canReset(context, epoch) &&
                    self.board_.view(epoch) != nullptr && !self.queuesAdopted_ &&
                    !self.radioOperational_ && !self.channelAuthorized_;
+        }
+
+        static bool rfPowerPermit(void *context, uint64_t epoch)
+        {
+            if (!rfBoardPermit(context, epoch))
+            {
+                return false;
+            }
+            const auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (!self.rfKillPinConfigured_)
+            {
+                // Missing EEPROM GPIO is unknown, not permission for RF.
+                // PMU/XTAL tuning cannot itself enable automatic responses.
+                return true;
+            }
+            if (!self.rfKillKnownUnblocked_)
+            {
+                return false;
+            }
+            // The stable double sample established polarity. Recheck the
+            // live input before EVERY regulator/XTAL MMIO operation: a switch
+            // flipped mid-sequence revokes access even while still in D0.
+            uint32_t level = 0;
+            if (!readRegister(context, kRfKillInputRegister, &level))
+            {
+                return false;
+            }
+            const bool high = (level & (uint32_t {1} << self.rfKillGpio_)) != 0;
+            return high != self.rfKillActiveHigh_;
         }
 
         simpleath::RxAgcBackend rfPowerBackend()
@@ -244,7 +274,7 @@ class SimpleATH final : public IOService
                 &access_,
                 epoch_,
                 backend_.activeRegisters().barLengthBytes,
-                rfPowerPermit,
+                rfBoardPermit,
                 readRegister,
                 writeRegister,
                 delayMicros,
@@ -585,6 +615,11 @@ class SimpleATH final : public IOService
                 return abortStart("AR9565RfKillSample",
                                   static_cast<uint32_t>(kill.result));
             }
+            rfKillPinConfigured_ = killPin.configured;
+            rfKillKnownUnblocked_ =
+                kill.result == simpleath::RfKillResult::Unblocked;
+            rfKillGpio_ = kill.gpio;
+            rfKillActiveHigh_ = killPin.activeHigh;
             const auto analogIo = rfPowerBackend();
             stage("AR9565PMU1Regulator");
             const auto regulator = simpleath::configureAr9565InternalRegulator(
@@ -664,6 +699,10 @@ class SimpleATH final : public IOService
             powered_ = false;
             identity_ = {};
             setProperty("SimpleATHBoardAcquired", false);
+            rfKillPinConfigured_ = false;
+            rfKillKnownUnblocked_ = false;
+            rfKillGpio_ = 0;
+            rfKillActiveHigh_ = false;
             setProperty("SimpleATHRfKillUnblocked", false);
             setProperty("SimpleATHEepromValidated", false);
             setProperty("SimpleATHMmioTransportReady", false);
@@ -775,6 +814,10 @@ class SimpleATH final : public IOService
         uint64_t epoch_ {0};
         bool powered_ {false};
         bool enginesQuiesced_ {false};
+        bool rfKillPinConfigured_ {false};
+        bool rfKillKnownUnblocked_ {false};
+        uint8_t rfKillGpio_ {0};
+        bool rfKillActiveHigh_ {false};
         bool gateAttached_ {false};
         bool pmInitialized_ {false};
         bool started_ {false};
