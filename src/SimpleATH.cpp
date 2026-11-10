@@ -940,9 +940,11 @@ class SimpleATH final : public IOService
             }
             const auto ticket = scanTicket_;
             const uint64_t generation = scanEngineGeneration_;
+            const auto &bridge = scanBridge_.status();
             const bool active = scanEpoch_ == epoch_ && generation != 0 &&
-                                ticket.generation != 0 &&
-                                scanBridge_.status().radioScanRunning;
+                                bridge.radioScanRunning &&
+                                ticket.generation == bridge.activeGeneration &&
+                                ticket.serial == bridge.requestSerial;
             scanEpoch_ = 0;
             scanEngineGeneration_ = 0;
             scanTicket_ = {};
@@ -956,7 +958,13 @@ class SimpleATH final : public IOService
                 // pending, explicitly unsuccessful completion event.
                 (void)scanBridge_.completeScan(engine_.scan(), ticket, false);
             }
-            return active;
+            simpleath::ieee80211::ScanBridgeCompletion completion {};
+            return active &&
+                   scanBridge_.completion(completion) ==
+                       simpleath::ieee80211::ScanBridgeResult::Ok &&
+                   !completion.succeeded &&
+                   completion.ticket.generation == ticket.generation &&
+                   completion.ticket.serial == ticket.serial;
         }
 
         void failNativeJoin(IOReturn status)
