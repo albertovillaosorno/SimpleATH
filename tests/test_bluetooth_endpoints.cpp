@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Synthetic USB endpoint topology tests; no real USB device or kext loaded.
+#include "bluetooth/Ath3kUsb.hpp"
 #include "bluetooth/UsbHci.hpp"
 #include "bluetooth/UsbHciEndpointSelector.hpp"
 
@@ -105,6 +106,37 @@ namespace
         return 0;
     }
 
+    int verifyPhysicalHciIdentity()
+    {
+        // All matching is based on USB VID/PID/bcdDevice and interface
+        // number, never on the WLAN function's independent PCI 168c:0036.
+        constexpr Ath3kUsbIdentity kAr3012 {0x0cf3U, 0x0036U, 2U, 0U};
+        constexpr Ath3kUsbIdentity kAdditional {0x0489U, 0xe04dU, 3U, 0U};
+        constexpr Ath3kUsbIdentity kLatestAdditional {0x13d3U, 0x3487U, 2U, 0U};
+        if (!isSupportedAth3kHciIdentity(kAr3012) ||
+            !isSupportedAth3kHciIdentity(kAdditional) ||
+            !isSupportedAth3kHciIdentity(kLatestAdditional))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The same VID/PID still in ATH3K bootstrap mode must not become an
+        // HCI owner; unrelated controllers and nonzero interfaces fail too.
+        constexpr Ath3kUsbIdentity kBoot {0x0cf3U, 0x0036U, 1U, 0U};
+        constexpr Ath3kUsbIdentity kUnrelated {0x8087U, 0x0026U, 2U, 0U};
+        constexpr Ath3kUsbIdentity kWrongInterface {0x0cf3U, 0x0036U, 2U, 1U};
+        constexpr Ath3kUsbIdentity kLegacy3011 {0x0cf3U, 0x3000U, 2U, 0U};
+        constexpr Ath3kUsbIdentity kIgnoredAtheros {0x0489U, 0xe02cU, 2U, 0U};
+        if (isSupportedAth3kHciIdentity(kBoot) ||
+            isSupportedAth3kHciIdentity(kUnrelated) ||
+            isSupportedAth3kHciIdentity(kWrongInterface) ||
+            isSupportedAth3kHciIdentity(kLegacy3011) ||
+            isSupportedAth3kHciIdentity(kIgnoredAtheros))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int rejectMalformed()
     {
         auto invalidAddress = kDescriptors;
@@ -169,5 +201,9 @@ int main()
     {
         return result;
     }
-    return rejectMalformed();
+    if (const int result = rejectMalformed())
+    {
+        return result;
+    }
+    return verifyPhysicalHciIdentity();
 }

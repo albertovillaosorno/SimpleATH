@@ -54,6 +54,22 @@ namespace simpleath
             {0x13d3U, 0x3472U}, {0x13d3U, 0x3474U}, {0x13d3U, 0x3490U},
         };
 
+        // Linux btusb v6.12 BTUSB_ATH3012 entries not present in the
+        // intentionally narrower ath3k bootstrap list. These are factual
+        // USB VID/PID matches, not a claim that any is the Dell's USB ID.
+        constexpr UsbId kAdditionalAr3012HciIds[] {
+            {0x0489U, 0xe036U}, {0x0489U, 0xe03cU}, {0x0489U, 0xe04dU},
+            {0x0489U, 0xe04eU}, {0x0489U, 0xe056U}, {0x0489U, 0xe057U},
+            {0x0489U, 0xe05fU}, {0x0489U, 0xe076U}, {0x0489U, 0xe078U},
+            {0x0489U, 0xe095U}, {0x04c5U, 0x1330U}, {0x04caU, 0x3004U},
+            {0x04caU, 0x3005U}, {0x04caU, 0x3006U}, {0x04caU, 0x3007U},
+            {0x04caU, 0x3008U}, {0x04caU, 0x300bU}, {0x04caU, 0x300dU},
+            {0x04caU, 0x300fU}, {0x04caU, 0x3010U}, {0x04caU, 0x3014U},
+            {0x04caU, 0x3018U}, {0x0930U, 0x0219U}, {0x0930U, 0x021cU},
+            {0x0930U, 0x0220U}, {0x0930U, 0x0227U}, {0x0b05U, 0x17d0U},
+            {0x13d3U, 0x3487U},
+        };
+
         uint32_t loadLittle32(const uint8_t *data)
         {
             UsbBytes<uint8_t, kWordBytes> bytes {};
@@ -274,6 +290,24 @@ namespace simpleath
         }
         bool known = false;
         for (const UsbId &entry : kAr3012BootIds)
+        {
+            known = known || (entry.vendor == identity.vendorId &&
+                              entry.product == identity.productId);
+        }
+        return known;
+    }
+
+    bool isSupportedAth3kHciIdentity(const Ath3kUsbIdentity &identity)
+    {
+        // Once the AR3012 firmware has started, Linux btusb binds a normal
+        // Bluetooth HCI class interface only for a published ATH3012 USB ID
+        // with bcdDevice > 0x0001. Reject bootstrap mode and unrelated HCI.
+        if (identity.interfaceNumber != 0U || identity.deviceRevision <= 1U)
+        {
+            return false;
+        }
+        bool known = isSupportedAth3kUsbIdentity(identity);
+        for (const UsbId &entry : kAdditionalAr3012HciIds)
         {
             known = known || (entry.vendor == identity.vendorId &&
                               entry.product == identity.productId);

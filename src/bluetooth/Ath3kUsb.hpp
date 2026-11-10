@@ -87,6 +87,13 @@ namespace simpleath
     // these published USB IDs is necessary, not proof of Dell board identity.
     bool isSupportedAth3kUsbIdentity(const Ath3kUsbIdentity &identity);
 
+    // Published Linux btusb ATH3012 HCI IDs after successful firmware
+    // startup (bcdDevice > 0x0001). This is a necessary physical USB match,
+    // not proof of QCA9565 board provenance or macOS Bluetooth ownership.
+    // Refuse an unrelated generic Bluetooth USB controller even if its
+    // interface uses the standard HCI class/subclass/protocol descriptors.
+    bool isSupportedAth3kHciIdentity(const Ath3kUsbIdentity &identity);
+
     // Runs the physical Atheros USB firmware bootstrap synchronously on the
     // USB owner's serialized gate (never on the WLAN PCI owner).
     // A successfully switched USB device MUST re-enumerate and attach the

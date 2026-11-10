@@ -402,6 +402,23 @@ namespace simpleath
         {
             return false;
         }
+        // HCI-class endpoint topology alone is NOT device identity: do not
+        // claim an unrelated Intel/Broadcom/Qualcomm Bluetooth USB adapter.
+        // Read the physical USB DEVICE descriptor, never a registry hint or
+        // the AR9565 WLAN PCI identity, and refuse pre-firmware boot mode.
+        IOUSBHostDevice *device = interface->getDevice();
+        const auto *deviceDescriptor =
+            device == nullptr ? nullptr : device->getDeviceDescriptor();
+        if (deviceDescriptor == nullptr || interface->isInactive() ||
+            !isSupportedAth3kHciIdentity({
+                USBToHost16(deviceDescriptor->idVendor),
+                USBToHost16(deviceDescriptor->idProduct),
+                USBToHost16(deviceDescriptor->bcdDevice),
+                descriptor->bInterfaceNumber,
+            }))
+        {
+            return false;
+        }
         UsbHciEndpoints endpoints {};
         if (!discoverHciEndpoints(interface, endpoints))
         {
