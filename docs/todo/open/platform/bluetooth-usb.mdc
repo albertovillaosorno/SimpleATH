@@ -63,3 +63,32 @@ Missing BLE security references `net/bluetooth/smp.c`, `ecdh_helper.c` and
 and reference-only scope are recorded in `src/linux/linux-port-ledger.jsonl`.
 The local reference tree remains intentionally excluded from Git. These Linux
 files are research input, not linked macOS code or a completed Bluetooth path.
+
+## Implementation evidence as of 2026-11-10
+
+- Commit `830bc1f` corrects pending BLE LE scan HCI Command Status handling:
+  command rejection, missing command credits, successful preliminary status
+  without premature state promotion, and unrelated-opcode isolation. Offline
+  C++14/C++17 ASan+UBSan and direct strict Clang-Tidy fixtures passed.
+- Commit `ab03625` adds `src/bluetooth/LeAdvertising.{hpp,cpp}` to the **normal
+  production Xcode source target**. It emits actual Bluetooth HCI LE Set
+  Advertising Parameters (`0x2006`), Set Advertising Data (`0x2008`) and
+  Set Advertising Enable (`0x200a`) command packets through the existing
+  USB HCI callback transport, rather than fabricating an advertising state.
+  It uses legacy non-connectable undirected advertising (`ADV_NONCONN_IND`),
+  validates bounded AD structures, takes a private data snapshot, and
+  requires an explicit native owner authorization callback for the payload,
+  controller procedure, public-address/privacy policy and interval.
+  It checks controller Command Complete/Status outcomes, handles disable
+  confirmation, command-credit loss, canceled setup, rejected operations,
+  stale epoch and unexpected transport loss. The new standalone synthetic
+  USB HCI fixture passed C++14/C++17 ASan+UBSan, direct strict Clang-Tidy,
+  format and Darwin C++14 SDK syntax checks. These are **offline** checks,
+  not physical advertising tests or a Bluetooth stack integration proof.
+- Remaining required source: bind the actually running macOS Bluetooth host
+  and USB interface to a single authorized owner of command/event traffic,
+  wire advertising and discovery to that host and the genuine AirDrop BLE
+  policy/content, obtain matching licensed ATH3K firmware and independently
+  verified Bluetooth function USB identity, and implement RF coexistence and
+  reset/sleep recovery. The portable advertising producer is **not invoked by
+  a native Bluetooth host yet**. The acceptance checklist stays open.
