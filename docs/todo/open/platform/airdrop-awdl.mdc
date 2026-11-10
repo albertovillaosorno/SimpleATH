@@ -190,8 +190,18 @@ legacy and operating-class channel encodings, without mistaking advertised
 5 GHz slots for AR9565-supported 2.4 GHz availability. A peer with no
 advertised channel-6 slot has a zero mask and no inferred TX permission.
 
-Only a valid MIF can create/update an entry. A syntactically valid IPv6
-AWDL data MPDU may refresh an existing live neighbor but not create one.
+Only a valid MIF can create/update an entry. A syntactically valid,
+**sequence-fresh** IPv6 AWDL data MPDU may refresh an existing live neighbor
+but not create one. Commit `9c19329` separately tracks the AWDL data header's
+16-bit sequence counter within each peer entry. Duplicate, backwards and
+half-range-ambiguous frames no longer renew `lastHeardMs`; forward serial
+progress across the 16-bit wrap is admitted, and subsequent MIF updates do
+not reset the data counter. Expiration and physical epoch reset erase it.
+This only limits accidental replays and stale data: an unauthenticated peer
+can still forge newer sequence values, so this is **not** replay protection,
+cryptographic authentication, key establishment, or delivery authorization.
+The synthetic regression confirmed failure before that fix (exit 19) and
+passes after it with C++14/C++17 ASan+UBSan and focused strict Clang-Tidy.
 Entries expire at the exact five-second lifetime boundary, when the
 owner explicitly expires them, or on an epoch/reset `clear()`. Clock
 rollback is refused without extending a session. Malformed input leaves
