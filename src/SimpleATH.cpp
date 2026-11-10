@@ -22,6 +22,7 @@
 #include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
 #include "wifi/crypto/Ccmp.hpp"
+#include "wifi/crypto/Wpa2CryptoAdapter.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
@@ -39,6 +40,10 @@
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
 #include <string.h>
+// The pinned Tahoe XNU SDK declares this exported kernel CSPRNG only when
+// the kernel API is enabled by sys/appleapiopts.h. Never synthesize WPA2
+// nonces from a timestamp or untrusted userland data.
+#include <sys/random.h>
 
 class SimpleATH;
 
@@ -259,7 +264,7 @@ class SimpleATH final : public IOService
             }
             if (!p1 || p2 || p3 || p4)
                 return kIOReturnBadArgument;
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV1 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV2 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
                 return kIOReturnUnsupported;
@@ -280,10 +285,10 @@ class SimpleATH final : public IOService
             if (!self.powered_ || self.stopping_ ||
                 !self.board_.view(self.epoch_) || !self.observerLock_)
                 return kIOReturnNotReady;
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV1 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV1 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV2 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV2 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV1),
+                sizeof(simpleath::tahoe::WirelessOwnerV2),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -313,6 +318,55 @@ class SimpleATH final : public IOService
             if (!self.powered_ || self.stopping_ || !board)
                 return kIOReturnNotReady;
             out.epoch = self.epoch_;
+            if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0)
+            {
+                out.joinRequestId = self.joinRequestId_;
+                out.joinStatus = self.joinStatus_;
+                out.associatedBeaconObserved = self.associatedBeaconObserved_;
+                if (self.joinStatus_ != kIOReturnSuccess)
+                {
+                    out.joinPhase = simpleath::tahoe::NativeJoinPhase::Failed;
+                }
+                else
+                {
+                    switch (self.engine_.stationState())
+                    {
+                        case simpleath::ieee80211::StationState::
+                            CandidateSelected:
+                        case simpleath::ieee80211::StationState::
+                            AuthenticationFramePrepared:
+                            out.joinPhase = simpleath::tahoe::NativeJoinPhase::
+                                Authenticating;
+                            break;
+                        case simpleath::ieee80211::StationState::Authenticated:
+                        case simpleath::ieee80211::StationState::
+                            AssociationFramePrepared:
+                            out.joinPhase =
+                                simpleath::tahoe::NativeJoinPhase::Associating;
+                            break;
+                        case simpleath::ieee80211::StationState::
+                            WaitingForWpa2Keys:
+                        case simpleath::ieee80211::StationState::
+                            HardwareKeysInstalled:
+                        case simpleath::ieee80211::StationState::AssociatedOpen:
+                            // No Ready claim on key presence or association
+                            // alone: authenticated RF, live data port and a
+                            // fresh same-epoch AP beacon are all mandatory.
+                            out.joinPhase =
+                                self.controlledPortAuthorized_ &&
+                                        self.associatedBeaconObserved_
+                                    ? simpleath::tahoe::NativeJoinPhase::Ready
+                                    : simpleath::tahoe::NativeJoinPhase::
+                                          Handshaking;
+                            break;
+                        default:
+                            out.joinPhase =
+                                simpleath::tahoe::NativeJoinPhase::Failed;
+                            out.joinStatus = kIOReturnNotReady;
+                            break;
+                    }
+                }
+            }
             memcpy(out.permanentMac, board->summary.mac,
                    sizeof(out.permanentMac));
             memcpy(out.currentMac, board->summary.mac, sizeof(out.currentMac));
@@ -332,7 +386,11 @@ class SimpleATH final : public IOService
                 simpleath::ieee80211::Bss selected {};
                 if (!self.engine_.copyAssociatedBss(selected) ||
                     self.associationGeneration_ == 0 ||
-                    selected.beacon.ssidLength > sizeof(out.ssid))
+                    selected.beacon.ssidLength > sizeof(out.ssid) ||
+                    selected.beacon.rateCount >
+                        sizeof(out.associatedBss.rates) ||
+                    selected.beacon.rsnIeLength >
+                        sizeof(out.associatedBss.rsnInformationElement))
                 {
                     // Native UI state must not claim an association without
                     // the exact BSS chosen by the actual 802.11 handshake.
@@ -347,8 +405,42 @@ class SimpleATH final : public IOService
                     memcpy(&out.ssid[0], &selected.beacon.ssid[0],
                            out.ssidLength);
                     out.channel = selected.beacon.channel;
-                    // Selected scan RSSI is historical, not a live signal
-                    // observation. Do not invent live RSSI/noise/country.
+                    // Return real scan/association BSS metadata, never an
+                    // invented empty RSN, fabricated rates or stale channel.
+                    const auto &beacon = selected.beacon;
+                    out.associatedBss.bssid = beacon.bssid;
+                    out.associatedBss.ssidLength = beacon.ssidLength;
+                    __builtin_memcpy(&out.associatedBss.ssid[0],
+                                     &beacon.ssid[0], beacon.ssidLength);
+                    out.associatedBss.channel = beacon.channel;
+                    out.associatedBss.capabilities = beacon.capabilities;
+                    out.associatedBss.beaconIntervalTu = beacon.intervalTu;
+                    out.associatedBss.rateCount = beacon.rateCount;
+                    __builtin_memcpy(&out.associatedBss.rates[0],
+                                     &beacon.rates[0], beacon.rateCount);
+                    out.associatedBss.rsnIeLength = beacon.rsnIeLength;
+                    __builtin_memcpy(
+                        &out.associatedBss.rsnInformationElement[0],
+                        &beacon.rsnIe[0], beacon.rsnIeLength);
+                    out.associatedBss.htSupported = beacon.htSupported;
+                    out.associatedBss.ht40Allowed = beacon.ht40Allowed;
+                    out.associatedBss.security = beacon.rsn.security;
+                    // RSSI only comes from verified on-air RX in this
+                    // association, and expires if the AP falls silent.
+                    const uint64_t observedAt = link.lastBeaconMs;
+                    const uint64_t nowMs =
+                        nowMicros(nullptr) / kMicrosPerMillisecond;
+                    constexpr uint64_t kMaxSignalAgeMs = 3000U;
+                    out.signalMeasured = self.associatedSignalMeasured_ &&
+                                         self.associatedBeaconObserved_ &&
+                                         nowMs >= observedAt &&
+                                         nowMs - observedAt <= kMaxSignalAgeMs;
+                    if (out.signalMeasured)
+                    {
+                        out.rssiDbm = self.associatedRssiDbm_;
+                        out.associatedBss.rssiDbm = out.rssiDbm;
+                        out.associatedBss.signalMeasured = true;
+                    }
                 }
             }
             out.scanning = self.scanBridge_.status().radioScanRunning &&
@@ -359,7 +451,14 @@ class SimpleATH final : public IOService
                 self.channelAuthorized_ &&
                 self.queues_.phase() == simpleath::NativeQueuePhase::Running;
             out.controlledPortOpen =
-                out.associated && self.controlledPortAuthorized_;
+                out.associated && self.controlledPortAuthorized_ &&
+                out.joinPhase == simpleath::tahoe::NativeJoinPhase::Ready;
+            if (!out.associated &&
+                out.joinPhase == simpleath::tahoe::NativeJoinPhase::Ready)
+            {
+                out.joinPhase = simpleath::tahoe::NativeJoinPhase::Failed;
+                out.joinStatus = kIOReturnNotReady;
+            }
             // No country code or current channel is published until the
             // physical/regulatory owner has actually authorized one.
             out.rfKillBlocked = !liveRfKill;
@@ -707,6 +806,18 @@ class SimpleATH final : public IOService
             }
         }
 
+        void failNativeJoin(IOReturn status)
+        {
+            if (joinEpoch_ == epoch_ && joinRequestId_ != 0)
+            {
+                joinStatus_ = status;
+            }
+            associatedBeaconObserved_ = false;
+            associatedSignalMeasured_ = false;
+            associatedRssiDbm_ = 0;
+            controlledPortAuthorized_ = false;
+        }
+
         static IOReturn ownerConnectAction(OSObject *object, void *argument,
                                            void * /*unused1*/,
                                            void * /*unused2*/,
@@ -718,16 +829,36 @@ class SimpleATH final : public IOService
             const auto &request =
                 *static_cast<const simpleath::tahoe::NativeConnectRequest *>(
                     argument);
+            // An old request can never consume or resurrect a later PCI
+            // epoch's scan/handshake. IDs increase monotonically per epoch.
+            if (request.epoch == 0 || request.epoch != self.epoch_ ||
+                request.requestId == 0 ||
+                (self.joinEpoch_ == self.epoch_ &&
+                 request.requestId <= self.joinRequestId_))
+            {
+                return kIOReturnBadArgument;
+            }
+            self.joinEpoch_ = request.epoch;
+            self.joinRequestId_ = request.requestId;
+            self.joinStatus_ = kIOReturnSuccess;
+            self.associatedBeaconObserved_ = false;
+            self.associatedSignalMeasured_ = false;
+            self.associatedRssiDbm_ = 0;
+            self.controlledPortAuthorized_ = false;
+            __builtin_memcpy(&self.joinBssid_[0], &request.bssid[0],
+                             sizeof(self.joinBssid_));
             const auto *board = self.board_.view(self.epoch_);
             // A scan-cache candidate is not RF authority. An OS join must
             // follow a real authorized channel tune and complete TX policy;
             // otherwise do not consume the candidate/handshake state.
             if (board == nullptr || !self.canSubmitTransmit())
             {
+                self.failNativeJoin(kIOReturnNotReady);
                 return kIOReturnNotReady;
             }
             if (!self.queues_.hasTransmitSpace())
             {
+                self.failNativeJoin(kIOReturnNoResources);
                 return kIOReturnNoResources;
             }
             simpleath::ieee80211::Mac station {};
@@ -736,20 +867,34 @@ class SimpleATH final : public IOService
                              sizeof(station.bytes));
             __builtin_memcpy(&bssid.bytes[0], &request.bssid[0],
                              sizeof(bssid.bytes));
-            // Only a BSSID really observed in this radio epoch, with an
-            // exact SSID/channel/security match, can start OS-owned WPA2.
-            const auto chosen = self.engine_.chooseNetworkForOsSupplicant(
-                station, bssid, &request.ssid[0], request.ssidLength,
-                request.channel, request.wpa2Personal);
+            // WCL V2 supplies a private PMK for driver-owned WPA2. Both
+            // branches require the exact on-radio observed BSSID and channel;
+            // never silently select another same-name access point.
+            const auto chosen =
+                request.wpa2Personal
+                    ? self.engine_.chooseNetworkForDriverSupplicant(
+                          station, bssid, &request.ssid[0], request.ssidLength,
+                          request.channel, &request.pmk[0])
+                    : self.engine_.chooseNetworkForDriverOpen(
+                          station, bssid, &request.ssid[0], request.ssidLength,
+                          request.channel);
             self.setProperty("SimpleATHNativeJoinSelectionResult",
                              static_cast<uint32_t>(chosen),
                              kRfPropertyWidthBits);
             if (chosen != simpleath::ieee80211::EngineResult::Ok)
             {
-                return chosen ==
-                               simpleath::ieee80211::EngineResult::InvalidInput
-                           ? kIOReturnBadArgument
-                           : kIOReturnNotReady;
+                IOReturn failure = kIOReturnNotReady;
+                if (chosen == simpleath::ieee80211::EngineResult::InvalidInput)
+                {
+                    failure = kIOReturnBadArgument;
+                }
+                else if (chosen == simpleath::ieee80211::EngineResult::
+                                       UnsupportedSecurity)
+                {
+                    failure = kIOReturnUnsupported;
+                }
+                self.failNativeJoin(failure);
+                return failure;
             }
             simpleath::ieee80211::EngineAction frame {};
             const auto prepared = self.engine_.requestAuthentication(
@@ -771,7 +916,7 @@ class SimpleATH final : public IOService
                 // initial on-air request failed or was not actually queued.
                 self.engine_.radioStopped(
                     nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                self.controlledPortAuthorized_ = false;
+                self.failNativeJoin(sent);
                 return sent;
             }
             self.txSequence_ =
@@ -798,7 +943,13 @@ class SimpleATH final : public IOService
             // The gate may wait while the native client changes its request;
             // use an owned value, not a borrowed mutable OS buffer.
             simpleath::tahoe::NativeConnectRequest stable = *request;
-            return self.gate_->runAction(ownerConnectAction, &stable);
+            const IOReturn result =
+                self.gate_->runAction(ownerConnectAction, &stable);
+            // The WCL join ABI carries a private PMK in its v2 request. The
+            // synchronous command gate must never leave that copied secret on
+            // the caller's stack, even when the join was rejected.
+            scrubRequest(&stable, sizeof(stable));
+            return result;
         }
 
         static IOReturn ownerDisconnectAction(OSObject *object, void *argument,
@@ -835,7 +986,7 @@ class SimpleATH final : public IOService
                 {
                     return kIOReturnNotReady;
                 }
-                self.controlledPortAuthorized_ = false;
+                self.failNativeJoin(kIOReturnAborted);
                 self.notifyWirelessChange(false);
                 return kIOReturnSuccess;
             }
@@ -883,6 +1034,7 @@ class SimpleATH final : public IOService
                    sizeof(self.protectedRxScratch_));
             self.engine_.radioStopped(
                 nowMicros(nullptr) / kMicrosPerMillisecond, false);
+            self.failNativeJoin(kIOReturnAborted);
             self.notifyWirelessChange(false);
             return kIOReturnSuccess;
         }
@@ -1064,10 +1216,13 @@ class SimpleATH final : public IOService
                 return kIOReturnSuccess;
             }
             const auto link = self.engine_.linkStatus();
-            // An OS supplicant may open this port only after association,
-            // installation of a fresh pairwise TK and GTK, and physical
-            // channel/queue/RF authorization in this PCI epoch. A key install
-            // callback alone cannot advance the controlled port.
+            // V2 has exactly one handshake authority (this PCI owner).
+            // Open links can use the already implemented cleartext data
+            // serializer only after a physical, matching-BSSID association
+            // and a fresh validated AP beacon on the tuned channel. WPA2
+            // remains closed until the MAC/keycache TX and CCMP MIC/PN RX
+            // hardware datapath is complete; installed key slots alone must
+            // NEVER authorize plaintext Ethernet traffic.
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.board_.view(self.epoch_) == nullptr ||
@@ -1076,14 +1231,23 @@ class SimpleATH final : public IOService
                 !self.txSafety_.dmaMappingValid ||
                 !self.txSafety_.channelRegulatoryAuthorized ||
                 !self.txSafety_.transmitPowerLimitsValidated ||
+                !self.txSafety_.siliconIdentified ||
+                !self.txSafety_.boardCalibrationValidated ||
+                !self.txSafety_.radioAwake || self.joinEpoch_ != self.epoch_ ||
+                self.joinRequestId_ == 0 ||
+                self.joinStatus_ != kIOReturnSuccess ||
+                !self.associatedBeaconObserved_ ||
+                memcmp(&link.bssid.bytes[0], &self.joinBssid_[0],
+                       sizeof(self.joinBssid_)) != 0 ||
                 self.nativePairwiseKeyRevoked_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
+                link.networkInterfaceReady ||
                 self.engine_.stationState() !=
-                    simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
-                !self.engine_.osSupplicantOwnsWpa2() ||
-                !self.nativePairwiseTx_.installed() ||
-                !self.nativePairwiseRx_.installed() ||
-                !self.nativeGroupInstalled())
+                    simpleath::ieee80211::StationState::AssociatedOpen ||
+                self.engine_.osSupplicantOwnsWpa2() ||
+                self.nativePairwiseTx_.installed() ||
+                self.nativePairwiseRx_.installed() ||
+                self.nativeGroupInstalled())
             {
                 return kIOReturnNotReady;
             }
@@ -1503,7 +1667,12 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             // Key RAM is mutable only with exclusive PCI ownership and all
             // descriptor engines and automatic MAC responses quiesced.
+            const auto queue = self.queues_.phase();
+            // A quarantined ring has uncertain ownership, even if the MAC
+            // happens to report idle. Never touch key RAM during a DMA fault.
             return canReset(context, epoch) && !self.queuesAdopted_ &&
+                   (queue == simpleath::NativeQueuePhase::Empty ||
+                    queue == simpleath::NativeQueuePhase::Prepared) &&
                    !self.radioOperational_ && !self.channelAuthorized_;
         }
 
@@ -1517,6 +1686,139 @@ class SimpleATH final : public IOService
                 readRegister,
                 writeRegister,
             };
+        }
+
+        // WPA2 callbacks use the same exclusive PCI epoch as NVM and EDMA.
+        // HCI/IO80211 callers may never install a key into a moving DMA ring.
+        // A future safe queue-pause/association handshake must quiesce DMA
+        // before these hardware callbacks can succeed.
+        static bool nativeKeyInstallPermit(void *context)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return self.keyCache_.initialized &&
+                   !self.keyCache_.requiresReset &&
+                   self.keyCache_.ownerContext == &self.access_ &&
+                   self.keyCache_.ownerEpoch == self.epoch_ &&
+                   self.queues_.phase() !=
+                       simpleath::NativeQueuePhase::Running &&
+                   self.queues_.phase() !=
+                       simpleath::NativeQueuePhase::Quarantined &&
+                   keyCachePermit(context, self.epoch_);
+        }
+
+        static bool nativeNonce(void *context, uint8_t *data, size_t bytes)
+        {
+            if (context == nullptr || data == nullptr ||
+                bytes != simpleath::ieee80211::kWpa2NonceBytes)
+            {
+                return false;
+            }
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            // The callback runs synchronously on the PCI command gate, not
+            // through untrusted or repeatable userland/random-number state.
+            if (!nvmOwner(context) || !self.keyCache_.initialized ||
+                self.keyCache_.ownerEpoch != self.epoch_ ||
+                self.board_.view(self.epoch_) == nullptr ||
+                !self.radioOperational_ || !self.channelAuthorized_ ||
+                !self.liveRfKillUnblocked())
+            {
+                return false;
+            }
+            read_random(data, static_cast<unsigned int>(bytes));
+            if (!nvmOwner(context) ||
+                self.keyCache_.ownerEpoch != self.epoch_ ||
+                !self.liveRfKillUnblocked())
+            {
+                scrubRequest(data, bytes);
+                return false;
+            }
+            return true;
+        }
+
+        static bool nativeInstallPairwise(void *context,
+                                          const simpleath::ieee80211::Mac &ap,
+                                          const uint8_t *key)
+        {
+            if (context == nullptr || key == nullptr ||
+                !nativeKeyInstallPermit(context))
+            {
+                return false;
+            }
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            const auto link = self.engine_.linkStatus();
+            if (link.state != simpleath::ieee80211::LinkState::Associated ||
+                self.engine_.osSupplicantOwnsWpa2() ||
+                !simpleath::ieee80211::sameMac(link.bssid, ap))
+            {
+                return false;
+            }
+            const auto result = simpleath::installAr9565PairwiseKey(
+                self.keyCacheBackend(), self.keyCache_, ap, key);
+            if (result.result != simpleath::KeyCacheResult::Ok)
+            {
+                self.controlledPortAuthorized_ = false;
+            }
+            return result.result == simpleath::KeyCacheResult::Ok;
+        }
+
+        static bool nativeInstallGroup(void *context, uint8_t keyId,
+                                       const uint8_t *key,
+                                       const uint8_t *keyRsc)
+        {
+            if (context == nullptr || key == nullptr || keyRsc == nullptr ||
+                !nativeKeyInstallPermit(context))
+            {
+                return false;
+            }
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            const auto link = self.engine_.linkStatus();
+            if (link.state != simpleath::ieee80211::LinkState::Associated ||
+                self.engine_.osSupplicantOwnsWpa2())
+            {
+                return false;
+            }
+            const auto result = simpleath::installAr9565GroupKey(
+                self.keyCacheBackend(), self.keyCache_, keyId, key, keyRsc);
+            if (result.result != simpleath::KeyCacheResult::Ok)
+            {
+                self.controlledPortAuthorized_ = false;
+            }
+            return result.result == simpleath::KeyCacheResult::Ok;
+        }
+
+        static void nativeRemoveKeys(void *context)
+        {
+            if (context == nullptr)
+            {
+                return;
+            }
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            self.controlledPortAuthorized_ = false;
+            // A partial install is indistinguishable from a full one: do not
+            // trust a previously authorized data port until the key slots are
+            // truly erased or the silicon has undergone a full reset.
+            if (!self.keyCache_.initialized ||
+                (!self.keyCache_.pairwiseInstalled &&
+                 !self.keyCache_.group[0].installed &&
+                 !self.keyCache_.group[1].installed &&
+                 !self.keyCache_.group[2].installed &&
+                 !self.keyCache_.group[3].installed))
+            {
+                return;
+            }
+            if (nativeKeyInstallPermit(context) &&
+                simpleath::eraseAr9565Keys(self.keyCacheBackend(),
+                                           self.keyCache_)
+                        .result == simpleath::KeyCacheResult::Ok)
+            {
+                return;
+            }
+            // Unsafe or uncertain erasure cannot be treated as clean. Force
+            // complete hardware reinitialization before another admission.
+            self.keyCache_.requiresReset = true;
+            self.radioOperational_ = false;
+            self.channelAuthorized_ = false;
+            self.txSafety_ = {};
         }
 
         static bool rfBoardPermit(void *context, uint64_t epoch)
@@ -1825,6 +2127,21 @@ class SimpleATH final : public IOService
 
         void recordNativeAssociation()
         {
+            // A beacon seen in the scan epoch is NOT proof that the AP is
+            // present after our station's actual association response.
+            associatedBeaconObserved_ = false;
+            associatedSignalMeasured_ = false;
+            associatedRssiDbm_ = 0;
+            if (joinEpoch_ != epoch_ || joinRequestId_ == 0 ||
+                memcmp(&joinBssid_[0], &engine_.linkStatus().bssid.bytes[0],
+                       sizeof(joinBssid_)) != 0)
+            {
+                failNativeJoin(kIOReturnNotReady);
+                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                     false);
+                notifyWirelessChange(false);
+                return;
+            }
             if (associationGeneration_ == UINT64_MAX)
             {
                 // Never wrap an OS-visible association token. Retire the
@@ -1939,11 +2256,18 @@ class SimpleATH final : public IOService
             simpleath::ieee80211::InputTrust trust {};
             trust.radioReady = true;
             trust.channelAuthorized = self.channelAuthorized_;
-            trust.dmaAndFcsVerified = status.frameValid && !status.crcError;
+            // A valid EDMA frame length and CRC alone cannot sanitize an
+            // independent PHY/decrypt/MIC/keycache error. Reject the whole
+            // observation before it can enter EAPOL or beacon accounting.
+            trust.dmaAndFcsVerified =
+                status.frameValid && !status.crcError && !status.decryptError &&
+                !status.phyError && !status.micError && !status.keyMiss;
             trust.rxFrameIncludesFcs = true;
             // The security owner supplies replay verification before protected
             // data can enter the controlled port; clear scan/management frames
             // do not require a key or a fabricated CCMP attestation.
+            const uint32_t previousBeacons =
+                self.engine_.linkStatus().acceptedBeacons;
             simpleath::ieee80211::EngineAction action {};
             const auto result = self.engine_.acceptRx(
                 frame, bytes, trust,
@@ -1951,6 +2275,48 @@ class SimpleATH final : public IOService
                 self.managementReply_, sizeof(self.managementReply_), action);
             self.setProperty("SimpleATHLastReceiveResult",
                              static_cast<uint32_t>(result), 32);
+            const auto acceptedLink = self.engine_.linkStatus();
+            if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0 &&
+                self.joinStatus_ == kIOReturnSuccess &&
+                acceptedLink.state ==
+                    simpleath::ieee80211::LinkState::Associated &&
+                acceptedLink.acceptedBeacons > previousBeacons &&
+                memcmp(&acceptedLink.bssid.bytes[0], &self.joinBssid_[0],
+                       sizeof(self.joinBssid_)) == 0 &&
+                self.queues_.epoch() == self.epoch_ &&
+                self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
+                self.radioOperational_ && self.channelAuthorized_ &&
+                self.verifiedReceiveChannel_ != 0)
+            {
+                simpleath::ieee80211::Bss selected {};
+                if (self.engine_.copyAssociatedBss(selected) &&
+                    selected.beacon.channel == self.verifiedReceiveChannel_)
+                {
+                    // LinkMonitor increments only after fully parsed,
+                    // FCS-verified matching-BSSID beacon acceptance. Never
+                    // count an earlier scan beacon as post-association proof.
+                    const bool firstBeacon = !self.associatedBeaconObserved_;
+                    self.associatedBeaconObserved_ = true;
+                    self.associatedSignalMeasured_ = status.combinedRssi < 0;
+                    self.associatedRssiDbm_ = self.associatedSignalMeasured_
+                                                  ? status.combinedRssi
+                                                  : 0;
+                    if (firstBeacon)
+                    {
+                        self.notifyWirelessChange(false);
+                    }
+                }
+            }
+            if (result == simpleath::ieee80211::EngineResult::CryptoFailure ||
+                result ==
+                    simpleath::ieee80211::EngineResult::AccessPointRejected)
+            {
+                self.failNativeJoin(kIOReturnNotReady);
+                self.engine_.radioStopped(
+                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                self.notifyWirelessChange(false);
+                return;
+            }
             ++self.receivedFrames_;
             self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
                              64);
@@ -1976,7 +2342,7 @@ class SimpleATH final : public IOService
                     // The engine has advanced to a prepared station or
                     // handshake state. A failed delivery must not leave that
                     // state logically connected without an on-air response.
-                    self.controlledPortAuthorized_ = false;
+                    self.failNativeJoin(submitted);
                     self.engine_.radioStopped(
                         nowMicros(nullptr) / kMicrosPerMillisecond, false);
                     self.notifyWirelessChange(false);
@@ -2029,6 +2395,7 @@ class SimpleATH final : public IOService
                 }
                 self.nativePairwiseKeyRevoked_ = true;
                 self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+                self.failNativeJoin(kIOReturnNotReady);
                 self.notifyWirelessChange(false);
                 return;
             }
@@ -2125,6 +2492,7 @@ class SimpleATH final : public IOService
                    sizeof(self.protectedRxScratch_));
             self.engine_.radioStopped(
                 nowMicros(nullptr) / kMicrosPerMillisecond, false);
+            self.failNativeJoin(result);
             self.notifyWirelessChange(false);
             self.error("DMAInterrupt", static_cast<uint32_t>(result));
         }
@@ -2356,6 +2724,15 @@ class SimpleATH final : public IOService
                 return abortStart("CCMPKeyCacheScrub",
                                   static_cast<uint32_t>(cacheResult.result));
             setProperty("SimpleATHKeyCacheInitialized", true);
+            // Register actual kernel entropy and physical AR9565 keycache
+            // operations for a later driver-owned PMK join. This binds no
+            // credentials and never authorizes RF or the controlled port.
+            const simpleath::ieee80211::crypto::KeyHardware keyHardware {
+                &access_,           nativeNonce,      nativeInstallPairwise,
+                nativeInstallGroup, nativeRemoveKeys,
+            };
+            if (!engine_.configureKeys(keyHardware))
+                return abortStart("Wpa2HardwareAdapter", kIOReturnNotReady);
             // The lease comes from an actual PCI-owned NVM read in this same
             // epoch, not an EEPROM template or a caller-supplied board.
             // PMU and XTAL tuning must precede PLL/PHY programming; neither
@@ -2440,7 +2817,7 @@ class SimpleATH final : public IOService
             // keep the child subscribed for a later physical PCI epoch. Only
             // final termination revokes the provider callback contract.
             notifyWirelessChange(stopping_);
-            controlledPortAuthorized_ = false;
+            failNativeJoin(kIOReturnNotReady);
             // Revoke any old RF/TPC permission before stopping the queue, so
             // suspend/reset cannot reuse a former channel's transmit policy.
             txSafety_ = {};
@@ -2474,12 +2851,19 @@ class SimpleATH final : public IOService
             verifiedReceiveChannel_ = 0;
             radioOperational_ = false;
             channelAuthorized_ = false;
+            const bool hardwareQuiesced =
+                keyCache_.initialized &&
+                access == simpleath::ProviderAccess::Available &&
+                queues_.phase() != simpleath::NativeQueuePhase::Quarantined &&
+                quiesceEngines();
+            // Portable supplicant key removal now runs only after the native
+            // queues AND automatic MAC responses have been quiesced. This is
+            // essential for the real AR9565 hardware-keycache callbacks.
             engine_.radioStopped(nowMicros(nullptr) / 1000, true);
             if (keyCache_.initialized)
             {
                 bool wiped = false;
-                if (access == simpleath::ProviderAccess::Available &&
-                    quiesceEngines())
+                if (hardwareQuiesced && !keyCache_.requiresReset)
                 {
                     const auto erasure = simpleath::eraseAr9565Keys(
                         keyCacheBackend(), keyCache_);
@@ -2634,6 +3018,15 @@ class SimpleATH final : public IOService
                                 uint64_t) {nullptr};
         void (*wirelessReceive_)(void *, const uint8_t *, size_t) {nullptr};
         bool controlledPortAuthorized_ {false};
+        // Credential-free, epoch-bound WCL progress. Never retain a PMK or
+        // borrowed join packet after the synchronous command-gate call.
+        uint64_t joinEpoch_ {0};
+        uint64_t joinRequestId_ {0};
+        IOReturn joinStatus_ {kIOReturnNotReady};
+        bool associatedBeaconObserved_ {false};
+        bool associatedSignalMeasured_ {false};
+        int8_t associatedRssiDbm_ {0};
+        uint8_t joinBssid_[simpleath::tahoe::kWirelessMacBytes] {};
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
         simpleath::ieee80211::LegacyScanBridge scanBridge_;
