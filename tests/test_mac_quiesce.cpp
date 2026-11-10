@@ -1,17 +1,47 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+#include "hardware/Ar9565Core.hpp"
 #include "hardware/Ar9565MacControl.hpp"
 #include <cstdint>
 #include <initializer_list>
 
 namespace
 {
+    constexpr uint32_t kRtcRegister = simpleath::kRtcStatusRegister;
+    constexpr uint32_t kDiagnosticRegister = 0x8048U;
+    constexpr uint32_t kRxRegister = 0x0008U;
+    constexpr uint32_t kTxRegister = 0x0840U;
+    constexpr uint32_t kObserveRegister = 0x806cU;
+    constexpr uint32_t kStopRegister = 0x0880U;
+    constexpr uint32_t kCommandRegister = 0x0024U;
+    constexpr uint32_t kSecondaryRegister = 0x402cU;
+    constexpr uint32_t kBarBytes = 0x20000U;
+    constexpr uint32_t kStopMask = 0x3ffU;
+    constexpr uint32_t kInitialDiagnostic = 0x40U;
+    constexpr uint32_t kStopDiagnosticBits = 0x02000026U;
+    constexpr uint32_t kInitialRx = 0x0cU;
+    constexpr uint32_t kInitialObserve = 0x00100000U;
+    constexpr uint32_t kRtcWake = 8U;
+    constexpr uint32_t kRtcInvalid = 0xffffffffU;
+    constexpr uint32_t kRtcUnknown = 15U;
+    constexpr unsigned kExpectedStopWrites = 5U;
+    constexpr unsigned kStopTimeoutPolls = 1000U;
+    constexpr int kStuckFailure = 3;
+    constexpr int kRevokedFailure = 4;
+    constexpr int kWriteFailure = 5;
+    constexpr int kInvalidRtcFailure = 6;
+    constexpr int kUnknownRtcFailure = 7;
+    constexpr int kWakeTimeoutFailure = 8;
+    constexpr int kMissingBackendFailure = 9;
+    constexpr int kWakeThenStopFailure = 10;
+    constexpr int kUnsupportedRtcFailure = 11;
+
     struct Hardware
     {
-            uint32_t rtc = 2;
-            uint32_t diagnostic = 0x40;
-            uint32_t rx = 0x0c;
-            uint32_t tx = 0x3ff;
-            uint32_t observe = 0x00100000;
+            uint32_t rtc = simpleath::kRtcOn;
+            uint32_t diagnostic = kInitialDiagnostic;
+            uint32_t rx = kInitialRx;
+            uint32_t tx = kStopMask;
+            uint32_t observe = kInitialObserve;
             unsigned int delays = 0;
             unsigned int writes = 0;
             unsigned int macReads = 0;
@@ -24,61 +54,78 @@ namespace
 
     bool read(void *opaque, uint32_t reg, uint32_t *value)
     {
-        auto &h = *static_cast<Hardware *>(opaque);
-        if (h.revoked)
+        auto &hardware = *static_cast<Hardware *>(opaque);
+        if (hardware.revoked)
+        {
             return false;
+        }
         switch (reg)
         {
-            case 0x7044:
-                *value = h.rtc;
+            case kRtcRegister:
+                *value = hardware.rtc;
                 return true;
-            case 0x8048:
-                *value = h.diagnostic;
+            case kDiagnosticRegister:
+                *value = hardware.diagnostic;
                 break;
-            case 0x0008:
-                *value = h.rx;
+            case kRxRegister:
+                *value = hardware.rx;
                 break;
-            case 0x0840:
-                *value = h.tx;
+            case kTxRegister:
+                *value = hardware.tx;
                 break;
-            case 0x806c:
-                *value = h.observe;
+            case kObserveRegister:
+                *value = hardware.observe;
                 break;
             default:
                 return false;
         }
-        ++h.macReads;
+        ++hardware.macReads;
         return true;
     }
 
+    // The bus's required callback ABI fixes the adjacent offset/value types.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
     bool write(void *opaque, uint32_t reg, uint32_t value)
     {
-        auto &h = *static_cast<Hardware *>(opaque);
-        if (h.revoked || h.failWrite)
+        auto &hardware = *static_cast<Hardware *>(opaque);
+        if (hardware.revoked || hardware.failWrite)
+        {
             return false;
-        ++h.writes;
-        if (reg == 0x8048)
-            h.diagnostic = value;
-        else if (reg == 0x0880)
-            h.stopWritten = value == 0x3ff;
-        else if (reg != 0x0024 && reg != 0x402c && reg != 0x0008)
+        }
+        ++hardware.writes;
+        if (reg == kDiagnosticRegister)
+        {
+            hardware.diagnostic = value;
+        }
+        else if (reg == kStopRegister)
+        {
+            hardware.stopWritten = value == kStopMask;
+        }
+        else if (reg != kCommandRegister && reg != kSecondaryRegister &&
+                 reg != kRxRegister)
+        {
             return false;
+        }
         return true;
     }
 
-    void delay(void *opaque, uint32_t)
+    void delay(void *opaque, uint32_t /*micros*/)
     {
-        auto &h = *static_cast<Hardware *>(opaque);
-        ++h.delays;
-        if (h.wakeAfterDelay && h.rtc == 8)
-            h.rtc = 2;
-        if (!h.stuck && h.stopWritten)
-            h.rx = h.tx = h.observe = 0;
+        auto &hardware = *static_cast<Hardware *>(opaque);
+        ++hardware.delays;
+        if (hardware.wakeAfterDelay && hardware.rtc == kRtcWake)
+        {
+            hardware.rtc = simpleath::kRtcOn;
+        }
+        if (!hardware.stuck && hardware.stopWritten)
+        {
+            hardware.rx = hardware.tx = hardware.observe = 0;
+        }
     }
 
-    simpleath::MacStopResult stop(Hardware &h)
+    simpleath::MacStopResult stop(Hardware &hardware)
     {
-        const simpleath::RegisterBus bus {&h, read, write, 0x20000};
+        const simpleath::RegisterBus bus {&hardware, read, write, kBarBytes};
         return simpleath::quiesceAr9565Mac(bus, delay);
     }
 } // namespace
@@ -88,58 +135,81 @@ int main()
     using simpleath::MacStopResult;
     Hardware active;
     if (stop(active) != MacStopResult::Ok || active.delays != 1 ||
-        active.writes != 5 || !active.stopWritten ||
-        active.diagnostic != (0x40U | 0x02000026U))
+        active.writes != kExpectedStopWrites || !active.stopWritten ||
+        active.diagnostic != (kInitialDiagnostic | kStopDiagnosticBits))
+    {
         return 1;
-    for (uint32_t rtc : {1U, 4U})
+    }
+    for (const uint32_t rtc : {1U, 4U})
     {
         Hardware asleep;
         asleep.rtc = rtc;
         if (stop(asleep) != MacStopResult::Ok || asleep.writes != 1 ||
-            asleep.macReads || asleep.delays || asleep.stopWritten)
+            asleep.macReads != 0U || asleep.delays != 0U || asleep.stopWritten)
+        {
             return 2;
+        }
     }
     Hardware stuck;
     stuck.stuck = true;
-    if (stop(stuck) != MacStopResult::Timeout || stuck.delays != 1000)
-        return 3;
+    if (stop(stuck) != MacStopResult::Timeout ||
+        stuck.delays != kStopTimeoutPolls)
+    {
+        return kStuckFailure;
+    }
     Hardware removed;
     removed.revoked = true;
-    if (stop(removed) != MacStopResult::ReadFailed || removed.writes)
-        return 4;
+    if (stop(removed) != MacStopResult::ReadFailed || removed.writes != 0U)
+    {
+        return kRevokedFailure;
+    }
     Hardware failure;
     failure.failWrite = true;
-    if (stop(failure) != MacStopResult::WriteFailed || failure.macReads)
-        return 5;
+    if (stop(failure) != MacStopResult::WriteFailed || failure.macReads != 0U)
+    {
+        return kWriteFailure;
+    }
     Hardware invalid;
-    invalid.rtc = 0xffffffffU;
-    if (stop(invalid) != MacStopResult::ReadFailed || invalid.writes)
-        return 6;
-    invalid.rtc = 15;
-    if (stop(invalid) != MacStopResult::UnknownRtcState || invalid.writes)
-        return 7;
+    invalid.rtc = kRtcInvalid;
+    if (stop(invalid) != MacStopResult::ReadFailed || invalid.writes != 0U)
+    {
+        return kInvalidRtcFailure;
+    }
+    invalid.rtc = kRtcUnknown;
+    if (stop(invalid) != MacStopResult::UnknownRtcState || invalid.writes != 0U)
+    {
+        return kUnknownRtcFailure;
+    }
     Hardware waking;
-    waking.rtc = 8;
-    if (stop(waking) != MacStopResult::Timeout || waking.macReads ||
-        waking.delays != 1000)
-        return 8;
+    waking.rtc = kRtcWake;
+    if (stop(waking) != MacStopResult::Timeout || waking.macReads != 0U ||
+        waking.delays != kStopTimeoutPolls)
+    {
+        return kWakeTimeoutFailure;
+    }
     Hardware wakeThenStop;
-    wakeThenStop.rtc = 8;
+    wakeThenStop.rtc = kRtcWake;
     wakeThenStop.wakeAfterDelay = true;
     if (stop(wakeThenStop) != MacStopResult::Ok || wakeThenStop.delays != 2 ||
-        wakeThenStop.writes != 5)
-        return 10;
-    for (uint32_t unknown : {0U, 3U})
+        wakeThenStop.writes != kExpectedStopWrites)
+    {
+        return kWakeThenStopFailure;
+    }
+    for (const uint32_t unknown : {0U, 3U})
     {
         Hardware unsupported;
         unsupported.rtc = unknown;
         if (stop(unsupported) != MacStopResult::UnknownRtcState ||
-            unsupported.writes)
-            return 11;
+            unsupported.writes != 0U)
+        {
+            return kUnsupportedRtcFailure;
+        }
     }
-    simpleath::RegisterBus missing {};
+    const simpleath::RegisterBus missing {};
     if (simpleath::quiesceAr9565Mac(missing, delay) !=
         MacStopResult::InvalidBackend)
-        return 9;
+    {
+        return kMissingBackendFailure;
+    }
     return 0;
 }
