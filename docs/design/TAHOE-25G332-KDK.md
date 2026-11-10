@@ -4,6 +4,15 @@ Inspected on 2026-11-07 UTC after the owner requested an online/Downloads
 search. No installer, mount, compilation, test suite, process launch/attach,
 PCI transaction, kernel load or EFI change was performed.
 
+## Current integration update — 2026-11-09
+
+The historical inventory below predates native runtime integration. Current
+`SimpleATH.cpp` owns PCI, runs RTC reset and acquires board NVM. Native PCI/DMA
+implementations are now compiled without feature opt-ins, with an explicit
+IOPCIFamily 2.9 dependency. All C++ source parses against the pinned SDK with
+kernel declarations enabled. This does not establish binary linkage or a
+working Wi-Fi interface; radio, queue/IRQ and IO80211 integration remain open.
+
 ## Acquisition and provenance
 
 The [Dortania KDK manifest](https://raw.githubusercontent.com/dortania/KdkSupportPkg/gh-pages/manifest.json)
@@ -113,8 +122,8 @@ Tahoe dependencies and a prior unresolved-import artifact.
 | Source boundary | Checked-in target state | ABI implication |
 | --- | --- | --- |
 | `src/SimpleATH.cpp` | In the `SimpleATH` kext Sources phase; two passive `IOService` classes | No direct `IOPCIDevice`, native IO80211 or Skywalk controller call; exposes no usable Wi-Fi interface |
-| `src/platform/Ar9565NativePci.cpp` | In kext Sources, but `SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND` defaults to `0` in its header | Active PCI/IOPCIDevice code is preprocessor-disabled unless explicitly enabled; cannot be counted as a verified import or tested owner |
-| `src/platform/Ar9565NativeDma.cpp` | In kext Sources, but `SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND` defaults to `0` | IODMACommand, IOMapper and memory-descriptor use is disabled, not available to the passive probe |
+| `src/platform/Ar9565NativePci.cpp` | In kext Sources, but the former PCI opt-in defaulted to `0` (historical) | Active PCI/IOPCIDevice code is preprocessor-disabled unless explicitly enabled; cannot be counted as a verified import or tested owner |
+| `src/platform/Ar9565NativeDma.cpp` | In kext Sources, but the former DMA opt-in defaulted to `0` (historical) | IODMACommand, IOMapper and memory-descriptor use is disabled, not available to the passive probe |
 | `src/platform/Ar9565PciSession.cpp` and portable hardware/Wi-Fi sources | In kext Sources | Callback-driven models are not an `IOPCIFamily` or native wireless service implementation |
 | `src/Bridge.cpp`, `src/Loader.cpp`, `src/NativeSkywalk.cpp`, `src/NativeUserClient.cpp` and legacy patch helpers | Have project file/build-file records, but are **not** in the active `SimpleATH` Sources phase | Their private symbols, embedded-payload assumptions and handcrafted Skywalk classes cannot be treated as imports of the current target or as a valid Tahoe wireless implementation |
 | `src/platform/probe/main.mm` | In the separate `athprobe` tool Sources phase | A userspace inspection utility, not a kernel Wi-Fi controller or proof that its probed symbols are callable from the kext |

@@ -7,8 +7,9 @@ performed for this record. All new source remains uncompiled.
 
 ## Decision
 
-Keep the shipped target passive until a PCI-family backend and the native
-wireless contract are verified independently. Develop the hardware core with
+The owner replaced the passive-only policy on 2026-11-09. The normal target
+now runs the PCI/RTC/NVM owner; implement the remaining radio/queue/native
+wireless path before speculative hardening. Preserve
 an explicit PCI session contract; do not recover access through raw physical
 addresses, guessed vtable slots, kernel symbol scanning or a second owner.
 The intended in-kernel path is IOPCIFamily + IODMACommand + a verified
@@ -38,7 +39,7 @@ Full wireless nlists now supply constructors and vtable names missing from
 the snapshot. For example native attachInterface takes OSObject/IOService,
 which differs from the legacy interface-pointer/bool signature. Effective
 wireless exports, full types/virtual contracts and packet/key lifetimes still
-need verification. No native adapter is enabled and no runtime gate is relaxed.
+need verification. The native PCI adapter is now integrated; the wireless adapter remains required.
 
 `src/platform/abi/Tahoe.json` has SHA-256
 `611b50f109954bb7eda873c40dccf7f6d3ff57a994a156ede9550d9ac9ce82cd`,
@@ -48,8 +49,7 @@ collection UUID `4bf8cd701d60637fdd1aca7be2d3d846`.
 
 It contains exactly three images: kernel, IOSkywalkFamily and IO80211Family.
 **It contains no IOPCIFamily image.** Its absence cannot establish that any
-IOPCIDevice symbol is missing from Tahoe. The passive Info.plist also has no
-IOPCIFamily dependency. The old injection error establishes failure of that
+IOPCIDevice symbol is missing from Tahoe. The current Info.plist declares IOPCIFamily 2.9. The old injection error establishes failure of that
 artifact's resolution, not the unavailability of the entire PCI API.
 
 The pinned MacKernelSDK (`3f750085caa17ec3a7880f11c11bf4f48cd6a164`)
@@ -94,7 +94,7 @@ candidates; it deliberately cannot approve the native PCI or wireless ABI.
    on a separate sleepable client thread. Reserve lifetime/epoch under the
    gate, allocate privately, then reenter the gate and reject stale epochs
    before publishing any device address. See
-   [native DMA buffers](NATIVE-DMA-BUFFERS.md) for the staged, disabled resource
+   [native DMA buffers](NATIVE-DMA-BUFFERS.md) for the normally compiled resource
    implementation and the controller/worker integration still required.
    Establish D0 through the PCI/power family and observe completion before
    config/MMIO. A boot argument or a registry property cannot establish D0.

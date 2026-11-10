@@ -101,6 +101,7 @@ class SourceOnlyCompileCommandsTests(TestCase):
                     for entry in generator.source_commands(root)
                 }
             expected_flags = [
+                "-DKERNEL=1",
                 "-target",
                 generator.DARWIN_TARGET,
                 "-isystem",
@@ -118,7 +119,11 @@ class SourceOnlyCompileCommandsTests(TestCase):
                     entry["file"]: entry["arguments"]
                     for entry in generator.source_commands(root)
                 }
-            assert macos["src/SimpleATH.cpp"][4:-4] == ["-isystem", str(sdk)]
+            assert macos["src/SimpleATH.cpp"][4:-4] == [
+                "-DKERNEL=1",
+                "-isystem",
+                str(sdk),
+            ]
 
     @staticmethod
     def test_regeneration_stays_below_root_and_is_deterministic() -> None:

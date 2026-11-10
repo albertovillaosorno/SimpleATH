@@ -2,12 +2,6 @@
 #ifndef SIMPLEATH_SRC_PLATFORM_AR9565NATIVEDMA_HPP
 #define SIMPLEATH_SRC_PLATFORM_AR9565NATIVEDMA_HPP
 
-// An undefined feature flag is disabled;
-// -DSIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND=1 remains the only way to compile
-// this inactive native backend.
-#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND) &&                      \
-    SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND
-
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>
 #include <IOKit/IOMapper.h>
@@ -170,5 +164,4 @@ namespace simpleath
     };
 
 } // namespace simpleath
-#endif
 #endif

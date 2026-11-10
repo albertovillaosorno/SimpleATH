@@ -1,167 +1,455 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// SimpleATH: boot-safe QCA9565 discovery on macOS Tahoe.
-// This code deliberately does not enable bus mastering, allocate DMA buffers,
-// request interrupts, write RF registers, or register a networking interface.
-// Actual AR9565 Wi-Fi operation requires a separately validated backend.
+// Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "hardware/Ar9565MacControl.hpp"
+#include "hardware/Ar9565NvmReader.hpp"
+#include "hardware/Ar9565RtcPower.hpp"
+#include "platform/Ar9565NativePci.hpp"
+#include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
-#include <cstdint>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/pwr_mgt/IOPM.h>
+#include <kern/clock.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
 
+class SimpleATH;
+
 namespace
 {
-    constexpr UInt16 kAtherosVendor = 0x168c;
-    constexpr UInt16 kAr9565Device = 0x0036;
-    bool gSimpleATHEnabled = true;
-
-    // These values describe the matched registry node only. OpenCore can
-    // replace them. They are never passed to Device::matchPci or used to
-    // authorize MMIO.
-    void publishRegistryId(IOService *service, IOService *provider,
-                           const char *key, const char *diagnosticKey)
+    struct RegisterAccess
     {
-        OSObject *property = provider->copyProperty(key);
-        auto *data = OSDynamicCast(OSData, property);
-        if ((data != nullptr) && data->getLength() == sizeof(uint32_t))
-        {
-            const auto *const bytes =
-                static_cast<const uint8_t *>(data->getBytesNoCopy());
-            // Registry properties are diagnostics, not trusted identity.
-            // Even a length-valid OSData must not be dereferenced if it has
-            // no accessible backing bytes.
-            if (bytes != nullptr)
-            {
-                const uint32_t value = static_cast<uint32_t>(bytes[0]) |
-                                       (static_cast<uint32_t>(bytes[1]) << 8) |
-                                       (static_cast<uint32_t>(bytes[2]) << 16) |
-                                       (static_cast<uint32_t>(bytes[3]) << 24);
-                service->setProperty(diagnosticKey, value, 32);
-            }
-        }
-        if (property != nullptr)
-        {
-            property->release();
-        }
-    }
+            SimpleATH *owner;
+    };
+
+    bool gSimpleATHEnabled = true;
+    constexpr size_t kNvmStorageBytes = 4096;
+    // IOService copies this table when registering the power driver.
+    IOPMPowerState gPowerStates[2] = {
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, kIOPMDeviceUsable | kIOPMPowerOn, kIOPMPowerOn, kIOPMPowerOn, 0, 0,
+         0, 0, 0, 0, 0, 0},
+    };
 } // namespace
 
-// An IOResources service proves that this kernel extension started without
-// requiring the Skywalk, IO80211, Broadcom, or obsolete AirPort ABI.
 class SimpleATH final : public IOService
 {
-    OSDeclareDefaultStructors(SimpleATH) public
-        : IOService *probe(IOService *provider, SInt32 *score) override
+    OSDeclareDefaultStructors(SimpleATH)
+
+        public : IOService *probe(IOService *provider, SInt32 *score) override
         {
-            return gSimpleATHEnabled ? IOService::probe(provider, score)
-                                     : nullptr;
+            return gSimpleATHEnabled && OSDynamicCast(IOPCIDevice, provider)
+                       ? IOService::probe(provider, score)
+                       : nullptr;
+        }
+
+        IOWorkLoop *getWorkLoop() const override
+        {
+            return loop_;
         }
 
         bool start(IOService *provider) override
         {
             if (!gSimpleATHEnabled || !IOService::start(provider))
-            {
                 return false;
-            }
-            setProperty("SimpleATHMode", "PassiveQCA9565Discovery");
+            pci_ = OSDynamicCast(IOPCIDevice, provider);
+            if (!pci_)
+                return failStart(provider, "PCIProvider", kIOReturnBadArgument);
+            loop_ = IOWorkLoop::workLoop();
+            gate_ = IOCommandGate::commandGate(this);
+            if (!loop_ || !gate_)
+                return failStart(provider, "WorkLoop", kIOReturnNoMemory);
+            const IOReturn added = loop_->addEventSource(gate_);
+            if (added != kIOReturnSuccess)
+                return failStart(provider, "CommandGate", added);
+            gateAttached_ = true;
+            access_.owner = this;
+            const simpleath::NativePciPowerGate power {&access_, poweredGate};
+            if (!backend_.configure(this, pci_, power))
+                return failStart(provider, "PCIConfigure", kIOReturnNotReady);
+            storage_ = static_cast<uint8_t *>(IOMalloc(kNvmStorageBytes));
+            scratch_ = static_cast<uint8_t *>(
+                IOMalloc(simpleath::kAr9565EepromScratchBytes));
+            if (!storage_ || !scratch_)
+                return failStart(provider, "NVMStorage", kIOReturnNoMemory);
+            setProperty("SimpleATHMode", "NativeAR9565");
             setProperty("SimpleATHDriverReady", false);
-            setProperty("SimpleATHVendorID", kAtherosVendor, 32);
-            setProperty("SimpleATHDeviceID", kAr9565Device, 32);
-            setProperty("SimpleATHSkywalkBridgeReady", false);
+            PMinit();
+            pmInitialized_ = true;
+            provider->joinPMtree(this);
+            const IOReturn registered =
+                registerPowerDriver(this, gPowerStates, 2);
+            if (registered != kIOReturnSuccess)
+                return failStart(provider, "PowerRegistration", registered);
+            const IOReturn result = gate_->runAction(startAction);
+            if (result != kIOReturnSuccess)
+                return failStart(provider, "HardwareStart", result);
+            started_ = true;
+            changePowerStateTo(1);
             registerService();
-            IOLog("SimpleATH: bootstrap started without legacy wireless "
-                  "dependencies\n");
             return true;
         }
-};
 
-OSDefineMetaClassAndStructors(SimpleATH, IOService)
-
-    // IOKit matches this service to the AR9565 using IOPCIPrimaryMatch in
-    // Info.plist. No direct calls to IOPCIDevice: the old artifact failed to
-    // resolve its metaclass/extendedConfigRead16. Exact Tahoe PCI exports
-    // remain unverified; that error does not establish that the APIs are
-    // unavailable. All hardware remains untouched. The service is a diagnostic
-    // marker only.
-    class SimpleATHPciProbe final : public IOService
-{
-    OSDeclareDefaultStructors(SimpleATHPciProbe) public
-        : IOService *probe(IOService *provider, SInt32 *score) override
+        IOReturn setPowerState(unsigned long state, IOService *) override
         {
-            return gSimpleATHEnabled ? IOService::probe(provider, score)
-                                     : nullptr;
+            // PM invokes this on a sleepable thread. The same gate serializes
+            // reset/NVM, sleep, stop and provider termination; no worker needs
+            // to reenter it while an operation is waiting.
+            if (gate_ && started_)
+            {
+                if (state == 0)
+                    gate_->runAction(sleepAction);
+                else
+                    gate_->runAction(startAction);
+            }
+            return kIOPMAckImplied;
         }
 
-        bool start(IOService *provider) override
+        bool willTerminate(IOService *provider, IOOptionBits options) override
         {
-            if (!gSimpleATHEnabled || !IOService::start(provider))
-            {
-                return false;
-            }
-            setProperty("SimpleATHMode", "IOKitMatchedPCIProbe");
-            setProperty("SimpleATHVendorID", kAtherosVendor, 32);
-            setProperty("SimpleATHMatchedDeviceIDs",
-                        "0036 / 0030 (IOPCIPrimaryMatch)");
-            setProperty("SimpleATHDriverReady", false);
-            // The PCI identity comes from IOKit's IOPCIPrimaryMatch. We must
-            // not claim that we have accessed hardware until a real mapped PCI
-            // bus transport is installed. Keep the complete Wi-Fi path
-            // disabled.
-            setProperty("SimpleATHRadioInitialized", false);
-            // A portable C++ core is present in source, but the runtime has
-            // neither authenticated PCI identity nor instantiated its hardware
-            // transport. Never report a detected physical core from matching.
-            setProperty("SimpleATHPortableCoreSourcePresent", true);
-            setProperty("SimpleATHHardwareCorePresent", false);
-            setProperty("SimpleATHMmioTransportReady", false);
-            setProperty("SimpleATHEepromValidated", false);
-            setProperty("SimpleATHRegulatoryReady", false);
-            setProperty("SimpleATHNetworkInterfaceReady", false);
-            setProperty("SimpleATHIdentitySource",
-                        "IORegistryPropertiesMayBeSpoofed");
-            setProperty("SimpleATHPhysicalIdentityVerified", false);
-            setProperty("SimpleATHPciExclusiveOwner", false);
-            setProperty("SimpleATHSrevState", "NotRead");
-            setProperty("SimpleATHEepromState", "NotRead");
-            setProperty("SimpleATHRegulatoryState", "TransmitProhibited");
-            setProperty("SimpleATHAssociationState", "NotImplemented");
-            setProperty("SimpleATHTrafficState", "NotImplemented");
-            setProperty("SimpleATHNativeWirelessAbiState", "Unverified");
-            publishRegistryId(this, provider, "vendor-id",
-                              "SimpleATHRegistryVendorID");
-            publishRegistryId(this, provider, "device-id",
-                              "SimpleATHRegistryDeviceID");
-            publishRegistryId(this, provider, "subsystem-vendor-id",
-                              "SimpleATHRegistrySubsystemVendorID");
-            publishRegistryId(this, provider, "subsystem-id",
-                              "SimpleATHRegistrySubsystemDeviceID");
-            registerService();
-            IOLog("SimpleATH: IOKit matched the Atheros PCI device; radio "
-                  "inactive\n");
-            return true;
+            if (gate_)
+                gate_->runAction(terminateAction);
+            return IOService::willTerminate(provider, options);
         }
 
         void stop(IOService *provider) override
         {
-            // This passive service owns no PCI mapping, DMA or interrupt
-            // source. A future controlling backend must quiesce those before
-            // super::stop.
-            setProperty("SimpleATHMode", "PassivePCIStopped");
-            setProperty("SimpleATHDriverReady", false);
+            if (pmInitialized_)
+            {
+                PMstop();
+                pmInitialized_ = false;
+            }
+            if (gate_ && gateAttached_)
+                gate_->runAction(stopAction);
+            cleanup();
             IOService::stop(provider);
         }
+
+        void free() override
+        {
+            cleanup();
+            IOService::free();
+        }
+
+    private:
+        static bool poweredGate(void *context)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return self.loop_ && self.loop_->inGate() && self.powered_ &&
+                   !self.stopping_ && self.pci_ && !self.pci_->isInactive();
+        }
+
+        static uint64_t nowMicros(void *)
+        {
+            uint64_t absolute = 0;
+            uint64_t nanos = 0;
+            clock_get_uptime(&absolute);
+            absolutetime_to_nanoseconds(absolute, &nanos);
+            return nanos / 1000;
+        }
+
+        static void delayMicros(void *, uint32_t micros)
+        {
+            // Round the deadline up; a short delay cannot count as a reset
+            // pulse.
+            const uint64_t end = nowMicros(nullptr) + micros + 1;
+            do
+            {
+                IODelay(micros ? micros : 1);
+            }
+            while (nowMicros(nullptr) < end);
+        }
+
+        static bool nvmOwner(void *context)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return poweredGate(context) && self.epoch_ != 0 &&
+                   self.session_.status().readAccessReady &&
+                   self.backend_.activeRegisters().read32;
+        }
+
+        static bool canReset(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && self.enginesQuiesced_ &&
+                   nvmOwner(context);
+        }
+
+        static bool readRegister(void *context, uint32_t offset,
+                                 uint32_t *value)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            const auto bus = self.backend_.activeRegisters();
+            return bus.read32 && bus.read32(bus.context, offset, value);
+        }
+
+        static bool writeRegister(void *context, uint32_t offset,
+                                  uint32_t value)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            const auto bus = self.backend_.activeRegisters();
+            return bus.write32 && bus.write32(bus.context, offset, value);
+        }
+
+        bool quiesceEngines()
+        {
+            enginesQuiesced_ = false;
+            const auto bus = backend_.activeRegisters();
+            const simpleath::RegisterBus active {
+                &access_, readRegister, writeRegister, bus.barLengthBytes};
+            const auto result =
+                simpleath::quiesceAr9565Mac(active, delayMicros);
+            setProperty("SimpleATHMacStopResult", static_cast<uint32_t>(result),
+                        32);
+            enginesQuiesced_ = result == simpleath::MacStopResult::Ok;
+            return enginesQuiesced_;
+        }
+
+        void stage(const char *name)
+        {
+            setProperty("SimpleATHStartupStage", name);
+            IOLog("SimpleATH: %s\n", name);
+        }
+
+        IOReturn error(const char *name, uint32_t detail)
+        {
+            setProperty("SimpleATHFailureStage", name);
+            setProperty("SimpleATHFailureCode", detail, 32);
+            setProperty("SimpleATHDriverReady", false);
+            IOLog("SimpleATH: %s failed (0x%x)\n", name, detail);
+            return kIOReturnIOError;
+        }
+
+        IOReturn startHardware()
+        {
+            if (powered_ && board_.view(epoch_))
+                return kIOReturnSuccess;
+            if (stopping_ || epoch_ == UINT64_MAX)
+                return kIOReturnNotReady;
+            powered_ = true;
+            ++epoch_;
+            stage("PCIClaimAndMap");
+            const auto pciResult = session_.start(backend_.callbacks());
+            if (pciResult != simpleath::PciSessionResult::Ok)
+                return abortStart("PCIClaimAndMap",
+                                  static_cast<uint32_t>(pciResult));
+            // Use the identity already obtained from live configuration by
+            // the exclusive session, not IORegistry matching properties.
+            identity_ = session_.hardwareStatus().pci;
+            setProperty("SimpleATHVendorID", identity_.vendorId, 32);
+            setProperty("SimpleATHDeviceID", identity_.deviceId, 32);
+            setProperty("SimpleATHPciExclusiveOwner", true);
+            setProperty("SimpleATHMmioTransportReady", true);
+            stage("PhysicalSilicon");
+            uint32_t rawRevision = 0;
+            simpleath::Silicon silicon {};
+            if (!readRegister(&access_, simpleath::kRevisionRegister,
+                              &rawRevision))
+                return abortStart("PhysicalSilicon", kIOReturnIOError);
+            const auto decoded =
+                simpleath::decodeRevision(rawRevision, silicon);
+            if (decoded != simpleath::Result::Ok)
+                return abortStart("PhysicalSilicon",
+                                  static_cast<uint32_t>(decoded));
+            stage("QuiesceMAC");
+            if (!quiesceEngines())
+                return abortStart("QuiesceMAC", kIOReturnTimeout);
+            const auto bus = backend_.activeRegisters();
+            const simpleath::RtcPowerBackend reset {
+                &access_,
+                reinterpret_cast<uintptr_t>(pci_),
+                epoch_,
+                canReset,
+                readRegister,
+                writeRegister,
+                nowMicros,
+                delayMicros,
+                bus.barLengthBytes,
+                false,
+                nullptr,
+                nullptr};
+            simpleath::RtcPowerStatus resetStatus {};
+            stage("RTCBootstrap");
+            const auto rtcResult = simpleath::transitionAr9565Rtc(
+                reset, identity_, simpleath::RtcOperation::BootstrapPowerOn,
+                rtc_, resetStatus);
+            if (rtcResult != simpleath::RtcResult::Ok)
+                return abortStart("RTCBootstrap",
+                                  static_cast<uint32_t>(rtcResult));
+            if (!quiesceEngines())
+                return abortStart("PostResetQuiesce", kIOReturnTimeout);
+            // The old inspection-only path rejects EEPROM-absent functions,
+            // including valid OTP-backed boards. Let actual NVM discovery
+            // choose EEPROM or OTP instead of using that diagnostic as a
+            // startup gate.
+            setProperty("SimpleATHSREV", resetStatus.silicon.rawSrev, 32);
+            const simpleath::NvmReadBackend reader {
+                &access_,  nvmOwner,    readRegister,
+                nowMicros, delayMicros, bus.barLengthBytes};
+            simpleath::NvmDiscoveryStatus discovery {};
+            stage("EEPROMDiscovery");
+            const auto acquired = board_.acquire(
+                reader, identity_, epoch_, storage_, kNvmStorageBytes, scratch_,
+                simpleath::kAr9565EepromScratchBytes, discovery);
+            if (acquired != simpleath::NvmDiscoveryResult::Ok)
+            {
+                setProperty("SimpleATHNvmCaptureResult",
+                            static_cast<uint32_t>(discovery.lastCapture.result),
+                            32);
+                setProperty("SimpleATHNvmRestoreResult",
+                            static_cast<uint32_t>(discovery.lastRestore.result),
+                            32);
+                return abortStart("EEPROMDiscovery",
+                                  static_cast<uint32_t>(acquired));
+            }
+            const auto *board = board_.view(epoch_);
+            if (!board)
+                return abortStart("EEPROMLease", kIOReturnNotReady);
+            setProperty("SimpleATHEepromValidated", true);
+            auto *mac = OSData::withBytes(board->summary.mac,
+                                          simpleath::kPermanentMacBytes);
+            if (!mac)
+                return abortStart("MACPublication", kIOReturnNoMemory);
+            setProperty("SimpleATHPermanentMAC", mac);
+            mac->release();
+            setProperty("SimpleATHNvmOrigin", board->origin, 32);
+            setProperty("SimpleATHBoardAcquired", true);
+            // This marks completed hardware acquisition, not network readiness.
+            // RF calibration/queue/IO80211 integration must consume this board.
+            stage("BoardAcquired");
+            IOLog("SimpleATH: physical AR9565 reset and EEPROM acquisition "
+                  "complete\n");
+            return kIOReturnSuccess;
+        }
+
+        IOReturn abortStart(const char *name, uint32_t detail)
+        {
+            const IOReturn result = error(name, detail);
+            stopHardware(simpleath::ProviderAccess::Available);
+            return result;
+        }
+
+        void stopHardware(simpleath::ProviderAccess access)
+        {
+            board_.invalidate();
+            enginesQuiesced_ = false;
+            // There are no published DMA allocations in this owner. Stop
+            // revokes the borrowed register capability before unmapping/closing
+            // PCI.
+            session_.stop(access);
+            powered_ = false;
+            identity_ = {};
+            setProperty("SimpleATHBoardAcquired", false);
+            setProperty("SimpleATHEepromValidated", false);
+            setProperty("SimpleATHMmioTransportReady", false);
+            setProperty("SimpleATHPciExclusiveOwner", false);
+            removeProperty("SimpleATHPermanentMAC");
+            removeProperty("SimpleATHNvmOrigin");
+            setProperty("SimpleATHDriverReady", false);
+        }
+
+        static IOReturn startAction(OSObject *owner, void *, void *, void *,
+                                    void *)
+        {
+            return static_cast<SimpleATH *>(owner)->startHardware();
+        }
+
+        static IOReturn sleepAction(OSObject *owner, void *, void *, void *,
+                                    void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            self.stopHardware(simpleath::ProviderAccess::Available);
+            self.stage("Suspended");
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn stopAction(OSObject *owner, void *, void *, void *,
+                                   void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            self.stopHardware(simpleath::ProviderAccess::Available);
+            self.stopping_ = true;
+            self.stage("Stopped");
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn terminateAction(OSObject *owner, void *, void *, void *,
+                                        void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            self.stopping_ = true;
+            self.stopHardware(simpleath::ProviderAccess::Unavailable);
+            return kIOReturnSuccess;
+        }
+
+        bool failStart(IOService *provider, const char *name, IOReturn result)
+        {
+            error(name, static_cast<uint32_t>(result));
+            stop(provider);
+            return false;
+        }
+
+        void cleanup()
+        {
+            backend_.clear();
+            if (gate_)
+            {
+                if (gateAttached_)
+                    loop_->removeEventSource(gate_);
+                gate_->release();
+                gate_ = nullptr;
+                gateAttached_ = false;
+            }
+            if (loop_)
+            {
+                loop_->release();
+                loop_ = nullptr;
+            }
+            if (storage_)
+            {
+                bzero(storage_, kNvmStorageBytes);
+                IOFree(storage_, kNvmStorageBytes);
+                storage_ = nullptr;
+            }
+            if (scratch_)
+            {
+                bzero(scratch_, simpleath::kAr9565EepromScratchBytes);
+                IOFree(scratch_, simpleath::kAr9565EepromScratchBytes);
+                scratch_ = nullptr;
+            }
+            pci_ = nullptr;
+            started_ = false;
+        }
+
+        RegisterAccess access_ {nullptr};
+        IOPCIDevice *pci_ {nullptr};
+        IOWorkLoop *loop_ {nullptr};
+        IOCommandGate *gate_ {nullptr};
+        simpleath::NativePciBackend backend_;
+        simpleath::PciReadOnlySession session_;
+        simpleath::NvmBoardLease board_;
+        simpleath::RtcPowerContext rtc_ {};
+        simpleath::Identity identity_ {};
+        uint8_t *storage_ {nullptr};
+        uint8_t *scratch_ {nullptr};
+        uint64_t epoch_ {0};
+        bool powered_ {false};
+        bool enginesQuiesced_ {false};
+        bool gateAttached_ {false};
+        bool pmInitialized_ {false};
+        bool started_ {false};
+        bool stopping_ {false};
 };
 
-OSDefineMetaClassAndStructors(SimpleATHPciProbe, IOService)
+OSDefineMetaClassAndStructors(SimpleATH, IOService)
 
     extern "C" kern_return_t SimpleATH_kern_start(kmod_info_t *, void *)
 {
     int ignored = 0;
-    // Disable matching by adding -simpleathoff to boot-args if necessary.
     gSimpleATHEnabled =
-        (PE_parse_boot_argn("-simpleathoff", &ignored, sizeof(ignored)) == 0);
+        PE_parse_boot_argn("-simpleathoff", &ignored, sizeof(ignored)) == 0;
     return KERN_SUCCESS;
 }
 

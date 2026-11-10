@@ -1,8 +1,12 @@
 # AR9565 RTC and MAC reset: source-only contract
 
-**Status:** Portable, inactive reset-source candidate. Not wired to the
-passive kext, not compiled, and not physically verified. In particular,
-`RtcPowerBackend` is a contract, **not** a real native MMIO writer.
+**Current source, 2026-11-09:** native `SimpleATH::startHardware` invokes this
+sequence after exclusive PCI ownership, live PMCSR D0 validation and MAC
+quiescence. Its active register backend uses ordered LE access and a same-device
+SREV read to drain writes. Power/stop/termination serialize through the owner's
+command gate; resume creates a fresh epoch. SDK syntax checks pass; macOS
+linkage and device execution remain unverified. RF/PHY calibration and native
+network integration are separate unfinished implementations.
 
 ## Pinned Linux reference and scope
 
@@ -92,10 +96,7 @@ restore unknown hardware state or free possibly hardware-owned buffers.
 
 ## Remaining source work
 
-There is no verified native active-register backend, PCI D0 transition
-or owner work-loop integration. The power/epoch contract, posted-write
-flush, MCI handoff and MMIO ordering need a source-level native adapter
-and independent exact-Tahoe ABI review. Hardware state after loss of
-D0, provider termination, timeout or reset failure is deliberately
-unknown. No source claim here substitutes for the final, owner-authorized
-physical verification stage.
+The native active-register backend, D0 checks and serialized owner now exist.
+MCI handoff, complete RF/PHY setup, queue ownership and the native wireless
+interface still require implementation. Hardware behavior after timeout,
+provider loss or reset failure must be checked during authorized macOS tests.

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565NativeDma.hpp"
-#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND) &&                      \
-    SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND
 #include <IOKit/IOLib.h>
 #include <libkern/libkern.h>
 
@@ -344,4 +342,3 @@ namespace simpleath
     }
 
 } // namespace simpleath
-#endif

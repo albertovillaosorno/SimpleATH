@@ -1,11 +1,11 @@
-# Native DMA packet buffers — disabled, uncompiled source
+# Native DMA packet buffers
 
-`src/platform/Ar9565NativeDma.*` implements a packet-buffer resource path using
-IOBufferMemoryDescriptor, a device-specific IOMapper and IODMACommand. It is
-included in the Xcode target, behind
-`SIMPLEATH_ENABLE_EXPERIMENTAL_DMA_BACKEND=0`. No passive service instantiates
-it. No build, test suite, mapping, hardware transfer or buffer completion has
-been performed. This is not a working DMA queue, descriptor ring or Wi-Fi path.
+`src/platform/Ar9565NativeDma.*` is compiled in the normal Xcode target, using
+IOBufferMemoryDescriptor, a device-specific IOMapper and IODMACommand. The
+experimental opt-in was removed on 2026-11-09, and SDK syntax checks now parse
+its real kernel declarations with `KERNEL=1`. The native PCI owner is integrated;
+packet-ring/IRQ ownership and the client-thread allocation handoff still need
+to call this class. No hardware packet transfer is claimed by inclusion alone.
 
 ## Why allocation is separate from hardware ownership
 
@@ -41,7 +41,7 @@ that contract. The controller must implement this ownership transfer:
 The class checks inGate/onThread to reject the owner's gate/work-loop context
 for client calls. Those checks do not prove that an arbitrary other caller is
 a sleepable thread: interrupt exclusion and operation lifetime are additional
-controller obligations. No such controlling service is connected yet.
+controller obligations. The PCI owner is connected; its packet-buffer client worker remains to be implemented.
 
 ## Mapping, copying and bounds
 
@@ -106,10 +106,7 @@ do not establish missing functionality. All relevant virtual slots, effective
 KPI eligibility and actual compiled imports remain unverified. No callable
 addresses or Apple implementation code are copied into this source.
 
-Enabling the macro alone is not supported: native PCI/power ownership, the
-controller's two-phase worker/gate lifecycle, authoritative TX safety, native
-Wi-Fi and hardware validation are still missing. After separate authorization,
-build/import checks and tests must cover allocation/copy/sync failures,
-mapper absence, segment overflow, sleep during allocation, distinct-buffer and
-stale-submission tokens, RX quiesce without completion, and quiescence failures.
-None has been executed.
+Native PCI/power ownership is now connected. The queue controller must still
+implement the two-phase worker/gate lifecycle before publishing packet DMA.
+macOS build/import checks and device tests must cover mapping/copy/sync errors,
+segment bounds, sleep during allocation, token retirement and recovery.

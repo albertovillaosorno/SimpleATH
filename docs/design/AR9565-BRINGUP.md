@@ -1,7 +1,13 @@
 # AR9565 native macOS bring-up — source-only engineering record
 
-**Status:** Hardware data and algorithms staged. PCI transport and wireless
-integration are not yet implemented. This is not a functional Wi-Fi driver.
+**Current source, 2026-11-09:** the normal target instantiates the native PCI
+owner, opens/verifies the physical function, maps BAR0, quiesces MAC engines,
+boots RTC and discovers EEPROM/OTP board data. Sleep/resume and termination
+share the same serialization gate. PCI and DMA adapters are compiled normally.
+RF calibration, hardware packet queues/interrupts and native AirPort registration
+remain required before Wi-Fi can scan, connect or transfer traffic. These
+remaining tasks are implementation priorities, not a reason for indefinite
+hardening. A macOS build still requires successful CI.
 
 **Target:** Dell Inspiron 5567, Qualcomm Atheros QCA9565/AR9565
 PCI `168c:0036`, macOS Tahoe 26.7.2 (Darwin 25, build 25G332),
@@ -19,23 +25,23 @@ and its posted-write, timing and power preconditions.
 
 | Layer | Files | Implemented | Blocking dependency |
 | --- | --- | --- | --- |
-| PCI detection | `src/SimpleATH.cpp` and `src/Info.plist` | IOKit matching for 0036 and possible spoof 0030 | Actual runtime kext load confirmation |
+| PCI detection | `src/SimpleATH.cpp` and `src/Info.plist` | Exclusive native ownership for physical 0036 | macOS linkage/runtime validation |
 | Core identification | `src/hardware/Ar9565Core.*` | Physical PCI identity, type-2 SREV, 1.0/1.0.1/1.1, RTC and EEPROM status checks | Mapped PCI BAR with verified read32 callback |
 | Device state | `Ar9565Core.*` | Fail-closed phases; no TX/RX before implementation | EEPROM contents, reset and calibration |
 | RF configuration data | `generated/Ar9565InitTables.hpp` | 2,174 2.4GHz HT20/HT40 entries derived from 15 Linux ath9k source arrays | BAR writes, complete EEPROM validation, safe reset and delays |
 | Radio configuration planning | `Ar9565InitCatalog.*` | Revision-specific radio postamble, RX/TX gain profiles, channel 14 and regulatory preconditions | Calibration and board data |
-| PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Verified native PCI-family adapter; not connected to the passive IOService |
+| PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Native lifecycle implemented in SimpleATH; macOS runtime validation remains |
 | Board data parser | `Ar9565Eeprom.*` | Checked compression blocks/dump chains, five pinned dictionaries, 1088-byte image storage, raw board summary and gain-index mapping | Native acquisition/origin discovery, serialization/reconstruction verification, actual calibration/regulatory validation |
-| NVM read protocol | `Ar9565NvmReader.*` | Active EEPROM/OTP trigger/poll/byte-normalization source with word/capture bounds | Verified exclusive PCI/power backend and separate hardware authorization; no live reader connected |
+| NVM read protocol | `Ar9565NvmReader.*` | Active EEPROM/OTP trigger/poll/byte-normalization source with word/capture bounds | Native caller connected; physical capture validation remains |
 | Power candidate calculation | `Ar9565Power.*` | EEPROM target interpolation, explicit CTL coverage, antenna/EIRP intersection and single-stream rate selection | Actual board/country approval, TPC conversion and calibrated/programmed/measured power; no TX enabled |
 | PCI DMA and interrupts | `Ar9003Descriptors.*`, `Ar9003Dma.*` | Pointer/status codecs and generation-checked ring metadata only | Actual DMA mapping, hardware rings, interrupts, completions and recovery |
-| Native packet-buffer mapping | `src/platform/Ar9565NativeDma.*` | Disabled IOBuffer/IOMapper/IODMACommand resource source, 32-bit segments, client/gate handoff and token-checked retirement | Uncompiled; controller worker/epoch ownership, ABI validation, coherent rings and real queues/interrupts remain missing |
+| Native packet-buffer mapping | `src/platform/Ar9565NativeDma.*` | IOBuffer/IOMapper/IODMACommand source compiled in normal target, 32-bit segments, client/gate handoff and token-checked retirement | controller worker/epoch ownership, ABI validation, coherent rings and real queues/interrupts remain missing |
 | 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
 | macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
 
-The inactive `src/hardware/Ar9565RtcPower.*` candidate adds bounded RTC
-bootstrap, wake and MAC warm/cold reset logic. It still lacks an active
-MMIO writer, native D0/work-loop integration and confirmed MCI callbacks.
+The native owner now invokes `src/hardware/Ar9565RtcPower.*` through ordered
+active MMIO, same-device posted-write draining and live D0 checks. MCI
+coexistence remains a separate required integration.
 
 The generated Linux-derived arrays retain the original Atheros/Qualcomm
 permissive copyright notice in the generated file. The new C++ control code
@@ -47,7 +53,7 @@ An earlier V1 boot reached the desktop, but OpenCore logged a RIP-relative
 overflow, an Invalid Parameter injection error, and unresolved kernel
 IOPCIDevice C++ symbols. That boot did NOT prove the driver was loaded.
 
-The source was corrected to use IOKit's matching properties without directly
+The earlier passive source used IOKit's matching properties without directly
 importing the previously unresolved IOPCIDevice methods. The later exact-build
 [KDK inspection](TAHOE-25G332-KDK.md) finds both names in the x86_64 PCI image
 and its packaged export list. The stored ABI profile alone omits IOPCIFamily.
@@ -55,9 +61,9 @@ Production collection provenance, full ABI/import/relocation validation and
 the active native adapter remain outstanding. The last authorized Xcode build
 was successful, but there is no target-kernel load confirmation yet.
 
-The newer hardware core, initialization tables, PCI-session contract and
-EEPROM parser are SOURCE ONLY and
-HAVE NOT BEEN BUILT. The user has not authorized another binary.
+The integrated native source passes SDK syntax checks. No new native kernel
+binary or physical Wi-Fi result is established by those checks. Historical
+V1 observations above describe earlier artifacts, not the current source.
 
 ## Platform-specific blockers
 

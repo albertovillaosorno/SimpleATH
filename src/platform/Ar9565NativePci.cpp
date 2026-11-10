@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565NativePci.hpp"
-#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND) &&                      \
-    SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
 #if !defined(__x86_64__)
-#error The staged native PCI backend requires the reviewed Intel ABI
+#error The native PCI backend requires the Intel ABI
 #endif
 #include <IOKit/IOLib.h>
 #include <libkern/OSByteOrder.h>
@@ -30,7 +28,7 @@ namespace simpleath
 
     NativePciBackend::NativePciBackend()
         : owner_(nullptr), pci_(nullptr), bar_(nullptr), power_ {}, length_(0),
-          configured_(false), claimed_(false)
+          powerCapability_(0), configured_(false), claimed_(false)
     {
     }
 
@@ -76,6 +74,7 @@ namespace simpleath
         configured_ = false;
         power_ = {};
         length_ = 0;
+        powerCapability_ = 0;
         if (pci_)
         {
             pci_->release();
@@ -107,6 +106,16 @@ namespace simpleath
             self.pci_->close(self.owner_);
             return false;
         }
+        UInt8 capability = 0;
+        const UInt32 header = self.pci_->findPCICapability(
+            kIOPCICapabilityIDPowerManagement, &capability);
+        if (!header || header == UINT32_MAX || capability < 0x40 ||
+            capability > 0xf8 || (capability & 3U))
+        {
+            self.pci_->close(self.owner_);
+            return false;
+        }
+        self.powerCapability_ = capability;
         self.claimed_ = true;
         return true;
     }
@@ -131,7 +140,10 @@ namespace simpleath
                !self.owner_->isInactive() && !self.pci_->isInactive() &&
                self.owner_->getProvider() == self.pci_ &&
                self.pci_->isOpen(self.owner_) &&
-               self.power_.isConfirmedD0(self.power_.context);
+               self.power_.isConfirmedD0(self.power_.context) &&
+               self.powerCapability_ &&
+               (self.pci_->extendedConfigRead16(self.powerCapability_ + 4) &
+                kPCIPMCSPowerStateMask) == kPCIPMCSPowerStateD0;
     }
 
     bool NativePciBackend::configRead32(void *context, uint16_t offset,
@@ -268,5 +280,60 @@ namespace simpleath
         return true;
     }
 
+    RegisterBus NativePciBackend::activeRegisters()
+    {
+        if (!bar_ || !inD0(this))
+            return {};
+        return {this, readActive, writeActive, length_};
+    }
+
+    bool NativePciBackend::readActive(void *context, uint32_t offset,
+                                      uint32_t *value)
+    {
+        auto &self = *static_cast<NativePciBackend *>(context);
+        if (!value || !self.bar_ || !inD0(context) || (offset & 3U) ||
+            offset > self.length_ || self.length_ - offset < sizeof(uint32_t) ||
+            overlapsStorage(value, sizeof(*value), &self, sizeof(self)) ||
+            overlapsStorage(
+                value, sizeof(*value),
+                reinterpret_cast<const void *>(self.bar_->getVirtualAddress()),
+                self.length_))
+            return false;
+        const auto address = self.bar_->getVirtualAddress();
+        if (!address || self.length_ > UINTPTR_MAX - address)
+            return false;
+        __sync_synchronize();
+        const uint32_t observed = OSReadLittleInt32(
+            reinterpret_cast<const volatile void *>(address), offset);
+        __sync_synchronize();
+        if (!inD0(context))
+            return false;
+        // EEPROM/OTP data can legitimately contain all-one words.
+        *value = observed;
+        return true;
+    }
+
+    bool NativePciBackend::writeActive(void *context, uint32_t offset,
+                                       uint32_t value)
+    {
+        auto &self = *static_cast<NativePciBackend *>(context);
+        uint32_t command = 0;
+        if (!self.bar_ || !configRead32(context, 0x04, &command) ||
+            (command & 0x0006U) != 0x0002U || (offset & 3U) ||
+            offset > self.length_ || self.length_ - offset < sizeof(uint32_t))
+            return false;
+        const auto address = self.bar_->getVirtualAddress();
+        if (!address || self.length_ > UINTPTR_MAX - address || !inD0(context))
+            return false;
+        __sync_synchronize();
+        OSWriteLittleInt32(reinterpret_cast<volatile void *>(address), offset,
+                           value);
+        __sync_synchronize();
+        // A same-device MMIO read drains posted writes before the reset
+        // code starts measuring its pulse or delay. SREV is read-only.
+        uint32_t revision = 0;
+        return readActive(context, kRevisionRegister, &revision) &&
+               revision != UINT32_MAX;
+    }
+
 } // namespace simpleath
-#endif

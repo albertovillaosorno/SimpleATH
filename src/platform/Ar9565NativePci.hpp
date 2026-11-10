@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Compile-gated read-only IOPCIFamily backend; NEVER enabled in passive V1.
+// Native IOPCIFamily ownership and register transport.
 #ifndef SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP
 #define SIMPLEATH_SRC_PLATFORM_AR9565NATIVEPCI_HPP
-// An undefined feature flag is disabled;
-// -DSIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND=1 remains the only way to compile
-// this inactive native backend.
-#if defined(SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND) &&                      \
-    SIMPLEATH_ENABLE_EXPERIMENTAL_PCI_BACKEND
 
 #include "Ar9565PciSession.hpp"
 #include <IOKit/IOMemoryDescriptor.h>
@@ -38,6 +33,9 @@ namespace simpleath
                            const NativePciPowerGate &power);
             PciSessionBackend callbacks();
             bool clear();
+            // Separate active capability for the serialized reset/NVM owner.
+            // Inspection callbacks retain their three-register allowlist.
+            RegisterBus activeRegisters();
 
         private:
             static bool claim(void *);
@@ -48,14 +46,16 @@ namespace simpleath
             static bool mapBar0(void *, uint32_t *);
             static void unmapBar0(void *);
             static bool readBar0(void *, uint32_t, uint32_t *);
+            static bool readActive(void *, uint32_t, uint32_t *);
+            static bool writeActive(void *, uint32_t, uint32_t);
             IOService *owner_;
             IOPCIDevice *pci_;
             IOMemoryMap *bar_;
             NativePciPowerGate power_;
             uint32_t length_;
+            uint8_t powerCapability_;
             bool configured_;
             bool claimed_;
     };
 } // namespace simpleath
-#endif
 #endif

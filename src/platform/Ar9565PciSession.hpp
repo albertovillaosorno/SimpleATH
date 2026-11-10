@@ -32,8 +32,7 @@ namespace simpleath
         Unavailable,
     };
 
-    // Contract for a future verified IOPCIFamily or PCIDriverKit adapter.
-    // No native adapter is implemented or installed by the passive target.
+    // Callback contract supplied by NativePciBackend to the native owner.
     // All calls, including power/termination, MUST run under one serialization
     // gate. Context outlives the session. No callback may reenter the session.
     struct PciSessionBackend

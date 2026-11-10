@@ -28,7 +28,7 @@ def _kernel_parse_flags(root: Path) -> list[str]:
     headers = root / ".research/MacKernelSDK/Headers"
     if not (headers / "IOKit/IOLib.h").is_file():
         return []
-    flags: list[str] = []
+    flags: list[str] = ["-DKERNEL=1"]
     if sys.platform.startswith("linux"):
         flags.extend(("-target", DARWIN_TARGET))
         compiler = shutil.which("clang++")
