@@ -44,7 +44,7 @@ extern "C" OSReturn athLoadKext(
 namespace ath
 {
 
-    static constexpr int KCKindUnknown = 0;
+    static constexpr int kKcKindUnknown = 0;
     static LinkedImage images[2];
     static OSObject *modules[2];
     static constexpr uint32_t selected[] = {0, 1};
@@ -112,7 +112,7 @@ namespace ath
         snprintf(path, sizeof(path),
                  "/Library/Extensions/SimpleATH.kext/Embedded/%s",
                  p.identifier);
-        const auto slide = PE_get_kc_slide(KCKindUnknown);
+        const auto slide = PE_get_kc_slide(kKcKindUnknown);
         auto kmod =
             reinterpret_cast<kmod_info_t *>(image.memory + p.kmodOffset);
         kmod->next = nullptr;
@@ -152,7 +152,7 @@ namespace ath
                 reinterpret_cast<uint8_t *>(command) + command->cmdsize);
         }
         image.registered = true;
-        modules[index] = athRegisterKext(dictionary, true, KCKindUnknown);
+        modules[index] = athRegisterKext(dictionary, true, kKcKindUnknown);
         dictionary->release();
         if (!modules[index])
             return false;

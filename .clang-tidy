@@ -43,7 +43,7 @@ CheckOptions:
   readability-identifier-naming.ScopedEnumConstantIgnoredRegexp: '^V[0-9]+(_[0-9]+)+$'
   readability-identifier-naming.FunctionCase: camelBack
   readability-identifier-naming.GlobalFunctionCase: camelBack
-  readability-identifier-naming.GlobalFunctionIgnoredRegexp: '^(kext_alloc|kext_free|kext_get_vm_map|PE_get_kc_slide)$'
+  readability-identifier-naming.GlobalFunctionIgnoredRegexp: '^(kext_alloc|kext_free|kext_get_vm_map|PE_get_kc_slide|vm_map_wire)$'
   readability-identifier-naming.ConstexprFunctionCase: camelBack
   readability-identifier-naming.MethodCase: camelBack
   readability-identifier-naming.ClassMethodCase: camelBack
