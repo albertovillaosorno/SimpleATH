@@ -60,6 +60,7 @@ namespace
             bool revokeOnActiveAuthorization {};
             size_t activeAuthorizations {};
             uint8_t expectedEventType {};
+            uint8_t expectedAdByte {kAdByte};
     };
 
     bool authorizeActive(void *context, uint64_t epoch, uint16_t interval,
@@ -154,7 +155,7 @@ namespace
         auto &fake = *static_cast<Fake *>(context);
         if (fake.failAdvertisement || epoch != kEpoch ||
             advertisement.dataBytes != 3U ||
-            advertisement.data.at(0U) != kAdByte ||
+            advertisement.data.at(0U) != fake.expectedAdByte ||
             advertisement.eventType != fake.expectedEventType ||
             advertisement.addressType != 1U)
         {
@@ -595,6 +596,37 @@ namespace
                 LeDiscoveryResult::MalformedEvent ||
             malformedAd.fake().reports != 0U ||
             malformedAd.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // A zero AD length terminates the structures; trailing zero padding
+        // is legal, but nonzero data after termination is not.
+        Fixture padded {};
+        if (!padded.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto paddedEvent = kAdvertisement;
+        paddedEvent.at(1U) = kEventPayloadBytes;
+        paddedEvent.at(kAdvertDataLengthOffset + 1U) = 1U;
+        paddedEvent.at(kAdvertDataLengthOffset + 2U) = 1U;
+        paddedEvent.at(kAdvertDataLengthOffset + 3U) = 0U;
+        padded.fake().expectedAdByte = 1U;
+        if (padded.accept(paddedEvent.data(), paddedEvent.size() - 1U) !=
+                LeDiscoveryResult::Ok ||
+            padded.fake().reports != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture trailingData {};
+        if (!trailingData.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        paddedEvent.at(kAdvertDataLengthOffset + 1U) = 0U;
+        if (trailingData.accept(paddedEvent.data(), paddedEvent.size() - 1U) !=
+                LeDiscoveryResult::MalformedEvent ||
+            trailingData.fake().reports != 0U)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
