@@ -511,11 +511,19 @@ namespace simpleath
                 return;
             }
             IOLockLock(lock);
-            if ((epoch == 0U) || epoch != self.epoch_ ||
+            if ((epoch == 0U) || epoch < self.epoch_ || self.providerStopped_ ||
                 event > WirelessEvent::ProviderStopped)
             {
                 IOLockUnlock(lock);
                 return;
+            }
+            if (epoch != self.epoch_)
+            {
+                // The same physical provider can resume on a fresh PCI
+                // epoch. Clear stale scan/receive tickets and accept only
+                // increasing epoch notifications, never an old DMA callback.
+                self.invalidateMailboxes();
+                self.epoch_ = epoch;
             }
             if (event == WirelessEvent::ProviderStopped ||
                 event == WirelessEvent::LinkChanged ||

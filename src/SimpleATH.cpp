@@ -9,6 +9,7 @@
 #include "hardware/Ar9565RtcPower.hpp"
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
+#include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "wifi/WifiEngine.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
@@ -19,6 +20,7 @@
 #include <kern/clock.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
+#include <libkern/libkern.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
 
@@ -67,9 +69,11 @@ class SimpleATH final : public IOService
             if (!pci_)
                 return failStart(provider, "PCIProvider", kIOReturnBadArgument);
             lifecycle_ = IOLockAlloc();
+            if (!observerLock_)
+                observerLock_ = IOLockAlloc();
             loop_ = IOWorkLoop::workLoop();
             gate_ = IOCommandGate::commandGate(this);
-            if (!lifecycle_ || !loop_ || !gate_)
+            if (!lifecycle_ || !observerLock_ || !loop_ || !gate_)
                 return failStart(provider, "WorkLoop", kIOReturnNoMemory);
             const IOReturn added = loop_->addEventSource(gate_);
             if (added != kIOReturnSuccess)
@@ -147,10 +151,277 @@ class SimpleATH final : public IOService
         void free() override
         {
             cleanup();
+            // The transport retains the provider until its synchronous
+            // unsubscribe. The observer lock must outlive stop()/cleanup().
+            if (observerLock_)
+            {
+                IOLockFree(observerLock_);
+                observerLock_ = nullptr;
+            }
             IOService::free();
         }
 
+        IOReturn callPlatformFunction(const char *name, bool wait, void *p1,
+                                      void *p2, void *p3, void *p4) override
+        {
+            if (name == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            if (strcmp(name, &simpleath::tahoe::kWirelessOwnerFunction[0]) != 0)
+            {
+                return IOService::callPlatformFunction(name, wait, p1, p2, p3,
+                                                       p4);
+            }
+            if (!p1 || p2 || p3 || p4)
+                return kIOReturnBadArgument;
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV1 *>(p1);
+            if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
+                out->structureBytes != sizeof(*out))
+                return kIOReturnUnsupported;
+            if (!gate_)
+                return kIOReturnNotReady;
+            return gate_->runAction(exportWirelessOwnerAction, out);
+        }
+
     private:
+        // The Tahoe child binds to a real PCI owner, never to IORegistry
+        // readiness properties. Provider entrypoints execute on this owner's
+        // serialized gate; only the mailbox notification callback crosses to
+        // the child's independent work loop.
+        static IOReturn exportWirelessOwnerAction(OSObject *object, void *arg,
+                                                  void *, void *, void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(object);
+            if (!self.powered_ || self.stopping_ ||
+                !self.board_.view(self.epoch_) || !self.observerLock_)
+                return kIOReturnNotReady;
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV1 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV1 callbacks {
+                simpleath::tahoe::kWirelessOwnerAbi,
+                sizeof(simpleath::tahoe::WirelessOwnerV1),
+                &self,
+                ownerSnapshot,
+                ownerSetPower,
+                ownerSetMac,
+                ownerBeginScan,
+                ownerCancelScan,
+                ownerNextBss,
+                ownerConnect,
+                ownerDisconnect,
+                ownerInstallKey,
+                ownerAuthorizePort,
+                ownerTransmitEthernet,
+                ownerSubscribe,
+                ownerUnsubscribe,
+            };
+            out = callbacks;
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerSnapshotAction(OSObject *object, void *arg, void *,
+                                            void *, void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(object);
+            auto &out = *static_cast<simpleath::tahoe::WirelessSnapshot *>(arg);
+            out = {};
+            const auto *board = self.board_.view(self.epoch_);
+            if (!self.powered_ || self.stopping_ || !board)
+                return kIOReturnNotReady;
+            out.epoch = self.epoch_;
+            memcpy(out.permanentMac, board->summary.mac,
+                   sizeof(out.permanentMac));
+            memcpy(out.currentMac, board->summary.mac, sizeof(out.currentMac));
+            const auto link = self.engine_.linkStatus();
+            // Never convert a software association into an OS link claim.
+            out.associated =
+                self.radioOperational_ &&
+                link.state == simpleath::ieee80211::LinkState::Associated &&
+                link.networkInterfaceReady;
+            if (out.associated)
+                memcpy(out.bssid, link.bssid.bytes, sizeof(out.bssid));
+            out.powered = self.powered_;
+            out.radioAvailable =
+                self.radioOperational_ && self.channelAuthorized_ &&
+                self.queues_.phase() == simpleath::NativeQueuePhase::Running;
+            out.controlledPortOpen =
+                out.associated && self.controlledPortAuthorized_;
+            // No country code or current channel is published until the
+            // physical/regulatory owner has actually authorized one.
+            out.rfKillBlocked = !self.rfKillKnownUnblocked_;
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerSnapshot(void *context,
+                                      simpleath::tahoe::WirelessSnapshot *out)
+        {
+            if (!context || !out)
+                return kIOReturnBadArgument;
+            auto &self = *static_cast<SimpleATH *>(context);
+            if (!self.gate_)
+                return kIOReturnNotReady;
+            return self.gate_->runAction(ownerSnapshotAction, out);
+        }
+
+        static IOReturn ownerSetPower(void *context, bool on)
+        {
+            if (!context)
+                return kIOReturnBadArgument;
+            auto &self = *static_cast<SimpleATH *>(context);
+            if (!self.started_ || self.stopping_)
+                return kIOReturnNotReady;
+            if (on)
+            {
+                // Power-on performs the real PCI/RTC/EEPROM sequence, not a
+                // synthetic radio-ready transition.
+                return self.startClient();
+            }
+            self.setPowerState(0, nullptr);
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn
+        ownerSetMac(void *context,
+                    const uint8_t address[simpleath::tahoe::kWirelessMacBytes])
+        {
+            if (!context || !address)
+                return kIOReturnBadArgument;
+            simpleath::tahoe::WirelessSnapshot current {};
+            const IOReturn result = ownerSnapshot(context, &current);
+            if (result != kIOReturnSuccess)
+                return result;
+            // Until hardware and native interface readdressing are wired,
+            // only an idempotent request for the physical MAC is valid.
+            return memcmp(address, current.currentMac,
+                          sizeof(current.currentMac)) == 0
+                       ? kIOReturnSuccess
+                       : kIOReturnUnsupported;
+        }
+
+        static IOReturn ownerBeginScan(void *, uint64_t *generation)
+        {
+            if (!generation)
+                return kIOReturnBadArgument;
+            *generation = 0;
+            // No authorized dwell itinerary or tuned RF receiver exists yet.
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn ownerCancelScan(void *, uint64_t)
+        {
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn
+        ownerNextBss(void *, uint64_t,
+                     simpleath::ieee80211::NativeBssSnapshot *out)
+        {
+            if (!out)
+                return kIOReturnBadArgument;
+            *out = {};
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn
+        ownerConnect(void *,
+                     const simpleath::tahoe::NativeConnectRequest *request)
+        {
+            return request ? kIOReturnNotReady : kIOReturnBadArgument;
+        }
+
+        static IOReturn ownerDisconnect(void *, uint16_t)
+        {
+            // A disassociation cannot be acknowledged before the native
+            // station and protected management TX paths have completed.
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn
+        ownerInstallKey(void *, const simpleath::tahoe::NativeCcmpKey *key)
+        {
+            return key ? kIOReturnNotReady : kIOReturnBadArgument;
+        }
+
+        static IOReturn ownerAuthorizePort(void *, bool)
+        {
+            // No DMA/CCMP replay proof or delivered native packet pool yet.
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn ownerTransmitEthernet(void *, const uint8_t *bytes,
+                                              size_t length)
+        {
+            if (!bytes || length == 0)
+                return kIOReturnBadArgument;
+            return kIOReturnNotReady;
+        }
+
+        static IOReturn ownerSubscribe(
+            void *context, void *observer,
+            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t),
+            void (*receive)(void *, const uint8_t *, size_t))
+        {
+            if (!context || !observer || !notify || !receive)
+                return kIOReturnBadArgument;
+            auto &self = *static_cast<SimpleATH *>(context);
+            if (!self.observerLock_ || !self.gate_)
+                return kIOReturnNotReady;
+            simpleath::tahoe::WirelessSnapshot snapshot {};
+            const IOReturn result = ownerSnapshot(context, &snapshot);
+            if (result != kIOReturnSuccess)
+                return result;
+            IOLockLock(self.observerLock_);
+            IOReturn registered = kIOReturnExclusiveAccess;
+            if (!self.wirelessObserver_)
+            {
+                self.wirelessObserver_ = observer;
+                self.wirelessNotify_ = notify;
+                self.wirelessReceive_ = receive;
+                registered = kIOReturnSuccess;
+            }
+            IOLockUnlock(self.observerLock_);
+            return registered;
+        }
+
+        static void ownerUnsubscribe(void *context, void *observer)
+        {
+            if (!context || !observer)
+                return;
+            auto &self = *static_cast<SimpleATH *>(context);
+            if (!self.observerLock_)
+                return;
+            // Provider-stop notifications hold this lock throughout the
+            // callback. Unsubscribe joins them before mailbox deallocation.
+            IOLockLock(self.observerLock_);
+            if (self.wirelessObserver_ == observer)
+            {
+                self.wirelessObserver_ = nullptr;
+                self.wirelessNotify_ = nullptr;
+                self.wirelessReceive_ = nullptr;
+            }
+            IOLockUnlock(self.observerLock_);
+        }
+
+        void notifyWirelessChange(bool terminating)
+        {
+            if (observerLock_ == nullptr)
+            {
+                return;
+            }
+            IOLockLock(observerLock_);
+            if (wirelessObserver_ != nullptr && wirelessNotify_ != nullptr &&
+                epoch_ != 0)
+            {
+                wirelessNotify_(
+                    wirelessObserver_,
+                    terminating
+                        ? simpleath::tahoe::WirelessEvent::ProviderStopped
+                        : simpleath::tahoe::WirelessEvent::RadioChanged,
+                    epoch_);
+            }
+            IOLockUnlock(observerLock_);
+        }
+
         static bool poweredGate(void *context)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
@@ -363,6 +634,7 @@ class SimpleATH final : public IOService
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
             self.engine_.radioStopped(nowMicros(nullptr) / 1000, false);
+            self.notifyWirelessChange(false);
             self.error("DMAInterrupt", static_cast<uint32_t>(result));
         }
 
@@ -434,6 +706,9 @@ class SimpleATH final : public IOService
                 self.queuesAdopted_ = true;
                 self.setProperty("SimpleATHDmaMappingsReady", true);
                 self.stage("DMAResourcesPrepared");
+                // A new NVM/PCI epoch is observable as a radio transition,
+                // but DMA mappings alone never make the receiver available.
+                self.notifyWirelessChange(false);
             }
             return result;
         }
@@ -663,6 +938,11 @@ class SimpleATH final : public IOService
 
         void stopHardware(simpleath::ProviderAccess access)
         {
+            // Suspend and recoverable failures invalidate the data link but
+            // keep the child subscribed for a later physical PCI epoch. Only
+            // final termination revokes the provider callback contract.
+            notifyWirelessChange(stopping_);
+            controlledPortAuthorized_ = false;
             if (queuesAdopted_)
             {
                 queues_.stopGated(access ==
@@ -792,6 +1072,14 @@ class SimpleATH final : public IOService
 
         RegisterAccess access_ {nullptr};
         IOLock *lifecycle_ {nullptr};
+        // Independent of the PCI gate to permit synchronous unsubscribe
+        // after stop() removes its work loop.
+        IOLock *observerLock_ {nullptr};
+        void *wirelessObserver_ {nullptr};
+        void (*wirelessNotify_)(void *, simpleath::tahoe::WirelessEvent,
+                                uint64_t) {nullptr};
+        void (*wirelessReceive_)(void *, const uint8_t *, size_t) {nullptr};
+        bool controlledPortAuthorized_ {false};
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
         uint8_t managementReply_[4096] {};
