@@ -1,9 +1,10 @@
 # AR9565 power candidates and CTL interpretation — source only
 
-`Ar9565Power.*` is staged in the Xcode Sources phase. It is uncompiled and
-untested, with no device register or transmit path. This implements numerical
-EEPROM target/CTL interpretation; it does not approve a regulatory domain,
-validate board calibration, or establish a legal measured transmit power.
+`Ar9565Power.*` is staged in the Xcode Sources phase. Its portable numerical
+EEPROM target/CTL interpretation is exercised by synthetic offline host tests,
+not by a physical device. This source has no device register or transmit path;
+it does not approve a regulatory domain, validate board calibration, or
+establish a legal measured transmit power.
 
 ## Calculations implemented
 
@@ -19,7 +20,10 @@ and check that previously populated output is cleared.
 This is not proof that the image came from the Dell or contains usable factory
 calibration. No template alone can satisfy physical-board verification.
 
-The module reads these packed AR9300-format 2 GHz fields without native casts:
+The module reads these packed AR9300-format 2 GHz fields without native casts.
+The current parser holds typed fixed-size table layouts and performs bounds-
+checked reads against the entire restored image; caller-defined CTL mode/group
+and the table's frequency/bin offsets are kept as distinct inputs:
 
 | Target group | Frequency-bin offset | Power offset | Piers | Rate groups |
 | --- | ---: | ---: | ---: | ---: |
@@ -101,10 +105,12 @@ The source retains Atheros permission/copyright notices and pins the local
 ar9003_eeprom.c/.h, eeprom.h and common-init.c references by SHA-256. No Linux
 object or GPL-only implementation is linked/copied into this module.
 
-After separate build/test authorization, compare target interpolation and
-CTL/rate mapping with ath9k vectors, including signed rounding, sentinel/
-duplicate/truncated curves, exact/interior/uncovered edges, zero caps, group
-aggregation, EIRP/antenna subtraction, negative caps, HT-disable flags,
-HT40+/HT40- and channel 14. None of these runtime checks has been executed.
-Hardware approval additionally requires actual calibrated/programmed/measured
-power evidence from the separately authorized device experiment.
+The focused `tests/test_power_candidates.cpp` host fixture passes under both
+C++14 and C++17 with AddressSanitizer and UndefinedBehaviorSanitizer. Direct
+strict Clang-Tidy reports zero diagnostics for `Ar9565Power.cpp`; it also
+passes Clang formatting and diff checks. These synthetic checks exercise
+rate-group selection, CCK floor semantics, CTL padding and missing coverage,
+board identity and pier rejection, HT40 geometry and channel calibration.
+They do not replace a differential ath9k target/CTL vector audit or any
+physical TX-power calibration, regulatory approval, programmed readback or
+measurement. Those remain required before any transmission.

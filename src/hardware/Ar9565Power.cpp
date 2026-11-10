@@ -27,17 +27,160 @@
 // common-init.c:
 // c6f047abac0931612ed3e392d2fc5c4839d46a6fbf5175d54ad2c3c3ffc0ed80
 #include "Ar9565Power.hpp"
+#include "Ar9565Core.hpp"
+#include "Ar9565Eeprom.hpp"
+#include "Ar9565InitCatalog.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
     namespace
     {
+        constexpr uint16_t kFrequencyBinBase = 2300U;
+        constexpr uint8_t kFirst2GhzBin = 112U;
+        constexpr uint8_t kLast2GhzBin = 184U;
+        constexpr uint8_t kMissingFrequencyBin = 0xffU;
+        constexpr uint8_t kMaximumHalfDbm = 63U;
+        constexpr uint8_t kCckOnlyChannel = 14U;
+        constexpr uint8_t kHt20Disabled = 0x20U;
+        constexpr uint8_t kHt40Disabled = 0x08U;
+        constexpr int32_t kHt40OffsetMhz = 20;
+        constexpr uint16_t kFirstChannelMhz = 2412U;
+        constexpr uint16_t kLastRegularChannelMhz = 2472U;
+        constexpr uint16_t kChannelRasterOffsetMhz = 2407U;
+        constexpr uint16_t kChannelRasterSpacingMhz = 5U;
+        constexpr uint16_t kCckOnlyChannelMhz = 2484U;
+        constexpr uint8_t kMcsFirstCode = 0x80U;
+        constexpr uint8_t kMcsLastCode = 0x87U;
+        constexpr size_t kCtlIndexOffset = 310U;
+        constexpr size_t kCtlBinOffset = 322U;
+        constexpr size_t kCtlPowerOffset = 370U;
+        constexpr size_t kCtlEntries = 12U;
+        constexpr size_t kCtlEdgesPerEntry = 4U;
+        constexpr uint8_t kCtlModeMask = 0x0fU;
+        constexpr uint8_t kCtlGroupMask = 0xf0U;
+        constexpr uint8_t kCtlAllGroups = 0xe0U;
+        constexpr uint8_t kCtlInvalidGroup = 0xf0U;
+        constexpr uint8_t kCtlPowerMask = 0x3fU;
+        constexpr uint32_t kCtlInbandShift = 6U;
+        constexpr uint8_t kCckMode = 1U;
+        constexpr uint8_t kOfdmMode = 2U;
+        constexpr uint8_t kHt20Mode = 5U;
+        constexpr uint8_t kHt40Mode = 7U;
+
+        struct TargetLayout
+        {
+                size_t binsOffset;
+                size_t powerOffset;
+                size_t maximumPiers;
+                size_t rates;
+        };
+
+        constexpr TargetLayout kCckTargets {
+            195U,
+            206U,
+            2U,
+            4U,
+        };
+        constexpr TargetLayout kOfdmTargets {
+            197U,
+            214U,
+            3U,
+            4U,
+        };
+        constexpr TargetLayout kHt20Targets {
+            200U,
+            226U,
+            3U,
+            kHtTargetPowerGroups,
+        };
+        constexpr TargetLayout kHt40Targets {
+            203U,
+            268U,
+            3U,
+            kHtTargetPowerGroups,
+        };
+
+        struct CtlQuery
+        {
+                uint8_t group;
+                uint8_t mode;
+                uint16_t mhz;
+        };
+
+        struct CtlEdgeQuery
+        {
+                size_t row;
+                uint16_t mhz;
+        };
+
+        // AR9565 transmit rate codes, as specified by ath9k MAC metadata.
+        constexpr uint8_t kRateCckOne = 0x1bU;
+        constexpr uint8_t kRateCckTwoLong = 0x1aU;
+        constexpr uint8_t kRateCckTwoShort = 0x1eU;
+        constexpr uint8_t kRateCckFiveLong = 0x19U;
+        constexpr uint8_t kRateCckFiveShort = 0x1dU;
+        constexpr uint8_t kRateCckElevenLong = 0x18U;
+        constexpr uint8_t kRateCckElevenShort = 0x1cU;
+        constexpr uint8_t kRateOfdmSix = 0x0bU;
+        constexpr uint8_t kRateOfdmNine = 0x0fU;
+        constexpr uint8_t kRateOfdmTwelve = 0x0aU;
+        constexpr uint8_t kRateOfdmEighteen = 0x0eU;
+        constexpr uint8_t kRateOfdmTwentyFour = 0x09U;
+        constexpr uint8_t kRateOfdmThirtySix = 0x0dU;
+        constexpr uint8_t kRateOfdmFortyEight = 0x08U;
+        constexpr uint8_t kRateOfdmFiftyFour = 0x0cU;
+
+        template <typename T, size_t N>
+        const T &at(const T (&items)[N], size_t index)
+        {
+            for (const T &item : items)
+            {
+                if (index == 0U)
+                {
+                    return item;
+                }
+                --index;
+            }
+            __builtin_trap(); // All indexes originate in fixed NVM layouts.
+        }
+
+        template <typename T, size_t N> T &at(T (&items)[N], size_t index)
+        {
+            for (T &item : items)
+            {
+                if (index == 0U)
+                {
+                    return item;
+                }
+                --index;
+            }
+            __builtin_trap();
+        }
+
+        uint8_t imageByte(const EepromImage &image, size_t index)
+        {
+            return at(image.bytes, index);
+        }
+
+        uintptr_t pointerValue(const void *pointer)
+        {
+            uintptr_t value = 0;
+            static_assert(sizeof(value) == sizeof(pointer),
+                          "native pointers must fit uintptr_t");
+            __builtin_memcpy(static_cast<void *>(&value),
+                             static_cast<const void *>(&pointer),
+                             sizeof(pointer));
+            return value;
+        }
+
         // Difference-based overlap checks avoid pointer-end overflow.
         bool overlaps(const void *a, size_t aBytes, const void *b,
                       size_t bBytes)
         {
-            const auto first = reinterpret_cast<uintptr_t>(a);
-            const auto second = reinterpret_cast<uintptr_t>(b);
+            const auto first = pointerValue(a);
+            const auto second = pointerValue(b);
             return first <= second ? second - first < aBytes
                                    : first - second < bBytes;
         }
@@ -49,21 +192,18 @@ namespace simpleath
 
         uint16_t frequency(uint8_t bin)
         {
-            return static_cast<uint16_t>(2300U + bin);
+            return static_cast<uint16_t>(kFrequencyBinBase + bin);
         }
 
-        // Layout offsets come from packed ar9300_eeprom, not a native structure
-        // cast.
-        PowerResult targets(const uint8_t *bytes, size_t binsOffset,
-                            size_t powerOffset, size_t maximumPiers,
-                            size_t rates, uint16_t mhz, uint8_t *out)
+        PowerResult countTargetPiers(const EepromImage &image,
+                                     const TargetLayout &layout, size_t &count)
         {
-            size_t count = 0;
+            count = 0;
             bool ended = false;
-            for (size_t pier = 0; pier < maximumPiers; ++pier)
+            for (size_t pier = 0; pier < layout.maximumPiers; ++pier)
             {
-                const uint8_t bin = bytes[binsOffset + pier];
-                if (bin == 0xff)
+                const uint8_t bin = imageByte(image, layout.binsOffset + pier);
+                if (bin == kMissingFrequencyBin)
                 {
                     ended = true;
                     continue;
@@ -71,51 +211,72 @@ namespace simpleath
                 // Target piers must be actual 2.4 GHz frequencies. A
                 // malformed 5 GHz or zero bin must not become an implicit
                 // extrapolation endpoint for a 2.4 GHz power budget.
-                if (ended || bin < 112 || bin > 184 ||
-                    ((pier != 0U) && bin <= bytes[binsOffset + pier - 1]))
+                if (ended || bin < kFirst2GhzBin || bin > kLast2GhzBin ||
+                    ((pier != 0U) &&
+                     bin <= imageByte(image, layout.binsOffset + pier - 1)))
                 {
                     return PowerResult::InvalidCurve;
                 }
-                for (size_t rate = 0; rate < rates; ++rate)
+                for (size_t rate = 0; rate < layout.rates; ++rate)
                 {
-                    if (bytes[powerOffset + (pier * rates) + rate] > 63)
+                    if (imageByte(image, layout.powerOffset +
+                                             (pier * layout.rates) + rate) >
+                        kMaximumHalfDbm)
                     {
                         return PowerResult::InvalidCurve;
                     }
                 }
                 ++count;
             }
-            if (count == 0U)
+            return count != 0 ? PowerResult::Ok : PowerResult::InvalidCurve;
+        }
+
+        // Layout offsets come from packed ar9300_eeprom, not a native structure
+        // cast.
+        template <size_t N>
+        PowerResult targets(const EepromImage &image,
+                            const TargetLayout &layout, uint16_t mhz,
+                            uint8_t (&out)[N])
+        {
+            size_t count = 0;
+            const PowerResult valid = countTargetPiers(image, layout, count);
+            if (valid != PowerResult::Ok)
             {
-                return PowerResult::InvalidCurve;
+                return valid;
             }
             size_t low = 0;
             size_t high = 0;
-            if (mhz >= frequency(bytes[binsOffset + count - 1]))
+            if (mhz >=
+                frequency(imageByte(image, layout.binsOffset + count - 1)))
             {
                 low = high = count - 1;
             }
-            else if (mhz > frequency(bytes[binsOffset]))
+            else if (mhz > frequency(imageByte(image, layout.binsOffset)))
             {
                 for (high = 1; high < count; ++high)
                 {
-                    if (mhz <= frequency(bytes[binsOffset + high]))
+                    if (mhz <=
+                        frequency(imageByte(image, layout.binsOffset + high)))
                     {
                         break;
                     }
                 }
                 low = high - 1;
             }
-            for (size_t rate = 0; rate < rates; ++rate)
+            for (size_t rate = 0; rate < layout.rates; ++rate)
             {
-                const int32_t y0 = bytes[powerOffset + (low * rates) + rate];
+                const int32_t y0 = imageByte(
+                    image, layout.powerOffset + (low * layout.rates) + rate);
                 int32_t value = y0;
                 if (high != low)
                 {
-                    const int32_t x0 = frequency(bytes[binsOffset + low]);
-                    const int32_t x1 = frequency(bytes[binsOffset + high]);
+                    const int32_t x0 =
+                        frequency(imageByte(image, layout.binsOffset + low));
+                    const int32_t x1 =
+                        frequency(imageByte(image, layout.binsOffset + high));
                     const int32_t y1 =
-                        bytes[powerOffset + (high * rates) + rate];
+                        imageByte(image, layout.powerOffset +
+                                             (high * layout.rates) + rate);
                     // Preserve ath9k interpolate(): signed division truncates
                     // toward zero; factor/2 + factor%2 handles positive and
                     // negative slopes.
@@ -124,37 +285,47 @@ namespace simpleath
                                            (x1 - x0);
                     value += (factor / 2) + (factor % 2);
                 }
-                if (value < 0 || value > 63)
+                if (value < 0 || value > kMaximumHalfDbm)
                 {
                     return PowerResult::InvalidCurve;
                 }
-                out[rate] = static_cast<uint8_t>(value);
+                at(out, rate) = static_cast<uint8_t>(value);
             }
             return PowerResult::Ok;
         }
 
-        PowerResult edgeLimit(const uint8_t *bytes, size_t row, uint16_t mhz,
-                              uint8_t &out)
+        PowerResult edgeLimit(const EepromImage &image,
+                              const CtlEdgeQuery &query, uint8_t &out)
         {
-            const uint8_t *bins = bytes + 322 + (row * 4);
-            const uint8_t *edges = bytes + 370 + (row * 4);
+            uint8_t bins[kCtlEdgesPerEntry] {};
+            uint8_t edges[kCtlEdgesPerEntry] {};
+            for (size_t index = 0; index < kCtlEdgesPerEntry; ++index)
+            {
+                at(bins, index) = imageByte(
+                    image,
+                    kCtlBinOffset + (query.row * kCtlEdgesPerEntry) + index);
+                at(edges, index) = imageByte(
+                    image,
+                    kCtlPowerOffset + (query.row * kCtlEdgesPerEntry) + index);
+            }
             size_t count = 0;
             bool ended = false;
-            for (size_t i = 0; i < 4; ++i)
+            for (size_t i = 0; i < kCtlEdgesPerEntry; ++i)
             {
                 // Pinned ath9k AR9300 dictionaries contain both 0x00 and
                 // 0xff trailing 2G CTL padding. Zero maps to 2300 MHz, not
                 // a usable 2.4 GHz edge: treat it as a terminator only and
                 // never allow a later nonempty edge to resume coverage.
-                if (bins[i] == 0 || bins[i] == 0xff)
+                if (at(bins, i) == 0 || at(bins, i) == kMissingFrequencyBin)
                 {
                     ended = true;
                     continue;
                 }
                 // Zero/0xff padding is handled above. All live CTL edges
                 // must be in the 2.4 GHz bin range, not a different band.
-                if (ended || bins[i] < 112 || bins[i] > 184 ||
-                    ((i != 0U) && bins[i] <= bins[i - 1]))
+                if (ended || at(bins, i) < kFirst2GhzBin ||
+                    at(bins, i) > kLast2GhzBin ||
+                    ((i != 0U) && at(bins, i) <= at(bins, i - 1)))
                 {
                     return PowerResult::InvalidCtlEdges;
                 }
@@ -166,17 +337,17 @@ namespace simpleath
             }
             for (size_t i = 0; i < count; ++i)
             {
-                if (mhz == frequency(bins[i]))
+                if (query.mhz == frequency(at(bins, i)))
                 {
-                    out = edges[i] & 0x3fU;
+                    out = at(edges, i) & kCtlPowerMask;
                     return PowerResult::Ok;
                 }
-                if ((i != 0U) && mhz < frequency(bins[i]))
+                if ((i != 0U) && query.mhz < frequency(at(bins, i)))
                 {
-                    if (mhz > frequency(bins[i - 1]) &&
-                        (edges[i - 1] >> 6) != 0)
+                    if (query.mhz > frequency(at(bins, i - 1)) &&
+                        (at(edges, i - 1) >> kCtlInbandShift) != 0)
                     {
-                        out = edges[i - 1] & 0x3fU;
+                        out = at(edges, i - 1) & kCtlPowerMask;
                         return PowerResult::Ok;
                     }
                     break;
@@ -189,16 +360,16 @@ namespace simpleath
             return PowerResult::MissingCtlCoverage;
         }
 
-        PowerResult ctlLimit(const uint8_t *bytes, uint8_t group, uint8_t mode,
-                             uint16_t mhz, uint8_t &out)
+        PowerResult ctlLimit(const EepromImage &image, const CtlQuery &query,
+                             uint8_t &out)
         {
             // Validate the entire fixed-size index table even if an early
             // matching row would be sufficient. A nonzero row after the first
             // zero sentinel indicates malformed NVM, not ignorable padding.
             bool terminated = false;
-            for (size_t row = 0; row < 12; ++row)
+            for (size_t row = 0; row < kCtlEntries; ++row)
             {
-                if (bytes[310 + row] == 0)
+                if (imageByte(image, kCtlIndexOffset + row) == 0)
                 {
                     terminated = true;
                 }
@@ -208,24 +379,29 @@ namespace simpleath
                 }
             }
             bool found = false;
-            uint8_t selected = 63;
-            for (size_t row = 0; row < 12 && (bytes[310 + row] != 0U); ++row)
+            uint8_t selected = kMaximumHalfDbm;
+            for (size_t row = 0;
+                 row < kCtlEntries &&
+                 (imageByte(image, kCtlIndexOffset + row) != 0U);
+                 ++row)
             {
-                const uint8_t index = bytes[310 + row];
-                if ((index & 0x0fU) != mode ||
-                    (group != 0xe0 && (index & 0xf0U) != group))
+                const uint8_t index = imageByte(image, kCtlIndexOffset + row);
+                if ((index & kCtlModeMask) != query.mode ||
+                    (query.group != kCtlAllGroups &&
+                     (index & kCtlGroupMask) != query.group))
                 {
                     continue;
                 }
                 uint8_t limit = 0;
-                const PowerResult result = edgeLimit(bytes, row, mhz, limit);
+                const PowerResult result =
+                    edgeLimit(image, {row, query.mhz}, limit);
                 if (result != PowerResult::Ok)
                 {
                     return result;
                 }
                 found = true;
                 selected = minimum(selected, limit);
-                if (group != 0xe0)
+                if (query.group != kCtlAllGroups)
                 {
                     break; // Same first-specific-entry order as ath9k.
                 }
@@ -238,23 +414,201 @@ namespace simpleath
             return PowerResult::Ok;
         }
 
-        PowerResult clamp(const uint8_t *bytes, uint8_t group, uint8_t mode,
-                          uint16_t mhz, uint8_t ceiling, uint8_t *powers,
-                          size_t count)
+        template <size_t N>
+        PowerResult clamp(const EepromImage &image, const CtlQuery &query,
+                          uint8_t ceiling, uint8_t (&powers)[N])
         {
             uint8_t edge = 0;
-            const PowerResult result = ctlLimit(bytes, group, mode, mhz, edge);
+            const PowerResult result = ctlLimit(image, query, edge);
             if (result != PowerResult::Ok)
             {
                 return result;
             }
             const uint8_t cap = minimum(edge, ceiling);
-            for (size_t rate = 0; rate < count; ++rate)
+            for (size_t rate = 0; rate < N; ++rate)
             {
-                powers[rate] = minimum(powers[rate], cap);
+                at(powers, rate) = minimum(at(powers, rate), cap);
             }
             return PowerResult::Ok;
         }
+
+        PowerResult limitCandidateTables(const EepromImage &image,
+                                         const PowerCeilings &ceilings,
+                                         PowerCandidates &candidate,
+                                         uint8_t cap)
+        {
+            PowerResult result = targets(image, kCckTargets,
+                                         candidate.controlMhz, candidate.cck);
+            if (result == PowerResult::Ok)
+            {
+                result = clamp(
+                    image, {ceilings.ctlGroup, kCckMode, candidate.controlMhz},
+                    cap, candidate.cck);
+            }
+            if (result != PowerResult::Ok)
+            {
+                return result;
+            }
+            if (!candidate.legacyOnlyChannel14)
+            {
+                result = targets(image, kOfdmTargets, candidate.controlMhz,
+                                 candidate.ofdm);
+                if (result == PowerResult::Ok)
+                {
+                    result = clamp(
+                        image,
+                        {ceilings.ctlGroup, kOfdmMode, candidate.controlMhz},
+                        cap, candidate.ofdm);
+                }
+                if (result != PowerResult::Ok)
+                {
+                    return result;
+                }
+            }
+            if (candidate.ht20Present)
+            {
+                result = targets(image, kHt20Targets, candidate.controlMhz,
+                                 candidate.ht20);
+                if (result == PowerResult::Ok)
+                {
+                    result = clamp(
+                        image,
+                        {ceilings.ctlGroup, kHt20Mode, candidate.controlMhz},
+                        cap, candidate.ht20);
+                }
+                if (result != PowerResult::Ok)
+                {
+                    return result;
+                }
+            }
+            if (candidate.ht40Present)
+            {
+                // ath9k interpolates HT40 targets at control frequency, but
+                // looks up its CTL at synth center. Do not collapse these into
+                // one frequency.
+                result = targets(image, kHt40Targets, candidate.controlMhz,
+                                 candidate.ht40);
+                if (result == PowerResult::Ok)
+                {
+                    result = clamp(
+                        image,
+                        {ceilings.ctlGroup, kHt40Mode, candidate.synthMhz}, cap,
+                        candidate.ht40);
+                }
+                if (result != PowerResult::Ok)
+                {
+                    return result;
+                }
+            }
+            return PowerResult::Ok;
+        }
+
+        PowerResult validateCandidateGeometry(const PowerCandidates &candidate,
+                                              bool ht40)
+        {
+            // Require a populated, geometrically valid candidate, not a default
+            // object.
+            const bool channel14 = candidate.controlMhz == kCckOnlyChannelMhz;
+            if ((!channel14 &&
+                 (candidate.controlMhz < kFirstChannelMhz ||
+                  candidate.controlMhz > kLastRegularChannelMhz ||
+                  (candidate.controlMhz - kChannelRasterOffsetMhz) %
+                          kChannelRasterSpacingMhz !=
+                      0)) ||
+                candidate.legacyOnlyChannel14 != channel14)
+            {
+                return PowerResult::InvalidChannel;
+            }
+            // This selector is public: callers can supply arbitrary candidate
+            // structs. A set HT40 flag is not proof of a valid extension
+            // channel. Check the geometry that calculatePowerCandidates would
+            // produce.
+            if (candidate.conductedCeilingHalfDbm > kMaximumHalfDbm ||
+                (channel14 && candidate.ht20Present))
+            {
+                return PowerResult::InvalidCurve;
+            }
+            if (candidate.ht40Present)
+            {
+                const int32_t delta =
+                    static_cast<int32_t>(candidate.extensionMhz) -
+                    static_cast<int32_t>(candidate.controlMhz);
+                if (!candidate.ht20Present || channel14 ||
+                    candidate.extensionMhz < kFirstChannelMhz ||
+                    candidate.extensionMhz > kLastRegularChannelMhz ||
+                    (candidate.extensionMhz - kChannelRasterOffsetMhz) %
+                            kChannelRasterSpacingMhz !=
+                        0 ||
+                    (delta != kHt40OffsetMhz && delta != -kHt40OffsetMhz) ||
+                    candidate.synthMhz !=
+                        (candidate.controlMhz + candidate.extensionMhz) / 2U)
+                {
+                    return PowerResult::InvalidChannel;
+                }
+            }
+            else if (candidate.extensionMhz != 0 ||
+                     candidate.synthMhz != candidate.controlMhz)
+            {
+                return PowerResult::InvalidChannel;
+            }
+            if (ht40 && !candidate.ht40Present)
+            {
+                return PowerResult::InvalidChannel;
+            }
+            return PowerResult::Ok;
+        }
+
+        PowerResult selectLegacyRatePower(const PowerCandidates &candidate,
+                                          uint8_t rateCode, uint8_t &selected)
+        {
+            switch (rateCode)
+            {
+                case kRateCckOne:      // 1 Mbps, long preamble.
+                case kRateCckTwoLong:  // 2 Mbps, long preamble.
+                case kRateCckTwoShort: // 2 Mbps, short preamble.
+                    selected = candidate.cck[0];
+                    break;
+                case kRateCckFiveLong:  // 5.5 Mbps, long preamble.
+                case kRateCckFiveShort: // 5.5 Mbps, short preamble.
+                    // ath9k ar9003_hw_init_txpower_cck applies the lower
+                    // 1L_5L/5S target to both 5.5-Mbps preambles.
+                    selected = minimum(candidate.cck[0], candidate.cck[1]);
+                    break;
+                case kRateCckElevenLong:  // 11 Mbps, long preamble.
+                case kRateCckElevenShort: // 11 Mbps, short preamble.
+                    // The PHY also uses the lower 11L/11S target for both.
+                    selected = minimum(candidate.cck[2], candidate.cck[3]);
+                    break;
+                default:
+                    if (candidate.legacyOnlyChannel14)
+                    {
+                        return PowerResult::UnsupportedRate;
+                    }
+                    switch (rateCode)
+                    {
+                        case kRateOfdmSix:
+                        case kRateOfdmNine:
+                        case kRateOfdmTwelve:
+                        case kRateOfdmEighteen:
+                        case kRateOfdmTwentyFour:
+                            selected = candidate.ofdm[0];
+                            break;
+                        case kRateOfdmThirtySix:
+                            selected = candidate.ofdm[1];
+                            break;
+                        case kRateOfdmFortyEight:
+                            selected = candidate.ofdm[2];
+                            break;
+                        case kRateOfdmFiftyFour:
+                            selected = candidate.ofdm[3];
+                            break;
+                        default:
+                            return PowerResult::UnsupportedRate;
+                    }
+            }
+            return PowerResult::Ok;
+        }
+
     } // namespace
 
     PowerResult calculatePowerCandidates(const EepromImage &image,
@@ -287,7 +641,8 @@ namespace simpleath
         {
             return PowerResult::InvalidBoard;
         }
-        if (((ceilings.ctlGroup & 0x0fU) != 0U) || ceilings.ctlGroup == 0xf0)
+        if (((ceilings.ctlGroup & kCtlModeMask) != 0U) ||
+            ceilings.ctlGroup == kCtlInvalidGroup)
         {
             return PowerResult::InvalidCtlGroup;
         }
@@ -300,7 +655,7 @@ namespace simpleath
         PowerCandidates candidate {};
         candidate.controlMhz = primary.centerMhz;
         candidate.synthMhz = primary.centerMhz;
-        candidate.legacyOnlyChannel14 = channel.primary == 14;
+        candidate.legacyOnlyChannel14 = channel.primary == kCckOnlyChannel;
         if (calculateBoardCalibration2G(board, candidate.controlMhz,
                                         candidate.channelCalibration) !=
             EepromResult::Ok)
@@ -308,19 +663,20 @@ namespace simpleath
             return PowerResult::InvalidBoard;
         }
         candidate.ht20Present = !candidate.legacyOnlyChannel14 &&
-                                ((board.operationFlags & 0x20U) == 0U);
+                                ((board.operationFlags & kHt20Disabled) == 0U);
         if (channel.secondary != 0U)
         {
-            if (channel.primary == 14 || channel.secondary == 14 ||
+            if (channel.primary == kCckOnlyChannel ||
+                channel.secondary == kCckOnlyChannel ||
                 !candidate.ht20Present ||
-                ((board.operationFlags & 0x08U) != 0U) ||
+                ((board.operationFlags & kHt40Disabled) != 0U) ||
                 mapChannel(channel.secondary, secondary) != Result::Ok)
             {
                 return PowerResult::InvalidChannel;
             }
             const int32_t difference =
                 static_cast<int32_t>(secondary.centerMhz) - primary.centerMhz;
-            if (difference != 20 && difference != -20)
+            if (difference != kHt40OffsetMhz && difference != -kHt40OffsetMhz)
             {
                 return PowerResult::InvalidChannel;
             }
@@ -343,70 +699,13 @@ namespace simpleath
         {
             return PowerResult::UnsupportedPowerLimit;
         }
-        if (cap > 63)
-        {
-            cap = 63;
-        }
+        cap = cap < kMaximumHalfDbm ? cap : kMaximumHalfDbm;
         candidate.conductedCeilingHalfDbm = static_cast<uint8_t>(cap);
-        const uint8_t *bytes = image.bytes;
-        PowerResult result =
-            targets(bytes, 195, 206, 2, 4, candidate.controlMhz, candidate.cck);
-        if (result == PowerResult::Ok)
-        {
-            result = clamp(bytes, ceilings.ctlGroup, 1, candidate.controlMhz,
-                           static_cast<uint8_t>(cap), candidate.cck, 4);
-        }
+        const PowerResult result = limitCandidateTables(
+            image, ceilings, candidate, static_cast<uint8_t>(cap));
         if (result != PowerResult::Ok)
         {
             return result;
-        }
-        if (!candidate.legacyOnlyChannel14)
-        {
-            result = targets(bytes, 197, 214, 3, 4, candidate.controlMhz,
-                             candidate.ofdm);
-            if (result == PowerResult::Ok)
-            {
-                result =
-                    clamp(bytes, ceilings.ctlGroup, 2, candidate.controlMhz,
-                          static_cast<uint8_t>(cap), candidate.ofdm, 4);
-            }
-            if (result != PowerResult::Ok)
-            {
-                return result;
-            }
-        }
-        if (candidate.ht20Present)
-        {
-            result = targets(bytes, 200, 226, 3, kHtTargetPowerGroups,
-                             candidate.controlMhz, candidate.ht20);
-            if (result == PowerResult::Ok)
-            {
-                result = clamp(bytes, ceilings.ctlGroup, 5,
-                               candidate.controlMhz, static_cast<uint8_t>(cap),
-                               candidate.ht20, kHtTargetPowerGroups);
-            }
-            if (result != PowerResult::Ok)
-            {
-                return result;
-            }
-        }
-        if (candidate.ht40Present)
-        {
-            // ath9k interpolates HT40 targets at control frequency, but looks
-            // up its CTL at synth center. Do not collapse these into one
-            // frequency.
-            result = targets(bytes, 203, 268, 3, kHtTargetPowerGroups,
-                             candidate.controlMhz, candidate.ht40);
-            if (result == PowerResult::Ok)
-            {
-                result = clamp(bytes, ceilings.ctlGroup, 7, candidate.synthMhz,
-                               static_cast<uint8_t>(cap), candidate.ht40,
-                               kHtTargetPowerGroups);
-            }
-            if (result != PowerResult::Ok)
-            {
-                return result;
-            }
         }
         out = candidate;
         return PowerResult::Ok;
@@ -421,50 +720,13 @@ namespace simpleath
             return PowerResult::InvalidArgument;
         }
         halfDbm = 0;
-        // Require a populated, geometrically valid candidate, not a default
-        // object.
-        const bool channel14 = candidate.controlMhz == 2484;
-        if ((!channel14 &&
-             (candidate.controlMhz < 2412 || candidate.controlMhz > 2472 ||
-              (candidate.controlMhz - 2407) % 5 != 0)) ||
-            candidate.legacyOnlyChannel14 != channel14)
+        const PowerResult geometry = validateCandidateGeometry(candidate, ht40);
+        if (geometry != PowerResult::Ok)
         {
-            return PowerResult::InvalidChannel;
-        }
-        // This selector is public: callers can supply arbitrary candidate
-        // structs. A set HT40 flag is not proof of a valid extension channel.
-        // Check the geometry that calculatePowerCandidates would produce.
-        if (candidate.conductedCeilingHalfDbm > 63 ||
-            (channel14 && candidate.ht20Present))
-        {
-            return PowerResult::InvalidCurve;
-        }
-        if (candidate.ht40Present)
-        {
-            const int32_t delta = static_cast<int32_t>(candidate.extensionMhz) -
-                                  static_cast<int32_t>(candidate.controlMhz);
-            if (!candidate.ht20Present || channel14 ||
-                candidate.extensionMhz < 2412 ||
-                candidate.extensionMhz > 2472 ||
-                (candidate.extensionMhz - 2407U) % 5U != 0 ||
-                (delta != 20 && delta != -20) ||
-                candidate.synthMhz !=
-                    (candidate.controlMhz + candidate.extensionMhz) / 2U)
-            {
-                return PowerResult::InvalidChannel;
-            }
-        }
-        else if (candidate.extensionMhz != 0 ||
-                 candidate.synthMhz != candidate.controlMhz)
-        {
-            return PowerResult::InvalidChannel;
-        }
-        if (ht40 && !candidate.ht40Present)
-        {
-            return PowerResult::InvalidChannel;
+            return geometry;
         }
         uint8_t selected = 0;
-        if (rateCode >= 0x80 && rateCode <= 0x87 &&
+        if (rateCode >= kMcsFirstCode && rateCode <= kMcsLastCode &&
             !candidate.legacyOnlyChannel14)
         {
             if (!ht40 && !candidate.ht20Present)
@@ -472,9 +734,19 @@ namespace simpleath
                 return PowerResult::UnsupportedRate;
             }
             const uint8_t mcs = rateCode & 7U;
-            const size_t index = mcs <= 3 ? ((mcs != 0U) ? 1 : 0) : mcs - 2;
-            selected = (ht40 ? candidate.ht40 : candidate.ht20)[index];
-            if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+            size_t index = 0;
+            if (mcs <= 3U)
+            {
+                index = (mcs != 0U) ? 1U : 0U;
+            }
+            else
+            {
+                index = static_cast<size_t>(mcs - 2U);
+            }
+            selected =
+                ht40 ? at(candidate.ht40, index) : at(candidate.ht20, index);
+            if (selected > kMaximumHalfDbm ||
+                selected > candidate.conductedCeilingHalfDbm)
             {
                 return PowerResult::InvalidCurve;
             }
@@ -485,52 +757,14 @@ namespace simpleath
         {
             return PowerResult::UnsupportedRate;
         }
-        switch (rateCode)
+        const PowerResult legacy =
+            selectLegacyRatePower(candidate, rateCode, selected);
+        if (legacy != PowerResult::Ok)
         {
-            case 0x1b: // 1 Mbps, long preamble.
-            case 0x1a: // 2 Mbps, long preamble.
-            case 0x1e: // 2 Mbps, short preamble.
-                selected = candidate.cck[0];
-                break;
-            case 0x19: // 5.5 Mbps, long preamble.
-            case 0x1d: // 5.5 Mbps, short preamble.
-                // ath9k ar9003_hw_init_txpower_cck applies the lower
-                // 1L_5L/5S target to both 5.5-Mbps preambles.
-                selected = minimum(candidate.cck[0], candidate.cck[1]);
-                break;
-            case 0x18: // 11 Mbps, long preamble.
-            case 0x1c: // 11 Mbps, short preamble.
-                // The PHY also uses the lower 11L/11S target for both.
-                selected = minimum(candidate.cck[2], candidate.cck[3]);
-                break;
-            default:
-                if (candidate.legacyOnlyChannel14)
-                {
-                    return PowerResult::UnsupportedRate;
-                }
-                switch (rateCode)
-                {
-                    case 0x0b:
-                    case 0x0f:
-                    case 0x0a:
-                    case 0x0e:
-                    case 0x09:
-                        selected = candidate.ofdm[0];
-                        break;
-                    case 0x0d:
-                        selected = candidate.ofdm[1];
-                        break;
-                    case 0x08:
-                        selected = candidate.ofdm[2];
-                        break;
-                    case 0x0c:
-                        selected = candidate.ofdm[3];
-                        break;
-                    default:
-                        return PowerResult::UnsupportedRate;
-                }
+            return legacy;
         }
-        if (selected > 63 || selected > candidate.conductedCeilingHalfDbm)
+        if (selected > kMaximumHalfDbm ||
+            selected > candidate.conductedCeilingHalfDbm)
         {
             return PowerResult::InvalidCurve;
         }
