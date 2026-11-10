@@ -25,6 +25,30 @@ namespace ath
         constexpr uint8_t kRelativeRelocationWidth = 4U;
         constexpr uint8_t kAbsoluteRelocationWidth = 8U;
 
+        // All call sites bound the offset to an existing payload allocation.
+        // Reconstruct the byte address rather than forming an unchecked raw
+        // pointer expression (which is not valid for unrelated kernel spans).
+        template <typename T> T *byteAt(T *base, size_t offset)
+        {
+            static_assert(sizeof(uintptr_t) == sizeof(void *),
+                          "host pointer address width");
+            uintptr_t address = 0;
+            __builtin_memcpy(static_cast<void *>(&address),
+                             static_cast<const void *>(&base),
+                             sizeof(uintptr_t));
+            address += offset;
+            T *result = nullptr;
+            __builtin_memcpy(static_cast<void *>(&result),
+                             static_cast<const void *>(&address),
+                             sizeof(uintptr_t));
+            return result;
+        }
+
+        template <typename T> T *elementAt(T *base, size_t index)
+        {
+            return byteAt(base, index * sizeof(T));
+        }
+
         bool overlapsStorage(const void *first, size_t firstLength,
                              const void *second, size_t secondLength)
         {
@@ -33,8 +57,14 @@ namespace ath
             {
                 return false;
             }
-            const auto left = reinterpret_cast<uintptr_t>(first);
-            const auto right = reinterpret_cast<uintptr_t>(second);
+            uintptr_t left = 0;
+            uintptr_t right = 0;
+            static_assert(sizeof(left) == sizeof(first),
+                          "payload pointer address width");
+            __builtin_memcpy(static_cast<void *>(&left),
+                             static_cast<const void *>(&first), sizeof(left));
+            __builtin_memcpy(static_cast<void *>(&right),
+                             static_cast<const void *>(&second), sizeof(right));
             // Compare distances rather than adding potentially untrusted
             // buffer lengths to an address-sized integer.
             return left <= right ? right - left < firstLength
@@ -47,7 +77,7 @@ namespace ath
         uint64_t value = kFnvOffset;
         for (size_t i = 0; i < length; ++i)
         {
-            value = (value ^ bytes[i]) * kFnvPrime;
+            value = (value ^ *byteAt(bytes, i)) * kFnvPrime;
         }
         return value;
     }
@@ -91,8 +121,8 @@ namespace ath
             }
             uint32_t offset = 0;
             uint32_t length = 0;
-            memcpy(&offset, p.delta + position, 4);
-            memcpy(&length, p.delta + position + 4, 4);
+            memcpy(&offset, byteAt(p.delta, position), 4);
+            memcpy(&length, byteAt(p.delta, position + sizeof(uint32_t)), 4);
             position += kDeltaRecordHeaderBytes;
             if ((length == 0U) || offset < end || offset > p.size ||
                 length > p.size - offset || length > p.deltaSize - position)
@@ -103,16 +133,17 @@ namespace ath
             position += length;
         }
         memcpy(image.memory, p.bytes, p.size);
-        memset(image.memory + p.size, 0, p.mappedSize - p.size);
+        memset(byteAt(image.memory, p.size), 0, p.mappedSize - p.size);
         position = 0;
         while (position < p.deltaSize)
         {
             uint32_t offset = 0;
             uint32_t length = 0;
-            memcpy(&offset, p.delta + position, 4);
-            memcpy(&length, p.delta + position + 4, 4);
+            memcpy(&offset, byteAt(p.delta, position), 4);
+            memcpy(&length, byteAt(p.delta, position + sizeof(uint32_t)), 4);
             position += kDeltaRecordHeaderBytes;
-            memcpy(image.memory + offset, p.delta + position, length);
+            memcpy(byteAt(image.memory, offset), byteAt(p.delta, position),
+                   length);
             position += length;
         }
         image.stubUsed = 0;
@@ -133,7 +164,7 @@ namespace ath
         while (begin < end)
         {
             const auto middle = begin + ((end - begin) / 2);
-            const auto &entry = image.payload->symbols[middle];
+            const auto &entry = *elementAt(image.payload->symbols, middle);
             if (entry.name == nullptr)
             {
                 return 0;
@@ -176,7 +207,7 @@ namespace ath
             return 0;
         }
         const auto offset = p.stubOffset + image.stubUsed;
-        auto *const stub = image.memory + offset;
+        auto *const stub = byteAt(image.memory, offset);
         // Direct callers do not pass through relocateImage's alias checks.
         // Stub bytes must not corrupt owned descriptors, source templates or
         // immutable tables consulted by later relocations and restores.
@@ -202,100 +233,121 @@ namespace ath
         }
         const uint8_t jump[] = {0xFF, 0x25, 0, 0, 0, 0};
         memcpy(stub, &jump[0], sizeof(jump));
-        memcpy(stub + sizeof(jump), &target, sizeof(target));
+        memcpy(byteAt(stub, sizeof(jump)), &target, sizeof(target));
         image.stubUsed += kStubBytes;
         return image.address + offset;
     }
 
-    bool relocateImage(LinkedImage &image, const LinkedImage *images,
-                       size_t imageCount, const uintptr_t *imports,
-                       size_t importCount, const uintptr_t *compatibility,
-                       size_t compatibilityCount)
+    namespace
     {
-        if ((image.payload == nullptr) || (image.memory == nullptr) ||
-            !image.editable || ((imageCount != 0U) && (images == nullptr)) ||
-            ((importCount != 0U) && (imports == nullptr)) ||
-            ((compatibilityCount != 0U) && (compatibility == nullptr)))
+        struct RelocationSources
         {
-            return false;
-        }
-        const auto &p = *image.payload;
-        if (p.size > p.mappedSize || p.stubOffset < p.size ||
-            p.stubOffset > p.mappedSize ||
-            p.stubSize > p.mappedSize - p.stubOffset ||
-            image.address > UINTPTR_MAX - p.mappedSize ||
-            ((p.relocationCount != 0U) && (p.relocations == nullptr)) ||
-            ((p.symbolValueCount != 0U) && (p.symbolValues == nullptr)) ||
-            payloadChecksum(image.memory, p.size) != p.checksum)
+                const LinkedImage *images;
+                size_t imageCount;
+                const uintptr_t *imports;
+                size_t importCount;
+                const uintptr_t *compatibility;
+                size_t compatibilityCount;
+        };
+
+        bool validRelocationImage(const LinkedImage &image,
+                                  const RelocationSources &sources)
         {
-            return false;
-        }
-        // Sources for every relocation pass must stay immutable while the
-        // target mapping is written. Otherwise a forged metadata table in the
-        // mapping can be rewritten after checksum validation, changing later
-        // offsets/targets or falsely reporting a successful relocation.
-        // Relocation and symbol counts are 32-bit on this 64-bit target;
-        // the caller-supplied size_t counts still need overflow bounds.
-        if (imageCount > SIZE_MAX / sizeof(LinkedImage) ||
-            importCount > SIZE_MAX / sizeof(uintptr_t) ||
-            compatibilityCount > SIZE_MAX / sizeof(uintptr_t) ||
-            overlapsStorage(image.memory, p.mappedSize, p.relocations,
-                            static_cast<size_t>(p.relocationCount) *
-                                sizeof(Relocation)) ||
-            overlapsStorage(image.memory, p.mappedSize, p.symbolValues,
-                            static_cast<size_t>(p.symbolValueCount) *
-                                sizeof(uint32_t)) ||
-            overlapsStorage(image.memory, p.mappedSize, images,
-                            imageCount * sizeof(LinkedImage)) ||
-            overlapsStorage(image.memory, p.mappedSize, imports,
-                            importCount * sizeof(uintptr_t)) ||
-            overlapsStorage(image.memory, p.mappedSize, compatibility,
-                            compatibilityCount * sizeof(uintptr_t)) ||
-            overlapsStorage(image.memory, p.mappedSize, image.payload,
-                            sizeof(*image.payload)) ||
-            overlapsStorage(image.memory, p.mappedSize, &image, sizeof(image)))
-        {
-            return false;
-        }
-        for (uint32_t i = 0; i < p.relocationCount; ++i)
-        {
-            const auto &r = p.relocations[i];
-            if ((r.width != kRelativeRelocationWidth &&
-                 r.width != kAbsoluteRelocationWidth) ||
-                r.offset > p.size || r.width > p.size - r.offset)
+            if ((image.payload == nullptr) || (image.memory == nullptr) ||
+                !image.editable ||
+                ((sources.imageCount != 0U) && (sources.images == nullptr)) ||
+                ((sources.importCount != 0U) && (sources.imports == nullptr)) ||
+                ((sources.compatibilityCount != 0U) &&
+                 (sources.compatibility == nullptr)))
             {
                 return false;
             }
-            uintptr_t target = 0;
+            const auto &p = *image.payload;
+            return p.size <= p.mappedSize && p.stubOffset >= p.size &&
+                   p.stubOffset <= p.mappedSize &&
+                   p.stubSize <= p.mappedSize - p.stubOffset &&
+                   image.address <= UINTPTR_MAX - p.mappedSize &&
+                   (p.relocationCount == 0U || p.relocations != nullptr) &&
+                   (p.symbolValueCount == 0U || p.symbolValues != nullptr) &&
+                   payloadChecksum(image.memory, p.size) == p.checksum;
+        }
+
+        bool separatedRelocationSources(const LinkedImage &image,
+                                        const RelocationSources &sources)
+        {
+            const auto &p = *image.payload;
+            // Sources for every relocation pass must stay immutable while the
+            // target mapping is written. Otherwise a forged metadata table in
+            // the mapping can be rewritten after checksum validation, changing
+            // later offsets/targets or falsely reporting a successful
+            // relocation. Relocation and symbol counts are 32-bit on this
+            // 64-bit target; the caller-supplied size_t counts still need
+            // overflow bounds.
+            return !(
+                sources.imageCount > SIZE_MAX / sizeof(LinkedImage) ||
+                sources.importCount > SIZE_MAX / sizeof(uintptr_t) ||
+                sources.compatibilityCount > SIZE_MAX / sizeof(uintptr_t) ||
+                overlapsStorage(image.memory, p.mappedSize, p.relocations,
+                                static_cast<size_t>(p.relocationCount) *
+                                    sizeof(Relocation)) ||
+                overlapsStorage(image.memory, p.mappedSize, p.symbolValues,
+                                static_cast<size_t>(p.symbolValueCount) *
+                                    sizeof(uint32_t)) ||
+                overlapsStorage(image.memory, p.mappedSize, sources.images,
+                                sources.imageCount * sizeof(LinkedImage)) ||
+                overlapsStorage(image.memory, p.mappedSize, sources.imports,
+                                sources.importCount * sizeof(uintptr_t)) ||
+                overlapsStorage(
+                    image.memory, p.mappedSize, sources.compatibility,
+                    sources.compatibilityCount * sizeof(uintptr_t)) ||
+                overlapsStorage(image.memory, p.mappedSize, image.payload,
+                                sizeof(*image.payload)) ||
+                overlapsStorage(image.memory, p.mappedSize, &image,
+                                sizeof(image)));
+        }
+
+        bool relocationTarget(const Relocation &r,
+                              const RelocationSources &sources,
+                              uintptr_t &target)
+        {
             if (r.image == kExternalImportImage)
             {
-                if (r.target >= importCount || (imports[r.target] == 0U))
+                if (r.target >= sources.importCount ||
+                    (*elementAt(sources.imports, r.target) == 0U))
                 {
                     return false;
                 }
-                target = imports[r.target];
+                target = *elementAt(sources.imports, r.target);
             }
             else if (r.image == kCompatibilityImportImage)
             {
-                if (r.target >= compatibilityCount ||
-                    (compatibility[r.target] == 0U))
+                if (r.target >= sources.compatibilityCount ||
+                    (*elementAt(sources.compatibility, r.target) == 0U))
                 {
                     return false;
                 }
-                target = compatibility[r.target];
+                target = *elementAt(sources.compatibility, r.target);
             }
             else
             {
-                if (r.image >= imageCount ||
-                    (images[r.image].payload == nullptr) ||
-                    (images[r.image].memory == nullptr) ||
-                    r.target >= images[r.image].payload->size ||
-                    images[r.image].address > UINTPTR_MAX - r.target)
+                if (r.image >= sources.imageCount)
                 {
                     return false;
                 }
-                target = images[r.image].address + r.target;
+                const auto &source = *elementAt(sources.images, r.image);
+                if (source.payload == nullptr || source.memory == nullptr ||
+                    r.target >= source.payload->size ||
+                    source.address > UINTPTR_MAX - r.target)
+                {
+                    return false;
+                }
+                target = source.address + r.target;
             }
+            return true;
+        }
+
+        bool relocationAddend(const Relocation &r, uintptr_t &target)
+        {
             // A relocation addend is signed. Wraparound could otherwise
             // manufacture a plausible but unrelated kernel pointer.
             if (r.addend < 0)
@@ -310,16 +362,22 @@ namespace ath
             }
             else
             {
-                const uint64_t magnitude = static_cast<uint64_t>(r.addend);
+                const auto magnitude = static_cast<uint64_t>(r.addend);
                 if (magnitude > UINTPTR_MAX || target > UINTPTR_MAX - magnitude)
                 {
                     return false;
                 }
                 target += magnitude;
             }
+            return true;
+        }
+
+        bool writeRelocation(LinkedImage &image, const Relocation &r,
+                             uintptr_t target)
+        {
             if (r.width == kAbsoluteRelocationWidth)
             {
-                memcpy(image.memory + r.offset, &target,
+                memcpy(byteAt(image.memory, r.offset), &target,
                        kAbsoluteRelocationWidth);
             }
             else
@@ -341,27 +399,71 @@ namespace ath
                     }
                 }
                 const auto value = static_cast<int32_t>(delta);
-                memcpy(image.memory + r.offset, &value,
+                memcpy(byteAt(image.memory, r.offset), &value,
                        kRelativeRelocationWidth);
             }
+            return true;
         }
-        for (uint32_t i = 0; i < p.symbolValueCount; ++i)
+
+        bool relocateSymbols(const LinkedImage &image)
         {
-            auto offset = p.symbolValues[i];
-            if (offset > p.size || kAbsoluteRelocationWidth > p.size - offset)
+            const auto &p = *image.payload;
+            for (uint32_t i = 0; i < p.symbolValueCount; ++i)
             {
-                return false;
+                const auto offset = *elementAt(p.symbolValues, i);
+                if (offset > p.size ||
+                    kAbsoluteRelocationWidth > p.size - offset)
+                {
+                    return false;
+                }
+                uint64_t value = 0;
+                memcpy(&value, byteAt(image.memory, offset),
+                       kAbsoluteRelocationWidth);
+                if (value >= p.size)
+                {
+                    return false;
+                }
+                value += image.address;
+                memcpy(byteAt(image.memory, offset), &value,
+                       kAbsoluteRelocationWidth);
             }
-            uint64_t value = 0;
-            memcpy(&value, image.memory + offset, kAbsoluteRelocationWidth);
-            if (value >= p.size)
-            {
-                return false;
-            }
-            value += image.address;
-            memcpy(image.memory + offset, &value, kAbsoluteRelocationWidth);
+            return true;
         }
-        return true;
+    } // namespace
+
+    bool relocateImage(LinkedImage &image, const LinkedImage *images,
+                       size_t imageCount, const uintptr_t *imports,
+                       size_t importCount, const uintptr_t *compatibility,
+                       size_t compatibilityCount)
+    {
+        const RelocationSources sources {
+            images,      imageCount,    imports,
+            importCount, compatibility, compatibilityCount,
+        };
+        if (!validRelocationImage(image, sources) ||
+            !separatedRelocationSources(image, sources))
+        {
+            return false;
+        }
+        const auto &p = *image.payload;
+        for (uint32_t i = 0; i < p.relocationCount; ++i)
+        {
+            const auto &r = *elementAt(p.relocations, i);
+            if ((r.width != kRelativeRelocationWidth &&
+                 r.width != kAbsoluteRelocationWidth) ||
+                r.offset > p.size || r.width > p.size - r.offset)
+            {
+                return false;
+            }
+            uintptr_t target = 0;
+            if (!relocationTarget(r, sources, target) ||
+                !relocationAddend(r, target) ||
+                !writeRelocation(image, r, target))
+            {
+                return false;
+            }
+        }
+        return relocateSymbols(image);
     }
 
 } // namespace ath
