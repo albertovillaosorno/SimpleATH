@@ -51,18 +51,18 @@ namespace ath
     enum class AirPortBackend : uint8_t
     {
         Original,
-        Tahoe
+        Tahoe,
     };
     enum class AssociateLayout : uint8_t
     {
         Legacy,
-        Extended
+        Extended,
     };
     enum class JoinEventPolicy : uint8_t
     {
         Passthrough,
         Sequoia,
-        Tahoe
+        Tahoe,
     };
 
     struct UserABI
@@ -83,55 +83,70 @@ namespace ath
             JoinEventPolicy joinEventPolicy;
     };
 
-    constexpr UserABI sonomaABI {23,
-                                 "Sonoma",
-                                 0x4CC,
-                                 16,
-                                 0x358,
-                                 0,
-                                 0,
-                                 legacyScanMultipleSize,
-                                 legacyRoamBandSize,
-                                 legacyDriverAvailableSize,
-                                 7,
-                                 AirPortBackend::Original,
-                                 AssociateLayout::Legacy,
-                                 JoinEventPolicy::Passthrough};
-    constexpr UserABI sequoiaABI {24,
-                                  "Sequoia",
-                                  0x8D8,
-                                  19,
-                                  0x384,
-                                  0x1CC,
-                                  0,
-                                  nativeScanMultipleSize,
-                                  nativeRoamProfileSize,
-                                  nativeDriverAvailableSize,
-                                  9,
-                                  AirPortBackend::Original,
-                                  AssociateLayout::Extended,
-                                  JoinEventPolicy::Sequoia};
-    constexpr UserABI tahoeABI {25,
-                                "Tahoe",
-                                0x8E0,
-                                21,
-                                0x38C,
-                                0x1D4,
-                                0x234,
-                                nativeScanMultipleSize,
-                                nativeRoamProfileSize,
-                                nativeDriverAvailableSize,
-                                9,
-                                AirPortBackend::Tahoe,
-                                AssociateLayout::Extended,
-                                JoinEventPolicy::Tahoe};
+    constexpr UserABI sonomaABI {
+        23,
+        "Sonoma",
+        0x4CC,
+        16,
+        0x358,
+        0,
+        0,
+        legacyScanMultipleSize,
+        legacyRoamBandSize,
+        legacyDriverAvailableSize,
+        7,
+        AirPortBackend::Original,
+        AssociateLayout::Legacy,
+        JoinEventPolicy::Passthrough,
+    };
+    constexpr UserABI sequoiaABI {
+        24,
+        "Sequoia",
+        0x8D8,
+        19,
+        0x384,
+        0x1CC,
+        0,
+        nativeScanMultipleSize,
+        nativeRoamProfileSize,
+        nativeDriverAvailableSize,
+        9,
+        AirPortBackend::Original,
+        AssociateLayout::Extended,
+        JoinEventPolicy::Sequoia,
+    };
+    constexpr UserABI tahoeABI {
+        25,
+        "Tahoe",
+        0x8E0,
+        21,
+        0x38C,
+        0x1D4,
+        0x234,
+        nativeScanMultipleSize,
+        nativeRoamProfileSize,
+        nativeDriverAvailableSize,
+        9,
+        AirPortBackend::Tahoe,
+        AssociateLayout::Extended,
+        JoinEventPolicy::Tahoe,
+    };
 
     inline const UserABI *userABIForKernel(uint32_t kernel)
     {
-        return kernel == 23   ? &sonomaABI
-               : kernel == 24 ? &sequoiaABI
-               : kernel == 25 ? &tahoeABI
-                              : nullptr;
+        if (kernel == sonomaABI.kernel)
+        {
+            return &sonomaABI;
+        }
+        if (kernel == sequoiaABI.kernel)
+        {
+            return &sequoiaABI;
+        }
+        if (kernel == tahoeABI.kernel)
+        {
+            return &tahoeABI;
+        }
+        return nullptr;
     }
 
     inline size_t eventPayloadSize(uint32_t event, size_t length,
@@ -149,14 +164,21 @@ namespace ath
     {
         const auto outputLength = eventPayloadSize(event, length, abi);
         if (length > maximumEventPayload || outputLength < length ||
-            outputLength > capacity || (outputLength && !destination) ||
-            (length && !source))
+            outputLength > capacity ||
+            (outputLength != 0 && (destination == nullptr)) ||
+            (length != 0 && (source == nullptr)))
+        {
             return false;
-        const auto bytes = static_cast<const uint8_t *>(source);
+        }
+        const auto *const bytes = static_cast<const uint8_t *>(source);
         for (size_t offset = 0; offset < length; ++offset)
+        {
             destination[offset] = bytes[offset];
+        }
         for (size_t offset = length; offset < outputLength; ++offset)
+        {
             destination[offset] = 0;
+        }
         return true;
     }
 
@@ -171,7 +193,7 @@ namespace ath
         LargeCommand,
         DriverKitSupported,
         MapUserBuffer,
-        Count
+        Count,
     };
 
     struct Request
@@ -217,14 +239,17 @@ namespace ath
         if (data.version == 1 && data.locale == localeUnknown &&
             country.version == 1 && country.country[0] == 'I' &&
             country.country[1] == 'L' && country.country[2] == '\0')
+        {
             data.locale = localeETSI;
+        }
     }
 
     inline const char *localeString(uint32_t locale)
     {
-        static const char *const names[] = {"Unknown", "FCC",      "ETSI",
-                                            "Japan",   "Korea",    "APAC",
-                                            "RoW",     "Indonesia"};
+        static const char *const names[] = {
+            "Unknown", "FCC",  "ETSI", "Japan",
+            "Korea",   "APAC", "RoW",  "Indonesia",
+        };
         return locale < sizeof(names) / sizeof(names[0]) ? names[locale]
                                                          : names[0];
     }
@@ -238,12 +263,17 @@ namespace ath
     inline bool encodeScalarResult(Request &request, uint8_t *buffer,
                                    size_t capacity)
     {
-        if (!buffer || capacity < sizeof(request.value) ||
+        if ((buffer == nullptr) || capacity < sizeof(request.value) ||
             request.length < sizeof(request.value))
+        {
             return false;
-        const auto bytes = reinterpret_cast<const uint8_t *>(&request.value);
+        }
+        const auto *const bytes =
+            reinterpret_cast<const uint8_t *>(&request.value);
         for (size_t index = 0; index < sizeof(request.value); ++index)
+        {
             buffer[index] = bytes[index];
+        }
         request.length = sizeof(request.value);
         return true;
     }
@@ -251,15 +281,19 @@ namespace ath
     inline bool prepareScanResult(Request &request, uint8_t *buffer,
                                   size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanResultSize < legacyScanResultSize ||
+        if ((buffer == nullptr) || abi.scanResultSize < legacyScanResultSize ||
             capacity < abi.scanResultSize ||
             request.length != abi.scanResultSize)
+        {
             return false;
-        uint16_t length = static_cast<uint16_t>(
+        }
+        auto length = static_cast<uint16_t>(
             buffer[scanIELengthOffset] |
-            (uint16_t(buffer[scanIELengthOffset + 1]) << 8));
+            (static_cast<uint16_t>(buffer[scanIELengthOffset + 1]) << 8));
         if (length > legacyScanIECapacity)
+        {
             length = legacyScanIECapacity;
+        }
         buffer[scanIELengthOffset] = static_cast<uint8_t>(length);
         buffer[scanIELengthOffset + 1] = static_cast<uint8_t>(length >> 8);
         request.length = legacyScanResultSize;
@@ -269,13 +303,17 @@ namespace ath
     inline bool expandScanResult(Request &request, uint8_t *buffer,
                                  size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanResultSize < legacyScanResultSize ||
+        if ((buffer == nullptr) || abi.scanResultSize < legacyScanResultSize ||
             capacity < abi.scanResultSize ||
             request.length != legacyScanResultSize)
+        {
             return false;
+        }
         for (size_t offset = legacyScanResultSize; offset < abi.scanResultSize;
              ++offset)
+        {
             buffer[offset] = 0;
+        }
         request.length = static_cast<uint32_t>(abi.scanResultSize);
         return true;
     }
@@ -284,49 +322,66 @@ namespace ath
                                    size_t capacity, const UserABI &abi,
                                    bool scanEvents)
     {
-        if (!buffer || abi.capabilitySize < legacyCapabilitySize ||
+        if ((buffer == nullptr) || abi.capabilitySize < legacyCapabilitySize ||
             capacity < abi.capabilitySize ||
             request.length != legacyCapabilitySize)
+        {
             return false;
+        }
         for (size_t offset = legacyCapabilitySize; offset < abi.capabilitySize;
              ++offset)
+        {
             buffer[offset] = 0;
+        }
         if (scanEvents)
+        {
             buffer[scanCompletionCapabilityByte] |=
                 scanCompletionCapabilityMask;
+        }
         request.length = static_cast<uint32_t>(abi.capabilitySize);
         return true;
     }
 
     inline uint32_t readUInt32(const uint8_t *buffer)
     {
-        return uint32_t(buffer[0]) | (uint32_t(buffer[1]) << 8) |
-               (uint32_t(buffer[2]) << 16) | (uint32_t(buffer[3]) << 24);
+        return static_cast<uint32_t>(buffer[0]) |
+               (static_cast<uint32_t>(buffer[1]) << 8) |
+               (static_cast<uint32_t>(buffer[2]) << 16) |
+               (static_cast<uint32_t>(buffer[3]) << 24);
     }
 
     inline void writeUInt32(uint8_t *buffer, uint32_t value)
     {
         for (size_t index = 0; index < sizeof(value); ++index)
+        {
             buffer[index] = static_cast<uint8_t>(value >> (index * 8));
+        }
     }
 
     inline bool prepareScanMultiple(Request &request, uint8_t *buffer,
                                     size_t capacity, const UserABI &abi)
     {
-        if (!buffer || abi.scanMultipleSize < legacyScanMultipleSize ||
+        if ((buffer == nullptr) ||
+            abi.scanMultipleSize < legacyScanMultipleSize ||
             capacity < abi.scanMultipleSize ||
             request.length != abi.scanMultipleSize || readUInt32(buffer) != 1 ||
             readUInt32(buffer + 8) > 10 || readUInt32(buffer + 0x19C) > 16 ||
             readUInt32(buffer + 0x210) > 400)
+        {
             return false;
+        }
         for (size_t index = 0; index < readUInt32(buffer + 8); ++index)
         {
             if (readUInt32(buffer + 0x10 + index * 0x28) > 32)
+            {
                 return false;
+            }
         }
         for (size_t offset = legacyScanMultipleSize;
              offset < abi.scanMultipleSize; ++offset)
+        {
             buffer[offset] = 0;
+        }
         request.length = legacyScanMultipleSize;
         return true;
     }
@@ -336,23 +391,31 @@ namespace ath
                                         const UserABI &abi)
     {
         // The fixed status and reason words occupy bytes through 0x13.
-        if (!power || !output || length != powerDataSize ||
-            abi.driverAvailableSize < 0x14 ||
+        if ((power == nullptr) || (output == nullptr) ||
+            length != powerDataSize || abi.driverAvailableSize < 0x14 ||
             capacity < abi.driverAvailableSize || readUInt32(power) != 1)
+        {
             return false;
+        }
         const auto radios = readUInt32(power + 4);
-        if (!radios || radios > 4)
+        if ((radios == 0U) || radios > 4)
+        {
             return false;
+        }
         uint32_t available = 0;
         for (size_t index = 0; index < radios; ++index)
         {
             const auto value = readUInt32(power + 8 + index * 4);
             if (value > 1)
+            {
                 return false;
+            }
             available |= value;
         }
         for (size_t index = 0; index < abi.driverAvailableSize; ++index)
+        {
             output[index] = 0;
+        }
         writeUInt32(output + 8, available);
         writeUInt32(output + 0x10, powerStateAvailabilityReason);
         return true;
@@ -368,12 +431,16 @@ namespace ath
         // The 32-bit status fields and optional BSSID have policy-specific
         // fixed offsets; reject a shortened profile before any output write.
         const size_t minimum = sequoia ? 0x10 : 0x1CC + bssidLength;
-        if ((!sequoia && !tahoe) || !output ||
-            (bssidLength && (!bssid || bssidLength != 6)) ||
+        if ((!sequoia && !tahoe) || (output == nullptr) ||
+            ((bssidLength != 0U) && ((bssid == nullptr) || bssidLength != 6)) ||
             abi.joinStatusSize < minimum || capacity < abi.joinStatusSize)
+        {
             return false;
+        }
         for (size_t index = 0; index < abi.joinStatusSize; ++index)
+        {
             output[index] = 0;
+        }
         writeUInt32(output + (sequoia ? 0x08 : 0x1B8), status);
         writeUInt32(output + (sequoia ? 0x0C : 0x1BC), status);
         if (!sequoia)
@@ -382,7 +449,9 @@ namespace ath
             writeUInt32(output + 0x1C8, 1);
         }
         for (size_t index = 0; index < bssidLength; ++index)
+        {
             output[(sequoia ? 0 : 0x1CC) + index] = bssid[index];
+        }
         return true;
     }
 
@@ -396,34 +465,48 @@ namespace ath
                                    : legacyAssociateSize + 0x2C;
         if ((abi.associateLayout != AssociateLayout::Legacy &&
              abi.associateLayout != AssociateLayout::Extended) ||
-            !buffer || abi.associateSize < minimum ||
+            (buffer == nullptr) || abi.associateSize < minimum ||
             capacity < abi.associateSize || request.length != abi.associateSize)
+        {
             return false;
+        }
         if (abi.associateLayout == AssociateLayout::Legacy)
         {
             if (buffer[0x202] > 3)
+            {
                 return false;
+            }
             request.length = legacyAssociateSize;
             return true;
         }
         const auto lower = readUInt32(buffer + 8);
         const auto upper = readUInt32(buffer + 12);
         if (lower > UINT16_MAX || upper > UINT16_MAX || buffer[0x206] > 3)
+        {
             return false;
+        }
         for (size_t offset = 0xC; offset < 0x215; ++offset)
+        {
             buffer[offset] = buffer[offset + 4];
+        }
         buffer[6] = static_cast<uint8_t>(lower);
         buffer[7] = static_cast<uint8_t>(lower >> 8);
         buffer[8] = static_cast<uint8_t>(upper);
         buffer[9] = static_cast<uint8_t>(upper >> 8);
         buffer[10] = buffer[11] = 0;
         for (size_t offset = 0x215; offset < 0x218; ++offset)
+        {
             buffer[offset] = 0;
+        }
         for (size_t offset = 0x218; offset < legacyAssociateSize; ++offset)
+        {
             buffer[offset] = buffer[offset + 0x2C];
+        }
         for (size_t offset = legacyAssociateSize; offset < abi.associateSize;
              ++offset)
+        {
             buffer[offset] = 0;
+        }
         request.length = legacyAssociateSize;
         return true;
     }
@@ -432,15 +515,24 @@ namespace ath
                                 size_t capacity, const uint8_t *band,
                                 size_t bandCapacity)
     {
-        if (!buffer || !band || capacity < legacyRoamBandSize ||
+        if ((buffer == nullptr) || (band == nullptr) ||
+            capacity < legacyRoamBandSize ||
             bandCapacity < nativeRoamBandSize || readUInt32(band + 12) != 1)
+        {
             return false;
+        }
         for (size_t offset = 0; offset < 4; ++offset)
+        {
             buffer[offset] = band[offset + 12];
+        }
         for (size_t offset = 4; offset < 12; ++offset)
+        {
             buffer[offset] = band[offset];
+        }
         for (size_t offset = 12; offset < legacyRoamBandSize; ++offset)
+        {
             buffer[offset] = band[offset + 4];
+        }
         request.length = legacyRoamBandSize;
         return true;
     }
@@ -449,18 +541,29 @@ namespace ath
                                size_t capacity, uint8_t *band,
                                size_t bandCapacity)
     {
-        if (!buffer || !band || capacity < legacyRoamBandSize ||
+        if ((buffer == nullptr) || (band == nullptr) ||
+            capacity < legacyRoamBandSize ||
             bandCapacity < nativeRoamBandSize ||
             request.length != legacyRoamBandSize)
+        {
             return false;
+        }
         for (size_t offset = legacyRoamBandSize; offset > 12; --offset)
+        {
             band[offset + 3] = buffer[offset - 1];
+        }
         for (size_t offset = 4; offset < 12; ++offset)
+        {
             band[offset] = buffer[offset];
+        }
         for (size_t offset = 0; offset < 4; ++offset)
+        {
             band[offset + 12] = buffer[offset];
+        }
         for (size_t offset = 0; offset < 4; ++offset)
+        {
             band[offset] = 0;
+        }
         return true;
     }
 
@@ -471,9 +574,10 @@ namespace ath
 
             bool accepts(uint32_t event) const
             {
-                return all ||
-                       (event && event <= sizeof(bitmap) * 8 &&
-                        (bitmap[(event - 1) / 8] & (1U << ((event - 1) % 8))));
+                return (all != 0U) ||
+                       ((event != 0U) && event <= sizeof(bitmap) * 8 &&
+                        ((bitmap[(event - 1) / 8] &
+                          (1U << ((event - 1) % 8))) != 0U));
             }
     };
 
@@ -501,7 +605,7 @@ namespace ath
     {
         Written,
         Full,
-        Invalid
+        Invalid,
     };
 
     class EventRing
@@ -514,10 +618,14 @@ namespace ath
                                      size_t length, uint64_t seconds,
                                      uint64_t microseconds)
             {
-                if (!ring || !state || !name || capacity < 4096 ||
-                    capacity > 0x80000 || (capacity & 3) ||
-                    length > maximumEventPayload || (length && !payload))
+                if ((ring == nullptr) || (state == nullptr) ||
+                    (name == nullptr) || capacity < 4096 ||
+                    capacity > 0x80000 || ((capacity & 3) != 0U) ||
+                    length > maximumEventPayload ||
+                    ((length != 0U) && (payload == nullptr)))
+                {
                     return RingResult::Invalid;
+                }
                 // The status word is atomically published at a 4-byte aligned
                 // address. Never clobber retained ring/owner metadata or
                 // borrowed inputs while serializing a new event record.
@@ -527,40 +635,50 @@ namespace ath
                                                      size_t bytes) -> bool
                 {
                     if (!pointer || !bytes)
+                    {
                         return false;
+                    }
                     const auto source = reinterpret_cast<uintptr_t>(pointer);
                     return ringStart <= source ? source - ringStart < capacity
                                                : ringStart - source < bytes;
                 };
-                if ((ringStart & (alignof(uint32_t) - 1U)) ||
+                if (((ringStart & (alignof(uint32_t) - 1U)) != 0U) ||
                     overlapsRing(state, sizeof(*state)) ||
                     overlapsRing(&write, sizeof(write)) ||
                     overlapsRing(&sequence, sizeof(sequence)) ||
                     overlapsRing(name, sizeof(EventHeader::interfaceName)) ||
                     overlapsRing(payload, length))
+                {
                     return RingResult::Invalid;
+                }
                 const uint32_t read =
                     __atomic_load_n(&state->read, __ATOMIC_ACQUIRE);
                 if (read >= capacity || write >= capacity ||
-                    ((read | write) & 3))
+                    (((read | write) & 3) != 0U))
+                {
                     return RingResult::Invalid;
-                const size_t record =
-                    (sizeof(EventHeader) + length + 3) & ~size_t(3);
+                }
+                const size_t record = (sizeof(EventHeader) + length + 3) &
+                                      ~static_cast<size_t>(3);
                 const size_t tail = capacity - write;
                 const size_t gap = tail < sizeof(EventHeader) ? tail : 0;
                 const size_t available =
                     read > write ? read - write : capacity - write + read;
                 if (record + gap + 4 > available)
+                {
                     return RingResult::Full;
-                if (gap)
+                }
+                if (gap != 0U)
                 {
                     for (size_t offset = write; offset < capacity; offset += 4)
+                    {
                         __atomic_store_n(
                             reinterpret_cast<uint32_t *>(ring + offset), 0x50U,
                             __ATOMIC_RELEASE);
+                    }
                     write = 0;
                 }
-                auto header = reinterpret_cast<EventHeader *>(ring + write);
+                auto *header = reinterpret_cast<EventHeader *>(ring + write);
                 __atomic_store_n(&header->status, 0x52U, __ATOMIC_RELAXED);
                 header->flags = 0;
                 header->sequence = ++sequence;
@@ -571,16 +689,23 @@ namespace ath
                     record - sizeof(EventHeader) - length);
                 header->event = event;
                 size_t index = 0;
-                for (; index < sizeof(header->interfaceName) - 1 && name[index];
+                for (; index < sizeof(header->interfaceName) - 1 &&
+                       (name[index] != 0);
                      ++index)
+                {
                     header->interfaceName[index] = name[index];
+                }
                 for (; index < sizeof(header->interfaceName); ++index)
+                {
                     header->interfaceName[index] = 0;
-                const auto bytes = static_cast<const uint8_t *>(payload);
+                }
+                const auto *const bytes = static_cast<const uint8_t *>(payload);
                 for (size_t offset = 0; offset < record - sizeof(EventHeader);
                      ++offset)
+                {
                     ring[(write + sizeof(EventHeader) + offset) % capacity] =
                         offset < length ? bytes[offset] : 0;
+                }
                 __atomic_store_n(&header->status, 0x57U, __ATOMIC_RELEASE);
                 write = static_cast<uint32_t>((write + record) % capacity);
                 __atomic_store_n(&state->write, write, __ATOMIC_RELEASE);

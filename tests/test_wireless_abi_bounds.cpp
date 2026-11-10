@@ -13,7 +13,7 @@ namespace
 
     bool intact(const uint8_t (&bytes)[kArenaBytes])
     {
-        for (uint8_t byte : bytes)
+        for (uint8_t const byte : bytes)
         {
             if (byte != 0xA5U)
             {
