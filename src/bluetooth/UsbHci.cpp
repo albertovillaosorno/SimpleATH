@@ -17,14 +17,24 @@ namespace simpleath
         constexpr size_t kAclHeaderBytes = 4U;
         constexpr size_t kHciCommandHeaderBytes = 3U;
         constexpr uint16_t kHciReadBufferSize = 0x1005U;
+        constexpr uint16_t kHciLeReadBufferSize = 0x2002U;
         constexpr uint16_t kHciReset = 0x0c03U;
         constexpr uint8_t kHciCommandComplete = 0x0eU;
         constexpr uint8_t kHciCommandStatus = 0x0fU;
         constexpr uint8_t kHciCompletedPackets = 0x13U;
+        constexpr uint8_t kHciConnectionComplete = 0x03U;
+        constexpr uint8_t kHciDisconnectionComplete = 0x05U;
+        constexpr uint8_t kHciLeMeta = 0x3eU;
+        constexpr uint8_t kHciLeConnectionComplete = 0x01U;
+        constexpr uint8_t kHciAclLinkType = 0x01U;
         constexpr uint8_t kHciHardwareError = 0x10U;
         constexpr uint8_t kHciDataBufferOverflow = 0x1aU;
         constexpr size_t kControllerFaultBytes = 3U;
         constexpr size_t kReadBufferCompleteBytes = 13U;
+        constexpr size_t kLeBufferCompleteBytes = 9U;
+        constexpr size_t kClassicConnectionBytes = 13U;
+        constexpr size_t kDisconnectionBytes = 6U;
+        constexpr size_t kLeConnectionBytes = 21U;
         constexpr size_t kCommandStatusBytes = 6U;
         constexpr size_t kCommandCreditOffset = 2U;
         constexpr size_t kStatusCreditOffset = 3U;
@@ -34,6 +44,9 @@ namespace simpleath
         constexpr size_t kCompletedCountOffset = 2U;
         constexpr size_t kCompletionHeaderBytes = 3U;
         constexpr size_t kCompletedHandleBytes = 4U;
+        constexpr size_t kLeConnectionHandleOffset = 4U;
+        constexpr size_t kClassicConnectionHandleOffset = 3U;
+        constexpr size_t kClassicConnectionLinkTypeOffset = 11U;
         constexpr uint16_t kHciHandleMask = 0x0fffU;
         constexpr uint16_t kHciMaximumHandle = 0x0effU;
 
@@ -83,31 +96,153 @@ namespace simpleath
                                     bool permitNew)
         {
             UsbHciAclHandle *vacant = nullptr;
+            UsbHciAclHandle *reusable = nullptr;
             for (size_t i = 0; i < kUsbHciTrackedAclHandles; ++i)
             {
                 UsbHciAclHandle &entry = window.connections.at(i);
-                if (entry.outstanding != 0U && entry.handle == handle)
+                if (entry.active && entry.handle == handle)
                 {
                     return &entry;
                 }
-                if (entry.outstanding == 0U && vacant == nullptr)
+                if (!entry.active && vacant == nullptr)
                 {
                     vacant = &entry;
                 }
+                else if (entry.active && entry.outstanding == 0U &&
+                         !entry.connected && reusable == nullptr)
+                {
+                    reusable = &entry;
+                }
             }
-            if (permitNew && vacant != nullptr)
+            if (!permitNew)
             {
-                vacant->handle = handle;
-                return vacant;
+                return nullptr;
+            }
+            UsbHciAclHandle *entry = vacant != nullptr ? vacant : reusable;
+            if (entry != nullptr)
+            {
+                *entry = {};
+                entry->handle = handle;
+                entry->active = true;
+                return entry;
             }
             return nullptr;
+        }
+
+        // LE and classic connection handles are classified ONLY from a
+        // successful controller event, never from caller-supplied ACL bytes.
+        UsbHciStatus accountConnectionType(UsbHciState &state,
+                                           const uint8_t *packet, size_t bytes)
+        {
+            const uint8_t kind = *usbByteOffset(packet, 0U);
+            const bool classic = kind == kHciConnectionComplete;
+            const bool le =
+                kind == kHciLeMeta && bytes >= 3U &&
+                *usbByteOffset(packet, 2U) == kHciLeConnectionComplete;
+            if (!classic && !le)
+            {
+                return UsbHciStatus::Ok;
+            }
+            if (bytes != (le ? kLeConnectionBytes : kClassicConnectionBytes))
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            const size_t status = le ? 3U : 2U;
+            if (*usbByteOffset(packet, status) != 0U)
+            {
+                return UsbHciStatus::Ok;
+            }
+            if (classic &&
+                *usbByteOffset(packet, kClassicConnectionLinkTypeOffset) !=
+                    kHciAclLinkType)
+            {
+                // SCO is not transported on this ACL pipe.
+                return UsbHciStatus::Ok;
+            }
+            const uint16_t handle =
+                little16(packet, le ? kLeConnectionHandleOffset
+                                    : kClassicConnectionHandleOffset);
+            if (handle > kHciMaximumHandle)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            UsbHciAclHandle *entry = findHandle(state.aclWindow, handle, true);
+            if (entry == nullptr || entry->outstanding != 0U)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            if (entry->connected)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            entry->le = le;
+            entry->classified = true;
+            entry->connected = true;
+            entry->retired = false;
+            return UsbHciStatus::Ok;
+        }
+
+        // Disconnection revokes new submissions without inventing a
+        // Number Of Completed Packets. Outstanding controller buffers stay
+        // associated with their original pool until completion or reset.
+        UsbHciStatus accountDisconnection(UsbHciState &state,
+                                          const uint8_t *packet, size_t bytes)
+        {
+            if (*usbByteOffset(packet, 0U) != kHciDisconnectionComplete)
+            {
+                return UsbHciStatus::Ok;
+            }
+            if (bytes != kDisconnectionBytes)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            if (*usbByteOffset(packet, 2U) != 0U)
+            {
+                return UsbHciStatus::Ok;
+            }
+            const uint16_t handle = little16(packet, 3U);
+            if (handle > kHciMaximumHandle)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            UsbHciAclHandle *entry = findHandle(state.aclWindow, handle, false);
+            if (entry != nullptr)
+            {
+                entry->connected = false;
+                entry->retired = true;
+            }
+            return UsbHciStatus::Ok;
+        }
+
+        UsbHciStatus accountConnectionLifecycle(UsbHciState &state,
+                                                const uint8_t *packet,
+                                                size_t bytes)
+        {
+            const UsbHciStatus connected =
+                accountConnectionType(state, packet, bytes);
+            if (connected != UsbHciStatus::Ok)
+            {
+                return connected;
+            }
+            return accountDisconnection(state, packet, bytes);
+        }
+
+        UsbHciAclCredits &creditPool(UsbHciAclWindow &classic,
+                                     UsbHciLeAclWindow &le,
+                                     const UsbHciAclHandle &entry)
+        {
+            if (entry.le && le.configured && le.totalCredits != 0U)
+            {
+                return le;
+            }
+            return classic;
         }
 
         UsbHciStatus completeAcl(UsbHciState &state, const uint8_t *packet,
                                  size_t bytes)
         {
             UsbHciAclWindow &window = state.aclWindow;
-            if (!window.configured)
+            if (!window.configured && !state.leAclWindow.configured)
             {
                 return UsbHciStatus::Ok;
             }
@@ -123,6 +258,7 @@ namespace simpleath
             // credits together. A late malformed handle never grants a
             // partial return of controller buffer ownership.
             UsbHciAclWindow candidate = window;
+            UsbHciLeAclWindow leCandidate = state.leAclWindow;
             for (size_t i = 0;
                  i < *usbByteOffset(packet, kCompletedCountOffset); ++i)
             {
@@ -144,22 +280,28 @@ namespace simpleath
                     }
                 }
                 UsbHciAclHandle *entry = findHandle(candidate, handle, false);
-                if (completed != 0U &&
-                    (entry == nullptr || completed > entry->outstanding ||
-                     completed >
-                         candidate.totalCredits - candidate.availableCredits))
+                if (entry == nullptr && completed != 0U)
                 {
                     return UsbHciStatus::MalformedPacket;
                 }
                 if (entry != nullptr)
                 {
+                    UsbHciAclCredits &credits =
+                        creditPool(candidate, leCandidate, *entry);
+                    if (completed > entry->outstanding ||
+                        completed >
+                            credits.totalCredits - credits.availableCredits)
+                    {
+                        return UsbHciStatus::MalformedPacket;
+                    }
                     entry->outstanding =
                         static_cast<uint16_t>(entry->outstanding - completed);
-                    candidate.availableCredits = static_cast<uint16_t>(
-                        candidate.availableCredits + completed);
+                    credits.availableCredits = static_cast<uint16_t>(
+                        credits.availableCredits + completed);
                 }
             }
             window = candidate;
+            state.leAclWindow = leCandidate;
             return UsbHciStatus::Ok;
         }
 
@@ -190,7 +332,9 @@ namespace simpleath
                 complete && !commands.pending &&
                 ((opcode == kHciReset && state.aclWindow.resetPending) ||
                  (opcode == kHciReadBufferSize &&
-                  state.aclWindow.readBufferPending));
+                  state.aclWindow.readBufferPending) ||
+                 (opcode == kHciLeReadBufferSize &&
+                  state.leAclWindow.readBufferPending));
             if ((!commands.pending && !awaitingSpecialComplete) ||
                 (commands.pending && opcode != commands.pendingOpcode))
             {
@@ -200,6 +344,48 @@ namespace simpleath
                 packet, complete ? kCommandCreditOffset : kStatusCreditOffset);
             commands.pending = false;
             commands.pendingOpcode = 0U;
+            return UsbHciStatus::Ok;
+        }
+
+        UsbHciStatus accountLeReadBuffer(UsbHciState &state,
+                                         const uint8_t *packet, size_t bytes)
+        {
+            UsbHciLeAclWindow &le = state.leAclWindow;
+            const uint8_t event = *usbByteOffset(packet, 0U);
+            if (event == kHciCommandStatus && bytes == kCommandStatusBytes &&
+                little16(packet, 4U) == kHciLeReadBufferSize &&
+                le.readBufferPending && *usbByteOffset(packet, 2U) != 0U)
+            {
+                le.readBufferPending = false;
+                return UsbHciStatus::Ok;
+            }
+            if (event != kHciCommandComplete ||
+                bytes < kCommandCompletePrefixBytes ||
+                little16(packet, 3U) != kHciLeReadBufferSize ||
+                !le.readBufferPending)
+            {
+                return UsbHciStatus::Ok;
+            }
+            le.readBufferPending = false;
+            if (bytes != kLeBufferCompleteBytes)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            if (*usbByteOffset(packet, kResponseStatusOffset) != 0U)
+            {
+                return UsbHciStatus::Ok;
+            }
+            const uint16_t mtu = little16(packet, 6U);
+            const uint8_t packets = *usbByteOffset(packet, 8U);
+            if ((packets == 0U && mtu != 0U) || (packets != 0U && mtu == 0U) ||
+                le.configured)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
+            le.packetBytes = mtu;
+            le.totalCredits = packets;
+            le.availableCredits = packets;
+            le.configured = true;
             return UsbHciStatus::Ok;
         }
 
@@ -238,6 +424,18 @@ namespace simpleath
             if (commandResult != UsbHciStatus::Ok)
             {
                 return commandResult;
+            }
+            const UsbHciStatus leResult =
+                accountLeReadBuffer(state, packet, bytes);
+            if (leResult != UsbHciStatus::Ok)
+            {
+                return leResult;
+            }
+            const UsbHciStatus connectionResult =
+                accountConnectionLifecycle(state, packet, bytes);
+            if (connectionResult != UsbHciStatus::Ok)
+            {
+                return connectionResult;
             }
             UsbHciAclWindow &window = state.aclWindow;
             if (window.resetPending &&
@@ -453,12 +651,12 @@ namespace simpleath
             return UsbHciStatus::MalformedPacket;
         }
         const uint16_t opcode = little16(command, 0U);
-        if ((state.aclWindow.resetPending ||
-             state.aclWindow.readBufferPending) ||
+        if (state.aclWindow.resetPending || state.aclWindow.readBufferPending ||
+            state.leAclWindow.readBufferPending ||
             (opcode == kHciReadBufferSize &&
              (state.aclWindow.configured || state.aclWindow.readBufferPending ||
               state.aclWindow.resetPending)) ||
-            (opcode == kHciReset && state.aclWindow.resetPending))
+            (opcode == kHciLeReadBufferSize && state.leAclWindow.configured))
         {
             return UsbHciStatus::FlowControlUnavailable;
         }
@@ -478,6 +676,10 @@ namespace simpleath
         {
             state.aclWindow.readBufferPending = true;
         }
+        else if (opcode == kHciLeReadBufferSize)
+        {
+            state.leAclWindow.readBufferPending = true;
+        }
         else if (opcode == kHciReset)
         {
             // A successful controller reset discards its ACL buffer pool and
@@ -485,6 +687,7 @@ namespace simpleath
             // callbacks may immediately deliver reset completion, and a
             // failed/ambiguous reset will fault the whole transport.
             state.aclWindow = {};
+            state.leAclWindow = {};
             state.aclWindow.resetPending = true;
         }
         if (!host.commandControlOut(host.context, command, bytes))
@@ -519,32 +722,52 @@ namespace simpleath
             return UsbHciStatus::MalformedPacket;
         }
         UsbHciAclWindow &window = state.aclWindow;
-        if (!window.configured)
-        {
-            return UsbHciStatus::FlowControlUnavailable;
-        }
-        if (bytes - kAclHeaderBytes > window.packetBytes)
-        {
-            return UsbHciStatus::FrameTooLarge;
-        }
         const uint16_t handle = little16(packet, 0U) & kHciHandleMask;
         if (handle > kHciMaximumHandle)
         {
             return UsbHciStatus::MalformedPacket;
         }
-        if (window.availableCredits == 0U)
+        UsbHciAclHandle *entry = findHandle(window, handle, false);
+        // Once an LE pool exists, only the controller may establish which
+        // credits are applicable to a connection handle.
+        if (state.leAclWindow.configured &&
+            (entry == nullptr || !entry->classified || !entry->connected))
+        {
+            return UsbHciStatus::FlowControlUnavailable;
+        }
+        if (entry != nullptr &&
+            (entry->retired || (entry->classified && !entry->connected) ||
+             (entry->le && !state.leAclWindow.configured)))
+        {
+            return UsbHciStatus::FlowControlUnavailable;
+        }
+        UsbHciAclCredits &pool =
+            entry == nullptr ? static_cast<UsbHciAclCredits &>(window)
+                             : creditPool(window, state.leAclWindow, *entry);
+        if (!pool.configured)
+        {
+            return UsbHciStatus::FlowControlUnavailable;
+        }
+        if (bytes - kAclHeaderBytes > pool.packetBytes)
+        {
+            return UsbHciStatus::FrameTooLarge;
+        }
+        if (pool.availableCredits == 0U)
         {
             return UsbHciStatus::NoControllerCredits;
         }
-        UsbHciAclHandle *entry = findHandle(window, handle, true);
+        if (entry == nullptr)
+        {
+            entry = findHandle(window, handle, true);
+        }
         if (entry == nullptr)
         {
             return UsbHciStatus::TooManyConnections;
         }
-        // Consume the controller slot before USB I/O so that a synchronous
-        // completion cannot race ahead of the accounting entry.
+        // The native controller still owns packet completion. Account before
+        // the callback because it may synchronously deliver a completion.
         ++entry->outstanding;
-        --window.availableCredits;
+        --pool.availableCredits;
         size_t transferred = 0U;
         if (!host.aclBulkOut(host.context, state.endpoints.aclBulkOut, packet,
                              bytes, &transferred) ||

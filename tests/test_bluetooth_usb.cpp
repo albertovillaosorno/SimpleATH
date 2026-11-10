@@ -407,6 +407,8 @@ namespace
                 UsbHciStatus::Ok ||
             receiveUsbHciEvent(state, host(fake), kDisconnected.data(),
                                kDisconnected.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kSecond.data(), kSecond.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
             state.aclWindow.availableCredits != 0U ||
             receiveUsbHciEvent(state, host(fake), kCompleteTwo.data(),
                                kCompleteTwo.size()) != UsbHciStatus::Ok ||
@@ -676,6 +678,214 @@ namespace
                state.faulted;
     }
 
+    constexpr std::array<uint8_t, 3U> kLeReadSize {
+        0x02U,
+        0x20U,
+        0U,
+    };
+    constexpr std::array<uint8_t, 6U> kLeAcceptedStatus {
+        0x0fU, 4U, 0U, 1U, 0x02U, 0x20U,
+    };
+    constexpr std::array<uint8_t, 9U> kLeDedicatedResponse {
+        0x0eU, 7U, 1U, 0x02U, 0x20U, 0U, 5U, 0U, 2U,
+    };
+    constexpr std::array<uint8_t, 9U> kLeSharedResponse {
+        0x0eU, 7U, 1U, 0x02U, 0x20U, 0U, 0U, 0U, 0U,
+    };
+    constexpr std::array<uint8_t, 21U> kLeConnected {
+        0x3eU, 19U, 1U, 0U,    1U, 0U, 0U, 0U,    0U, 0U, 0U,
+        0U,    0U,  0U, 0x18U, 0U, 0U, 0U, 0x48U, 0U, 0U,
+    };
+    constexpr std::array<uint8_t, 13U> kClassicConnected {
+        3U, 11U, 0U, 2U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 1U, 0U,
+    };
+    constexpr std::array<uint8_t, 5U> kLeAcl {
+        1U, 0x20U, 1U, 0U, 0x7fU,
+    };
+    constexpr std::array<uint8_t, 10U> kLeOversized {
+        1U, 0x20U, 6U, 0U, 1U, 2U, 3U, 4U, 5U, 6U,
+    };
+    constexpr std::array<uint8_t, 5U> kClassicAcl {
+        2U, 0x20U, 1U, 0U, 0x7fU,
+    };
+    constexpr std::array<uint8_t, 7U> kLeCompleted {
+        0x13U, 5U, 1U, 1U, 0U, 1U, 0U,
+    };
+    constexpr std::array<uint8_t, 7U> kClassicCompleted {
+        0x13U, 5U, 1U, 2U, 0U, 1U, 0U,
+    };
+    constexpr std::array<uint8_t, 6U> kLeDisconnected {
+        0x05U, 4U, 0U, 1U, 0U, 0x13U,
+    };
+    constexpr UsbHciEndpoints kLeEndpoints {
+        kEventInEndpoint,
+        kAclInEndpoint,
+        kBulkOutEndpoint,
+    };
+
+    bool testDedicatedLeCredits()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                              kLeReadSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kLeAcceptedStatus.data(),
+                               kLeAcceptedStatus.size()) != UsbHciStatus::Ok ||
+            !state.leAclWindow.readBufferPending ||
+            sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                              kReadBufferSize.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kLeDedicatedResponse.data(),
+                               kLeDedicatedResponse.size()) !=
+                UsbHciStatus::Ok ||
+            !state.leAclWindow.configured ||
+            state.leAclWindow.availableCredits != 2U ||
+            state.aclWindow.configured ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
+                               kLeConnected.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kLeOversized.data(),
+                          kLeOversized.size()) != UsbHciStatus::FrameTooLarge ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::Ok ||
+            state.leAclWindow.availableCredits != 0U ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::NoControllerCredits ||
+            sendUsbHciAcl(state, host(fake), kClassicAcl.data(),
+                          kClassicAcl.size()) !=
+                UsbHciStatus::FlowControlUnavailable)
+        {
+            return false;
+        }
+        // Read Buffer Size is independent of the already configured LE pool.
+        if (!negotiateAclCredits(state, fake) ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kClassicAcl.data(),
+                          kClassicAcl.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kClassicAcl.data(),
+                          kClassicAcl.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 0U ||
+            receiveUsbHciEvent(state, host(fake), kLeCompleted.data(),
+                               kLeCompleted.size()) != UsbHciStatus::Ok ||
+            state.leAclWindow.availableCredits != 1U ||
+            state.aclWindow.availableCredits != 0U ||
+            receiveUsbHciEvent(state, host(fake), kClassicCompleted.data(),
+                               kClassicCompleted.size()) != UsbHciStatus::Ok ||
+            state.leAclWindow.availableCredits != 1U ||
+            state.aclWindow.availableCredits != 1U)
+        {
+            return false;
+        }
+        // A wrong late completion in a mixed-pool event never partially
+        // restores either ledger. The entire transport faults closed.
+        constexpr std::array<uint8_t, 11U> kMixedInvalid {
+            0x13U, 9U, 2U, 1U, 0U, 1U, 0U, 2U, 0U, 2U, 0U,
+        };
+        return receiveUsbHciEvent(state, host(fake), kMixedInvalid.data(),
+                                  kMixedInvalid.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted && state.leAclWindow.availableCredits == 1U &&
+               state.aclWindow.availableCredits == 1U;
+    }
+
+    bool testSharedLeCredits()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            !negotiateAclCredits(state, fake) ||
+            sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                              kLeReadSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kLeSharedResponse.data(),
+                               kLeSharedResponse.size()) != UsbHciStatus::Ok ||
+            !state.leAclWindow.configured ||
+            state.leAclWindow.totalCredits != 0U ||
+            receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
+                               kLeConnected.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                               kClassicConnected.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kClassicAcl.data(),
+                          kClassicAcl.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 0U ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::NoControllerCredits ||
+            receiveUsbHciEvent(state, host(fake), kLeCompleted.data(),
+                               kLeCompleted.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U ||
+            state.leAclWindow.availableCredits != 0U)
+        {
+            return false;
+        }
+        // Link shutdown must not refund an ACL buffer or permit another TX
+        // on the retired handle. A later connection may reclassify it only
+        // after all in-flight packets are physically completed.
+        if (receiveUsbHciEvent(state, host(fake), kLeDisconnected.data(),
+                               kLeDisconnected.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
+                               kLeConnected.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 0U)
+        {
+            return false;
+        }
+        constexpr std::array<uint8_t, 3U> kReset {0x03U, 0x0cU, 0U};
+        if (sendUsbHciCommand(state, host(fake), kReset.data(),
+                              kReset.size()) != UsbHciStatus::Ok ||
+            state.aclWindow.configured || state.leAclWindow.configured ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kResetComplete.data(),
+                               kResetComplete.size()) != UsbHciStatus::Ok ||
+            state.commandWindow.credits != 1U)
+        {
+            return false;
+        }
+        return sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                                 kLeReadSize.size()) == UsbHciStatus::Ok;
+    }
+
+    bool testMalformedLeBufferSize()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        auto invalidResponse = kLeDedicatedResponse;
+        constexpr size_t kLeBufferLengthOffset = 6U;
+        invalidResponse.at(kLeBufferLengthOffset) = 0U;
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                              kLeReadSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), invalidResponse.data(),
+                               invalidResponse.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted || state.leAclWindow.configured)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        // A physical connection event must never switch an in-flight classic
+        // handle into the dedicated LE credit pool.
+        return attachUsbHci(state, kLeEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               negotiateAclCredits(state, fake) &&
+               sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) ==
+                   UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), kLeConnected.data(),
+                                  kLeConnected.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted;
+    }
+
     bool testControllerFaults()
     {
         UsbFake fake = newFake();
@@ -851,6 +1061,21 @@ int main()
         constexpr int kControllerFaultTestFailure = 5;
         return kControllerFaultTestFailure;
     }
-    constexpr int kCommandCreditTestFailure = 6;
-    return testCommandCredits() ? 0 : kCommandCreditTestFailure;
+    if (!testCommandCredits())
+    {
+        constexpr int kCommandCreditTestFailure = 6;
+        return kCommandCreditTestFailure;
+    }
+    if (!testDedicatedLeCredits())
+    {
+        constexpr int kDedicatedLeCreditTestFailure = 7;
+        return kDedicatedLeCreditTestFailure;
+    }
+    if (!testSharedLeCredits())
+    {
+        constexpr int kSharedLeCreditTestFailure = 8;
+        return kSharedLeCreditTestFailure;
+    }
+    constexpr int kMalformedLeTestFailure = 9;
+    return testMalformedLeBufferSize() ? 0 : kMalformedLeTestFailure;
 }

@@ -72,17 +72,30 @@ namespace simpleath
     {
             uint16_t handle {};
             uint16_t outstanding {};
+            bool active {};
+            bool le {};
+            bool classified {};
+            bool connected {};
+            bool retired {};
     };
 
-    struct UsbHciAclWindow
+    struct UsbHciAclCredits
     {
-            UsbBytes<UsbHciAclHandle, kUsbHciTrackedAclHandles> connections {};
             uint16_t packetBytes {};
             uint16_t totalCredits {};
             uint16_t availableCredits {};
             bool readBufferPending {};
-            bool resetPending {};
             bool configured {};
+    };
+
+    struct UsbHciAclWindow : UsbHciAclCredits
+    {
+            UsbBytes<UsbHciAclHandle, kUsbHciTrackedAclHandles> connections {};
+            bool resetPending {};
+    };
+
+    struct UsbHciLeAclWindow : UsbHciAclCredits
+    {
     };
 
     // A dedicated HCI host owns command serialization. The USB controller
@@ -102,6 +115,7 @@ namespace simpleath
             UsbHciStream events {};
             UsbHciStream acl {};
             UsbHciAclWindow aclWindow {};
+            UsbHciLeAclWindow leAclWindow {};
             UsbHciCommandWindow commandWindow {};
             UsbHciEndpoints endpoints {};
             uint64_t epoch {};
@@ -131,10 +145,13 @@ namespace simpleath
     // is accepted before that handshake. The owner must serialize these
     // operations and its HCI event callbacks under one USB epoch.
     //
-    // This is the BR/EDR buffer pool only. An independently provisioned LE
-    // buffer pool (LE Read Buffer Size) needs connection-type attribution and
-    // is not conflated with these credits. Controller Number Of Completed
-    // Packets events retire exact per-handle outstanding packets;
+    // BR/EDR Read Buffer Size and LE Read Buffer Size (0x2002) report
+    // separate buffer pools. A successful physical LE Connection Complete
+    // classifies an LE handle. LE credits stay segregated when advertised;
+    // a zero-sized dedicated LE pool instead shares BR/EDR credits as the
+    // HCI spec requires. Unclassified handles are not accepted once LE pool
+    // negotiation has begun. Controller Number Of Completed Packets events
+    // retire exact per-handle outstanding packets from the correct pool;
     // false or duplicate credits latch a fault instead of allowing overflow.
     // A disconnect event alone does NOT confirm buffer completion; all
     // outstanding slots require controller completion or transport reset.
