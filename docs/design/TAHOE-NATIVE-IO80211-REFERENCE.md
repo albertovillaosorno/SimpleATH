@@ -172,3 +172,32 @@ native adapter has been enabled or compiled.
 
 No build, tests, kext injection, PCI access, root patch, USB/EFI changes
 or on-device experiments were performed for this research.
+
+## Exact 25G332 modern-family layout inspection (2026-11-09)
+
+The matching KDK DMG was fetched to temporary storage, SHA-256 checked against
+`9490bd9b5e16ff5cee8b7330c498d64f27a008aa91c5c70d686a00dc5978c555`,
+and inspected without mounting, installing or executing its binaries.
+The selected IO80211Family image has UUID
+`4C2B4969-2B92-3646-9512-C1769BE0F9A4`, matching the existing evidence.
+
+Static metaclass constructors report sizes 0x128 for IO80211Controller and
+IO80211SkywalkInterface, 0x130 for IO80211InfraInterface and
+IO80211InfraProtocol, and 0x10 for IO80211NoneProtocol. The controller's
+modern attachInterface(OSObject*,IOService*) entry is at vtable offset 0xdc8
+relative to the first virtual-function entry. NoneProtocol derives from
+OSObject; it is not a legacy IO80211Interface substitute.
+
+The exact `apple80211setSCAN_REQ(IO80211SkywalkInterface*,apple80211_scan_data*)`
+wrapper checks the NoneProtocol metaclass and calls offset 0x1b0. Its legacy
+scan request path must not be confused with the modern InfraProtocol WCL
+scan/association path. The installed compatibility SDK contains legacy and
+incomplete Skywalk declarations; its names alone do not establish this ABI.
+Native declarations and the corresponding interface/packet/event owner still
+need source implementation and link/layout validation before use.
+
+A current native Tahoe reference, AirportMtkWlan at commit
+`37aa87eecf9fd2246c0f4ef9879416afa396a105`, independently describes the modern
+controller/InfraProtocol/WCL architecture. It was consulted as API research;
+its GPLv2 implementation and headers were not copied into the driver.
+https://github.com/Arxusion/AirportMtkWlan/tree/37aa87eecf9fd2246c0f4ef9879416afa396a105

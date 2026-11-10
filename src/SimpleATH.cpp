@@ -239,9 +239,9 @@ class SimpleATH final : public IOService
             // do not require a key or a fabricated CCMP attestation.
             simpleath::ieee80211::EngineAction action {};
             const auto result = self.engine_.acceptRx(
-                frame, bytes, status.combinedRssi, nowMicros(nullptr) / 1000,
-                trust, self.managementReply_, sizeof(self.managementReply_),
-                action);
+                frame, bytes, trust,
+                {status.combinedRssi, nowMicros(nullptr) / 1000},
+                self.managementReply_, sizeof(self.managementReply_), action);
             self.setProperty("SimpleATHLastReceiveResult",
                              static_cast<uint32_t>(result), 32);
             ++self.receivedFrames_;

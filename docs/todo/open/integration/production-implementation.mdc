@@ -61,5 +61,11 @@ build tag, deployment or hardware action.
 The native entrypoint now owns PCI, maps registers, quiesces MAC engines,
 runs RTC bootstrap and discovers EEPROM/OTP board data. PCI and DMA source
 are compiled normally. These implementations are progress, not completion:
-calibrated RF/channel programming, hardware queues/interrupts, native AirPort
-registration and the connected scan/association/packet workflow remain open.
+native coherent DMA allocation, queue programming and interrupt/completion
+ownership are now implemented, alongside source executors for PLL, channel
+synthesis, RF-bus grants and RX-only AGC offset calibration. The passive scan
+scheduler is implemented in WifiEngine. Remaining board/calibration/regulatory
+orchestration must activate those real paths; native AirPort registration,
+connected scan/association/packet flow, Bluetooth USB/BLE and AirDrop/AWDL
+remain open. The manual macOS debug collector is available for the final
+owner-controlled log cycle.
