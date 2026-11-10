@@ -16,6 +16,7 @@
 /* Begin PBXBuildFile section */
 		00000000000000000000D610 /* Ath3kUsb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D620 /* Ath3kUsb.cpp */; };
 		00000000000000000000D611 /* UsbHci.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D621 /* UsbHci.cpp */; };
+		00000000000000000000D614 /* LeDiscovery.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D629 /* LeDiscovery.cpp */; };
 		00000000000000000000D612 /* NativeAth3kIo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D622 /* NativeAth3kIo.cpp */; };
 		00000000000000000000D613 /* SimpleATHUsbBluetooth.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D623 /* SimpleATHUsbBluetooth.cpp */; };
 		00000000000000000000D5A0 /* Ar9565PhyMode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D5A1 /* Ar9565PhyMode.cpp */; };
@@ -72,6 +73,8 @@
 /* Begin PBXFileReference section */
 		00000000000000000000D620 /* Ath3kUsb.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = bluetooth/Ath3kUsb.cpp; sourceTree = "<group>"; };
 		00000000000000000000D621 /* UsbHci.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = bluetooth/UsbHci.cpp; sourceTree = "<group>"; };
+		00000000000000000000D629 /* LeDiscovery.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = bluetooth/LeDiscovery.cpp; sourceTree = "<group>"; };
+		00000000000000000000D62A /* LeDiscovery.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = bluetooth/LeDiscovery.hpp; sourceTree = "<group>"; };
 		00000000000000000000D622 /* NativeAth3kIo.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/bluetooth/NativeAth3kIo.cpp; sourceTree = "<group>"; };
 		00000000000000000000D623 /* SimpleATHUsbBluetooth.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/bluetooth/SimpleATHUsbBluetooth.cpp; sourceTree = "<group>"; };
 		00000000000000000000D624 /* Ath3kUsb.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = bluetooth/Ath3kUsb.hpp; sourceTree = "<group>"; };
@@ -191,6 +194,8 @@
 				000000000000000000000064 /* SimpleATH.cpp */,
 				00000000000000000000D620 /* Ath3kUsb.cpp */,
 				00000000000000000000D621 /* UsbHci.cpp */,
+				00000000000000000000D629 /* LeDiscovery.cpp */,
+				00000000000000000000D62A /* LeDiscovery.hpp */,
 				00000000000000000000D622 /* NativeAth3kIo.cpp */,
 				00000000000000000000D623 /* SimpleATHUsbBluetooth.cpp */,
 				00000000000000000000D624 /* Ath3kUsb.hpp */,
@@ -386,6 +391,7 @@
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				00000000000000000000D610 /* Ath3kUsb.cpp in Sources */,
 				00000000000000000000D611 /* UsbHci.cpp in Sources */,
+				00000000000000000000D614 /* LeDiscovery.cpp in Sources */,
 				00000000000000000000D612 /* NativeAth3kIo.cpp in Sources */,
 				00000000000000000000D613 /* SimpleATHUsbBluetooth.cpp in Sources */,
 				00000000000000000000D590 /* Ar9565RadioSequence.cpp in Sources */,
