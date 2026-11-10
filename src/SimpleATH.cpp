@@ -238,6 +238,19 @@ class SimpleATH final : public IOService
             };
         }
 
+        simpleath::RfKillBackend rfKillBackend()
+        {
+            return {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                rfPowerPermit,
+                readRegister,
+                writeRegister,
+                delayMicros,
+            };
+        }
+
         static bool readRegister(void *context, uint32_t offset,
                                  uint32_t *value)
         {
@@ -549,6 +562,29 @@ class SimpleATH final : public IOService
                 enginesQuiesced_ && !queuesAdopted_ && !radioOperational_ &&
                     !channelAuthorized_,
             };
+            // Read the physical RF-kill input only if this EEPROM actually
+            // advertises a pin. A missing pin is UNKNOWN, not unblocked;
+            // physical permission must be rechecked before future RF use.
+            const simpleath::RfKillBoardConfiguration killPin {
+                board->summary.rfKillConfigured,
+                board->summary.rfKillGpio,
+                board->summary.rfKillPolarity,
+            };
+            stage("AR9565RfKillSample");
+            const auto kill =
+                simpleath::sampleAr9565RfKill(killPin, rfKillBackend());
+            setProperty("SimpleATHRfKillResult",
+                        static_cast<uint32_t>(kill.result),
+                        kRfPropertyWidthBits);
+            setProperty("SimpleATHRfKillUnblocked",
+                        kill.result == simpleath::RfKillResult::Unblocked);
+            setProperty("SimpleATHRfKillResetRequired", kill.requiresReset);
+            if (kill.result != simpleath::RfKillResult::Unblocked &&
+                kill.result != simpleath::RfKillResult::NotConfigured)
+            {
+                return abortStart("AR9565RfKillSample",
+                                  static_cast<uint32_t>(kill.result));
+            }
             const auto analogIo = rfPowerBackend();
             stage("AR9565PMU1Regulator");
             const auto regulator = simpleath::configureAr9565InternalRegulator(
@@ -628,6 +664,7 @@ class SimpleATH final : public IOService
             powered_ = false;
             identity_ = {};
             setProperty("SimpleATHBoardAcquired", false);
+            setProperty("SimpleATHRfKillUnblocked", false);
             setProperty("SimpleATHEepromValidated", false);
             setProperty("SimpleATHMmioTransportReady", false);
             setProperty("SimpleATHPciExclusiveOwner", false);
