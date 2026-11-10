@@ -3,6 +3,7 @@
 
 #include "bluetooth/Ath3kUsb.hpp"
 #include "bluetooth/UsbHci.hpp"
+#include "bluetooth/UsbHciEndpointSelector.hpp"
 
 #include <IOKit/IOService.h>
 #include <IOKit/usb/IOUSBHostInterface.h>
@@ -53,6 +54,9 @@ namespace simpleath
             // USB VID/PID/revision and the owner's epoch happen to match.
             IOUSBHostDevice *device {};
             Ath3kUsbIdentity identity {};
+            // Initial configuration/alternate descriptor and required HCI
+            // endpoints. A same-device setting switch invalidates this lease.
+            UsbHciInterfaceTopology topology {};
             IOUSBHostPipe *eventIn {};
             IOUSBHostPipe *aclIn {};
             IOUSBHostPipe *aclOut {};

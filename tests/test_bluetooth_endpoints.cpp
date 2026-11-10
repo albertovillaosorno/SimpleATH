@@ -22,6 +22,8 @@ namespace
     constexpr uint8_t kScoIn = 0x83U;
     constexpr uint8_t kScoOut = 0x03U;
     constexpr uint8_t kAdditionalOut = 0x05U;
+    constexpr uint8_t kChangedEvent = 0x81U;
+    constexpr uint8_t kChangedAclIn = 0x82U;
     constexpr uint8_t kInvalidAddress = 0xf1U;
     constexpr uint8_t kInvalidType = 5U;
     constexpr size_t kLimit = 32U;
@@ -169,6 +171,64 @@ namespace
         return 0;
     }
 
+    int rejectChangedActiveSetting()
+    {
+        constexpr UsbHciInterfaceTopology kOpened {
+            1U,
+            0U,
+            {kEvent, kAclIn, kAclOut},
+        };
+        if (!sameUsbHciInterfaceTopology(kOpened, kOpened))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Alternate setting changes invalidate existing IOUSBHostPipe
+        // leases even when the new setting reuses identical endpoints.
+        auto changed = kOpened;
+        changed.alternateSetting = 1U;
+        if (sameUsbHciInterfaceTopology(kOpened, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.configurationValue = 2U;
+        if (sameUsbHciInterfaceTopology(kOpened, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.endpoints.eventInterruptIn = kChangedEvent;
+        if (sameUsbHciInterfaceTopology(kOpened, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.endpoints.aclBulkIn = kChangedAclIn;
+        if (sameUsbHciInterfaceTopology(kOpened, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.endpoints.aclBulkOut = 0x02U;
+        if (sameUsbHciInterfaceTopology(kOpened, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.configurationValue = 0U;
+        if (sameUsbHciInterfaceTopology(changed, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        changed = kOpened;
+        changed.endpoints.aclBulkOut = 0U;
+        if (sameUsbHciInterfaceTopology(changed, changed))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int rejectMalformed()
     {
         auto invalidAddress = kDescriptors;
@@ -242,6 +302,10 @@ int main()
         return result;
     }
     if (const int result = rejectAliasedOutputAt(2U))
+    {
+        return result;
+    }
+    if (const int result = rejectChangedActiveSetting())
     {
         return result;
     }

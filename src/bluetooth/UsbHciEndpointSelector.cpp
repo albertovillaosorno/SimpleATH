@@ -52,6 +52,21 @@ namespace simpleath
         }
     } // namespace
 
+    bool sameUsbHciInterfaceTopology(const UsbHciInterfaceTopology &opened,
+                                     const UsbHciInterfaceTopology &current)
+    {
+        return opened.configurationValue != 0U &&
+               current.configurationValue == opened.configurationValue &&
+               current.alternateSetting == opened.alternateSetting &&
+               opened.endpoints.eventInterruptIn != 0U &&
+               opened.endpoints.aclBulkIn != 0U &&
+               opened.endpoints.aclBulkOut != 0U &&
+               current.endpoints.eventInterruptIn ==
+                   opened.endpoints.eventInterruptIn &&
+               current.endpoints.aclBulkIn == opened.endpoints.aclBulkIn &&
+               current.endpoints.aclBulkOut == opened.endpoints.aclBulkOut;
+    }
+
     UsbHciEndpointResult
     selectUsbHciEndpoints(const UsbHciEndpointDescriptor *descriptors,
                           size_t count, UsbHciEndpoints &endpoints)

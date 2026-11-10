@@ -22,6 +22,20 @@ namespace simpleath
         Ambiguous,
     };
 
+    // A borrowed pipe belongs to a particular active USB configuration and
+    // alternate interface setting, not just an endpoint address. Switching
+    // either can invalidate the borrowed pipe even if the three HCI endpoint
+    // addresses remain identical. Compare this snapshot before every I/O.
+    struct UsbHciInterfaceTopology
+    {
+            uint8_t configurationValue;
+            uint8_t alternateSetting;
+            UsbHciEndpoints endpoints;
+    };
+
+    bool sameUsbHciInterfaceTopology(const UsbHciInterfaceTopology &opened,
+                                     const UsbHciInterfaceTopology &current);
+
     // The USB owner extracts endpoint address and transfer type from the
     // ACTIVE interface's real descriptors, including alternate setting.
     // Transfer type follows USB bmAttributes bits 1:0 (bulk=2, interrupt=3).

@@ -152,6 +152,42 @@ namespace simpleath
                        UsbHciEndpointResult::Ok;
         }
 
+        bool hciTopology(IOUSBHostInterface *interface,
+                         UsbHciInterfaceTopology &topology)
+        {
+            topology = {};
+            if (interface == nullptr)
+            {
+                return false;
+            }
+            const auto *config = interface->getConfigurationDescriptor();
+            const auto *alternate = interface->getInterfaceDescriptor();
+            if (config == nullptr || alternate == nullptr ||
+                config->bConfigurationValue == 0U)
+            {
+                return false;
+            }
+            const uint8_t configurationValue = config->bConfigurationValue;
+            const uint8_t alternateSetting = alternate->bAlternateSetting;
+            if (!discoverHciEndpoints(interface, topology.endpoints))
+            {
+                return false;
+            }
+            // A descriptor lookup may invoke provider code while the active
+            // alternate changes. Bind only a stable descriptor snapshot.
+            config = interface->getConfigurationDescriptor();
+            alternate = interface->getInterfaceDescriptor();
+            if (config == nullptr || alternate == nullptr ||
+                config->bConfigurationValue != configurationValue ||
+                alternate->bAlternateSetting != alternateSetting)
+            {
+                return false;
+            }
+            topology.configurationValue = configurationValue;
+            topology.alternateSetting = alternateSetting;
+            return true;
+        }
+
         bool validPipe(IOUSBHostPipe *pipe, uint8_t address, uint8_t type)
         {
             if (pipe == nullptr)
@@ -305,8 +341,21 @@ namespace simpleath
                 return false;
             }
             Ath3kUsbIdentity current {};
+            UsbHciInterfaceTopology topology {};
             return liveHciIdentity(interface, current) &&
-                   sameIdentity(native.identity, current);
+                   sameIdentity(native.identity, current) &&
+                   hciTopology(interface, topology) &&
+                   sameUsbHciInterfaceTopology(native.topology, topology) &&
+                   validPipe(
+                       native.eventIn,
+                       native.topology.endpoints.eventInterruptIn,
+                       StandardUSB::kEndpointDescriptorTransferTypeInterrupt) &&
+                   validPipe(
+                       native.aclIn, native.topology.endpoints.aclBulkIn,
+                       StandardUSB::kEndpointDescriptorTransferTypeBulk) &&
+                   validPipe(native.aclOut,
+                             native.topology.endpoints.aclBulkOut,
+                             StandardUSB::kEndpointDescriptorTransferTypeBulk);
         }
 
         bool hciCommand(void *context, const uint8_t *buffer, size_t bytes)
@@ -522,11 +571,12 @@ namespace simpleath
             return false;
         }
         IOUSBHostDevice *const device = interface->getDevice();
-        UsbHciEndpoints endpoints {};
-        if (!discoverHciEndpoints(interface, endpoints))
+        UsbHciInterfaceTopology openingTopology {};
+        if (!hciTopology(interface, openingTopology))
         {
             return false;
         }
+        const UsbHciEndpoints &endpoints = openingTopology.endpoints;
         IOUSBHostPipe *eventPipe =
             interface->copyPipe(endpoints.eventInterruptIn);
         IOUSBHostPipe *aclRead = interface->copyPipe(endpoints.aclBulkIn);
@@ -542,15 +592,16 @@ namespace simpleath
         // obtained before pipe discovery is not sufficient to publish an
         // adapter after detach or replacement. Release all local pipes and
         // leave a possible successor's state untouched on lease loss.
+        // External permission may synchronously switch the interface's
+        // alternate setting. Re-evaluate topology *after* that callback;
+        // otherwise the pre-permit snapshot could authorize stale pipes.
+        const bool permitted = permit(context, epoch);
         Ath3kUsbIdentity currentIdentity {};
         const IOUSBHostDevice *const currentDevice = interface->getDevice();
-        UsbHciEndpoints currentEndpoints {};
+        UsbHciInterfaceTopology currentTopology {};
         const bool sameEndpoints =
-            discoverHciEndpoints(interface, currentEndpoints) &&
-            currentEndpoints.eventInterruptIn == endpoints.eventInterruptIn &&
-            currentEndpoints.aclBulkIn == endpoints.aclBulkIn &&
-            currentEndpoints.aclBulkOut == endpoints.aclBulkOut;
-        const bool permitted = permit(context, epoch);
+            hciTopology(interface, currentTopology) &&
+            sameUsbHciInterfaceTopology(openingTopology, currentTopology);
         const bool stillHci = currentDevice == device &&
                               interface->getDevice() == device &&
                               liveHciIdentity(interface, currentIdentity) &&
@@ -575,6 +626,7 @@ namespace simpleath
         native.interface = interface;
         native.device = device;
         native.identity = initialIdentity;
+        native.topology = openingTopology;
         native.eventIn = eventPipe;
         native.aclIn = aclRead;
         native.aclOut = aclWrite;

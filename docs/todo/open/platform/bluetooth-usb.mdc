@@ -378,3 +378,18 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   Apple host integration remain missing production work; this P0 TODO stays
   open. Upstream source: Linux v6.12 ath9k `mci.c`, `mci.h`, `ar9003_mci.c`
   and `reg_mci.h`; the sole reference ledger records each consulted scope.
+
+- **Native USB HCI active-setting lifetime (2026-11-10):** The native HCI
+  adapter now snapshots the real USB configuration, interface alternate
+  setting and discovered Event/ACL endpoints before borrowing USB pipes.
+  It revalidates the same configuration, alternate setting, endpoints and
+  pipe transfer types after pipe acquisition and before every native HCI
+  command, ACL write or synchronous receive poll. A new alternate setting
+  cannot reuse a stale borrowed pipe even when its endpoint addresses look
+  identical. The pure topology contract has synthetic same-setting, changed
+  configuration/alternate, changed endpoint and missing endpoint regressions;
+  C++14/C++17 ASan+UBSan, strict Clang-Tidy, Clang-Format and offline native
+  C++14 SDK syntax checks pass. This does not make the separate macOS Bluetooth
+  host claim or deliver Bluetooth traffic: a real OS-owned HCI transport,
+  event worker, BLE discovery integration and RF coexistence are still
+  required. The P0 TODO remains open.
