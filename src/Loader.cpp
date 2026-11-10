@@ -8,15 +8,26 @@
 
 #include "Loader.hpp"
 #include "Bridge.hpp"
+#include "NativeProfile.hpp"
 #include "NativeSkywalk.hpp"
 #include "NativeUserClient.hpp"
+#include "Patcher.hpp"
 #include "Payload.hpp"
 #include <IOKit/IOCatalogue.h>
+#include <libkern/OSReturn.h>
 #include <libkern/c++/OSArray.h>
+#include <libkern/c++/OSDictionary.h>
+#include <libkern/c++/OSMetaClass.h>
 #include <libkern/c++/OSNumber.h>
 #include <libkern/c++/OSUnserialize.h>
 #include <mach-o/loader.h>
+#include <mach/kern_return.h>
 #include <mach/kmod.h>
+#include <mach/machine/boolean.h>
+#include <mach/machine/vm_types.h>
+#include <mach/vm_prot.h>
+#include <stdint.h>
+#include <string.h>
 
 extern "C" kern_return_t kext_alloc(vm_offset_t *, vm_size_t, boolean_t);
 extern "C" void kext_free(vm_offset_t, vm_size_t);
@@ -45,6 +56,12 @@ namespace ath
 {
 
     static constexpr int kKcKindUnknown = 0;
+    static constexpr uint32_t kMinimumDarwinVersion = 23U;
+    static constexpr uint32_t kMaximumDarwinVersion = 25U;
+    static constexpr unsigned kNumberBits = 64U;
+    static constexpr size_t kPrelinkPathCapacity = 256U;
+    static constexpr size_t kErrorHexCapacity = sizeof("0x00000000");
+    static constexpr unsigned kPropertyBits = 32U;
     static LinkedImage images[2];
     static OSObject *modules[2];
     static constexpr uint32_t selected[] = {0, 1};
@@ -65,7 +82,7 @@ namespace ath
         SYSLOG("loader", "%s: %s (0x%08x)", reason, module, error);
         for (auto &image : images)
         {
-            if (image.memory && !image.registered)
+            if ((image.memory != nullptr) && !image.registered)
             {
                 kext_free(image.address, image.payload->mappedSize);
                 image.memory = nullptr;
@@ -77,10 +94,12 @@ namespace ath
     static bool setNumber(OSDictionary *dictionary, const char *key,
                           uint64_t value)
     {
-        auto number = OSNumber::withNumber(value, 64);
-        if (!number)
+        auto *number = OSNumber::withNumber(value, kNumberBits);
+        if (number == nullptr)
+        {
             return false;
-        auto result = dictionary->setObject(key, number);
+        }
+        auto const result = dictionary->setObject(key, number);
         number->release();
         return result;
     }
@@ -88,10 +107,12 @@ namespace ath
     static bool setString(OSDictionary *dictionary, const char *key,
                           const char *value)
     {
-        auto string = OSString::withCString(value);
-        if (!string)
+        auto *string = OSString::withCString(value);
+        if (string == nullptr)
+        {
             return false;
-        auto result = dictionary->setObject(key, string);
+        }
+        auto const result = dictionary->setObject(key, string);
         string->release();
         return result;
     }
@@ -99,21 +120,23 @@ namespace ath
     static bool registerImage(uint32_t index)
     {
         auto &image = images[index];
-        auto &p = *image.payload;
-        auto object = OSUnserializeXML(p.plist);
-        auto dictionary = OSDynamicCast(OSDictionary, object);
-        if (!dictionary)
+        const auto &p = *image.payload;
+        auto *object = OSUnserializeXML(p.plist);
+        auto *dictionary = OSDynamicCast(OSDictionary, object);
+        if (dictionary == nullptr)
         {
-            if (object)
+            if (object != nullptr)
+            {
                 object->release();
+            }
             return false;
         }
-        char path[256];
+        char path[kPrelinkPathCapacity];
         snprintf(path, sizeof(path),
                  "/Library/Extensions/SimpleATH.kext/Embedded/%s",
                  p.identifier);
         const auto slide = PE_get_kc_slide(kKcKindUnknown);
-        auto kmod =
+        auto *kmod =
             reinterpret_cast<kmod_info_t *>(image.memory + p.kmodOffset);
         kmod->next = nullptr;
         kmod->id = 0;
@@ -122,7 +145,7 @@ namespace ath
         kmod->address = 0;
         kmod->size = p.mappedSize;
         kmod->hdr_size = 0;
-        bool valid =
+        bool const valid =
             setString(dictionary, "_PrelinkBundlePath", path) &&
             setString(dictionary, "_PrelinkExecutableRelativePath",
                       "Contents/MacOS/Embedded") &&
@@ -136,17 +159,19 @@ namespace ath
             dictionary->release();
             return false;
         }
-        auto header = reinterpret_cast<mach_header_64 *>(image.memory);
-        auto command = reinterpret_cast<load_command *>(header + 1);
+        auto *header = reinterpret_cast<mach_header_64 *>(image.memory);
+        auto *command = reinterpret_cast<load_command *>(header + 1);
         for (uint32_t i = 0; i < header->ncmds; ++i)
         {
             if (command->cmd == LC_SEGMENT_64)
             {
-                auto segment = reinterpret_cast<segment_command_64 *>(command);
+                auto *segment = reinterpret_cast<segment_command_64 *>(command);
                 segment->vmaddr += image.address - vm_kernel_slide;
-                auto section = reinterpret_cast<section_64 *>(segment + 1);
+                auto *section = reinterpret_cast<section_64 *>(segment + 1);
                 for (uint32_t j = 0; j < segment->nsects; ++j)
+                {
                     section[j].addr += image.address - vm_kernel_slide;
+                }
             }
             command = reinterpret_cast<load_command *>(
                 reinterpret_cast<uint8_t *>(command) + command->cmdsize);
@@ -154,8 +179,10 @@ namespace ath
         image.registered = true;
         modules[index] = athRegisterKext(dictionary, true, kKcKindUnknown);
         dictionary->release();
-        if (!modules[index])
+        if (modules[index] == nullptr)
+        {
             return false;
+        }
         athSetAutounloadEnabled(modules[index], false);
         image.editable = false;
         auto result = athProtectKext(modules[index], true, false);
@@ -169,12 +196,13 @@ namespace ath
         {
             if (command->cmd == LC_SEGMENT_64)
             {
-                auto segment = reinterpret_cast<segment_command_64 *>(command);
-                if (!strncmp(segment->segname, "__LINKEDIT", 16))
+                auto *segment = reinterpret_cast<segment_command_64 *>(command);
+                if (memcmp(segment->segname, "__LINKEDIT",
+                           sizeof("__LINKEDIT")) == 0)
                 {
                     result = vm_map_wire(kext_get_vm_map(kmod), segment->vmaddr,
                                          segment->vmaddr + segment->vmsize,
-                                         VM_PROT_READ, false);
+                                         VM_PROT_READ, 0);
                     if (result != KERN_SUCCESS)
                     {
                         lastError = result;
@@ -192,22 +220,30 @@ namespace ath
     bool preparePayloads()
     {
         if (prepared)
+        {
             return true;
-        auto kernel = getKernelVersion();
-        if (kernel < 23 || kernel > 25)
+        }
+        auto const kernel = getKernelVersion();
+        if (kernel < kMinimumDarwinVersion || kernel > kMaximumDarwinVersion)
+        {
             return fail("UnsupportedKernel", "SimpleATH", kernel);
+        }
         if (!validateNativeSkywalk())
+        {
             return fail("UnsupportedNativeSkywalk",
                         "com.apple.iokit.IOSkywalkFamily");
+        }
         if (!prepareNativeUserClients())
+        {
             return fail("UnsupportedNativeWireless",
                         "com.apple.iokit.IO80211Family");
-        for (auto index : selected)
+        }
+        for (auto const index : selected)
         {
             const auto &payload =
-                payloads[index ? nativeSystem->airPortPayloadIndex : 0];
-            auto existing = athLookupKext(payload.identifier);
-            if (existing)
+                payloads[(index != 0U) ? nativeSystem->airPortPayloadIndex : 0];
+            auto *existing = athLookupKext(payload.identifier);
+            if (existing != nullptr)
             {
                 existing->release();
                 return fail("ConflictingModule", payload.identifier);
@@ -218,57 +254,74 @@ namespace ath
             const auto &guard = nativeVtableGuards[i];
             if (guard.parent >= nativeImportCount ||
                 guard.method >= nativeImportCount)
+            {
                 return fail("InvalidVtableGuard", "SimpleATH", i);
-            uintptr_t method;
+            }
+            uintptr_t method = 0;
             memcpy(&method,
                    reinterpret_cast<void *>(athNativeImports[guard.parent] +
                                             guard.offset),
                    sizeof(method));
             if (method != athNativeImports[guard.method])
+            {
                 return fail("NativeVtableMismatch",
                             nativeImportNames[guard.parent], guard.offset);
+            }
         }
         status = "Mapping";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
             auto &image = images[index];
             image.payload =
-                &payloads[index ? nativeSystem->airPortPayloadIndex : 0];
+                &payloads[(index != 0U) ? nativeSystem->airPortPayloadIndex
+                                        : 0];
             vm_offset_t address = 0;
-            auto result =
-                kext_alloc(&address, image.payload->mappedSize, false);
+            auto const result =
+                kext_alloc(&address, image.payload->mappedSize, 0);
             if (result != KERN_SUCCESS)
+            {
                 return fail("AllocationFailed", image.payload->identifier,
                             result);
+            }
             image.address = address;
             image.memory = reinterpret_cast<uint8_t *>(address);
             image.editable = true;
             if (!restorePayload(image))
+            {
                 return fail("PayloadRestorationFailed",
                             image.payload->identifier);
+            }
         }
         status = "Linking";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
             if (!relocateImage(images[index], images, 2, athNativeImports,
                                nativeImportCount, athCompatibilityImports,
                                compatibilityImportCount))
+            {
                 return fail("LinkFailed", images[index].payload->identifier);
+            }
         }
         Bridge::initialize();
         status = "Patching";
         if (!prepareNativeSkywalk(images, 2))
+        {
             return fail("NativeAdapterFailed", "SimpleATH");
+        }
         Bridge::enableNativeSkywalk();
         if (!Bridge::prepareImage(images[0], 0) ||
             !Bridge::prepareImage(images[1], 1) || !Bridge::ready())
+        {
             return fail("BridgeFailed", "SimpleATH");
+        }
         status = "Registering";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
             if (!registerImage(index))
+            {
                 return fail("RegistrationFailed",
                             images[index].payload->identifier, lastError);
+            }
         }
         prepared = true;
         status = "Prepared";
@@ -278,45 +331,57 @@ namespace ath
     bool startPayloads()
     {
         if (started)
-            return true;
-        if (!prepared)
-            return false;
-        status = "Loading";
-        for (auto index : selected)
         {
-            auto result = athLoadKext(images[index].payload->identifier, false,
-                                      true, 2, 2, nullptr);
+            return true;
+        }
+        if (!prepared)
+        {
+            return false;
+        }
+        status = "Loading";
+        for (auto const index : selected)
+        {
+            auto const result = athLoadKext(images[index].payload->identifier,
+                                            false, true, 2, 2, nullptr);
             if (result != KERN_SUCCESS)
+            {
                 return fail("LoadFailed", images[index].payload->identifier,
                             result);
+            }
             ++loadedCount;
         }
         status = "ValidatingMappings";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
-            auto result = athValidateKextMapping(modules[index], true);
+            auto const result = athValidateKextMapping(modules[index], true);
             if (result != KERN_SUCCESS)
+            {
                 return fail("MappingValidationFailed",
                             images[index].payload->identifier, result);
+            }
             ++validatedCount;
         }
         status = "Starting";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
-            auto result = athLoadKext(images[index].payload->identifier, false,
-                                      true, 0, 2, nullptr);
+            auto const result = athLoadKext(images[index].payload->identifier,
+                                            false, true, 0, 2, nullptr);
             if (result != KERN_SUCCESS)
+            {
                 return fail("StartFailed", images[index].payload->identifier,
                             result);
+            }
         }
         status = "Matching";
-        for (auto index : selected)
+        for (auto const index : selected)
         {
-            auto result = athLoadKext(images[index].payload->identifier, false,
-                                      true, 0, 0, nullptr);
+            auto const result = athLoadKext(images[index].payload->identifier,
+                                            false, true, 0, 0, nullptr);
             if (result != KERN_SUCCESS)
+            {
                 return fail("MatchingFailed", images[index].payload->identifier,
                             result);
+            }
             gIOCatalogue->moduleHasLoaded(images[index].payload->identifier);
         }
         started = true;
@@ -331,18 +396,22 @@ namespace ath
         service->setProperty("Status", status);
         service->setProperty("LoaderStatus", status);
         service->setProperty("LoaderFailedModule", failedModule);
-        service->setProperty("LoaderError", lastError, 32);
-        char error[11];
+        service->setProperty("LoaderError", lastError, kPropertyBits);
+        char error[kErrorHexCapacity];
         snprintf(error, sizeof(error), "0x%08x", lastError);
         service->setProperty("LoaderErrorHex", error);
         service->setProperty("LoaderKCType", "KCKindUnknown");
         service->setProperty("DriverLoading", "Embedded");
         service->setProperty("ExternalLiluRequired", false);
         service->setProperty("EmbeddedModulesStarted", started);
-        service->setProperty("EmbeddedModulesLoaded", loadedCount, 32);
-        service->setProperty("EmbeddedMappingsValidated", validatedCount, 32);
-        if (images[1].payload)
+        service->setProperty("EmbeddedModulesLoaded", loadedCount,
+                             kPropertyBits);
+        service->setProperty("EmbeddedMappingsValidated", validatedCount,
+                             kPropertyBits);
+        if (images[1].payload != nullptr)
+        {
             service->setProperty("AirPortSHA256", images[1].payload->sha256);
+        }
         publishNativeSkywalk(service);
     }
 

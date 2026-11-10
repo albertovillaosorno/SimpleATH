@@ -7,17 +7,52 @@
 //
 
 #include "UserClient.hpp"
+#include "Bridge.hpp"
+#include "Patcher.hpp"
+#include "WirelessABI.hpp"
+#include <IOKit/IOBufferMemoryDescriptor.h>
+#include <IOKit/IOCommandGate.h>
+#include <IOKit/IOLib.h>
+#include <IOKit/IOLocks.h>
+#include <IOKit/IOMemoryDescriptor.h>
+#include <IOKit/IOReturn.h>
+#include <IOKit/IOService.h>
+#include <IOKit/IOTypes.h>
+#include <IOKit/IOUserClient.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/OSMessageNotification.h>
+#include <kern/task.h>
+#include <libkern/OSTypes.h>
 #include <libkern/c++/OSBoolean.h>
-#include <sys/errno.h>
+#include <libkern/c++/OSDictionary.h>
+#include <libkern/c++/OSMetaClass.h>
+#include <mach/i386/vm_param.h>
+#include <mach/mach_types.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+namespace
+{
+    constexpr size_t kRoamBandEnableOffset = 12U;
+    constexpr uint32_t kLegacyPointerBytes = 8U;
+    constexpr uint32_t kPrivatePmkRequest = 0x178U;
+    // Legacy requests which publish a returned payload after a set operation.
+    constexpr uint32_t kSetRequestEcho0 = 0x5EU;
+    constexpr uint32_t kSetRequestEcho1 = 0x125U;
+    constexpr uint32_t kSetRequestEcho2 = 0x99U;
+} // namespace
 
 OSDefineMetaClassAndStructors(ATH80211UserClient, IOUserClient)
 
     bool ATH80211UserClient::entitled(const char *entitlement) const
 {
-    auto value = copyClientEntitlement(ownerTask, entitlement);
+    auto *value = copyClientEntitlement(ownerTask, entitlement);
     const bool allowed = value == kOSBooleanTrue;
-    if (value)
+    if (value != nullptr)
+    {
         value->release();
+    }
     return allowed;
 }
 
@@ -26,12 +61,16 @@ IOReturn ATH80211UserClient::create(IOService *provider, task_t task,
                                     ath::InterfaceKind kind,
                                     IOUserClient **result)
 {
-    if (!result || !task)
+    if ((result == nullptr) || (task == nullptr))
+    {
         return kIOReturnBadArgument;
+    }
     *result = nullptr;
-    auto client = new ATH80211UserClient;
-    if (!client)
+    auto *client = new ATH80211UserClient;
+    if (client == nullptr)
+    {
         return kIOReturnNoMemory;
+    }
     client->ownerTask = task;
     if (!client->initWithTask(task, token, 0, properties))
     {
@@ -69,17 +108,26 @@ IOReturn ATH80211UserClient::create(IOService *provider, task_t task,
 bool ATH80211UserClient::start(IOService *provider)
 {
     if (!IOUserClient::start(provider))
+    {
         return false;
+    }
     eventLock = IOLockAlloc();
     workLoop = endpoint.controller->getWorkLoop();
-    if (workLoop)
+    if (workLoop != nullptr)
+    {
         workLoop->retain();
+    }
     commandGate = IOCommandGate::commandGate(this);
     filter.all = 1;
-    if (!eventLock || !workLoop || !commandGate)
+    if ((eventLock == nullptr) || (workLoop == nullptr) ||
+        (commandGate == nullptr))
+    {
         return false;
+    }
     if (workLoop->addEventSource(commandGate) != kIOReturnSuccess)
+    {
         return false;
+    }
     gateAdded = true;
     registered = ath::Bridge::addClient(this);
     return registered;
@@ -87,15 +135,17 @@ bool ATH80211UserClient::start(IOService *provider)
 
 void ATH80211UserClient::close()
 {
-    if (!eventLock)
+    if (eventLock == nullptr)
+    {
         return;
+    }
     IOLockLock(eventLock);
     closed = true;
     monitoring = false;
     if (subscribed)
     {
         releaseAsyncReference64(asyncReference);
-        bzero(asyncReference, sizeof(asyncReference));
+        memset(asyncReference, 0, sizeof(asyncReference));
         subscribed = false;
     }
     IOLockUnlock(eventLock);
@@ -115,12 +165,18 @@ IOReturn ATH80211UserClient::closeAction(OSObject *owner, void *, void *,
 
 IOReturn ATH80211UserClient::clientClose()
 {
-    if (commandGate && gateAdded)
+    if ((commandGate != nullptr) && gateAdded)
+    {
         commandGate->runAction(closeAction);
+    }
     else
+    {
         close();
+    }
     if (!isInactive())
+    {
         terminate();
+    }
     return kIOReturnSuccess;
 }
 
@@ -131,7 +187,7 @@ IOReturn ATH80211UserClient::clientDied()
 
 void ATH80211UserClient::stop(IOService *provider)
 {
-    if (commandGate && gateAdded)
+    if ((commandGate != nullptr) && gateAdded)
     {
         commandGate->runAction(closeAction);
         workLoop->removeEventSource(commandGate);
@@ -147,22 +203,34 @@ void ATH80211UserClient::stop(IOService *provider)
 void ATH80211UserClient::free()
 {
     close();
-    if (commandGate)
+    if (commandGate != nullptr)
     {
-        if (gateAdded && workLoop)
+        if (gateAdded && (workLoop != nullptr))
+        {
             workLoop->removeEventSource(commandGate);
+        }
         commandGate->release();
     }
-    if (workLoop)
+    if (workLoop != nullptr)
+    {
         workLoop->release();
-    if (ringMemory)
+    }
+    if (ringMemory != nullptr)
+    {
         ringMemory->release();
-    if (stateMemory)
+    }
+    if (stateMemory != nullptr)
+    {
         stateMemory->release();
-    if (eventLock)
+    }
+    if (eventLock != nullptr)
+    {
         IOLockFree(eventLock);
-    if (endpoint.controller)
+    }
+    if (endpoint.controller != nullptr)
+    {
         endpoint.controller->release();
+    }
     IOUserClient::free();
 }
 
@@ -170,9 +238,11 @@ IOReturn ATH80211UserClient::externalMethod(
     uint32_t selector, IOExternalMethodArguments *arguments,
     IOExternalMethodDispatch *, OSObject *, void *)
 {
-    if (!arguments || !commandGate || !gateAdded ||
+    if ((arguments == nullptr) || (commandGate == nullptr) || !gateAdded ||
         selector >= ath::Bridge::abi().selectorCount)
+    {
         return kIOReturnBadArgument;
+    }
     __atomic_fetch_add(&ath::counters.selectors[selector], 1ULL,
                        __ATOMIC_RELAXED);
     return commandGate->runAction(
@@ -192,46 +262,64 @@ IOReturn ATH80211UserClient::dispatch(uint32_t selector,
                                       IOExternalMethodArguments *arguments)
 {
     if (closed || isInactive() || !ath::Bridge::ready())
+    {
         return kIOReturnNotOpen;
+    }
     const auto method = static_cast<ath::Selector>(selector);
-    if (arguments->scalarOutputCount ||
+    if ((arguments->scalarOutputCount != 0U) ||
         arguments->scalarInputCount !=
             (method == ath::Selector::MapUserBuffer ? 2U : 0U))
+    {
         return kIOReturnBadArgument;
+    }
     if (method == ath::Selector::Command ||
         method == ath::Selector::LargeCommand)
     {
-        if (arguments->asyncReferenceCount)
+        if (arguments->asyncReferenceCount != 0U)
+        {
             return kIOReturnBadArgument;
+        }
         return runCommand(arguments, method == ath::Selector::Command
                                          ? ath::commandCapacity
                                          : ath::largeCommandCapacity);
     }
-    if (arguments->structureInputSize || arguments->structureInputDescriptor)
+    if ((arguments->structureInputSize != 0U) ||
+        (arguments->structureInputDescriptor != nullptr))
+    {
         return kIOReturnBadArgument;
-    if (method != ath::Selector::Subscribe && arguments->asyncReferenceCount)
+    }
+    if (method != ath::Selector::Subscribe &&
+        (arguments->asyncReferenceCount != 0U))
+    {
         return kIOReturnBadArgument;
+    }
     switch (method)
     {
         case ath::Selector::UseIOUC:
         case ath::Selector::UseEventPipe:
         case ath::Selector::DriverKitSupported:
             {
-                if (!arguments->structureOutput ||
+                if ((arguments->structureOutput == nullptr) ||
                     arguments->structureOutputSize != 1 ||
-                    arguments->structureOutputDescriptor)
+                    (arguments->structureOutputDescriptor != nullptr))
+                {
                     return kIOReturnBadArgument;
-                auto value = static_cast<uint8_t *>(arguments->structureOutput);
-                *value = method != ath::Selector::DriverKitSupported;
+                }
+                auto *value =
+                    static_cast<uint8_t *>(arguments->structureOutput);
+                *value = static_cast<uint8_t>(
+                    method != ath::Selector::DriverKitSupported);
                 return kIOReturnSuccess;
             }
         case ath::Selector::Subscribe:
         case ath::Selector::MonitorStart:
         case ath::Selector::MonitorStop:
         case ath::Selector::MapUserBuffer:
-            if (arguments->structureOutputSize ||
-                arguments->structureOutputDescriptor)
+            if ((arguments->structureOutputSize != 0U) ||
+                (arguments->structureOutputDescriptor != nullptr))
+            {
                 return kIOReturnBadArgument;
+            }
             break;
         default:
             return kIOReturnUnsupported;
@@ -247,8 +335,6 @@ IOReturn ATH80211UserClient::dispatch(uint32_t selector,
             monitoring = false;
             IOLockUnlock(eventLock);
             return kIOReturnSuccess;
-        case ath::Selector::MapUserBuffer:
-            return kIOReturnUnsupported;
         default:
             return kIOReturnUnsupported;
     }
@@ -260,22 +346,28 @@ static IOReturn runRoamProfiles(const ath::Endpoint &endpoint, bool set,
 {
     uint8_t profiles[ath::nativeRoamProfileSize] {};
     if (set)
+    {
         memcpy(profiles, shadow, sizeof(profiles));
+    }
     IOReturn result = kIOReturnBadArgument;
     for (size_t index = 0; index < 2; ++index)
     {
-        auto band = profiles + index * ath::nativeRoamBandSize;
+        auto *band = profiles + (index * ath::nativeRoamBandSize);
         if (set)
         {
-            if (!ath::readUInt32(band + 12))
+            if (ath::readUInt32(band + kRoamBandEnableOffset) == 0U)
+            {
                 continue;
+            }
             if (!ath::prepareRoamBand(request.request, shadow, capacity, band,
                                       ath::nativeRoamBandSize))
+            {
                 return kIOReturnBadArgument;
+            }
         }
         else
         {
-            bzero(shadow, ath::legacyRoamBandSize);
+            memset(shadow, 0, ath::legacyRoamBandSize);
             shadow[0] = 1;
             shadow[4] = static_cast<uint8_t>(2U << index);
             request.request.length = ath::legacyRoamBandSize;
@@ -283,10 +375,14 @@ static IOReturn runRoamProfiles(const ath::Endpoint &endpoint, bool set,
         result = static_cast<IOReturn>(
             ath::Bridge::command(endpoint, set, request, shadow, capacity));
         if (result != kIOReturnSuccess)
+        {
             return result;
+        }
         if (!set && !ath::expandRoamBand(request.request, shadow, capacity,
                                          band, ath::nativeRoamBandSize))
+        {
             return kIOReturnOverrun;
+        }
     }
     if (!set && result == kIOReturnSuccess)
     {
@@ -302,27 +398,32 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     const auto packetSize =
         sizeof(ath::CommandHeader) + capacity + sizeof(ath::Request);
     const size_t inputSize =
-        arguments->structureInputDescriptor
+        (arguments->structureInputDescriptor != nullptr)
             ? arguments->structureInputDescriptor->getLength()
             : arguments->structureInputSize;
-    const size_t outputSize = arguments->structureOutputDescriptor
+    const size_t outputSize = (arguments->structureOutputDescriptor != nullptr)
                                   ? arguments->structureOutputDescriptorSize
                                   : arguments->structureOutputSize;
     if (inputSize != packetSize || outputSize > capacity ||
-        (arguments->structureInputDescriptor &&
-         arguments->structureInputSize) ||
-        (arguments->structureOutputDescriptor &&
-         (arguments->structureOutputSize ||
+        ((arguments->structureInputDescriptor != nullptr) &&
+         (arguments->structureInputSize != 0U)) ||
+        ((arguments->structureOutputDescriptor != nullptr) &&
+         ((arguments->structureOutputSize != 0U) ||
           outputSize > arguments->structureOutputDescriptor->getLength())) ||
-        (!arguments->structureInputDescriptor && !arguments->structureInput) ||
-        (!arguments->structureOutputDescriptor && outputSize &&
-         !arguments->structureOutput))
+        ((arguments->structureInputDescriptor == nullptr) &&
+         (arguments->structureInput == nullptr)) ||
+        ((arguments->structureOutputDescriptor == nullptr) &&
+         (outputSize != 0U) && (arguments->structureOutput == nullptr)))
+    {
         return kIOReturnBadArgument;
-    auto packet = static_cast<uint8_t *>(IOMalloc(packetSize));
-    if (!packet)
+    }
+    auto *packet = static_cast<uint8_t *>(IOMalloc(packetSize));
+    if (packet == nullptr)
+    {
         return kIOReturnNoMemory;
+    }
     IOReturn result = kIOReturnBadArgument;
-    if (arguments->structureInputDescriptor)
+    if (arguments->structureInputDescriptor != nullptr)
     {
         auto status =
             arguments->structureInputDescriptor->prepare(kIODirectionOut);
@@ -336,7 +437,7 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
         status = arguments->structureInputDescriptor->complete(kIODirectionOut);
         if (copied != packetSize || status != kIOReturnSuccess)
         {
-            bzero(packet, packetSize);
+            memset(packet, 0, packetSize);
             IOFree(packet, packetSize);
             return copied != packetSize ? kIOReturnVMError : status;
         }
@@ -345,11 +446,11 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     {
         memcpy(packet, arguments->structureInput, packetSize);
     }
-    auto header = reinterpret_cast<ath::CommandHeader *>(packet);
-    auto shadow = packet + sizeof(*header);
+    auto *header = reinterpret_cast<ath::CommandHeader *>(packet);
+    auto *shadow = packet + sizeof(*header);
     ath::LegacyRequest legacy {};
     memcpy(&legacy.request, shadow + capacity, sizeof(legacy.request));
-    legacy.pointerSize = 8;
+    legacy.pointerSize = kLegacyPointerBytes;
     const auto request = legacy.request.type;
     const bool set = header->command == ath::setCommand;
     const bool get = header->command == ath::getCommand;
@@ -368,12 +469,16 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     __atomic_store_n(&ath::counters.lastRequest, static_cast<uint32_t>(request),
                      __ATOMIC_RELAXED);
     if (associate)
+    {
         __atomic_fetch_add(&ath::counters.associationRequests, 1ULL,
                            __ATOMIC_RELAXED);
+    }
     if ((!set && !get) || header->length > capacity ||
-        strncmp(legacy.request.interfaceName, endpoint.name,
-                sizeof(endpoint.name)))
+        (strncmp(legacy.request.interfaceName, endpoint.name,
+                 sizeof(endpoint.name)) != 0))
+    {
         goto done;
+    }
     if ((get && request == ath::scanResultRequest && !scanResult) ||
         (get && request == ath::cardCapabilitiesRequest && !capabilities) ||
         (associate && header->length != abi.associateSize) ||
@@ -381,8 +486,10 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
          header->length != abi.scanMultipleSize) ||
         (request == ath::roamProfileRequest &&
          (get ? outputSize : header->length) != abi.roamProfileSize))
+    {
         goto done;
-    if (get && request == 0x178 &&
+    }
+    if (get && request == kPrivatePmkRequest &&
         !entitled("com.apple.private.wifi.IO80211.get_pmk"))
     {
         result = kIOReturnNotPrivileged;
@@ -393,7 +500,7 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
         result = kIOReturnNoSpace;
         goto done;
     }
-    if (arguments->structureOutputDescriptor && outputSize)
+    if ((arguments->structureOutputDescriptor != nullptr) && (outputSize != 0U))
     {
         const auto status =
             arguments->structureOutputDescriptor->prepare(kIODirectionIn);
@@ -409,19 +516,27 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
         static_cast<uint32_t>(get ? outputSize : header->length);
     if (scanResult &&
         !ath::prepareScanResult(legacy.request, shadow, capacity, abi))
+    {
         goto done;
+    }
     if (set && request == ath::scanMultipleRequest &&
         !ath::prepareScanMultiple(legacy.request, shadow, capacity, abi))
+    {
         goto done;
+    }
     if (associate &&
         !ath::prepareAssociate(legacy.request, shadow, capacity, abi))
+    {
         goto done;
-    if (set && abi.filterMonitorEvents &&
+    }
+    if (set && (abi.filterMonitorEvents != 0U) &&
         static_cast<uint32_t>(request) == abi.filterMonitorEvents)
     {
         if (legacy.request.length != sizeof(ath::EventFilter) ||
             header->length < sizeof(ath::EventFilter))
+        {
             goto done;
+        }
         IOLockLock(eventLock);
         memcpy(&filter, shadow, sizeof(filter));
         IOLockUnlock(eventLock);
@@ -460,8 +575,11 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
             goto done;
         }
         size_t produced = get ? legacy.request.length : 0;
-        if (set && (request == 0x5E || request == 0x125 || request == 0x99))
+        if (set && (request == kSetRequestEcho0 ||
+                    request == kSetRequestEcho1 || request == kSetRequestEcho2))
+        {
             produced = legacy.request.length;
+        }
         if (produced > capacity)
         {
             result = kIOReturnOverrun;
@@ -472,7 +590,7 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
             result = kIOReturnNoSpace;
             goto done;
         }
-        if (arguments->structureOutputDescriptor)
+        if (arguments->structureOutputDescriptor != nullptr)
         {
             if (arguments->structureOutputDescriptor->writeBytes(
                     0, shadow, produced) != produced)
@@ -485,8 +603,10 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
         }
         else
         {
-            if (produced)
+            if (produced != 0U)
+            {
                 memcpy(arguments->structureOutput, shadow, produced);
+            }
             arguments->structureOutputSize = static_cast<uint32_t>(produced);
         }
     }
@@ -496,17 +616,23 @@ done:
         const auto status =
             arguments->structureOutputDescriptor->complete(kIODirectionIn);
         if (result == kIOReturnSuccess)
+        {
             result = status;
+        }
     }
     if (scanResult && result == kIOReturnSuccess)
+    {
         __atomic_fetch_add(&ath::counters.scanRecords, 1ULL, __ATOMIC_RELAXED);
+    }
     if (associate)
     {
         __atomic_store_n(&ath::counters.lastAssociationResult,
                          static_cast<uint32_t>(result), __ATOMIC_RELAXED);
         if (result == kIOReturnSuccess)
+        {
             __atomic_fetch_add(&ath::counters.associationAccepted, 1ULL,
                                __ATOMIC_RELAXED);
+        }
     }
     if (result != kIOReturnSuccess)
     {
@@ -519,7 +645,7 @@ done:
     }
     __atomic_store_n(&ath::counters.lastResult, static_cast<uint32_t>(result),
                      __ATOMIC_RELAXED);
-    bzero(packet, packetSize);
+    memset(packet, 0, packetSize);
     IOFree(packet, packetSize);
     return result;
 }
@@ -528,28 +654,36 @@ IOReturn ATH80211UserClient::startMonitor()
 {
     ath::Bridge::refreshAvailability(endpoint);
     IOLockLock(eventLock);
-    if (!ringMemory)
+    if (ringMemory == nullptr)
+    {
         ringMemory = IOBufferMemoryDescriptor::inTaskWithOptions(
-            kernel_task, kIOMemoryKernelUserShared | kIODirectionInOut,
+            kernel_task,
+            static_cast<IOOptionBits>(kIOMemoryKernelUserShared) |
+                static_cast<IOOptionBits>(kIODirectionInOut),
             ath::eventCapacity, PAGE_SIZE);
-    if (!stateMemory)
+    }
+    if (stateMemory == nullptr)
+    {
         stateMemory = IOBufferMemoryDescriptor::inTaskWithOptions(
-            kernel_task, kIOMemoryKernelUserShared | kIODirectionInOut,
+            kernel_task,
+            static_cast<IOOptionBits>(kIOMemoryKernelUserShared) |
+                static_cast<IOOptionBits>(kIODirectionInOut),
             PAGE_SIZE, PAGE_SIZE);
-    if (!ringMemory || !stateMemory)
+    }
+    if ((ringMemory == nullptr) || (stateMemory == nullptr))
     {
         IOLockUnlock(eventLock);
         return kIOReturnNoMemory;
     }
     if (!monitoring)
     {
-        bzero(ringMemory->getBytesNoCopy(), ringMemory->getLength());
-        bzero(stateMemory->getBytesNoCopy(), stateMemory->getLength());
+        memset(ringMemory->getBytesNoCopy(), 0, ringMemory->getLength());
+        memset(stateMemory->getBytesNoCopy(), 0, stateMemory->getLength());
         writeOffset = 0;
         ath::AvailabilityEvent initial {};
         monitorSerial = ath::Bridge::copyAvailability(endpoint, initial);
         monitoring = true;
-        if (initial.length && filter.accepts(ath::driverAvailableEvent))
+        if ((initial.length != 0U) && filter.accepts(ath::driverAvailableEvent))
         {
             const auto result = ath::EventRing::append(
                 static_cast<uint8_t *>(ringMemory->getBytesNoCopy()),
@@ -563,7 +697,9 @@ IOReturn ATH80211UserClient::startMonitor()
                 __atomic_fetch_add(&ath::counters.availabilityReplays, 1ULL,
                                    __ATOMIC_RELAXED);
                 if (subscribed)
+                {
                     notifyAvailable();
+                }
             }
         }
     }
@@ -573,19 +709,26 @@ IOReturn ATH80211UserClient::startMonitor()
 
 IOReturn ATH80211UserClient::subscribe(IOExternalMethodArguments *arguments)
 {
-    if (!arguments->asyncWakePort || !arguments->asyncReference ||
+    if ((arguments->asyncWakePort == nullptr) ||
+        (arguments->asyncReference == nullptr) ||
         arguments->asyncReferenceCount != kOSAsyncRef64Count)
+    {
         return kIOReturnBadArgument;
+    }
     IOLockLock(eventLock);
     if (subscribed)
+    {
         releaseAsyncReference64(asyncReference);
+    }
     memcpy(asyncReference, arguments->asyncReference, sizeof(asyncReference));
     subscribed = true;
     if (monitoring && __atomic_load_n(&static_cast<ath::EventState *>(
                                            stateMemory->getBytesNoCopy())
                                            ->read,
                                       __ATOMIC_ACQUIRE) != writeOffset)
+    {
         notifyAvailable();
+    }
     IOLockUnlock(eventLock);
     return kIOReturnSuccess;
 }
@@ -594,15 +737,17 @@ IOReturn ATH80211UserClient::clientMemoryForType(UInt32 type,
                                                  IOOptionBits *options,
                                                  IOMemoryDescriptor **memory)
 {
-    if (!options || !memory || !eventLock)
+    if ((options == nullptr) || (memory == nullptr) || (eventLock == nullptr))
+    {
         return kIOReturnBadArgument;
+    }
     *memory = nullptr;
     IOLockLock(eventLock);
-    auto descriptor = type == 1   ? ringMemory
-                      : type == 2 ? stateMemory
-                                  : nullptr;
+    auto *descriptor = type == 1   ? ringMemory
+                       : type == 2 ? stateMemory
+                                   : nullptr;
     IOReturn status = kIOReturnBadArgument;
-    if (!closed && descriptor)
+    if (!closed && (descriptor != nullptr))
     {
         *options = type == 1 ? kIOMapReadOnly : 0;
         descriptor->retain();
@@ -619,8 +764,10 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
                                  uint64_t microseconds, uint64_t serial)
 {
     if (endpoint.controller != controller ||
-        strncmp(name, endpoint.name, sizeof(endpoint.name)))
+        (strncmp(name, endpoint.name, sizeof(endpoint.name)) != 0))
+    {
         return;
+    }
     IOLockLock(eventLock);
     if (closed || !monitoring || serial <= monitorSerial ||
         !filter.accepts(event))
@@ -639,20 +786,24 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
         __atomic_fetch_add(&ath::counters.dropped, 1ULL, __ATOMIC_RELAXED);
     }
     if (event == ath::scanDoneEvent && result == ath::RingResult::Written)
+    {
         __atomic_fetch_add(&ath::counters.scanDoneRecords, 1ULL,
                            __ATOMIC_RELAXED);
+    }
     if (subscribed && result != ath::RingResult::Invalid)
+    {
         notifyAvailable();
+    }
     IOLockUnlock(eventLock);
 }
 
 void ATH80211UserClient::notifyAvailable()
 {
-    const auto status =
-        sendAsyncResult64WithOptions(asyncReference, ath::eventNotification,
-                                     nullptr, 0, kIOUserNotifyOptionCanDrop);
-    auto counter = status == kIOReturnSuccess
-                       ? &ath::counters.notifications
-                       : &ath::counters.notificationErrors;
+    const auto status = sendAsyncResult64WithOptions(
+        asyncReference, ath::eventNotification, nullptr, 0,
+        static_cast<IOReturn>(kIOUserNotifyOptionCanDrop));
+    auto *counter = status == kIOReturnSuccess
+                        ? &ath::counters.notifications
+                        : &ath::counters.notificationErrors;
     __atomic_fetch_add(counter, 1ULL, __ATOMIC_RELAXED);
 }
