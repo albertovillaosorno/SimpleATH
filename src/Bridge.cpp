@@ -677,8 +677,20 @@ namespace ath
     int Bridge::command(const Endpoint &endpoint, bool set,
                         LegacyRequest &request, void *shadow, size_t size)
     {
+        // Reject incomplete or forged endpoints before dereferencing a
+        // controller or selecting an unrelated native ioctl callback.
+        if (!endpoint.interface || !endpoint.controller ||
+            (size != 0 && !shadow) ||
+            (endpoint.kind != InterfaceKind::Classic &&
+             endpoint.kind != InterfaceKind::Virtual &&
+             endpoint.kind != InterfaceKind::Skywalk))
+            return EINVAL;
         if (!ready() || endpoint.interface->isInactive() ||
             endpoint.controller->isInactive())
+            return ENXIO;
+        if ((endpoint.kind == InterfaceKind::Classic && !classicCommand) ||
+            (endpoint.kind != InterfaceKind::Classic &&
+             !(set ? setRequest : getRequest)))
             return ENXIO;
         CopyContext context {current_thread(),
                              reinterpret_cast<uintptr_t>(shadow), size,
@@ -1042,22 +1054,10 @@ namespace ath
                                  controller->metaCast("AirPortDriver")
                                      ? "AirPortDriver"
                                      : "Unrecognized");
-            auto bytes = reinterpret_cast<const uint8_t *>(controller);
-            service->setProperty(
-                "BrcmPowerState",
-                __atomic_load_n(
-                    reinterpret_cast<const uint64_t *>(bytes + 6800),
-                    __ATOMIC_RELAXED),
-                64);
-            service->setProperty(
-                "BrcmRequestedPowerState",
-                __atomic_load_n(
-                    reinterpret_cast<const uint64_t *>(bytes + 6808),
-                    __ATOMIC_RELAXED),
-                64);
-            service->setProperty(
-                "BrcmPowerTransition",
-                __atomic_load_n(bytes + 6816, __ATOMIC_RELAXED) != 0);
+            // A metaCast is not a layout or object-size contract. The old
+            // fixed-offset power fields could read past an unknown Tahoe
+            // controller allocation; publish no unverified raw snapshot.
+            service->setProperty("BrcmPowerSnapshotAvailable", false);
             controller->release();
         }
         service->setProperty("ActiveABI",
