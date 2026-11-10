@@ -2,8 +2,8 @@
 #define SIMPLEATH_AR9565_KEY_CACHE_HPP
 
 #include "../wifi/Frames.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

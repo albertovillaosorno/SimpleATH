@@ -2,8 +2,8 @@
 #define SIMPLEATH_USB_HCI_HPP
 
 #include "UsbBytes.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

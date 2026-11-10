@@ -10,10 +10,9 @@
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/network/IOEthernetController.h>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <libkern/c++/OSMetaClass.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 // The modern Tahoe IO80211Controller superclass comes from the exact KDK

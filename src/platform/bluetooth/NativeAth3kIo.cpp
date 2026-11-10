@@ -4,8 +4,8 @@
 #include "bluetooth/UsbHci.hpp"
 #include "bluetooth/UsbHciEndpointSelector.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 #include <IOKit/IOLib.h>
 #include <IOKit/IOMemoryDescriptor.h>

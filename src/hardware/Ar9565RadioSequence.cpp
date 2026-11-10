@@ -10,7 +10,7 @@
 #include "Ar9565Pll.hpp"
 #include "Ar9565RfBus.hpp"
 #include "Ar9565RfIni.hpp"
-#include <cstdint>
+#include <stdint.h>
 
 namespace simpleath
 {

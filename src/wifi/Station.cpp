@@ -1,8 +1,8 @@
 #include "Station.hpp"
 #include "Frames.hpp"
 #include "Wpa2Supplicant.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

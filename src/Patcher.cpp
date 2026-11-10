@@ -8,9 +8,9 @@
 
 #include "Patcher.hpp"
 #include "Payload.hpp"
-#include <cstddef>
-#include <cstdint>
 #include <libkern/copyio.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 namespace

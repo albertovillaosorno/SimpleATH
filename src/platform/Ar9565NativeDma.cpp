@@ -6,10 +6,10 @@
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOWorkLoop.h>
-#include <cstddef>
-#include <cstdint>
 #include <kern/task.h>
 #include <libkern/OSTypes.h>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

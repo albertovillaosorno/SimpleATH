@@ -3,9 +3,9 @@
 #include "TahoeCapabilities.hpp"
 #include <IOKit/80211/apple80211_ioctl.h>
 #include <IOKit/80211/apple80211_var.h>
-#include <cstring>
 #include <kern/clock.h>
 #include <libkern/c++/OSString.h>
+#include <string.h>
 
 namespace
 {

@@ -3,8 +3,8 @@
 #ifndef SIMPLEATH_WIFI_CCMP_HPP
 #define SIMPLEATH_WIFI_CCMP_HPP
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

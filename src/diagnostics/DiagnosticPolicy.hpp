@@ -1,8 +1,8 @@
 #ifndef SIMPLEATH_DIAGNOSTIC_POLICY_HPP
 #define SIMPLEATH_DIAGNOSTIC_POLICY_HPP
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 namespace simpleath
 {

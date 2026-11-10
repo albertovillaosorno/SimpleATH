@@ -2,8 +2,8 @@
 #define SIMPLEATH_AR9565_OFDM_TIMING_HPP
 
 #include "Ar9565Calibration.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

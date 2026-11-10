@@ -2,8 +2,8 @@
 #include "Ar9565Core.hpp"
 #include "Ar9565InitCatalog.hpp"
 #include "generated/Ar9565InitTables.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

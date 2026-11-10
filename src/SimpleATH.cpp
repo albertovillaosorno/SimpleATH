@@ -40,8 +40,6 @@
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/pwr_mgt/IOPM.h>
 #include <IOKit/pwr_mgt/IOPMpowerState.h>
-#include <cstddef>
-#include <cstdint>
 #include <kern/clock.h>
 #include <libkern/OSTypes.h>
 #include <libkern/c++/OSData.h>
@@ -50,6 +48,8 @@
 #include <mach/kern_return.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 // The pinned Tahoe XNU SDK declares this exported kernel CSPRNG only when
 // the kernel API is enabled by sys/appleapiopts.h. Never synthesize WPA2

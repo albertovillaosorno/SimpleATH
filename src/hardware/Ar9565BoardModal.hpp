@@ -3,8 +3,8 @@
 
 #include "Ar9565Calibration.hpp"
 #include "Ar9565Eeprom.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

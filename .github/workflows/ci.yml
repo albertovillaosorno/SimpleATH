@@ -1,23 +1,13 @@
 name: SimpleATH Tahoe Intel source validation
 
-# Standalone CI tags retain strict failure; owner-authorized builds request
-# advisory validation (warnings rather than a build prerequisite).
+# Strict source validation, invoked ONLY by ci tags or a release workflow.
+# Build tags do not run CI, and no failure is ever reclassified as a pass.
 on:
   push:
     tags:
       - 'ci'
       - 'ci-*'
   workflow_call:
-    inputs:
-      advisory:
-        description: Report validation failures without blocking builds
-        type: boolean
-        required: false
-        default: false
-    outputs:
-      validation_outcome:
-        description: Actual status of strict source validation
-        value: ${{ jobs.validate.outputs.validation_outcome }}
 
 permissions:
   contents: read
@@ -32,8 +22,6 @@ jobs:
     if: github.event.repository.private == false
     runs-on: macos-26-intel
     timeout-minutes: 60
-    outputs:
-      validation_outcome: ${{ steps.source_validation.outcome }}
     steps:
       - name: Checkout exact requested commit
         uses: actions/checkout@v7
@@ -73,29 +61,21 @@ jobs:
           ruff --version
           basedpyright --version
 
-      - name: Prepare the checked-in kernel compatibility SDK
-        run: python3 -B tools/bootstrap_sdk.py
+      - name: Select native Apple macOS SDK
+        shell: bash
+        run: |
+          sdk="$(xcrun --sdk macosx --show-sdk-path)"
+          test -d "$sdk/usr/include" || {
+            echo '::error::Native Apple macOS SDK headers unavailable'
+            exit 1
+          }
+          echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
 
       - name: Refresh checkout-local Clang-Tidy commands
         run: python3 -B tools/generate_compile_commands.py
 
       - name: Validate every source and offline host test
         id: source_validation
-        continue-on-error: ${{ inputs.advisory == true }}
         env:
-          CPATH: ${{ github.workspace }}/.references/MacKernelSDK/Headers
           RUFF_NO_CACHE: '1'
-        run: |
-          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          python3 -B tools/validate.py --no-cache --stdout-only
-
-      - name: Warn about advisory source validation failure
-        if: ${{ always() && inputs.advisory && steps.source_validation.outcome == 'failure' }}
-        shell: bash
-        run: |
-          echo '::warning title=Source validation failed::The checked-in validator reported errors; this is advisory for authorized builds only.'
-          {
-            echo '### Advisory validation findings'
-            echo 'Source validation failed; inspect the JSON findings in the job log.'
-            echo 'Standalone ci tags remain strict and fail on the same findings.'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: python3 -B tools/validate.py --no-cache --stdout-only

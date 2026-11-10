@@ -1,8 +1,8 @@
 #ifndef SIMPLEATH_USB_BYTES_HPP
 #define SIMPLEATH_USB_BYTES_HPP
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

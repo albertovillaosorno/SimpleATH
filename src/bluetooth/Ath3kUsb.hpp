@@ -1,8 +1,8 @@
 #ifndef SIMPLEATH_ATH3K_USB_HPP
 #define SIMPLEATH_ATH3K_USB_HPP
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

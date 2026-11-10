@@ -3,7 +3,7 @@
 #include "Ar9565Core.hpp"
 #include "Ar9565InitCatalog.hpp"
 #include "Ar9565RfIni.hpp"
-#include <cstdint>
+#include <stdint.h>
 
 namespace simpleath
 {

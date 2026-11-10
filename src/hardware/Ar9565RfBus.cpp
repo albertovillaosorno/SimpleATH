@@ -1,8 +1,8 @@
 #include "Ar9565RfBus.hpp"
 #include "Ar9565Channel.hpp"
 #include "Ar9565RfIni.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

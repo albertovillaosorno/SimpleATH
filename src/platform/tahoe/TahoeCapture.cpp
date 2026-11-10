@@ -4,10 +4,10 @@
 #include "TahoeControllerABI.hpp"
 #include <IOKit/IOService.h>
 #include <IOKit/IOWorkLoop.h>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <libkern/c++/OSObject.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 namespace
 {

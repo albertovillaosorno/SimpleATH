@@ -27,19 +27,8 @@
 #include "Ar9565Core.hpp"
 #include "Ar9565Eeprom.hpp"
 #include "Ar9565InitCatalog.hpp"
-#include <cstddef>
-#include <cstdint>
-// Linux cross-check uses an incomplete macOS SDK: its public <iterator>
-// transitively includes incompatible Linux C headers. Real/macOS and host
-// builds use the public header; Darwin target compilation instead uses
-// the narrow libc++ std::next definition.
-// NOLINTBEGIN(misc-include-cleaner)
-#ifdef __APPLE__
-#include <__iterator/next.h>
-#else
-#include <iterator>
-#endif
-// NOLINTEND(misc-include-cleaner)
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {
@@ -67,6 +56,66 @@ namespace simpleath
         constexpr uint32_t kOtpReadyValue = 4U;
         constexpr uint8_t kErasedOctet = 0xffU;
         constexpr size_t kTemplateMacOffset = 2;
+
+        // Avoid libc++ iterators and unchecked raw-pointer arithmetic in
+        // the freestanding kernel. The offset is validated before conversion.
+        template <typename Byte> Byte *byteOffset(Byte *base, size_t offset)
+        {
+            static_assert(sizeof(Byte) == 1U,
+                          "NVM byte offsets require one-byte elements");
+            static_assert(sizeof(base) == sizeof(uintptr_t),
+                          "NVM pointer width must equal integer width");
+            if (base == nullptr)
+            {
+                return nullptr;
+            }
+            uintptr_t address = 0;
+            __builtin_memcpy(&address, static_cast<const void *>(&base),
+                             sizeof(address));
+            if (offset > UINTPTR_MAX - address)
+            {
+                return nullptr;
+            }
+            address += offset;
+            Byte *result = nullptr;
+            __builtin_memcpy(static_cast<void *>(&result), &address,
+                             sizeof(result));
+            return result;
+        }
+
+        struct CapturedWord
+        {
+                size_t byteCount;
+                size_t firstByte;
+                size_t wordIndex;
+                uint32_t wordBytes;
+                uint32_t value;
+        };
+
+        NvmResult publishCapturedWord(uint8_t *destination,
+                                      const CapturedWord &word,
+                                      size_t &bytesAcquired)
+        {
+            for (uint32_t byte = 0; byte < word.wordBytes; ++byte)
+            {
+                const size_t absolute =
+                    (word.wordIndex * word.wordBytes) + byte;
+                if (absolute < word.firstByte ||
+                    absolute - word.firstByte >= word.byteCount)
+                {
+                    continue;
+                }
+                uint8_t *slot = byteOffset(destination, bytesAcquired);
+                if (bytesAcquired >= word.byteCount || slot == nullptr)
+                {
+                    return NvmResult::InvalidArgument;
+                }
+                *slot =
+                    static_cast<uint8_t>(word.value >> (byte * kBitsPerByte));
+                ++bytesAcquired;
+            }
+            return NvmResult::Ok;
+        }
 
         struct WaitSpec
         {
@@ -582,15 +631,14 @@ namespace simpleath
             {
                 break;
             }
-            for (uint32_t byte = 0; byte < wordBytes; ++byte)
+            const CapturedWord publishSpec {
+                byteCount, firstByte, firstWord + word, wordBytes, value,
+            };
+            result = publishCapturedWord(destination, publishSpec,
+                                         status.bytesAcquired);
+            if (result != NvmResult::Ok)
             {
-                const size_t absolute = ((firstWord + word) * wordBytes) + byte;
-                if (absolute >= firstByte && absolute - firstByte < byteCount)
-                {
-                    *std::next(destination, static_cast<std::ptrdiff_t>(
-                                                status.bytesAcquired++)) =
-                        static_cast<uint8_t>(value >> (byte * kBitsPerByte));
-                }
+                break;
             }
         }
         // The last post-read D0 gate can succeed before the provider is
@@ -808,15 +856,16 @@ namespace simpleath
             }
             // Reject any change to the selected header between the probe
             // and full acquisition (including a disappearing/replaced NVM).
-            bool headerStable = true;
-            for (size_t i = 0; i < sizeof(header); ++i)
+            if (length < sizeof(header))
             {
-                headerStable =
-                    headerStable &&
-                    *std::next(&header[0], static_cast<std::ptrdiff_t>(i)) ==
-                        *std::next(storage, static_cast<std::ptrdiff_t>(
-                                                length - sizeof(header) + i));
+                outcome = NvmDiscoveryResult::CorruptImage;
+                break;
             }
+            const uint8_t *capturedHeader =
+                byteOffset(storage, length - sizeof(header));
+            const bool headerStable =
+                capturedHeader != nullptr &&
+                __builtin_memcmp(header, capturedHeader, sizeof(header)) == 0;
             if (!headerStable)
             {
                 outcome = NvmDiscoveryResult::CorruptImage;

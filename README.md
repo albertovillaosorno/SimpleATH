@@ -58,8 +58,8 @@ implement the complete production driver 100%; then resolve all lint/check
 failures to zero without weakening rules; then harden edge cases indefinitely
 and finish the remaining TODOs while testing the notebook. The owner shares
 logs here, and agents use them to implement real fixes. Continuous hardening
-must never become an indefinite testing hold. As of 2026-11-10, CI is advisory
-for authorized builds, not a prerequisite for compilation.
+must never become an indefinite testing hold. As of 2026-11-10, strict CI,
+authorized kext builds and release publication use separate tag triggers.
 
 **Owner acceptance criterion: implement the whole system before testing it.**
 The first testable driver must contain every required source path, connected
@@ -144,10 +144,10 @@ observed notebook results recorded in the owner-controlled final test cycle.
 
 ## Runtime diagnostics and crash symbols
 
-The authorized build workflow selects the optimized Release configuration with separately
-preserved `SimpleATH.kext.dSYM` symbols. The authorized build workflow requires
-the kernel and dSYM UUID/architecture to match and archives both after the
-advisory CI check. Runtime diagnostics use the same compiled driver:
+The authorized build workflow selects the optimized Release configuration,
+preserves `SimpleATH.kext.dSYM` symbols, and verifies that the kernel and
+dSYM UUID/architecture match. Builds are independent of CI and archive
+both binary and symbols on success. Runtime diagnostics use the driver:
 
 - `simpleathdbg=1` or `-simpleathdbg` enables detailed startup state logs.
 - `simpleathdbg=0` forces normal logging, including essential failures.
@@ -198,14 +198,15 @@ also explicit production TODOs; both must be integrated before source closure.
 
 ## Build for macOS testing
 
-Kernel artifacts are compiled only by the owner-authorized timestamp tag
-workflow, using `build-vYYYY.MM.DD.HH.mm` (for example,
-`build-v2026.11.10.15.19`). The date and 24-hour time use the
-`America/Mexico_City` timezone and zero-padded numbers. Never reuse
-a tag; push it for the exact committed `main` snapshot, excluding
-uncommitted edits. The workflow checks the tag format before
-compilation. The pinned SDK and Intel macOS toolchain are required;
-local commands must not bypass this owner-authorized CI build.
+Kernel artifacts are compiled **only** by an explicitly owner-authorized
+`build-vYYYY.MMDD.HHmm` tag (for example, `build-v2026.1110.1555`). The
+zero-padded date/time is expressed in `America/Mexico_City`. Build tags run
+**only** the Intel macOS Xcode build; they never run CI or publish a release.
+The workflow checks the exact CalVer tag, tests native Apple kernel/C
+headers and fails immediately when required headers are unavailable. The
+`.references/MacKernelSDK` download is for offline research only and cannot
+supply CI or build headers. Never reuse a tag, trigger a build without
+owner authorization or include uncommitted changes in a tagged snapshot.
 
 The unsigned bundle is `build/Products/Release/SimpleATH.kext`. It now runs
 PCI claim/map, physical silicon inspection, MAC quiescence, RTC bootstrap and
@@ -215,11 +216,12 @@ reset and board acquisition succeeded; it does not mean Wi-Fi can yet scan or
 connect. Remaining RF/calibration, queue/interrupt and AirPort integration
 stays open in TODO.md.
 
-An owner-authorized `build-v*` tag runs full macOS CI as an advisory check.
-Validation failures generate warnings and reports but no longer block the
-authorized compilation. The goal remains zero findings; failures are never
-reclassified as successes. Ordinary source pushes do not trigger a kext
-build. The `-simpleathoff` boot argument still disables matching.
+**CI and release are separate actions.** `ci` and `ci-*` tags run the full
+strict macOS validator, without compiling the kext. `release-v*` tags first
+run that same strict validator; **only if every check succeeds** does a
+separate job publish the GitHub release for the tagged commit. Build tags
+never cause CI or release publication. No finding is advisory or converted
+to success. The `-simpleathoff` boot argument still disables matching.
 
 ## Tooling: explicitly NOT a Jig repository
 
@@ -319,37 +321,38 @@ The runner uses the project's Python 3.14 tool environment.
 ## Builds, CI and hardware testing
 
 The GitHub Actions workflows are **tag-only** and do not run on ordinary
-`main` pushes, pull requests or manual workflow dispatch. They also require
-**public** repository visibility, to avoid chargeable private-runner usage:
+`main` pushes, pull requests or manual workflow dispatch. All macOS runner
+jobs require **public** repository visibility to avoid private runner charges:
 
-- `ci` or `ci-*`: run the complete macOS-mode validator and offline host tests
-  on the standard Intel Tahoe runner. **No kext is built.**
-- `build-v*`: run the same validator on the exact tag commit as advisory CI.
-  Failures and macOS environment errors emit warnings and preserve reports,
-  but do not block the separately authorized x86_64 Xcode kext build.
-  Native compilation and artifact verification still fail on real errors.
+- `ci` / `ci-*`: strict Clang-Format, Clang-Tidy, Ruff, BasedPyright and
+  offline host tests on macOS Tahoe Intel; any failure or skip fails CI.
+- `build-vYYYY.MMDD.HHmm`: Xcode unsigned kext build **only**. It is not
+  dependent on any CI job, and does not publish a GitHub release.
+- `release-v*`: strict macOS CI first; publish a GitHub release only when
+  the complete CI job passes. A failed/skipped CI job never publishes.
 
-The CI uses compatible GitHub Actions versions and `uv` with pinned
-precompiled macOS Intel wheels for Clang-Format, Clang-Tidy, Ruff,
-BasedPyright and Node.
-It never invokes Homebrew, and it uses Python 3.15. For authorized build tags,
-Xcode compilation and advisory validation run independently in parallel;
-validation cannot delay the kernel build. Findings and failure counts appear
-in the GitHub Actions job log as JSON, including missing tool checks. CI calls
-`tools/validate.py --no-cache --stdout-only`: no `report.json`, lint cache,
-completion state or validation artifact is written by that mode. Ordinary
-local validator runs retain their existing on-disk report/cache behavior.
-The CI refreshes checkout-local Clang-Tidy commands and uses the pinned
-MacKernelSDK compatibility headers. That SDK is not a verified exact Tahoe
-KDK, and a successful static check cannot establish native ABI correctness.
-The strict validator does not support `--linux` or treat missing Apple
-headers as successes. Build artifacts are unsigned and are not installed.
+CI uses Python 3.15, `uv` and pinned precompiled macOS x86_64 wheels without
+Homebrew or source builds. `tools/validate.py --no-cache --stdout-only`
+prints all failure/skip findings and counts in the GitHub Actions log,
+without writing `.cache/validate/report.json` or validator cache state.
+Local runs retain their normal on-disk reports and optional cache.
 
-This setup does **not** itself authorize or create any tag, run a CI job,
-compile the kext locally, or begin physical testing. Release-build tags and
-all EFI/OpenCore/USB/SSD or PCI/RF work require separate explicit owner
-approval. A successful build does not prove the driver provides working
-Wi-Fi or AirPort on the target machine.
+Both Clang-Tidy in macOS CI and the Xcode build use **native Apple SDK/KDK
+headers only**. Kernel sources use C/XNU types (`<stddef.h>`, `<stdint.h>`,
+`<string.h>`) without depending on hosted `libc++`; the sole placement-new
+adapter uses IOKit-owned storage and never allocates. A freestanding Clang
+syntax regression and source scan guard against reintroducing C++ library
+headers into the kernel target. The downloaded `.references/MacKernelSDK`
+remains available for offline research and Linux-only static exploration,
+never as an include/library path in CI or build. Native Xcode compilation
+checks the presence of kernel and C headers before starting; missing Apple
+headers fail clearly instead of silently using reference substitutes. The
+header checks do not prove Tahoe ABI compatibility; builds remain unsigned
+and are never installed automatically.
+
+These rules do **not** authorize creating tags, compiling the kext, or
+physical testing. All EFI/OpenCore/USB/SSD and PCI/RF activity still requires
+separate owner approval. A successful build does not prove working AirPort.
 
 ## Upstream source references
 

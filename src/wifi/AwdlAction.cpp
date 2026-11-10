@@ -3,8 +3,8 @@
 #include "AwdlAction.hpp"
 #include "Frames.hpp"
 #include "bluetooth/UsbBytes.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

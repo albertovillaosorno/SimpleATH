@@ -23,8 +23,8 @@
 #include "Ar9003TxControl.hpp"
 #include "Ar9003Descriptors.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

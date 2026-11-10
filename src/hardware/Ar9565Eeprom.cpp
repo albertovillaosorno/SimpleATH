@@ -28,8 +28,8 @@
 #include "Ar9565InitCatalog.hpp"
 #include "generated/Ar9300EepromTemplates.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

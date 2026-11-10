@@ -25,8 +25,8 @@
 // 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
 #include "Ar9003Descriptors.hpp"
 
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

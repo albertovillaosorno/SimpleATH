@@ -21,7 +21,6 @@
 #include <IOKit/IOService.h>
 #include <IOKit/IOUserClient.h>
 #include <IOKit/IOWorkLoop.h>
-#include <cstdint>
 #include <i386/types.h>
 #include <kern/clock.h>
 #include <kern/thread.h>
@@ -36,6 +35,7 @@
 #include <mach/mach_types.h>
 #include <mach/machine.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/errno.h>
 #include <sys/systm.h>

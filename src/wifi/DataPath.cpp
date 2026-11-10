@@ -3,8 +3,8 @@
 #include "crypto/Ccmp.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/Frames.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

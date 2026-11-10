@@ -2,11 +2,12 @@
 """Write host-only Clang-Tidy parse commands without compiling a kext.
 
 These commands are source-analysis fixtures, not captured Xcode build actions.
-An installed, pinned MacKernelSDK supplies optional kernel parse headers;
-private Tahoe ABI is not verified by this source-only database.
+Native macOS analysis uses Apple headers. Linux may use optional downloaded
+research headers without claiming Tahoe ABI verification.
 """
 
 import json
+import os
 from pathlib import Path
 import shutil
 import sys
@@ -15,17 +16,32 @@ from typing import TypedDict
 OBJCXX_SUFFIX = ".mm"
 CXX_LANGUAGE = "c++"
 DARWIN_TARGET = "x86_64-apple-macosx14.0"
+DARWIN_PLATFORM = "darwin"
 TAHOE_IOCTL_SOURCES = (
     "src/platform/tahoe/SimpleATHTahoeController.cpp",
     "src/platform/tahoe/SimpleATHInfraProtocol.cpp",
 )
 
 
-def _kernel_parse_flags(root: Path) -> list[str]:
-    """Use authentic installed kernel headers, never synthetic API stubs.
+def _native_macos_flags() -> list[str]:
+    """Use only Apple SDK headers when analyzing macOS kernel sources.
 
     Returns:
-        Optional native C++ parse flags for the repository's target macOS ABI.
+        Native parse flags, never a downloaded research SDK path.
+
+    """
+    sdk = os.environ.get("SDKROOT")
+    if not sdk:
+        return ["-DKERNEL=1"]
+    kernel = Path(sdk) / "System/Library/Frameworks/Kernel.framework/Headers"
+    return ["-DKERNEL=1", "-isysroot", sdk, "-isystem", str(kernel)]
+
+
+def _reference_parse_flags(root: Path) -> list[str]:
+    """Use optional Linux-host research headers without building a kext.
+
+    Returns:
+        Source-only Linux cross-parse flags when references are available.
 
     """
     headers = root / ".references/MacKernelSDK/Headers"
@@ -44,6 +60,18 @@ def _kernel_parse_flags(root: Path) -> list[str]:
                 flags.extend(("-isystem", str(sites[0].parent)))
     flags.extend(("-isystem", str(headers)))
     return flags
+
+
+def _kernel_parse_flags(root: Path) -> list[str]:
+    """Select native Apple or Linux-only research parse inputs.
+
+    Returns:
+        Clang-Tidy parse flags for the current host platform.
+
+    """
+    if sys.platform == DARWIN_PLATFORM:
+        return _native_macos_flags()
+    return _reference_parse_flags(root)
 
 
 class CompileCommand(TypedDict):

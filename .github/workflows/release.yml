@@ -1,0 +1,40 @@
+name: SimpleATH strict CI-gated release
+
+# Release tags validate exactly their tagged commit. No kernel compilation.
+on:
+  push:
+    tags:
+      - 'release-v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: simpleath-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Strict macOS source validation
+    if: github.event.repository.private == false
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish release only after strict CI succeeds
+    needs: validate
+    if: >-
+      github.event.repository.private == false &&
+      needs.validate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub release for validated tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --verify-tag --title "$RELEASE_TAG" --generate-notes

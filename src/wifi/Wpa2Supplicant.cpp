@@ -1,8 +1,8 @@
 #include "Wpa2Supplicant.hpp"
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

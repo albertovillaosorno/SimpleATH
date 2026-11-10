@@ -16,7 +16,7 @@
 // AR9565 register protocol derived from pinned ath9k mac.c/reg.h.
 #include "Ar9565MacControl.hpp"
 #include "Ar9565Core.hpp"
-#include <cstdint>
+#include <stdint.h>
 
 namespace simpleath
 {

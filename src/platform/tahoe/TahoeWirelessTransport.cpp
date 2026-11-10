@@ -4,8 +4,8 @@
 #include <IOKit/IOLocks.h>
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 namespace simpleath

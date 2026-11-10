@@ -56,7 +56,7 @@ The owner's 2026-11-09 order is: first implement the required production
 driver 100%; then validate linters with zero failures and zero skips; then
 continue edge-case hardening indefinitely and finish the remaining TODOs
 while the owner tests the notebook and supplies logs here. The owner's
-2026-11-10 update makes pre-build CI advisory instead of blocking.
+latest 2026-11-10 update fully separates build tags from strict CI.
 See the highest-priority `production-implementation` record in TODO.md.
 No required runtime path may be replaced by a passive property publisher or
 deferred behind hardening.
@@ -77,16 +77,26 @@ from successful operations; never set success flags to conceal missing code.
 Report a specific failing stage and its real error so the owner can build,
 run and diagnose it. Missing source functionality is the highest-priority
 work; strict lint does not take precedence over implementing that path.
-CI is advisory for explicitly authorized `build-v*` builds: failures and
-missing macOS prerequisites produce warnings, not a build stop. Standalone CI
-remains strict. Fix findings without weakening checks or hiding failures.
-No build tag, compilation, or hardware activity is authorized by this policy.
-Explicit owner-authorized build tags MUST use `build-vYYYY.MM.DD.HH.mm`,
-with zero-padded numeric date and 24-hour local time in
-`America/Mexico_City`. Only digits and dots follow `build-v`.
-Never reuse a tag or compile a dirty working-tree snapshot; push the
-tag on the exact committed `main` revision after the owner requests
-that build. CI validates the timestamp tag before compiling.
+**Workflow separation is mandatory:** `ci`/`ci-*` tags run only strict
+source CI (any failure or skip fails). `build-v*` tags run only an explicitly
+authorized native Xcode build; they never start CI. `release-v*` tags run
+strict CI first and may publish a GitHub release only after the complete CI
+job succeeds. No `continue-on-error` or advisory green results are allowed.
+CI findings are printed to GitHub Actions logs, without a CI `report.json`
+artifact or validator on-disk cache. On macOS, native Apple SDK/KDK headers
+are the only build and Clang-Tidy inputs. The downloaded MacKernelSDK is
+strictly offline research/reference material, never used in CI or builds.
+Native kernel sources must not depend on hosted `libc++`: prefer C/XNU types,
+compiler intrinsics and narrowly scoped language-only helpers. Regression
+checks protect the native compilation target against C++ library headers.
+
+No build tag, compilation, release, or hardware activity is authorized by this
+policy alone. Explicit owner-authorized build tags MUST use
+`build-vYYYY.MMDD.HHmm`, with zero-padded numeric date and 24-hour local
+time in `America/Mexico_City`. For example, `build-v2026.1110.1555`.
+Never reuse a tag or compile a dirty working-tree snapshot; publish the tag
+at the exact committed `main` revision only after owner authorization. The
+build checks the CalVer timestamp before compiling.
 
 Before notebook testing, after the production-implementation and zero-failure
 validation milestones, the committed AR9565 source must be complete and integrated for all required paths, with no known
@@ -278,6 +288,5 @@ alongside owner-authorized notebook testing and the remaining TODOs.**
 After the implementation and validation milestones, continue evidence-backed
 edge-case hardening, recovery work and log-driven fixes indefinitely. The
 owner supplies real notebook logs here; agents coordinate source changes in
-their chat. CI remains advisory for each authorized build, with failures
-reported accurately. Preserve explicit build, deployment and hardware
-authorization scopes.
+their chat. CI and authorized builds are independent; CI fails on any finding.
+Preserve explicit build, deployment and hardware authorization scopes.

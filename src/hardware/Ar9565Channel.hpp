@@ -4,8 +4,8 @@
 #include "Ar9565Core.hpp"
 #include "Ar9565InitCatalog.hpp"
 #include "Ar9565RfIni.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

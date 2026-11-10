@@ -3,8 +3,8 @@
 
 #include "UsbBytes.hpp"
 #include "UsbHci.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

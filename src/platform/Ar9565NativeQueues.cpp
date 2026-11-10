@@ -30,6 +30,7 @@
 #include "../hardware/Ar9003TxControl.hpp"
 #include "../hardware/Ar9565Core.hpp"
 #include "../hardware/Ar9565MacControl.hpp"
+#include "KernelPlacementNew.hpp"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>
 #include <IOKit/IOInterruptEventSource.h>
@@ -40,11 +41,10 @@
 #include <IOKit/IOService.h>
 #include <IOKit/IOTypes.h>
 #include <IOKit/IOWorkLoop.h>
-#include <cstddef>
-#include <cstdint>
 #include <kern/task.h>
 #include <libkern/OSTypes.h>
-#include <new>
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #ifndef __x86_64__
@@ -384,9 +384,8 @@ namespace simpleath
 
     // The storage comes from IOMalloc; placement-new must never trigger a
     // second allocation or throw while constructing DMA lifetime records.
-    static_assert(sizeof(std::nothrow_t) != 0U &&
-                      noexcept(::operator new(sizeof(NativeQueueMemory),
-                                              static_cast<void *>(nullptr))),
+    static_assert(noexcept(::operator new(sizeof(NativeQueueMemory),
+                                          static_cast<void *>(nullptr))),
                   "native DMA placement construction must be noexcept");
     static_assert(noexcept(NativeQueueMemory {}),
                   "native DMA state initialization must be noexcept");

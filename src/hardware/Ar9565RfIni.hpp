@@ -2,8 +2,8 @@
 #define SIMPLEATH_AR9565_RF_INI_HPP
 
 #include "Ar9565InitCatalog.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

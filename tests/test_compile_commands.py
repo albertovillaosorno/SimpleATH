@@ -113,16 +113,27 @@ class SourceOnlyCompileCommandsTests(TestCase):
             assert commands["src/SimpleATH.cpp"][4:-4] == expected_flags
             assert commands["src/platform/probe/main.mm"][4:-4] == []
             assert commands["tests/test_fixture.cpp"][4:-4] == []
-            with mock.patch.object(sys, "platform", "darwin"):
+            native_sdk = root / "native-sdk"
+            native_kernel = (
+                native_sdk
+                / "System/Library/Frameworks/Kernel.framework/Headers"
+            )
+            with (
+                mock.patch.object(sys, "platform", "darwin"),
+                mock.patch.dict("os.environ", {"SDKROOT": str(native_sdk)}),
+            ):
                 macos = {
                     entry["file"]: entry["arguments"]
                     for entry in generator.source_commands(root)
                 }
             assert macos["src/SimpleATH.cpp"][4:-4] == [
                 "-DKERNEL=1",
+                "-isysroot",
+                str(native_sdk),
                 "-isystem",
-                str(sdk),
+                str(native_kernel),
             ]
+            assert str(sdk) not in macos["src/SimpleATH.cpp"]
 
     @staticmethod
     def test_regeneration_stays_below_root_and_is_deterministic() -> None:

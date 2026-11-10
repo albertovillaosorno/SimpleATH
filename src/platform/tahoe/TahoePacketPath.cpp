@@ -4,9 +4,9 @@
 #include "SimpleATHTahoeController.hpp"
 #include "TahoeInterfaceABI.hpp"
 #include <IOKit/IOEventSource.h>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 namespace
 {

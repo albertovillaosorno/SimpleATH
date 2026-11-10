@@ -7,8 +7,8 @@
 #include "Wpa2Primitives.hpp"
 #include "AesTables.hpp"
 #include "wifi/Frames.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

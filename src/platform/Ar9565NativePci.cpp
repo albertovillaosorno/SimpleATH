@@ -6,9 +6,9 @@
 #include <IOKit/IOTypes.h>
 #include <IOKit/pci/IOPCIDevice.h>
 #include <IOKit/pci/IOPCIFamilyDefinitions.h>
-#include <cstddef>
-#include <cstdint>
 #include <libkern/OSTypes.h>
+#include <stddef.h>
+#include <stdint.h>
 #ifndef __x86_64__
 #error The native PCI backend requires the Intel ABI
 #endif

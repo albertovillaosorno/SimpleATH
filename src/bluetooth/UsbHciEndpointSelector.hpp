@@ -2,8 +2,8 @@
 #define SIMPLEATH_USB_HCI_ENDPOINT_SELECTOR_HPP
 
 #include "UsbHci.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {

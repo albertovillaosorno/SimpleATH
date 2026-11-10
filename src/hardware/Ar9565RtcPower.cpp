@@ -19,8 +19,8 @@
 // reg.h: 629a6df177d63b2a99202ab97a3641c488b5f1ac738f6f15612c7b4ebacebade
 #include "Ar9565RtcPower.hpp"
 #include "Ar9565Core.hpp"
-#include <cstddef>
-#include <cstdint>
+#include <stddef.h>
+#include <stdint.h>
 
 namespace simpleath
 {
