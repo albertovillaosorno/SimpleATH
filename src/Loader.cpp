@@ -21,13 +21,13 @@
 #include <libkern/c++/OSNumber.h>
 #include <libkern/c++/OSUnserialize.h>
 #include <mach-o/loader.h>
+#include <mach/i386/boolean.h>
+#include <mach/i386/kern_return.h>
+#include <mach/i386/vm_types.h>
 #include <mach/kern_return.h>
 #include <mach/kmod.h>
-#include <mach/machine/boolean.h>
-#include <mach/machine/vm_types.h>
 #include <mach/vm_prot.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 extern "C" kern_return_t kext_alloc(vm_offset_t *, vm_size_t, boolean_t);
@@ -92,6 +92,125 @@ namespace ath
             return state;
         }
 
+        struct StringProperty
+        {
+                const char *key;
+                const char *value;
+        };
+
+        // All binary Mach-O access is validated against the mapped descriptor
+        // before copying bytes. No typed object is manufactured by aliasing
+        // an executable image's raw storage.
+        template <typename T> T *pointerFromAddress(uintptr_t address)
+        {
+            static_assert(sizeof(T *) == sizeof(uintptr_t),
+                          "native mapped addresses must fit a pointer");
+            T *pointer = nullptr;
+            __builtin_memcpy(static_cast<void *>(&pointer), &address,
+                             sizeof(pointer));
+            return pointer;
+        }
+
+        uintptr_t pointerBits(const void *pointer)
+        {
+            static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                          "native pointer representation must fit uintptr_t");
+            uintptr_t address = 0;
+            __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                             sizeof(address));
+            return address;
+        }
+
+        void *mappedAt(const LinkedImage &image, size_t offset, size_t length)
+        {
+            if (image.payload == nullptr || image.memory == nullptr ||
+                offset > image.payload->mappedSize ||
+                length > image.payload->mappedSize - offset)
+            {
+                return nullptr;
+            }
+            const uintptr_t base = pointerBits(image.memory);
+            if (offset > UINTPTR_MAX - base)
+            {
+                return nullptr;
+            }
+            return pointerFromAddress<void>(base + offset);
+        }
+
+        template <typename T>
+        bool readMapped(const LinkedImage &image, size_t offset, T &out)
+        {
+            const void *source = mappedAt(image, offset, sizeof(T));
+            if (source == nullptr)
+            {
+                return false;
+            }
+            __builtin_memcpy(&out, source, sizeof(out));
+            return true;
+        }
+
+        template <typename T>
+        bool writeMapped(const LinkedImage &image, size_t offset,
+                         const T &value)
+        {
+            void *destination = mappedAt(image, offset, sizeof(T));
+            if (destination == nullptr)
+            {
+                return false;
+            }
+            __builtin_memcpy(destination, &value, sizeof(value));
+            return true;
+        }
+
+        // The generated descriptor array has exactly three elements. A
+        // retained native profile may select only its two AirPort variants.
+        const Payload *selectedPayload(uint32_t index)
+        {
+            if (index == 0U)
+            {
+                return &payloads[0];
+            }
+            if (nativeSystem == nullptr)
+            {
+                return nullptr;
+            }
+            switch (nativeSystem->airPortPayloadIndex)
+            {
+                case 1U:
+                    return &payloads[1];
+                case 2U:
+                    return &payloads[2];
+                default:
+                    return nullptr;
+            }
+        }
+
+        const char *nativeImportName(uint32_t index)
+        {
+            if (index >= nativeImportCount)
+            {
+                return nullptr;
+            }
+            return nativeImportNames[index];
+        }
+
+        bool readNativeImport(uint32_t index, uintptr_t &value)
+        {
+            if (index >= nativeImportCount)
+            {
+                return false;
+            }
+            const uintptr_t start = pointerBits(&athNativeImports[0]);
+            const size_t offset = static_cast<size_t>(index) * sizeof(value);
+            if (offset > UINTPTR_MAX - start)
+            {
+                return false;
+            }
+            const void *source = pointerFromAddress<void>(start + offset);
+            __builtin_memcpy(&value, source, sizeof(value));
+            return true;
+        }
+
         // Only two fixed embedded modules are loadable. This accessor keeps
         // runtime indices away from unchecked array subscripts.
         LinkedImage &selectedImage(uint32_t index)
@@ -130,7 +249,7 @@ namespace ath
     static bool setNumber(OSDictionary *dictionary, const char *key,
                           uint64_t value)
     {
-        auto *number = OSNumber::withNumber(value, kNumberBits);
+        const auto *number = OSNumber::withNumber(value, kNumberBits);
         if (number == nullptr)
         {
             return false;
@@ -140,17 +259,75 @@ namespace ath
         return result;
     }
 
-    static bool setString(OSDictionary *dictionary, const char *key,
-                          const char *value)
+    static bool setString(OSDictionary *dictionary,
+                          const StringProperty &property)
     {
-        auto *string = OSString::withCString(value);
+        const auto *string = OSString::withCString(property.value);
         if (string == nullptr)
         {
             return false;
         }
-        auto const result = dictionary->setObject(key, string);
+        auto const result = dictionary->setObject(property.key, string);
         string->release();
         return result;
+    }
+
+    namespace
+    {
+        struct SegmentValidationLocation
+        {
+                size_t cursor;
+                uint64_t delta;
+        };
+    } // namespace
+
+    static bool
+    validateSectionAddresses(const LinkedImage &image,
+                             const segment_command_64 &segment,
+                             const SegmentValidationLocation &location)
+    {
+        for (uint32_t sectionIndex = 0; sectionIndex < segment.nsects;
+             ++sectionIndex)
+        {
+            section_64 section {};
+            const size_t sectionOffset =
+                location.cursor + sizeof(segment) +
+                (static_cast<size_t>(sectionIndex) * sizeof(section));
+            if (!readMapped(image, sectionOffset, section) ||
+                section.addr > image.payload->mappedSize ||
+                section.addr > UINT64_MAX - location.delta)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static bool
+    validateSegmentCommand(const LinkedImage &image,
+                           const load_command &command,
+                           const SegmentValidationLocation &location)
+    {
+        if (command.cmdsize < sizeof(segment_command_64))
+        {
+            return false;
+        }
+        segment_command_64 segment {};
+        if (!readMapped(image, location.cursor, segment))
+        {
+            return false;
+        }
+        const auto &payload = *image.payload;
+        if (segment.nsects >
+                (command.cmdsize - sizeof(segment)) / sizeof(section_64) ||
+            segment.vmaddr > payload.mappedSize ||
+            segment.vmsize > payload.mappedSize - segment.vmaddr ||
+            segment.vmaddr > UINT64_MAX - location.delta ||
+            segment.vmsize > UINT64_MAX - (segment.vmaddr + location.delta))
+        {
+            return false;
+        }
+        return validateSectionAddresses(image, segment, location);
     }
 
     // The relocated Mach-O image comes from stored payload bytes. Prove that
@@ -176,7 +353,10 @@ namespace ath
         }
 
         mach_header_64 header {};
-        memcpy(&header, image.memory, sizeof(header));
+        if (!readMapped(image, 0U, header))
+        {
+            return false;
+        }
         if (header.magic != MH_MAGIC_64 || header.ncmds == 0U ||
             header.sizeofcmds > payload.size - sizeof(header) ||
             payload.kmodOffset < sizeof(header) + header.sizeofcmds)
@@ -193,50 +373,120 @@ namespace ath
                 return false;
             }
             load_command command {};
-            memcpy(&command, image.memory + cursor, sizeof(command));
+            if (!readMapped(image, cursor, command))
+            {
+                return false;
+            }
             if (command.cmdsize < sizeof(command) ||
                 command.cmdsize > remaining ||
                 (command.cmdsize % sizeof(uint64_t)) != 0U)
             {
                 return false;
             }
+            if (command.cmd == LC_SEGMENT_64 &&
+                !validateSegmentCommand(
+                    image, command, SegmentValidationLocation {cursor, delta}))
+            {
+                return false;
+            }
+            cursor += command.cmdsize;
+            remaining -= command.cmdsize;
+        }
+        return remaining == 0U;
+    }
+
+    // Each command was checked against the mapped image before this stage.
+    // Mutate exactly one structured Mach-O record at a time through bounded
+    // byte copies; a raw byte image does not contain C++ objects of these
+    // kernel-private record types.
+    static bool rebaseImageCommands(const LinkedImage &image)
+    {
+        mach_header_64 header {};
+        if (!readMapped(image, 0U, header))
+        {
+            return false;
+        }
+        const uint64_t delta = image.address - vm_kernel_slide;
+        size_t cursor = sizeof(header);
+        for (uint32_t i = 0; i < header.ncmds; ++i)
+        {
+            load_command command {};
+            if (!readMapped(image, cursor, command))
+            {
+                return false;
+            }
             if (command.cmd == LC_SEGMENT_64)
             {
-                if (command.cmdsize < sizeof(segment_command_64))
-                {
-                    return false;
-                }
                 segment_command_64 segment {};
-                memcpy(&segment, image.memory + cursor, sizeof(segment));
-                if (segment.nsects > (command.cmdsize - sizeof(segment)) /
-                                         sizeof(section_64) ||
-                    segment.vmaddr > payload.mappedSize ||
-                    segment.vmsize > payload.mappedSize - segment.vmaddr ||
-                    segment.vmaddr > UINT64_MAX - delta ||
-                    segment.vmsize > UINT64_MAX - (segment.vmaddr + delta))
+                if (!readMapped(image, cursor, segment))
                 {
                     return false;
                 }
-                for (uint32_t sectionIndex = 0; sectionIndex < segment.nsects;
-                     ++sectionIndex)
+                const size_t sectionsBase = cursor + sizeof(segment);
+                for (uint32_t j = 0; j < segment.nsects; ++j)
                 {
                     section_64 section {};
-                    memcpy(&section,
-                           image.memory + cursor + sizeof(segment) +
-                               (static_cast<size_t>(sectionIndex) *
-                                sizeof(section)),
-                           sizeof(section));
-                    if (section.addr > payload.mappedSize ||
-                        section.addr > UINT64_MAX - delta)
+                    const size_t at = sectionsBase + (static_cast<size_t>(j) *
+                                                      sizeof(section));
+                    if (!readMapped(image, at, section))
+                    {
+                        return false;
+                    }
+                    section.addr += delta;
+                    if (!writeMapped(image, at, section))
+                    {
+                        return false;
+                    }
+                }
+                segment.vmaddr += delta;
+                if (!writeMapped(image, cursor, segment))
+                {
+                    return false;
+                }
+            }
+            cursor += command.cmdsize;
+        }
+        return true;
+    }
+
+    static bool wireLinkEdit(const LinkedImage &image, kmod_info_t *kmod,
+                             OSReturn &result)
+    {
+        mach_header_64 header {};
+        if (!readMapped(image, 0U, header))
+        {
+            return false;
+        }
+        size_t cursor = sizeof(header);
+        for (uint32_t i = 0; i < header.ncmds; ++i)
+        {
+            load_command command {};
+            if (!readMapped(image, cursor, command))
+            {
+                return false;
+            }
+            if (command.cmd == LC_SEGMENT_64)
+            {
+                segment_command_64 segment {};
+                if (!readMapped(image, cursor, segment))
+                {
+                    return false;
+                }
+                if (memcmp(&segment.segname[0], "__LINKEDIT",
+                           sizeof("__LINKEDIT")) == 0)
+                {
+                    result = vm_map_wire(kext_get_vm_map(kmod), segment.vmaddr,
+                                         segment.vmaddr + segment.vmsize,
+                                         VM_PROT_READ, 0);
+                    if (result != KERN_SUCCESS)
                     {
                         return false;
                     }
                 }
             }
             cursor += command.cmdsize;
-            remaining -= command.cmdsize;
         }
-        return remaining == 0U;
+        return true;
     }
 
     static bool registerImage(uint32_t index)
@@ -251,7 +501,7 @@ namespace ath
             return false;
         }
         const auto &p = *image.payload;
-        auto *object = OSUnserializeXML(p.plist);
+        const auto *object = OSUnserializeXML(p.plist);
         auto *dictionary = OSDynamicCast(OSDictionary, object);
         if (dictionary == nullptr)
         {
@@ -261,56 +511,68 @@ namespace ath
             }
             return false;
         }
-        char path[kPrelinkPathCapacity];
-        const int pathBytes = snprintf(
-            path, sizeof(path),
-            "/Library/Extensions/SimpleATH.kext/Embedded/%s", p.identifier);
+        char path[kPrelinkPathCapacity] {};
+        const size_t rootBytes =
+            strlcpy(&path[0], "/Library/Extensions/SimpleATH.kext/Embedded/",
+                    sizeof(path));
+        const size_t pathBytes = strlcat(&path[0], p.identifier, sizeof(path));
         const auto slide = PE_get_kc_slide(kKcKindUnknown);
-        if (pathBytes < 0 || static_cast<size_t>(pathBytes) >= sizeof(path) ||
+        if (rootBytes >= sizeof(path) || pathBytes >= sizeof(path) ||
             slide > image.address)
         {
             dictionary->release();
             return false;
         }
-        auto *kmod =
-            reinterpret_cast<kmod_info_t *>(image.memory + p.kmodOffset);
-        kmod->next = nullptr;
-        kmod->id = 0;
-        kmod->reference_count = 0;
-        kmod->reference_list = nullptr;
-        kmod->address = 0;
-        kmod->size = p.mappedSize;
-        kmod->hdr_size = 0;
+        kmod_info_t updatedKmod {};
+        if (!readMapped(image, p.kmodOffset, updatedKmod))
+        {
+            dictionary->release();
+            return false;
+        }
+        updatedKmod.next = nullptr;
+        updatedKmod.id = 0;
+        updatedKmod.reference_count = 0;
+        updatedKmod.reference_list = nullptr;
+        updatedKmod.address = 0;
+        updatedKmod.size = p.mappedSize;
+        updatedKmod.hdr_size = 0;
+        if (!writeMapped(image, p.kmodOffset, updatedKmod))
+        {
+            dictionary->release();
+            return false;
+        }
+        auto *kmod = static_cast<kmod_info_t *>(
+            mappedAt(image, p.kmodOffset, sizeof(updatedKmod)));
+        if (kmod == nullptr)
+        {
+            dictionary->release();
+            return false;
+        }
         bool const valid =
-            setString(dictionary, "_PrelinkBundlePath", path) &&
-            setString(dictionary, "_PrelinkExecutableRelativePath",
-                      "Contents/MacOS/Embedded") &&
+            setString(dictionary,
+                      StringProperty {
+                          "_PrelinkBundlePath",
+                          &path[0],
+                      }) &&
+            setString(dictionary,
+                      StringProperty {
+                          "_PrelinkExecutableRelativePath",
+                          "Contents/MacOS/Embedded",
+                      }) &&
             setNumber(dictionary, "_PrelinkExecutableLoadAddr",
                       image.address - slide) &&
             setNumber(dictionary, "_PrelinkExecutableSize", p.mappedSize) &&
             setNumber(dictionary, "_PrelinkKmodInfo",
-                      reinterpret_cast<uintptr_t>(kmod) - slide);
+                      pointerBits(kmod) - slide);
         if (!valid)
         {
             dictionary->release();
             return false;
         }
-        auto *header = reinterpret_cast<mach_header_64 *>(image.memory);
-        auto *command = reinterpret_cast<load_command *>(header + 1);
-        for (uint32_t i = 0; i < header->ncmds; ++i)
+        if (!rebaseImageCommands(image))
         {
-            if (command->cmd == LC_SEGMENT_64)
-            {
-                auto *segment = reinterpret_cast<segment_command_64 *>(command);
-                segment->vmaddr += image.address - vm_kernel_slide;
-                auto *section = reinterpret_cast<section_64 *>(segment + 1);
-                for (uint32_t j = 0; j < segment->nsects; ++j)
-                {
-                    section[j].addr += image.address - vm_kernel_slide;
-                }
-            }
-            command = reinterpret_cast<load_command *>(
-                reinterpret_cast<uint8_t *>(command) + command->cmdsize);
+            dictionary->release();
+            return false;
         }
         image.registered = true;
         selectedModule(index) =
@@ -328,38 +590,17 @@ namespace ath
             loaderState().lastError = result;
             return false;
         }
-        command = reinterpret_cast<load_command *>(header + 1);
-        for (uint32_t i = 0; i < header->ncmds; ++i)
+        if (!wireLinkEdit(image, kmod, result))
         {
-            if (command->cmd == LC_SEGMENT_64)
-            {
-                auto *segment = reinterpret_cast<segment_command_64 *>(command);
-                if (memcmp(segment->segname, "__LINKEDIT",
-                           sizeof("__LINKEDIT")) == 0)
-                {
-                    result = vm_map_wire(kext_get_vm_map(kmod), segment->vmaddr,
-                                         segment->vmaddr + segment->vmsize,
-                                         VM_PROT_READ, 0);
-                    if (result != KERN_SUCCESS)
-                    {
-                        loaderState().lastError = result;
-                        return false;
-                    }
-                }
-            }
-            command = reinterpret_cast<load_command *>(
-                reinterpret_cast<uint8_t *>(command) + command->cmdsize);
+            loaderState().lastError = result;
+            return false;
         }
         SYSLOG("loader", "registered %s, %u bytes", p.identifier, p.mappedSize);
         return true;
     }
 
-    bool preparePayloads()
+    static bool validateEmbeddedPrerequisites()
     {
-        if (loaderState().prepared)
-        {
-            return true;
-        }
         auto const kernel = getKernelVersion();
         if (kernel < kMinimumDarwinVersion || kernel > kMaximumDarwinVersion)
         {
@@ -375,45 +616,59 @@ namespace ath
             return fail("UnsupportedNativeWireless",
                         "com.apple.iokit.IO80211Family");
         }
-        for (auto const index : selected)
+        for (const auto index : selected)
         {
-            const auto &payload =
-                payloads[(index != 0U) ? nativeSystem->airPortPayloadIndex : 0];
-            auto *existing = athLookupKext(payload.identifier);
+            const Payload *payload = selectedPayload(index);
+            if (payload == nullptr || payload->identifier == nullptr)
+            {
+                return fail("InvalidNativePayloadIndex", "SimpleATH", index);
+            }
+            const auto *existing = athLookupKext(payload->identifier);
             if (existing != nullptr)
             {
                 existing->release();
-                return fail("ConflictingModule", payload.identifier);
+                return fail("ConflictingModule", payload->identifier);
             }
         }
         for (uint32_t i = 0; i < nativeVtableGuardCount; ++i)
         {
             const auto &guard = nativeVtableGuards[i];
-            if (guard.parent >= nativeImportCount ||
-                guard.method >= nativeImportCount)
+            uintptr_t parent = 0;
+            uintptr_t expected = 0;
+            if (!readNativeImport(guard.parent, parent) ||
+                !readNativeImport(guard.method, expected))
             {
                 return fail("InvalidVtableGuard", "SimpleATH", i);
             }
-            uintptr_t method = 0;
-            memcpy(&method,
-                   reinterpret_cast<void *>(athNativeImports[guard.parent] +
-                                            guard.offset),
-                   sizeof(method));
-            if (method != athNativeImports[guard.method])
+            if (guard.offset > UINTPTR_MAX - parent)
+            {
+                return fail("InvalidVtableGuard", "SimpleATH", i);
+            }
+            uintptr_t actual = 0;
+            const void *entry = pointerFromAddress<void>(parent + guard.offset);
+            __builtin_memcpy(&actual, entry, sizeof(actual));
+            if (actual != expected)
             {
                 return fail("NativeVtableMismatch",
-                            nativeImportNames[guard.parent], guard.offset);
+                            nativeImportName(guard.parent), guard.offset);
             }
         }
+        return true;
+    }
+
+    static bool mapEmbeddedImages()
+    {
         loaderState().status = "Mapping";
-        for (auto const index : selected)
+        for (const auto index : selected)
         {
             auto &image = selectedImage(index);
-            image.payload =
-                &payloads[(index != 0U) ? nativeSystem->airPortPayloadIndex
-                                        : 0];
+            image.payload = selectedPayload(index);
+            if (image.payload == nullptr)
+            {
+                return fail("InvalidNativePayloadIndex", "SimpleATH", index);
+            }
             vm_offset_t address = 0;
-            auto const result =
+            const auto result =
                 kext_alloc(&address, image.payload->mappedSize, 0);
             if (result != KERN_SUCCESS)
             {
@@ -421,7 +676,7 @@ namespace ath
                             result);
             }
             image.address = address;
-            image.memory = reinterpret_cast<uint8_t *>(address);
+            image.memory = pointerFromAddress<uint8_t>(address);
             image.editable = true;
             if (!restorePayload(image))
             {
@@ -429,11 +684,16 @@ namespace ath
                             image.payload->identifier);
             }
         }
+        return true;
+    }
+
+    static bool relocateEmbeddedImages()
+    {
         loaderState().status = "Linking";
         for (auto const index : selected)
         {
-            if (!relocateImage(selectedImage(index), loaderState().images, 2,
-                               athNativeImports, nativeImportCount,
+            if (!relocateImage(selectedImage(index), &loaderState().images[0],
+                               2, athNativeImports, nativeImportCount,
                                athCompatibilityImports,
                                compatibilityImportCount))
             {
@@ -441,9 +701,14 @@ namespace ath
                             selectedImage(index).payload->identifier);
             }
         }
+        return true;
+    }
+
+    static bool prepareNativeBridges()
+    {
         Bridge::initialize();
         loaderState().status = "Patching";
-        if (!prepareNativeSkywalk(loaderState().images, 2))
+        if (!prepareNativeSkywalk(&loaderState().images[0], 2))
         {
             return fail("NativeAdapterFailed", "SimpleATH");
         }
@@ -454,6 +719,11 @@ namespace ath
         {
             return fail("BridgeFailed", "SimpleATH");
         }
+        return true;
+    }
+
+    static bool registerEmbeddedImages()
+    {
         loaderState().status = "Registering";
         for (auto const index : selected)
         {
@@ -463,6 +733,21 @@ namespace ath
                             selectedImage(index).payload->identifier,
                             loaderState().lastError);
             }
+        }
+        return true;
+    }
+
+    bool preparePayloads()
+    {
+        if (loaderState().prepared)
+        {
+            return true;
+        }
+        if (!validateEmbeddedPrerequisites() || !mapEmbeddedImages() ||
+            !relocateEmbeddedImages() || !prepareNativeBridges() ||
+            !registerEmbeddedImages())
+        {
+            return false;
         }
         loaderState().prepared = true;
         loaderState().status = "Prepared";
@@ -544,9 +829,39 @@ namespace ath
         service->setProperty("LoaderFailedModule", loaderState().failedModule);
         service->setProperty("LoaderError", loaderState().lastError,
                              kPropertyBits);
-        char error[kErrorHexCapacity];
-        snprintf(error, sizeof(error), "0x%08x", loaderState().lastError);
-        service->setProperty("LoaderErrorHex", error);
+        // Produce the exact 8-nibble legacy error property directly, with
+        // no dynamic indexing into a fixed-size stack array.
+        constexpr unsigned kHexMask = 0x0FU;
+        const auto hexDigit = [](unsigned value) -> char
+        {
+            constexpr unsigned kDecimalDigits = 10U;
+            const unsigned nibble = value & kHexMask;
+            return nibble < kDecimalDigits
+                       ? static_cast<char>('0' + nibble)
+                       : static_cast<char>('a' + nibble - kDecimalDigits);
+        };
+        const uint32_t code = loaderState().lastError;
+        constexpr unsigned kShift28 = 28U;
+        constexpr unsigned kShift24 = 24U;
+        constexpr unsigned kShift20 = 20U;
+        constexpr unsigned kShift16 = 16U;
+        constexpr unsigned kShift12 = 12U;
+        constexpr unsigned kShift8 = 8U;
+        constexpr unsigned kShift4 = 4U;
+        const char error[kErrorHexCapacity] {
+            '0',
+            'x',
+            hexDigit(code >> kShift28),
+            hexDigit(code >> kShift24),
+            hexDigit(code >> kShift20),
+            hexDigit(code >> kShift16),
+            hexDigit(code >> kShift12),
+            hexDigit(code >> kShift8),
+            hexDigit(code >> kShift4),
+            hexDigit(code),
+            '\0',
+        };
+        service->setProperty("LoaderErrorHex", &error[0]);
         service->setProperty("LoaderKCType", "KCKindUnknown");
         service->setProperty("DriverLoading", "Embedded");
         service->setProperty("ExternalLiluRequired", false);
