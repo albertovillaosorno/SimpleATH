@@ -14,6 +14,7 @@
 
 namespace ath
 {
+    constexpr size_t kRelocationReservedBytes = 6U;
 
     struct Relocation
     {
@@ -22,7 +23,7 @@ namespace ath
             int64_t addend;
             uint8_t image;
             uint8_t width;
-            uint8_t reserved[6];
+            uint8_t reserved[kRelocationReservedBytes];
     };
 
     struct Symbol
@@ -44,29 +45,32 @@ namespace ath
             uint32_t method;
     };
 
+    // Descriptor is in-memory metadata emitted by tools/embed.py, not a
+    // serialized kernel ABI. Keep pointer and integer fields grouped so the
+    // compiler does not insert hidden padding between individual counters.
     struct Payload
     {
             const char *identifier;
             const char *sha256;
             const uint8_t *bytes;
-            uint32_t bytesSize;
             const uint8_t *delta;
+            const char *plist;
+            const Relocation *relocations;
+            const uint32_t *symbolValues;
+            const Symbol *symbols;
+            const RoutePrefix *routes;
+            uint64_t checksum;
+            uint32_t bytesSize;
             uint32_t deltaSize;
             uint32_t size;
             uint32_t mappedSize;
             uint32_t stubOffset;
             uint32_t stubSize;
             uint32_t kmodOffset;
-            const char *plist;
-            const Relocation *relocations;
             uint32_t relocationCount;
-            const uint32_t *symbolValues;
             uint32_t symbolValueCount;
-            const Symbol *symbols;
             uint32_t symbolCount;
-            const RoutePrefix *routes;
             uint32_t routeCount;
-            uint64_t checksum;
     };
 
     struct LinkedImage

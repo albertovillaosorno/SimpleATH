@@ -13,119 +13,169 @@
 #include <libkern/copyio.h>
 #include <string.h>
 
-uintptr_t KernelPatcher::branchTarget(uintptr_t target,
-                                      uintptr_t programCounter)
+namespace
 {
-    const auto delta = static_cast<int64_t>(target - programCounter);
-    return delta >= INT32_MIN && delta <= INT32_MAX
-               ? target
-               : ath::allocateStub(image, target);
-}
+    constexpr size_t kMaximumRoutes = 16U;
+    constexpr uint32_t kMinimumPrefix = 14U;
+    constexpr uint32_t kMaximumPrefix = 32U;
+    constexpr uint32_t kAbsoluteJumpBytes = 14U;
+    constexpr uint32_t kStubAlignment = 16U;
+    constexpr size_t kJumpOpcodeBytes = 6U;
 
-uintptr_t KernelPatcher::solveSymbol(size_t index, const char *name)
-{
-    if (index != KernelID)
+    // On the supported x86_64 kernel, virtual addresses and object pointers
+    // are the same width. Copy their representation rather than using a
+    // cast that would also form an incompatible aliased object type.
+    template <typename Pointer> uintptr_t pointerBits(Pointer pointer)
     {
-        return ath::findSymbol(image, name);
+        static_assert(sizeof(Pointer) == sizeof(uintptr_t),
+                      "native patch address and pointer widths differ");
+        uintptr_t bits = 0;
+        __builtin_memcpy(&bits, static_cast<const void *>(&pointer),
+                         sizeof(bits));
+        return bits;
     }
-    if (strcmp(name, "_copyin") == 0)
-    {
-        return reinterpret_cast<uintptr_t>(copyin);
-    }
-    if (strcmp(name, "_copyout") == 0)
-    {
-        return reinterpret_cast<uintptr_t>(copyout);
-    }
-    return 0;
-}
 
-bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
-                                      size_t count, uintptr_t address,
-                                      size_t size)
-{
-    // The native caller must quiesce the executable image while patching.
-    // Preflight the entire batch so a late bad route cannot leave partial
-    // hooks.
-    static constexpr size_t kMaximumRoutes = 16U;
-    static constexpr uint32_t kMinimumPrefix = 14U;
-    static constexpr uint32_t kMaximumPrefix = 32U;
-    static constexpr uint32_t kAbsoluteJumpBytes = 14U;
-    static constexpr uint32_t kStubAlignment = 16U;
+    void *objectAt(uintptr_t address)
+    {
+        static_assert(sizeof(void *) == sizeof(uintptr_t),
+                      "native patch address and pointer widths differ");
+        void *pointer = nullptr;
+        __builtin_memcpy(static_cast<void *>(&pointer), &address,
+                         sizeof(pointer));
+        return pointer;
+    }
+
+    template <typename T, size_t N> T &boundedAt(T (&items)[N], size_t index)
+    {
+        for (T &item : items)
+        {
+            if (index == 0U)
+            {
+                return item;
+            }
+            --index;
+        }
+        __builtin_trap(); // Caller rejects indices outside fixed capacity.
+    }
 
     struct PlannedRoute
     {
             uintptr_t address;
+            uintptr_t target;
+            void *original;
             uint32_t offset;
             uint32_t prefix;
             uint32_t stubOffset;
+            void *stub;
+            void *stubJump;
+            void *stubReturn;
+            void *patch;
+            void *patchTarget;
     };
 
-    static_cast<void>(index);
-    if (!image.editable || (image.payload == nullptr) ||
-        (image.memory == nullptr) || (routes == nullptr) || count == 0 ||
-        count > kMaximumRoutes)
+    bool validBatch(const ath::LinkedImage &image,
+                    const KernelPatcher::RouteBatch &batch,
+                    const KernelPatcher::RouteRequest *routes)
     {
-        return false;
-    }
-    const auto &payload = *image.payload;
-    if ((payload.size == 0U) || payload.size > payload.mappedSize ||
-        payload.stubOffset < payload.size ||
-        payload.stubOffset > payload.mappedSize ||
-        payload.stubSize > payload.mappedSize - payload.stubOffset ||
-        image.stubUsed > payload.stubSize || (image.address == 0U) ||
-        image.address > UINTPTR_MAX - payload.mappedSize ||
-        address != image.address || size != payload.mappedSize ||
-        ((payload.routeCount != 0U) && (payload.routes == nullptr)))
-    {
-        return false;
+        if (!image.editable || image.payload == nullptr ||
+            image.memory == nullptr || routes == nullptr || batch.count == 0U ||
+            batch.count > kMaximumRoutes)
+        {
+            return false;
+        }
+        const auto &payload = *image.payload;
+        const uintptr_t mappedBase = pointerBits(image.memory);
+        return payload.size != 0U && payload.size <= payload.mappedSize &&
+               payload.stubOffset >= payload.size &&
+               payload.stubOffset <= payload.mappedSize &&
+               payload.stubSize <= payload.mappedSize - payload.stubOffset &&
+               image.stubUsed <= payload.stubSize && image.address != 0U &&
+               image.address <= UINTPTR_MAX - payload.mappedSize &&
+               mappedBase <= UINTPTR_MAX - payload.mappedSize &&
+               batch.address == image.address &&
+               batch.size == payload.mappedSize &&
+               (payload.routeCount == 0U || payload.routes != nullptr);
     }
 
-    PlannedRoute planned[kMaximumRoutes] {};
-    uint32_t used = image.stubUsed;
-    for (size_t i = 0; i < count; ++i)
+    bool matchingPrefix(const ath::Payload &payload, uintptr_t offset,
+                        uint32_t &prefix)
     {
-        if ((routes[i].name == nullptr) || (routes[i].target == 0U) ||
-            (routes[i].original == nullptr))
-        {
-            return false;
-        }
-        const uintptr_t location = ath::findSymbol(image, routes[i].name);
-        if ((location == 0U) || location < image.address)
-        {
-            return false;
-        }
-        const uintptr_t offset = location - image.address;
-        if (offset >= payload.size)
-        {
-            return false;
-        }
-        uint32_t prefix = 0;
         bool matched = false;
-        for (uint32_t j = 0; j < payload.routeCount; ++j)
+        // Generated route-prefix storage is immutable, counted and bounded.
+        // Verify the address range before decoding any entry.
+        const size_t tableBytes =
+            static_cast<size_t>(payload.routeCount) * sizeof(ath::RoutePrefix);
+        if (pointerBits(payload.routes) > UINTPTR_MAX - tableBytes)
         {
-            if (payload.routes[j].offset == offset)
+            return false;
+        }
+        for (uint32_t i = 0; i < payload.routeCount; ++i)
+        {
+            ath::RoutePrefix candidate {};
+            const uintptr_t entryAddress =
+                pointerBits(payload.routes) +
+                (static_cast<size_t>(i) * sizeof(candidate));
+            __builtin_memcpy(&candidate, objectAt(entryAddress),
+                             sizeof(candidate));
+            if (candidate.offset == offset)
             {
                 if (matched)
                 {
                     return false;
                 }
                 matched = true;
-                prefix = payload.routes[j].length;
+                prefix = candidate.length;
             }
         }
-        if (prefix < kMinimumPrefix || prefix > kMaximumPrefix ||
-            prefix > payload.size - offset)
+        return matched && prefix >= kMinimumPrefix &&
+               prefix <= kMaximumPrefix && prefix <= payload.size - offset;
+    }
+
+    bool conflicting(const KernelPatcher::RouteRequest &request,
+                     uint32_t offset, uint32_t prefix,
+                     const PlannedRoute (&plans)[kMaximumRoutes],
+                     size_t completed)
+    {
+        for (size_t i = 0; i < completed; ++i)
+        {
+            const PlannedRoute &existing = boundedAt(plans, i);
+            if (request.original() == existing.original ||
+                (offset < existing.offset + existing.prefix &&
+                 existing.offset < offset + prefix))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool planOne(const ath::LinkedImage &image,
+                 const KernelPatcher::RouteRequest &request,
+                 const PlannedRoute (&plans)[kMaximumRoutes], size_t completed,
+                 uint32_t &used, PlannedRoute &out)
+    {
+        const auto &payload = *image.payload;
+        if (request.name() == nullptr || request.target() == 0U ||
+            request.original() == nullptr)
         {
             return false;
         }
-        for (size_t j = 0; j < i; ++j)
+        const uintptr_t location = ath::findSymbol(image, request.name());
+        if (location == 0U || location < image.address)
         {
-            if (routes[i].original == routes[j].original ||
-                (offset < planned[j].offset + planned[j].prefix &&
-                 planned[j].offset < offset + prefix))
-            {
-                return false;
-            }
+            return false;
+        }
+        const uintptr_t difference = location - image.address;
+        if (difference >= payload.size)
+        {
+            return false;
+        }
+        uint32_t prefix = 0;
+        if (!matchingPrefix(payload, difference, prefix) ||
+            conflicting(request, static_cast<uint32_t>(difference), prefix,
+                        plans, completed))
+        {
+            return false;
         }
         const uint32_t needed =
             (prefix + kAbsoluteJumpBytes + kStubAlignment - 1U) &
@@ -134,31 +184,95 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
         {
             return false;
         }
-        planned[i] = {
+        const uint32_t stubOffset = payload.stubOffset + used;
+        const uintptr_t stub = pointerBits(image.memory) + stubOffset;
+        out = {
             location,
-            static_cast<uint32_t>(offset),
+            request.target(),
+            request.original(),
+            static_cast<uint32_t>(difference),
             prefix,
-            payload.stubOffset + used,
+            stubOffset,
+            objectAt(stub),
+            objectAt(stub + prefix),
+            objectAt(stub + prefix + kJumpOpcodeBytes),
+            objectAt(location),
+            objectAt(location + kJumpOpcodeBytes),
         };
         used += needed;
+        return true;
     }
 
-    const uint8_t jump[] = {0xFFU, 0x25U, 0, 0, 0, 0};
-    for (size_t i = 0; i < count; ++i)
+    void commitRoute(const PlannedRoute &plan)
     {
-        const PlannedRoute &route = planned[i];
-        uint8_t *const stub = image.memory + route.stubOffset;
-        memcpy(stub, reinterpret_cast<const void *>(route.address),
-               route.prefix);
-        memcpy(stub + route.prefix, &jump[0], sizeof(jump));
-        const uintptr_t continuation = route.address + route.prefix;
-        memcpy(stub + route.prefix + sizeof(jump), &continuation,
-               sizeof(continuation));
-        *routes[i].original = image.address + route.stubOffset;
-        memcpy(reinterpret_cast<void *>(route.address), &jump[0], sizeof(jump));
-        memcpy(reinterpret_cast<void *>(route.address + sizeof(jump)),
-               &routes[i].target, sizeof(uintptr_t));
+        const uint8_t jump[kJumpOpcodeBytes] = {0xFFU, 0x25U, 0, 0, 0, 0};
+        memcpy(plan.stub, plan.patch, plan.prefix);
+        memcpy(plan.stubJump, &jump[0], sizeof(jump));
+        const uintptr_t continuation = plan.address + plan.prefix;
+        memcpy(plan.stubReturn, &continuation, sizeof(continuation));
+        // A saved function pointer is an opaque pointer-sized slot. Copy its
+        // representation, never write through an aliasing uintptr_t pointer.
+        const uintptr_t original = plan.address - plan.offset + plan.stubOffset;
+        __builtin_memcpy(plan.original, &original, sizeof(original));
+        memcpy(plan.patch, &jump[0], sizeof(jump));
+        memcpy(plan.patchTarget, &plan.target, sizeof(plan.target));
     }
-    image.stubUsed = used;
+} // namespace
+
+uintptr_t KernelPatcher::branchTarget(uintptr_t target,
+                                      uintptr_t programCounter)
+{
+    const auto delta = static_cast<int64_t>(target - programCounter);
+    return delta >= INT32_MIN && delta <= INT32_MAX
+               ? target
+               : ath::allocateStub(*image, target);
+}
+
+uintptr_t KernelPatcher::solveSymbol(size_t index, const char *name)
+{
+    if (index != KernelID)
+    {
+        return ath::findSymbol(*image, name);
+    }
+    if (strcmp(name, "_copyin") == 0)
+    {
+        return pointerBits(&copyin);
+    }
+    if (strcmp(name, "_copyout") == 0)
+    {
+        return pointerBits(&copyout);
+    }
+    return 0;
+}
+
+bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
+                                      const RouteBatch &batch)
+{
+    static_cast<void>(index);
+    // No writes to executable or caller-owned memory before the entire batch
+    // has passed the snapshot, symbol and stub-capacity preflight.
+    if (!validBatch(*image, batch, routes))
+    {
+        return false;
+    }
+    RouteRequest requests[kMaximumRoutes] {};
+    static_assert(__is_trivially_copyable(RouteRequest),
+                  "route input must be safe to snapshot byte-for-byte");
+    __builtin_memcpy(&requests[0], routes, batch.count * sizeof(RouteRequest));
+    PlannedRoute planned[kMaximumRoutes] {};
+    uint32_t used = image->stubUsed;
+    for (size_t i = 0; i < batch.count; ++i)
+    {
+        const RouteRequest &request = boundedAt(requests, i);
+        if (!planOne(*image, request, planned, i, used, boundedAt(planned, i)))
+        {
+            return false;
+        }
+    }
+    for (size_t i = 0; i < batch.count; ++i)
+    {
+        commitRoute(boundedAt(planned, i));
+    }
+    image->stubUsed = used;
     return true;
 }

@@ -691,11 +691,13 @@ IOReturn ATH80211UserClient::runCommand(IOExternalMethodArguments *arguments,
     if (result != kIOReturnSuccess)
     {
         __atomic_fetch_add(&ath::counters.errors, 1ULL, __ATOMIC_RELAXED);
-        DBGLOG(
+#if defined(DEBUG)
+        SYSLOG(
             "iouc",
             "%s command 0x%08x request %d length %u output %lu result 0x%08x",
             endpoint.name, header.command, request, header.length,
             static_cast<unsigned long>(outputSize), result);
+#endif
     }
     __atomic_store_n(&ath::counters.lastResult, static_cast<uint32_t>(result),
                      __ATOMIC_RELAXED);

@@ -1371,19 +1371,22 @@ def _payload_descriptor(
     """
     index = payload.index
     size = payload.relocated.size
+    # Match ath::Payload's deliberately pointer-first in-memory field order.
+    # The manifest stays keyed and unchanged; no serialized ABI is altered.
     return "".join([
         f'{{{json.dumps(payload.identifier)}, "{payload.source_sha}", ',
         f"athPayload{stored.base_index}, ",
-        f"{len(output.expanded_images[stored.base_index])}, ",
         f"{"athPayload" + str(index) if stored.delta else "nullptr"}, ",
+        f"plist{index}, {tables.relocations}, {tables.values}, ",
+        f"{tables.symbols}, {tables.routes}, ",
+        f"{checksum(payload.relocated.expanded)}ULL, ",
+        f"{len(output.expanded_images[stored.base_index])}, ",
         f"{len(stored.delta)}, {size}, ",
         f"{size + payload.relocated.stub_size}, {size}, ",
-        f"{payload.relocated.stub_size}, {payload.kmod}, plist{index}, ",
-        f"{tables.relocations}, {len(payload.relocated.relocations)}, ",
-        f"{tables.values}, {len(payload.relocated.symbol_values)}, ",
-        f"{tables.symbols}, {tables.symbol_count}, ",
-        f"{tables.routes}, {len(payload.routes)}, ",
-        f"{checksum(payload.relocated.expanded)}ULL}}",
+        f"{payload.relocated.stub_size}, {payload.kmod}, ",
+        f"{len(payload.relocated.relocations)}, ",
+        f"{len(payload.relocated.symbol_values)}, ",
+        f"{tables.symbol_count}, {len(payload.routes)}}}",
     ])
 
 

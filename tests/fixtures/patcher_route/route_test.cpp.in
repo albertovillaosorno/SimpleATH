@@ -56,7 +56,7 @@ int main()
     Function savedB = &original;
     KernelPatcher::RouteRequest missing[] = {{"alpha", &replacement, savedA},
                                              {"missing", &replacement, savedB}};
-    if (patcher.routeMultipleLong(0, missing, 2, image.address,
+    if (patcher.routeMultipleLong(0, missing, image.address,
                                   payload.mappedSize))
         return 10;
     if (std::memcmp(originalMemory, memory, sizeof(memory)) != 0 ||
@@ -72,36 +72,31 @@ int main()
     Function shared = &original;
     KernelPatcher::RouteRequest reusedOutput[] = {
         {"alpha", &replacement, shared}, {"beta", &replacement, shared}};
-    if (patcher.routeMultipleLong(0, reusedOutput, 2, image.address,
+    if (patcher.routeMultipleLong(0, reusedOutput, image.address,
                                   payload.mappedSize) ||
         shared != &original)
         return 19;
     image.payload = nullptr;
-    if (patcher.routeMultipleLong(0, valid, 2, image.address,
-                                  payload.mappedSize))
+    if (patcher.routeMultipleLong(0, valid, image.address, payload.mappedSize))
         return 14;
     image.payload = &payload;
     payload.stubSize = 300;
-    if (patcher.routeMultipleLong(0, valid, 2, image.address,
-                                  payload.mappedSize))
+    if (patcher.routeMultipleLong(0, valid, image.address, payload.mappedSize))
         return 15;
     payload.stubSize = 32;
-    if (patcher.routeMultipleLong(0, valid, 2, image.address,
-                                  payload.mappedSize))
+    if (patcher.routeMultipleLong(0, valid, image.address, payload.mappedSize))
         return 16;
     payload.stubSize = 128;
     routePrefixes[1].offset = 40;
     symbols[1].offset = 40;
-    if (patcher.routeMultipleLong(0, valid, 2, image.address,
-                                  payload.mappedSize))
+    if (patcher.routeMultipleLong(0, valid, image.address, payload.mappedSize))
         return 17;
     routePrefixes[1].offset = 80;
     symbols[1].offset = 80;
     if (std::memcmp(originalMemory, memory, sizeof(memory)) != 0 ||
         image.stubUsed != 0 || savedA != &original || savedB != &original)
         return 18;
-    if (!patcher.routeMultipleLong(0, valid, 2, image.address,
-                                   payload.mappedSize))
+    if (!patcher.routeMultipleLong(0, valid, image.address, payload.mappedSize))
         return 12;
     if (image.stubUsed != 64 || savedA == &original || savedB == &original ||
         memory[32] != 0xFF || memory[80] != 0xFF)

@@ -15,6 +15,12 @@ HEADERS = {
         '#pragma once\nextern "C" void IOLog(const char *, ...);\n'
     ),
     "mach/mach_types.h": "#pragma once\n",
+    "libkern/copyio.h": (
+        "#pragma once\n"
+        "#include <cstddef>\n#include <cstdint>\n"
+        'extern "C" int copyin(uintptr_t, void *, size_t);\n'
+        'extern "C" int copyout(const void *, uintptr_t, size_t);\n'
+    ),
     "sys/systm.h": (
         "#pragma once\n"
         "#include <cstddef>\n#include <cstdint>\n#include <climits>\n"
