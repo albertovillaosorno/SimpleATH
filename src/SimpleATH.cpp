@@ -135,31 +135,43 @@ namespace
 
     constexpr unsigned int kRfPropertyWidthBits = 32;
     constexpr uint32_t kRfKillInputRegister = 0x404c;
-    // IOService copies this table when registering the power driver.
-    IOPMPowerState gPowerStates[2] = {
-        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-        {
-            1,
-            kIOPMDeviceUsable | kIOPMPowerOn,
-            kIOPMPowerOn,
-            kIOPMPowerOn,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        },
-    };
 } // namespace
 
 class SimpleATH final : public IOService
 {
-    OSDeclareDefaultStructors(SimpleATH)
+        // Expand the pinned IOKit metaclass macro explicitly, as the native USB
+        // owner does: preserve its exported RTTI/constructor ABI while keeping
+        // the service constructor explicit and preventing copied PCI/DMA
+        // ownership.
+    private:
+        static constexpr const OSMetaClass *superClass = &IOService::gMetaClass;
 
-        public : IOService *probe(IOService *provider, SInt32 *score) override
+    public:
+        static const OSMetaClass *const metaClass;
+
+        static class MetaClass : public OSMetaClass
+        {
+            public:
+                MetaClass() noexcept;
+                OSObject *alloc() const APPLE_KEXT_OVERRIDE;
+        } gMetaClass;
+        friend class SimpleATH::MetaClass;
+        const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+
+    protected:
+        explicit SimpleATH(const OSMetaClass *meta);
+
+    public:
+        // IOService destruction remains virtual; a public destructor matches
+        // the C++ polymorphic lifetime contract without changing its vtable.
+        ~SimpleATH() APPLE_KEXT_OVERRIDE;
+        SimpleATH();
+        SimpleATH(const SimpleATH &) = delete;
+        SimpleATH &operator=(const SimpleATH &) = delete;
+        SimpleATH(SimpleATH &&) = delete;
+        SimpleATH &operator=(SimpleATH &&) = delete;
+
+        IOService *probe(IOService *provider, SInt32 *score) override
         {
             return driverEnabled() && OSDynamicCast(IOPCIDevice, provider)
                        ? IOService::probe(provider, score)
@@ -234,7 +246,7 @@ class SimpleATH final : public IOService
             pmInitialized_ = true;
             provider->joinPMtree(this);
             const IOReturn registered =
-                registerPowerDriver(this, &gPowerStates[0], 2);
+                registerPowerDriver(this, &powerStates_[0], 2);
             if (registered != kIOReturnSuccess)
             {
                 return failStart(provider, "PowerRegistration", registered);
@@ -824,16 +836,25 @@ class SimpleATH final : public IOService
             (void)unused;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(owner);
-            if (self.loop_ == nullptr || !self.loop_->inGate() ||
-                self.scanEpoch_ != self.epoch_ ||
+            if (self.loop_ == nullptr || !self.loop_->inGate())
+            {
+                return;
+            }
+            if (self.scanEpoch_ != self.epoch_ ||
                 self.scanEngineGeneration_ == 0 || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running)
             {
-                self.scanEngineGeneration_ = 0;
-                self.scanEpoch_ = 0;
-                self.scanTicket_ = {};
+                // RF-kill can change between the last DMA RX and this
+                // timer. Report a failed scan rather than silently losing
+                // the native SCAN_DONE event or retaining an old BSS lease.
+                const bool interrupted = self.abortActiveNativeScan();
+                if (interrupted)
+                {
+                    self.notifyWirelessScanFinished();
+                }
                 self.scanBridge_.clear();
+                self.completedScanTicket_ = {};
                 return;
             }
             const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
@@ -905,6 +926,37 @@ class SimpleATH final : public IOService
             {
                 scanBridge_.acknowledgeCompletion(done.ticket);
             }
+        }
+
+        // A DMA/PCI failure or sleep can interrupt an on-channel scan
+        // without another timer callback. Retire its exact radio generation
+        // and produce a failed completion before erasing its bridge ticket.
+        // No interrupted dwell or BSS may be reported as successful.
+        bool abortActiveNativeScan()
+        {
+            if (scanTimer_ != nullptr)
+            {
+                scanTimer_->cancelTimeout();
+            }
+            const auto ticket = scanTicket_;
+            const uint64_t generation = scanEngineGeneration_;
+            const bool active = scanEpoch_ == epoch_ && generation != 0 &&
+                                ticket.generation != 0 &&
+                                scanBridge_.status().radioScanRunning;
+            scanEpoch_ = 0;
+            scanEngineGeneration_ = 0;
+            scanTicket_ = {};
+            if (generation != 0)
+            {
+                (void)engine_.cancelChannelScan(generation);
+            }
+            if (active)
+            {
+                // A failed scan returns InvalidState while recording a
+                // pending, explicitly unsuccessful completion event.
+                (void)scanBridge_.completeScan(engine_.scan(), ticket, false);
+            }
+            return active;
         }
 
         void failNativeJoin(IOReturn status)
@@ -1429,15 +1481,14 @@ class SimpleATH final : public IOService
         bool nativeGroupInstalled() const
         {
             // Kernel SDK does not expose compatible std::algorithm headers.
-            // Explicit bounded iteration avoids host ABI dependencies.
+            // Accumulate across the fixed four key slots without requiring a
+            // C++ standard-library algorithm in a kernel translation unit.
+            bool anyInstalled = false;
             for (const auto &group : nativeGroupRx_)
             {
-                if (group.installed())
-                {
-                    return true;
-                }
+                anyInstalled = group.installed() || anyInstalled;
             }
-            return false;
+            return anyInstalled;
         }
 
         // Connect and every management/data TX share one physical safety
@@ -2840,6 +2891,8 @@ class SimpleATH final : public IOService
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
             self.channelAuthorized_ = false;
+            self.verifiedReceiveChannel_ = 0;
+            const bool scanAborted = self.abortActiveNativeScan();
             self.awdlNeighbors_.clear();
             // A descriptor/IRQ fault destroys all derived RF/TPC claims. A
             // later queue or radio restart must recompute real channel and
@@ -2867,6 +2920,14 @@ class SimpleATH final : public IOService
             self.engine_.radioStopped(
                 nowMicros(nullptr) / kMicrosPerMillisecond, false);
             self.failNativeJoin(result);
+            if (scanAborted)
+            {
+                self.notifyWirelessScanFinished();
+            }
+            // Completed BSS records are invalid after the physical RF epoch
+            // faults, even if the controller's PCI owner remains mapped.
+            self.scanBridge_.clear();
+            self.completedScanTicket_ = {};
             self.notifyWirelessChange(false);
             self.error("DMAInterrupt", static_cast<uint32_t>(result));
         }
@@ -2981,6 +3042,9 @@ class SimpleATH final : public IOService
             const IOReturn result = queues_.releaseClient();
             if (result != kIOReturnSuccess)
             {
+                // IOLog is the kernel's variadic diagnostic ABI; the format is
+                // fixed and every argument is supplied with the matching type.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
                 IOLog("SimpleATH: queue mappings quarantined (0x%x)\n", result);
             }
             IOLockUnlock(lifecycle_);
@@ -3047,9 +3111,15 @@ class SimpleATH final : public IOService
         void stage(const char *name)
         {
             setProperty("SimpleATHStartupStage", name);
+            // IOLog is the kernel's variadic diagnostic ABI; the format is
+            // fixed and every argument is supplied with the matching type.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
             IOLog("SimpleATH: %s\n", name);
             if (diagnostics_.detailed)
             {
+                // IOLog is the kernel's variadic diagnostic ABI; the format is
+                // fixed and every argument is supplied with the matching type.
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
                 IOLog("SimpleATH debug: epoch=%llu powered=%u quiesced=%u "
                       "DMA=%u radio=%u channel=%u\n",
                       epoch_, static_cast<int>(powered_),
@@ -3065,6 +3135,9 @@ class SimpleATH final : public IOService
             setProperty("SimpleATHFailureStage", name);
             setProperty("SimpleATHFailureCode", detail, kRfPropertyWidthBits);
             setProperty("SimpleATHDriverReady", false);
+            // IOLog is the kernel's variadic diagnostic ABI; the format is
+            // fixed and every argument is supplied with the matching type.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
             IOLog("SimpleATH: %s failed (0x%x)\n", name, detail);
             return kIOReturnIOError;
         }
@@ -3317,6 +3390,9 @@ class SimpleATH final : public IOService
             // This marks completed hardware acquisition, not network readiness.
             // RF calibration/queue/IO80211 integration must consume this board.
             stage("BoardAcquired");
+            // IOLog is the kernel's variadic diagnostic ABI; the format is
+            // fixed and every argument is supplied with the matching type.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
             IOLog("SimpleATH: physical AR9565 reset and EEPROM acquisition "
                   "complete\n");
             return kIOReturnSuccess;
@@ -3358,19 +3434,17 @@ class SimpleATH final : public IOService
                                   simpleath::ProviderAccess::Available);
                 queuesAdopted_ = false;
             }
-            if (scanTimer_ != nullptr)
+            radioOperational_ = false;
+            channelAuthorized_ = false;
+            verifiedReceiveChannel_ = 0;
+            const bool scanAborted = abortActiveNativeScan();
+            if (scanAborted)
             {
-                scanTimer_->cancelTimeout();
+                notifyWirelessScanFinished();
             }
             scanBridge_.clear();
             awdlNeighbors_.clear();
-            scanTicket_ = {};
             completedScanTicket_ = {};
-            scanEpoch_ = 0;
-            scanEngineGeneration_ = 0;
-            verifiedReceiveChannel_ = 0;
-            radioOperational_ = false;
-            channelAuthorized_ = false;
             const bool hardwareQuiesced =
                 keyCache_.initialized &&
                 access == simpleath::ProviderAccess::Available &&
@@ -3533,6 +3607,25 @@ class SimpleATH final : public IOService
             started_ = false;
         }
 
+        // Per-instance PM registration states, retained for the service's
+        // complete lifetime instead of a writable globally shared array.
+        IOPMPowerState powerStates_[2] {
+            {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+            {
+                1,
+                kIOPMDeviceUsable | kIOPMPowerOn,
+                kIOPMPowerOn,
+                kIOPMPowerOn,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+            },
+        };
         simpleath::DiagnosticSelection diagnostics_ {};
         RegisterAccess access_ {nullptr};
         IOLock *lifecycle_ {nullptr};
@@ -3627,9 +3720,33 @@ class SimpleATH final : public IOService
         bool stopping_ {false};
 };
 
-OSDefineMetaClassAndStructors(SimpleATH, IOService)
+// Exact RTTI and IOService construction contract from the pinned IOKit
+// metaclass macros; the native USB service uses the same explicit expansion.
+SimpleATH::MetaClass SimpleATH::gMetaClass;
+const OSMetaClass *const SimpleATH::metaClass = &SimpleATH::gMetaClass;
+constexpr const OSMetaClass *SimpleATH::superClass;
+
+SimpleATH::SimpleATH(const OSMetaClass *meta) : IOService(meta)
+{
+}
+
+SimpleATH::~SimpleATH() = default;
+
+const OSMetaClass *SimpleATH::getMetaClass() const
+{
+    return &gMetaClass;
+}
+
+SimpleATH::MetaClass::MetaClass() noexcept
+    : OSMetaClass("SimpleATH", SimpleATH::superClass, sizeof(SimpleATH))
+{
+}
+
+OSDefineDefaultStructors(SimpleATH, IOService)
 
     extern "C" kern_return_t
+    // The kext loader requires this exact exported C symbol name.
+    // NOLINTNEXTLINE(readability-identifier-naming)
     SimpleATH_kern_start(kmod_info_t * /*unused*/, void * /*unused*/)
 {
     int ignored = 0;
@@ -3638,6 +3755,8 @@ OSDefineMetaClassAndStructors(SimpleATH, IOService)
     return KERN_SUCCESS;
 }
 
+// The kext loader requires this exact exported C symbol name.
+// NOLINTNEXTLINE(readability-identifier-naming)
 extern "C" kern_return_t SimpleATH_kern_stop(kmod_info_t * /*unused*/,
                                              void * /*unused*/)
 {
