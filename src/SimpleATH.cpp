@@ -1778,16 +1778,19 @@ class SimpleATH final : public IOService
                                           const simpleath::ieee80211::Mac &ap,
                                           const uint8_t *key)
         {
-            if (context == nullptr || key == nullptr ||
-                !nativeKeyInstallPermit(context))
+            if (context == nullptr || key == nullptr)
             {
                 return false;
             }
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto link = self.engine_.linkStatus();
+            // Reject an unrelated AP or OS-owned handshake BEFORE stopping
+            // live DMA. A rejected callback must not strand a key-update
+            // lease that has no successful key installation to finish it.
             if (link.state != simpleath::ieee80211::LinkState::Associated ||
                 self.engine_.osSupplicantOwnsWpa2() ||
-                !simpleath::ieee80211::sameMac(link.bssid, ap))
+                !simpleath::ieee80211::sameMac(link.bssid, ap) ||
+                !nativeKeyInstallPermit(context))
             {
                 return false;
             }
@@ -1795,7 +1798,15 @@ class SimpleATH final : public IOService
                 self.liveKeyCacheBackend(), self.keyCache_, ap, key);
             if (result.result != simpleath::KeyCacheResult::Ok)
             {
+                // Once hardware key RAM may have been modified, an error is
+                // not a harmless handshake retry. The borrowed RX callback
+                // will unwind before NativeQueues tries to restart; denying
+                // radioReady forces quarantine rather than reusing key RAM.
+                self.keyCache_.requiresReset = true;
                 self.controlledPortAuthorized_ = false;
+                self.radioOperational_ = false;
+                self.channelAuthorized_ = false;
+                self.txSafety_ = {};
             }
             return result.result == simpleath::KeyCacheResult::Ok;
         }
@@ -1804,15 +1815,16 @@ class SimpleATH final : public IOService
                                        const uint8_t *key,
                                        const uint8_t *keyRsc)
         {
-            if (context == nullptr || key == nullptr || keyRsc == nullptr ||
-                !nativeKeyInstallPermit(context))
+            if (context == nullptr || key == nullptr || keyRsc == nullptr)
             {
                 return false;
             }
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto link = self.engine_.linkStatus();
             if (link.state != simpleath::ieee80211::LinkState::Associated ||
-                self.engine_.osSupplicantOwnsWpa2())
+                self.engine_.osSupplicantOwnsWpa2() ||
+                keyId >= simpleath::kCcmpGroupSlots ||
+                !nativeKeyInstallPermit(context))
             {
                 return false;
             }
@@ -1820,7 +1832,14 @@ class SimpleATH final : public IOService
                 self.liveKeyCacheBackend(), self.keyCache_, keyId, key, keyRsc);
             if (result.result != simpleath::KeyCacheResult::Ok)
             {
+                // Group-key failure can leave half-installed physical slots.
+                // Refuse any deferred EDMA restart until the whole epoch is
+                // reset, even if the portable supplicant resets its state.
+                self.keyCache_.requiresReset = true;
                 self.controlledPortAuthorized_ = false;
+                self.radioOperational_ = false;
+                self.channelAuthorized_ = false;
+                self.txSafety_ = {};
             }
             return result.result == simpleath::KeyCacheResult::Ok;
         }
