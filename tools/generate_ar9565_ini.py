@@ -149,7 +149,9 @@ def _emit_mode(
     lines.extend(
         f"    {{0x{row[0]:08x}U, 0x{row[selected]:08x}U}}," for row in rows
     )
-    contents = f"{{{symbol}, sizeof({symbol}) / sizeof({symbol}[0])}};"
+    # The first element pointer is explicit: preserve the array extent in the
+    # adjacent count rather than relying on unchecked array-to-pointer decay.
+    contents = f"{{&{symbol}[0], sizeof({symbol}) / sizeof({symbol}[0])}};"
     declaration = (
         f"static const TableView {symbol}View __attribute__((unused)) = "
     )

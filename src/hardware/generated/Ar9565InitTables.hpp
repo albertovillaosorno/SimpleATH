@@ -52,7 +52,7 @@ namespace simpleath
                 {0x00007038U, 0x000004c2U},
         };
         static const TableView kSocPreambleHt20View __attribute__((unused)) = {
-            kSocPreambleHt20,
+            &kSocPreambleHt20[0],
             sizeof(kSocPreambleHt20) / sizeof(kSocPreambleHt20[0]),
         };
         static const RegisterValue kSocPreambleHt40[]
@@ -62,7 +62,7 @@ namespace simpleath
                 {0x00007038U, 0x000004c2U},
         };
         static const TableView kSocPreambleHt40View __attribute__((unused)) = {
-            kSocPreambleHt40,
+            &kSocPreambleHt40[0],
             sizeof(kSocPreambleHt40) / sizeof(kSocPreambleHt40[0]),
         };
         // Original Linux array: ar9565_1p0_soc_preamble (ar9565_1p0).
@@ -148,7 +148,7 @@ namespace simpleath
             {0x000083ccU, 0x00000200U}, {0x000083d0U, 0x800301ffU},
         };
         static const TableView kMacCoreHt20View __attribute__((unused)) = {
-            kMacCoreHt20,
+            &kMacCoreHt20[0],
             sizeof(kMacCoreHt20) / sizeof(kMacCoreHt20[0]),
         };
         static const RegisterValue kMacCoreHt40[] __attribute__((unused)) = {
@@ -233,7 +233,7 @@ namespace simpleath
             {0x000083ccU, 0x00000200U}, {0x000083d0U, 0x800301ffU},
         };
         static const TableView kMacCoreHt40View __attribute__((unused)) = {
-            kMacCoreHt40,
+            &kMacCoreHt40[0],
             sizeof(kMacCoreHt40) / sizeof(kMacCoreHt40[0]),
         };
         // Original Linux array: ar9565_1p0_mac_core (ar9565_1p0).
@@ -310,7 +310,7 @@ namespace simpleath
                 {0x0000a7f0U, 0x80000000U},
         };
         static const TableView kBasebandCoreHt20View __attribute__((unused)) = {
-            kBasebandCoreHt20,
+            &kBasebandCoreHt20[0],
             sizeof(kBasebandCoreHt20) / sizeof(kBasebandCoreHt20[0]),
         };
         static const RegisterValue kBasebandCoreHt40[]
@@ -386,7 +386,7 @@ namespace simpleath
                 {0x0000a7f0U, 0x80000000U},
         };
         static const TableView kBasebandCoreHt40View __attribute__((unused)) = {
-            kBasebandCoreHt40,
+            &kBasebandCoreHt40[0],
             sizeof(kBasebandCoreHt40) / sizeof(kBasebandCoreHt40[0]),
         };
         // Original Linux array: ar9565_1p0_baseband_core (ar9565_1p0).
@@ -413,7 +413,7 @@ namespace simpleath
             {0x00016340U, 0x131c827aU}, {0x00016344U, 0x00300000U},
         };
         static const TableView kRadioCoreHt20View __attribute__((unused)) = {
-            kRadioCoreHt20,
+            &kRadioCoreHt20[0],
             sizeof(kRadioCoreHt20) / sizeof(kRadioCoreHt20[0]),
         };
         static const RegisterValue kRadioCoreHt40[] __attribute__((unused)) = {
@@ -439,7 +439,7 @@ namespace simpleath
             {0x00016340U, 0x131c827aU}, {0x00016344U, 0x00300000U},
         };
         static const TableView kRadioCoreHt40View __attribute__((unused)) = {
-            kRadioCoreHt40,
+            &kRadioCoreHt40[0],
             sizeof(kRadioCoreHt40) / sizeof(kRadioCoreHt40[0]),
         };
         // Original Linux array: ar9565_1p0_radio_core (ar9565_1p0).
@@ -576,7 +576,7 @@ namespace simpleath
             {0x0000b1fcU, 0x00000196U},
         };
         static const TableView kRxGainHt20View __attribute__((unused)) = {
-            kRxGainHt20,
+            &kRxGainHt20[0],
             sizeof(kRxGainHt20) / sizeof(kRxGainHt20[0]),
         };
         static const RegisterValue kRxGainHt40[] __attribute__((unused)) = {
@@ -712,7 +712,7 @@ namespace simpleath
             {0x0000b1fcU, 0x00000196U},
         };
         static const TableView kRxGainHt40View __attribute__((unused)) = {
-            kRxGainHt40,
+            &kRxGainHt40[0],
             sizeof(kRxGainHt40) / sizeof(kRxGainHt40[0]),
         };
         // Original Linux array: ar9565_1p0_Common_rx_gain_table (ar9565_1p0).
@@ -849,7 +849,7 @@ namespace simpleath
         };
         static const TableView kCommonWoXlnaRxGainTableHt20View
             __attribute__((unused)) = {
-                kCommonWoXlnaRxGainTableHt20,
+                &kCommonWoXlnaRxGainTableHt20[0],
                 sizeof(kCommonWoXlnaRxGainTableHt20) /
                     sizeof(kCommonWoXlnaRxGainTableHt20[0]),
         };
@@ -986,7 +986,7 @@ namespace simpleath
         };
         static const TableView kCommonWoXlnaRxGainTableHt40View
             __attribute__((unused)) = {
-                kCommonWoXlnaRxGainTableHt40,
+                &kCommonWoXlnaRxGainTableHt40[0],
                 sizeof(kCommonWoXlnaRxGainTableHt40) /
                     sizeof(kCommonWoXlnaRxGainTableHt40[0]),
         };
@@ -1024,7 +1024,7 @@ namespace simpleath
                 {0x00016048U, 0x00000000U}, {0x00016054U, 0x00000000U},
         };
         static const TableView kTxGainLowObHt20View __attribute__((unused)) = {
-            kTxGainLowObHt20,
+            &kTxGainLowObHt20[0],
             sizeof(kTxGainLowObHt20) / sizeof(kTxGainLowObHt20[0]),
         };
         static const RegisterValue kTxGainLowObHt40[]
@@ -1059,7 +1059,7 @@ namespace simpleath
                 {0x00016048U, 0x00000000U}, {0x00016054U, 0x00000000U},
         };
         static const TableView kTxGainLowObHt40View __attribute__((unused)) = {
-            kTxGainLowObHt40,
+            &kTxGainLowObHt40[0],
             sizeof(kTxGainLowObHt40) / sizeof(kTxGainLowObHt40[0]),
         };
         // Original Linux array: ar9565_1p0_modes_low_ob_db_tx_gain_table
@@ -1096,7 +1096,7 @@ namespace simpleath
                 {0x00016048U, 0x8db49060U}, {0x00016054U, 0x6db60000U},
         };
         static const TableView kTxGainHighObHt20View __attribute__((unused)) = {
-            kTxGainHighObHt20,
+            &kTxGainHighObHt20[0],
             sizeof(kTxGainHighObHt20) / sizeof(kTxGainHighObHt20[0]),
         };
         static const RegisterValue kTxGainHighObHt40[]
@@ -1131,7 +1131,7 @@ namespace simpleath
                 {0x00016048U, 0x8db49060U}, {0x00016054U, 0x6db60000U},
         };
         static const TableView kTxGainHighObHt40View __attribute__((unused)) = {
-            kTxGainHighObHt40,
+            &kTxGainHighObHt40[0],
             sizeof(kTxGainHighObHt40) / sizeof(kTxGainHighObHt40[0]),
         };
         // Original Linux array: ar9565_1p0_modes_high_ob_db_tx_gain_table
@@ -1169,7 +1169,7 @@ namespace simpleath
         };
         static const TableView kTxGainHighPowerHt20View
             __attribute__((unused)) = {
-                kTxGainHighPowerHt20,
+                &kTxGainHighPowerHt20[0],
                 sizeof(kTxGainHighPowerHt20) / sizeof(kTxGainHighPowerHt20[0]),
         };
         static const RegisterValue kTxGainHighPowerHt40[]
@@ -1205,7 +1205,7 @@ namespace simpleath
         };
         static const TableView kTxGainHighPowerHt40View
             __attribute__((unused)) = {
-                kTxGainHighPowerHt40,
+                &kTxGainHighPowerHt40[0],
                 sizeof(kTxGainHighPowerHt40) / sizeof(kTxGainHighPowerHt40[0]),
         };
         // Original Linux array: ar9565_1p0_modes_high_power_tx_gain_table
@@ -1215,7 +1215,7 @@ namespace simpleath
                 {0x00007010U, 0x00002233U},
         };
         static const TableView kSocPostambleHt20View __attribute__((unused)) = {
-            kSocPostambleHt20,
+            &kSocPostambleHt20[0],
             sizeof(kSocPostambleHt20) / sizeof(kSocPostambleHt20[0]),
         };
         static const RegisterValue kSocPostambleHt40[]
@@ -1223,7 +1223,7 @@ namespace simpleath
                 {0x00007010U, 0x00002233U},
         };
         static const TableView kSocPostambleHt40View __attribute__((unused)) = {
-            kSocPostambleHt40,
+            &kSocPostambleHt40[0],
             sizeof(kSocPostambleHt40) / sizeof(kSocPostambleHt40[0]),
         };
         // Original Linux array: ar9565_1p0_soc_postamble (ar9565_1p0).
@@ -1235,7 +1235,7 @@ namespace simpleath
                 {0x000081d0U, 0x0000320aU}, {0x00008318U, 0x00003440U},
         };
         static const TableView kMacPostambleHt20View __attribute__((unused)) = {
-            kMacPostambleHt20,
+            &kMacPostambleHt20[0],
             sizeof(kMacPostambleHt20) / sizeof(kMacPostambleHt20[0]),
         };
         static const RegisterValue kMacPostambleHt40[]
@@ -1246,7 +1246,7 @@ namespace simpleath
                 {0x000081d0U, 0x0000320aU}, {0x00008318U, 0x00006880U},
         };
         static const TableView kMacPostambleHt40View __attribute__((unused)) = {
-            kMacPostambleHt40,
+            &kMacPostambleHt40[0],
             sizeof(kMacPostambleHt40) / sizeof(kMacPostambleHt40[0]),
         };
         // Original Linux array: ar9331_1p1_mac_postamble (ar9331_1p1).
@@ -1276,7 +1276,7 @@ namespace simpleath
         };
         static const TableView kBasebandPostambleHt20View __attribute__((
             unused)) = {
-            kBasebandPostambleHt20,
+            &kBasebandPostambleHt20[0],
             sizeof(kBasebandPostambleHt20) / sizeof(kBasebandPostambleHt20[0]),
         };
         static const RegisterValue kBasebandPostambleHt40[]
@@ -1305,7 +1305,7 @@ namespace simpleath
         };
         static const TableView kBasebandPostambleHt40View __attribute__((
             unused)) = {
-            kBasebandPostambleHt40,
+            &kBasebandPostambleHt40[0],
             sizeof(kBasebandPostambleHt40) / sizeof(kBasebandPostambleHt40[0]),
         };
         // Original Linux array: ar9565_1p0_baseband_postamble (ar9565_1p0).
@@ -1317,7 +1317,7 @@ namespace simpleath
         };
         static const TableView kRadioPostamble10Ht20View __attribute__((
             unused)) = {
-            kRadioPostamble10Ht20,
+            &kRadioPostamble10Ht20[0],
             sizeof(kRadioPostamble10Ht20) / sizeof(kRadioPostamble10Ht20[0]),
         };
         static const RegisterValue kRadioPostamble10Ht40[]
@@ -1328,7 +1328,7 @@ namespace simpleath
         };
         static const TableView kRadioPostamble10Ht40View __attribute__((
             unused)) = {
-            kRadioPostamble10Ht40,
+            &kRadioPostamble10Ht40[0],
             sizeof(kRadioPostamble10Ht40) / sizeof(kRadioPostamble10Ht40[0]),
         };
         // Original Linux array: ar9565_1p0_radio_postamble (ar9565_1p0).
@@ -1340,7 +1340,7 @@ namespace simpleath
         };
         static const TableView kRadioPostamble11Ht20View __attribute__((
             unused)) = {
-            kRadioPostamble11Ht20,
+            &kRadioPostamble11Ht20[0],
             sizeof(kRadioPostamble11Ht20) / sizeof(kRadioPostamble11Ht20[0]),
         };
         static const RegisterValue kRadioPostamble11Ht40[]
@@ -1351,7 +1351,7 @@ namespace simpleath
         };
         static const TableView kRadioPostamble11Ht40View __attribute__((
             unused)) = {
-            kRadioPostamble11Ht40,
+            &kRadioPostamble11Ht40[0],
             sizeof(kRadioPostamble11Ht40) / sizeof(kRadioPostamble11Ht40[0]),
         };
         // Original Linux array: ar9565_1p1_radio_postamble (ar9565_1p1).
@@ -1363,7 +1363,7 @@ namespace simpleath
         };
         static const TableView kJapan2484TxfirHt20View
             __attribute__((unused)) = {
-                kJapan2484TxfirHt20,
+                &kJapan2484TxfirHt20[0],
                 sizeof(kJapan2484TxfirHt20) / sizeof(kJapan2484TxfirHt20[0]),
         };
         static const RegisterValue kJapan2484TxfirHt40[]
@@ -1374,7 +1374,7 @@ namespace simpleath
         };
         static const TableView kJapan2484TxfirHt40View
             __attribute__((unused)) = {
-                kJapan2484TxfirHt40,
+                &kJapan2484TxfirHt40[0],
                 sizeof(kJapan2484TxfirHt40) / sizeof(kJapan2484TxfirHt40[0]),
         };
         // Original Linux array: ar9300_2p2_baseband_core_txfir_coeff_japan_2484
