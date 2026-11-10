@@ -369,6 +369,29 @@
   },
   {
     "directory": ".",
+    "file": "src/hardware/Ar9565Ani.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-DKERNEL=1",
+      "-target",
+      "x86_64-apple-macosx14.0",
+      "-isystem",
+      "/opt/LLVM-23.1.2-Linux-X64/include/c++/v1",
+      "-isystem",
+      "/opt/LLVM-23.1.2-Linux-X64/include/x86_64-unknown-linux-gnu/c++/v1",
+      "-isystem",
+      "./.references/MacKernelSDK/Headers",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/hardware/Ar9565Ani.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "src/hardware/Ar9565BoardModal.cpp",
     "arguments": [
       "clang++",
@@ -1397,6 +1420,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_ar9565_ani.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_ar9565_ani.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_ar9565_board_modal.cpp",
     "arguments": [
       "clang++",
@@ -1803,6 +1840,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_native_wireless_epoch.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_native_wireless_epoch.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_nvm_contract.cpp",
     "arguments": [
       "clang++",
@@ -2009,6 +2060,20 @@
       "c++",
       "-fsyntax-only",
       "tests/test_tahoe_scan_codec.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_wifi_engine.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_wifi_engine.cpp"
     ]
   },
   {

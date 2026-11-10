@@ -1,4 +1,5 @@
 // Full synthetic RX-only RF epoch: no native IOKit, PCI, radio, or USB.
+#include "hardware/Ar9565Ani.hpp"
 #include "hardware/Ar9565BoardModal.hpp"
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Channel.hpp"
@@ -38,6 +39,7 @@ namespace
         Revocation = 14,
         Mode = 15,
         BoardSnapshot = 16,
+        Ani = 17,
     };
 
     constexpr uint64_t kEpoch = 69;
@@ -52,6 +54,7 @@ namespace
     constexpr uint32_t kRfGrant = 0xa240;
     constexpr uint32_t kBbDpll2 = 0x16184;
     constexpr uint32_t kPhyGenControl = 0xa204;
+    constexpr uint32_t kAniFirstStepRegister = 0x9e10U;
     constexpr uint32_t kJoinedMacCca = 0x8318;
     constexpr uint32_t kPhyHt = 0x40;
     constexpr uint32_t kPhyDynamic40 = 4;
@@ -375,10 +378,21 @@ int main()
         ok.synthesizer.result != RfChannelResult::Ok ||
         ok.ofdm.result != OfdmTimingResult::Ok ||
         ok.calibration.phase != RxCalibrationPhase::Completed ||
+        ok.ani.result != AniResult::Ok || !ok.aniState.initialized ||
         good.rfGranted || !good.delayChecked ||
         good.registers.at(kSelfgenMask / sizeof(uint32_t)) != 0)
     {
         return static_cast<int>(TestExit::Success);
+    }
+    Fake aniReadFailure {};
+    aniReadFailure.failedReadOffset = kAniFirstStepRegister;
+    const auto failedAni = run(aniReadFailure);
+    if (failedAni.stage != RadioSequenceStage::AniBaseline ||
+        failedAni.ani.result != AniResult::ReadFailed ||
+        failedAni.aniState.initialized || !failedAni.requiresReset ||
+        aniReadFailure.rfGranted)
+    {
+        return static_cast<int>(TestExit::Ani);
     }
     // Native MMIO callbacks must never be able to change the already
     // validated board consumed by a later radio stage.

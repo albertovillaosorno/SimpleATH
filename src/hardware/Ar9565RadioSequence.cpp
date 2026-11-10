@@ -1,4 +1,5 @@
 #include "Ar9565RadioSequence.hpp"
+#include "Ar9565Ani.hpp"
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"
 #include "Ar9565Channel.hpp"
@@ -200,6 +201,16 @@ namespace simpleath
             channel, {summary.rxChainMask, summary.txChainMask}, allowed,
             stable.baseband);
         if (progress.calibration.phase != RxCalibrationPhase::Completed)
+        {
+            return progress;
+        }
+        // Snapshot actual PHY INI first-step/spur registers, so subsequent
+        // channel-specific ANI adjustments cannot assume template defaults.
+        // This does not start the receiver or authorize runtime ANI updates.
+        progress.stage = RadioSequenceStage::AniBaseline;
+        progress.ani = cacheAr9565AniIniDefaults(
+            channel, allowed, stable.baseband, progress.aniState);
+        if (progress.ani.result != AniResult::Ok)
         {
             return progress;
         }

@@ -1,4 +1,5 @@
 src/hardware/Ar9565RadioSequence.cpp
+src/hardware/Ar9565Ani.cpp
 src/hardware/Ar9565BoardModal.cpp
 src/hardware/Ar9565Calibration.cpp
 src/hardware/Ar9565Channel.cpp

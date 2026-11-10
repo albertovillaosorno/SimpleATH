@@ -1,6 +1,7 @@
 #ifndef SIMPLEATH_AR9565_RADIO_SEQUENCE_HPP
 #define SIMPLEATH_AR9565_RADIO_SEQUENCE_HPP
 
+#include "Ar9565Ani.hpp"
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"
 #include "Ar9565OfdmTiming.hpp"
@@ -23,6 +24,7 @@ namespace simpleath
         RfBusRelease,
         OfdmTiming,
         ReceiverCalibration,
+        AniBaseline,
         Completed,
     };
 
@@ -60,15 +62,17 @@ namespace simpleath
             RfChannelProgress synthesizer {};
             OfdmTimingProgress ofdm {};
             RxCalibrationWorkflowProgress calibration {};
+            Ar9565AniState aniState {};
+            AniProgress ani {};
             bool requiresReset {};
     };
 
     // Execute the complete existing RX-only RF table/channel/calibration
-    // sequence, including HT20/40 PHY/MAC mode and RF bus request/release. The
+    // sequence, including HT20/40 PHY/MAC mode, RF bus and ANI defaults. The
     // native owner must already have performed reset/RTC, NVM provenance,
     // PMU/XTAL, RF-kill and coexistence setup and must maintain all proofs
     // throughout this serialized epoch. This function never enables RX, TX,
-    // automatic MAC responses, or claims complete ANI/board/radio readiness.
+    // automatic MAC responses, or claims dynamic ANI/board/radio readiness.
     //
     // The three backends MUST refer to the same physical BAR and epoch;
     // distinct permitWrite callbacks implement the lease-specific gates.

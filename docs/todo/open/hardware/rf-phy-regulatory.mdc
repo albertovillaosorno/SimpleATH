@@ -113,6 +113,16 @@ preflight, even if earlier MMIO callbacks modify caller-owned EEPROM bytes.
 Synthetic C++14/C++17 sanitizer fixtures, direct strict Clang-Tidy and
 formatting passed. This is a source-only TOCTOU correction, **not** evidence
 that the native PCI owner executes the full RF sequence.
+The receive-only RF source orchestrator now caches AR9565 ANI first-step and
+spur-immunity register defaults from its applied, epoch-current PHY after
+receiver calibration. `Ar9565Ani` also provides bounded ath9k-relative
+first-step/spur controls with per-MMIO owner rechecks, readback and reset on
+an ambiguous partial write (offline synthetic C++14/C++17 sanitizer fixtures).
+The Xcode production target includes this module, but **the PCI owner does
+not yet execute the RF sequence**, and no runtime PHY-error sampling/ANI
+scheduler, channel lease or complete spur policy exists. The source stage
+cannot grant RX/TX, country, antenna, coexistence or operational readiness.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.
