@@ -194,6 +194,8 @@ namespace simpleath
                 uint16_t awSequence {};
                 uint8_t channelSlot {};
                 uint32_t remainingEawUsec {};
+                // Zero for a current candidate, otherwise bounded lead time.
+                uint32_t waitUsec {};
         };
 
         enum class AwdlRendezvousStatus : uint8_t
@@ -216,6 +218,17 @@ namespace simpleath
         planAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
                                      const AwdlRendezvousRequest &request,
                                      AwdlRendezvousWindow &out);
+
+        // Find the next complete channel-six unicast opportunity, including
+        // a currently usable window. Search no further than one 16-slot
+        // channel-sequence cycle and never past the five-second MIF anchor.
+        // waitUsec describes the first usable time in the selected EAW,
+        // after the initial guard; remainingEawUsec is measured there.
+        // No local radio or channel reservation follows from this candidate.
+        AwdlRendezvousStatus
+        planNextAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
+                                         const AwdlRendezvousRequest &request,
+                                         AwdlRendezvousWindow &out);
 
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before

@@ -1155,6 +1155,133 @@ namespace
         return rejectsOutOfRangeMifCountdown(peers, fixture);
     }
 
+    bool nextChannelSixRendezvousCandidates()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kMifUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kTuUsec = 1024U;
+        constexpr uint64_t kGuardUsec = 3U * kTuUsec;
+        constexpr uint64_t kEawUsec = 64U * kTuUsec;
+        constexpr uint64_t kUntilEawUsec = 16U * kTuUsec;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint32_t kLongAirtimeUsec = 4096U;
+        constexpr uint32_t kFirstTwoChannels = 3U;
+        constexpr uint32_t kFirstThreeChannels = 7U;
+        constexpr uint16_t kDownCounterTu = 16U;
+        constexpr uint16_t kWrapBaseAw = 0xfffcU;
+        constexpr uint8_t kWrapSlot = 15U;
+        constexpr uint16_t kTenthBaseAw = 40U;
+        constexpr uint32_t kTenthEaw = 10U;
+        constexpr uint8_t kNextSlot = 1U;
+        constexpr uint8_t kTenthSlot = 10U;
+        constexpr uint32_t kSlotTenMask = uint32_t {1U} << kTenthSlot;
+        constexpr uint32_t kMifLastUsec = AwdlNeighbors::kExpiryMs * kUsecPerMs;
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors neighbors {};
+        AwdlNeighbor peer {};
+        if (neighbors.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                                 fixture.length) != Result::Ok ||
+            !neighbors.find(fixture.source, kNeighborFirstSeenMs, peer))
+        {
+            return false;
+        }
+        peer.nextAwSequence = 0U;
+        peer.txDownCounterTu = kDownCounterTu;
+        peer.channelSixSlots = kFirstTwoChannels;
+        AwdlRendezvousRequest request {
+            kMifUsec,
+            kMifUsec + kUntilEawUsec,
+            kAirtimeUsec,
+        };
+        AwdlRendezvousWindow window {};
+        // The next EAW begins with a 3-TU guard. The planner returns the
+        // first usable instant, not the forbidden channel-switch boundary.
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != kNextSlot || window.awSequence != 4U ||
+            window.waitUsec != kGuardUsec ||
+            window.remainingEawUsec != kEawUsec - kGuardUsec)
+        {
+            return false;
+        }
+        request.nowUsec += kGuardUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.waitUsec != 0U || window.channelSlot != kNextSlot)
+        {
+            return false;
+        }
+        // Near the current slot's final guard, declared airtime no longer
+        // fits; skip to the following advertised channel-six EAW.
+        request.nowUsec = kMifUsec + kUntilEawUsec - (2U * kGuardUsec);
+        request.frameAirtimeUsec = kLongAirtimeUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != kNextSlot ||
+            window.waitUsec != 3U * kGuardUsec)
+        {
+            return false;
+        }
+        // At the final guard itself, skip the EAW even for tiny frames;
+        // the next EAW's guard must be subtracted before admitting data.
+        peer.channelSixSlots = kFirstThreeChannels;
+        request.nowUsec = kMifUsec + kUntilEawUsec + kEawUsec - kGuardUsec + 1U;
+        request.frameAirtimeUsec = kAirtimeUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != 2U ||
+            window.waitUsec != (2U * kGuardUsec) - 1U)
+        {
+            return false;
+        }
+        // Only slot 10 is valid: the search must cross off-channel EAWs
+        // but cannot re-label them as channel-six radio availability.
+        peer.channelSixSlots = kSlotTenMask;
+        request.nowUsec = kMifUsec;
+        request.frameAirtimeUsec = kAirtimeUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != kTenthSlot ||
+            window.awSequence != kTenthBaseAw ||
+            window.waitUsec != (kTenthEaw * kEawUsec) -
+                                   (kEawUsec - kUntilEawUsec) + kGuardUsec)
+        {
+            return false;
+        }
+        peer.channelSixSlots = 0U;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::PeerOffChannel ||
+            window.waitUsec != 0U)
+        {
+            return false;
+        }
+        peer.channelSixSlots = uint16_t {1U} << kWrapSlot;
+        peer.nextAwSequence = kWrapBaseAw;
+        request.nowUsec += kGuardUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != kWrapSlot ||
+            window.awSequence != UINT16_MAX || window.waitUsec != 0U)
+        {
+            return false;
+        }
+        // Both the immediate and future planner reject TX finishing at
+        // the five-second MIF boundary, even after a data-lifetime refresh.
+        request.nowUsec = kMifUsec + kMifLastUsec - kAirtimeUsec;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            window.waitUsec != 0U)
+        {
+            return false;
+        }
+        request.nowUsec = kMifUsec + kGuardUsec;
+        peer.lastMifMs = kNeighborFirstSeenMs + 1U;
+        return planNextAwdlChannelSixRendezvous(peer, request, window) ==
+               AwdlRendezvousStatus::InvalidInput;
+    }
+
     bool neighborChannelEncodings()
     {
         AwdlNeighbors peers {};
@@ -1467,6 +1594,11 @@ int main()
     {
         constexpr int kRendezvousFailure = 14;
         return kRendezvousFailure;
+    }
+    if (!nextChannelSixRendezvousCandidates())
+    {
+        constexpr int kFutureRendezvousFailure = 15;
+        return kFutureRendezvousFailure;
     }
     return 0;
 }

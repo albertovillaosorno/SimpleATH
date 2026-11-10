@@ -914,7 +914,8 @@ namespace simpleath
                 return AwdlRendezvousStatus::StaleSync;
             }
             const uint64_t ageUsec = request.nowUsec - request.mifRxUsec;
-            if (ageUsec >= kAwdlPeerExpiryUsec)
+            if (ageUsec >= kAwdlPeerExpiryUsec ||
+                request.frameAirtimeUsec >= kAwdlPeerExpiryUsec - ageUsec)
             {
                 return AwdlRendezvousStatus::StaleSync;
             }
@@ -950,6 +951,107 @@ namespace simpleath
                 static_cast<uint32_t>(kAwdlEawUsec - elapsedEawUsec),
             };
             return AwdlRendezvousStatus::Candidate;
+        }
+
+        AwdlRendezvousStatus
+        planNextAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
+                                         const AwdlRendezvousRequest &request,
+                                         AwdlRendezvousWindow &out)
+        {
+            if (overlaps(&out, sizeof(out), &peer, sizeof(peer)) ||
+                overlaps(&out, sizeof(out), &request, sizeof(request)))
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            out = {};
+            if (!validStationMac(peer.source) ||
+                peer.awPeriodTu != kAwdlPeriodTu ||
+                peer.txDownCounterTu == 0U ||
+                peer.txDownCounterTu > kAwdlEawTu ||
+                request.mifRxUsec / kAwdlUsecPerMs != peer.lastMifMs ||
+                request.frameAirtimeUsec == 0U ||
+                request.frameAirtimeUsec >
+                    kAwdlEawUsec - (2U * kAwdlUnicastGuardUsec))
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            if (request.nowUsec < request.mifRxUsec ||
+                request.nowUsec - request.mifRxUsec >= kAwdlPeerExpiryUsec)
+            {
+                return AwdlRendezvousStatus::StaleSync;
+            }
+            if (peer.channelSixSlots == 0U)
+            {
+                return AwdlRendezvousStatus::PeerOffChannel;
+            }
+            const uint64_t ageUsec = request.nowUsec - request.mifRxUsec;
+            const uint64_t syncRemaining = kAwdlPeerExpiryUsec - ageUsec;
+            const uint32_t untilEawUsec = peer.txDownCounterTu * kAwdlUsecPerTu;
+            const uint64_t elapsedUsec =
+                (kAwdlEawUsec - untilEawUsec) + ageUsec;
+            const uint64_t phaseUsec = elapsedUsec % kAwdlEawUsec;
+            const uint64_t currentEaw = elapsedUsec / kAwdlEawUsec;
+            const uint32_t baseAw = peer.nextAwSequence & kAwdlEawSequenceMask;
+
+            // Include the currently open EAW and the return to its channel
+            // after all 16 slots. Never infer a radio tune from this search.
+            for (uint32_t advance = 0U; advance <= kAwdlChannelSlotMask + 1U;
+                 ++advance)
+            {
+                const auto slot = static_cast<uint8_t>(
+                    ((baseAw / kAwdlAwPerChannelSlot) + currentEaw + advance) &
+                    kAwdlChannelSlotMask);
+                if ((static_cast<uint32_t>(peer.channelSixSlots) &
+                     (uint32_t {1U} << slot)) == 0U)
+                {
+                    continue;
+                }
+                const uint64_t eawDelay =
+                    (static_cast<uint64_t>(advance) * kAwdlEawUsec);
+                uint64_t waitUsec = 0U;
+                if (advance == 0U)
+                {
+                    if (phaseUsec < kAwdlUnicastGuardUsec)
+                    {
+                        waitUsec = kAwdlUnicastGuardUsec - phaseUsec;
+                    }
+                }
+                else
+                {
+                    waitUsec = eawDelay - phaseUsec + kAwdlUnicastGuardUsec;
+                }
+                const uint64_t untilEnd = (eawDelay + kAwdlEawUsec) - phaseUsec;
+                // A current EAW already in its final guard has no usable
+                // airtime. Never underflow that guard into a valid window.
+                if (untilEnd <= kAwdlUnicastGuardUsec)
+                {
+                    continue;
+                }
+                const uint64_t usableUsec = untilEnd - kAwdlUnicastGuardUsec;
+                if (waitUsec + request.frameAirtimeUsec > usableUsec)
+                {
+                    continue;
+                }
+                // The MIF phase is trusted only for the current five-second
+                // anchor; do not schedule a frame finishing at its expiry.
+                if (waitUsec + request.frameAirtimeUsec >= syncRemaining ||
+                    request.nowUsec > UINT64_MAX - waitUsec)
+                {
+                    return AwdlRendezvousStatus::StaleSync;
+                }
+                const uint64_t startElapsedUsec = elapsedUsec + waitUsec;
+                out = {
+                    static_cast<uint16_t>(
+                        (baseAw + (startElapsedUsec / kAwdlAwUsec)) &
+                        kAwdlAwSequenceMask),
+                    slot,
+                    static_cast<uint32_t>(kAwdlEawUsec -
+                                          (startElapsedUsec % kAwdlEawUsec)),
+                    static_cast<uint32_t>(waitUsec),
+                };
+                return AwdlRendezvousStatus::Candidate;
+            }
+            return AwdlRendezvousStatus::PeerOffChannel;
         }
 
         void AwdlNeighbors::clear()

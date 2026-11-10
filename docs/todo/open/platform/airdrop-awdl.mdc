@@ -205,3 +205,45 @@ coexistence with the associated Wi-Fi and Bluetooth sessions, native AWDL
 interface ownership, peer security, DMA TX completion and an actual
 AirDrop/Continuity host integration. No such runtime links were added here;
 this P0 TODO remains open. Offline checks do not establish physical timing.
+
+## Source progress — 2026-11-10: next guarded channel-six candidate
+
+The production `AwdlAction` source now exposes
+`planNextAwdlChannelSixRendezvous`, a fixed 17-EAW search for the next
+*complete* unicast packet opportunity on an MIF-advertised channel-six
+slot. It returns a bounded lead time and the channel/EAW sequence at the
+first usable instant. Current and future opportunities exclude the first
+and last three TU of each EAW, reject frames that do not fit, and never
+extend past the five-second MIF synchronization lifetime. The immediate
+candidate planner also rejects frames whose airtime reaches that expiry.
+An unsigned-underflow condition during the final EAW guard is explicitly
+avoided. Synthetic tests cover a current EAW, future channel transitions,
+skipped off-channel slots, final-guard overflow, 16-bit sequence wrap,
+no social slot, stale timing and invalid MIF anchors. Direct strict
+Clang-Tidy and formatting pass; C++14/C++17 ASan+UBSan host tests pass.
+
+This remains read-only planning rather than radio authorization: local
+channel tune, peer trust, regulatory clearance, coexistence, native AWDL
+ownership, physical timestamp alignment and actual TX are unimplemented.
+The P0 acceptance checklist remains open.
+
+## Source progress — 2026-11-10: next guarded channel-six candidate
+
+The production `AwdlAction` source now exposes
+`planNextAwdlChannelSixRendezvous`, a fixed 17-EAW search for the next
+*complete* unicast packet opportunity on an MIF-advertised channel-six
+slot. It returns a bounded lead time and the channel/EAW sequence at the
+first usable instant. Current and future opportunities exclude the first
+and last three TU of each EAW, reject frames that do not fit, and never
+extend past the five-second MIF synchronization lifetime. The immediate
+candidate planner also rejects frames whose airtime reaches that expiry.
+An unsigned-underflow condition during the final EAW guard is explicitly
+avoided. Synthetic tests cover a current EAW, future channel transitions,
+skipped off-channel slots, final-guard overflow, 16-bit sequence wrap,
+no social slot, stale timing and invalid MIF anchors. Direct strict
+Clang-Tidy and formatting pass; C++14/C++17 ASan+UBSan host tests pass.
+
+This remains read-only planning rather than radio authorization: local
+channel tune, peer trust, regulatory clearance, coexistence, native AWDL
+ownership, physical timestamp alignment and actual TX are unimplemented.
+The P0 acceptance checklist remains open.
