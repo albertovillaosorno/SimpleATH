@@ -18,6 +18,23 @@ namespace simpleath
                 bool occupied;
         };
 
+        // Keep the observation measurements and candidate-selection policy
+        // together so callers cannot accidentally swap convertible scalars.
+        struct ScanObservation
+        {
+                size_t frameBytes;
+                int8_t rssiDbm;
+                uint64_t nowMs;
+        };
+
+        struct ScanSelection
+        {
+                size_t ssidLength;
+                uint8_t channel;
+                bool permitOpen;
+                bool permitWpa2;
+        };
+
         class ScanCache
         {
             public:
@@ -30,8 +47,8 @@ namespace simpleath
                 void clear();
                 // Caller must have verified RX descriptor CRC and DMA bounds
                 // first. RX frame storage must not overlap this cache.
-                Result observe(const uint8_t *frame, size_t length,
-                               int8_t rssiDbm, uint64_t nowMs);
+                Result observe(const uint8_t *frame,
+                               const ScanObservation &observation);
                 void expire(uint64_t nowMs, uint64_t ttlMs);
                 size_t size() const;
                 // Returns a defensive copy of the Nth occupied BSS for native
@@ -49,12 +66,11 @@ namespace simpleath
                 // This does NOT check country-specific regulatory policy.
                 // A copy of the BSS is returned; no invalidatable pointers.
                 // The output cannot overlap the input SSID or this cache.
-                bool strongest(const uint8_t *ssid, size_t ssidLength,
-                               uint8_t channel, bool permitOpen,
-                               bool permitWpa2, Bss &out) const;
+                bool strongest(const uint8_t *ssid,
+                               const ScanSelection &selection, Bss &out) const;
 
             private:
-                Bss entries_[kCapacity];
+                Bss entries_[kCapacity] {};
         };
 
     } // namespace ieee80211

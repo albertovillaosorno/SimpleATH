@@ -10,6 +10,33 @@ namespace simpleath
     {
         namespace
         {
+            constexpr uint16_t kPrivacyCapabilityMask = 0x0010U;
+            constexpr int8_t kLowestMeasuredRssiDbm = -127;
+
+            template <typename T, size_t N>
+            T &boundedElement(T (&items)[N], size_t index)
+            {
+                for (T &element : items)
+                {
+                    if (index == 0)
+                    {
+                        return element;
+                    }
+                    --index;
+                }
+                __builtin_trap();
+            }
+
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                              "cache host pointer width must fit uintptr_t");
+                uintptr_t address = 0;
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
+
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
             {
@@ -18,8 +45,8 @@ namespace simpleath
                 {
                     return false;
                 }
-                const auto first = reinterpret_cast<uintptr_t>(a);
-                const auto second = reinterpret_cast<uintptr_t>(b);
+                const auto first = pointerAddress(a);
+                const auto second = pointerAddress(b);
                 return first <= second ? second - first < aBytes
                                        : first - second < bBytes;
             }
@@ -29,31 +56,25 @@ namespace simpleath
             {
                 if (left.channel != right.channel ||
                     left.rsn.security != right.rsn.security ||
-                    ((left.capabilities ^ right.capabilities) & 0x0010U) != 0 ||
+                    ((static_cast<uint32_t>(left.capabilities) ^
+                      static_cast<uint32_t>(right.capabilities)) &
+                     kPrivacyCapabilityMask) != 0 ||
                     left.rsnIeLength != right.rsnIeLength ||
                     left.rsnIeLength > sizeof(left.rsnIe))
                 {
                     return false;
                 }
-                for (size_t i = 0; i < left.rsnIeLength; ++i)
-                {
-                    if (left.rsnIe[i] != right.rsnIe[i])
-                    {
-                        return false;
-                    }
-                }
-                return true;
+                return __builtin_memcmp(&left.rsnIe[0], &right.rsnIe[0],
+                                        left.rsnIeLength) == 0;
             }
 
             bool measuredRssi(int8_t rssiDbm)
             {
-                return rssiDbm < 0 && rssiDbm >= -127;
+                return rssiDbm < 0 && rssiDbm >= kLowestMeasuredRssiDbm;
             }
         } // namespace
 
-        ScanCache::ScanCache() : entries_ {}
-        {
-        }
+        ScanCache::ScanCache() = default;
 
         void ScanCache::clear()
         {
@@ -63,9 +84,12 @@ namespace simpleath
             }
         }
 
-        Result ScanCache::observe(const uint8_t *frame, size_t length,
-                                  int8_t rssiDbm, uint64_t nowMs)
+        Result ScanCache::observe(const uint8_t *frame,
+                                  const ScanObservation &observation)
         {
+            const size_t length = observation.frameBytes;
+            const int8_t rssiDbm = observation.rssiDbm;
+            const uint64_t nowMs = observation.nowMs;
             // RX bytes must be borrowed from a disjoint DMA/frame allocation;
             // a forged source within the cache could change while updating it.
             if (overlaps(frame, length, this, sizeof(*this)))
@@ -87,9 +111,11 @@ namespace simpleath
             size_t freeSlot = kCapacity;
             size_t oldestSlot = kCapacity;
             uint64_t oldest = 0;
-            for (size_t i = 0; i < kCapacity; ++i)
+            size_t nextIndex = 0;
+            for (const Bss &entry : entries_)
             {
-                if (!entries_[i].occupied)
+                const size_t i = nextIndex++;
+                if (!entry.occupied)
                 {
                     if (freeSlot == kCapacity)
                     {
@@ -100,16 +126,16 @@ namespace simpleath
                 // A delayed RX callback must not rewind any cached clock or
                 // evict a newer BSSID on the strength of an older sample.
                 // Check all occupied entries, including those after a match.
-                if (nowMs < entries_[i].lastSeenMs)
+                if (nowMs < entry.lastSeenMs)
                 {
                     return Result::InvalidFrame;
                 }
-                if (sameMac(entries_[i].beacon.bssid, beacon.bssid))
+                if (sameMac(entry.beacon.bssid, beacon.bssid))
                 {
                     slot = i;
                     continue;
                 }
-                const uint64_t age = nowMs - entries_[i].lastSeenMs;
+                const uint64_t age = nowMs - entry.lastSeenMs;
                 if (oldestSlot == kCapacity || age > oldest)
                 {
                     oldestSlot = i;
@@ -129,22 +155,21 @@ namespace simpleath
             // exact same BSSID advertises a hidden SSID with unchanged channel
             // and security. A full-cache eviction may reuse an occupied slot
             // for a different BSSID, which must never inherit the old SSID.
-            if (entries_[slot].occupied && beacon.hiddenSsid &&
-                sameMac(entries_[slot].beacon.bssid, beacon.bssid) &&
-                !entries_[slot].beacon.hiddenSsid &&
-                sameSecurityAdvertisement(beacon, entries_[slot].beacon))
+            Bss &destination = boundedElement(entries_, slot);
+            if (destination.occupied && beacon.hiddenSsid &&
+                sameMac(destination.beacon.bssid, beacon.bssid) &&
+                !destination.beacon.hiddenSsid &&
+                sameSecurityAdvertisement(beacon, destination.beacon))
             {
-                beacon.ssidLength = entries_[slot].beacon.ssidLength;
+                beacon.ssidLength = destination.beacon.ssidLength;
                 beacon.hiddenSsid = false;
-                for (size_t i = 0; i < beacon.ssidLength; ++i)
-                {
-                    beacon.ssid[i] = entries_[slot].beacon.ssid[i];
-                }
+                __builtin_memcpy(&beacon.ssid[0], &destination.beacon.ssid[0],
+                                 beacon.ssidLength);
             }
-            entries_[slot].beacon = beacon;
-            entries_[slot].rssiDbm = rssiDbm;
-            entries_[slot].lastSeenMs = nowMs;
-            entries_[slot].occupied = true;
+            destination.beacon = beacon;
+            destination.rssiDbm = rssiDbm;
+            destination.lastSeenMs = nowMs;
+            destination.occupied = true;
             return Result::Ok;
         }
 
@@ -207,10 +232,61 @@ namespace simpleath
             return false;
         }
 
-        bool ScanCache::strongest(const uint8_t *ssid, size_t ssidLength,
-                                  uint8_t channel, bool permitOpen,
-                                  bool permitWpa2, Bss &out) const
+        static bool eligibleForSelection(const Bss &candidate,
+                                         const uint8_t *ssid,
+                                         const ScanSelection &selection)
         {
+            const size_t ssidLength = selection.ssidLength;
+            if (!candidate.occupied || candidate.beacon.hiddenSsid ||
+                candidate.beacon.channel == 0 ||
+                (selection.channel != 0 &&
+                 candidate.beacon.channel != selection.channel))
+            {
+                return false;
+            }
+            const Security security = candidate.beacon.rsn.security;
+            if (security == Security::Open && !selection.permitOpen)
+            {
+                return false;
+            }
+            if (security == Security::Wpa2Personal &&
+                (!selection.permitWpa2 || !candidate.beacon.rsn.groupCcmp))
+            {
+                return false;
+            }
+            if (security != Security::Open &&
+                security != Security::Wpa2Personal)
+            {
+                return false;
+            }
+            // Rank only BSSes whose mandatory basic rates this PHY can
+            // honor and which have at least one common association rate.
+            // Otherwise a stronger unjoinable BSSID can mask a weaker
+            // compatible AP with the same SSID and security policy.
+            if (associationRequestLength(candidate.beacon) == 0)
+            {
+                return false;
+            }
+            if (ssidLength != 0)
+            {
+                if (candidate.beacon.ssidLength != ssidLength)
+                {
+                    return false;
+                }
+                if (__builtin_memcmp(&candidate.beacon.ssid[0], ssid,
+                                     ssidLength) != 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool ScanCache::strongest(const uint8_t *ssid,
+                                  const ScanSelection &selection,
+                                  Bss &out) const
+        {
+            const size_t ssidLength = selection.ssidLength;
             // Caller-owned output cannot alias the search SSID or the live
             // cache. Even an invalid lookup must not erase borrowed bytes.
             if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
@@ -219,7 +295,8 @@ namespace simpleath
             {
                 return false;
             }
-            if (ssidLength > 32 || (ssidLength != 0 && (ssid == nullptr)))
+            if (ssidLength > kMaxSsidBytes ||
+                (ssidLength != 0 && (ssid == nullptr)))
             {
                 out = {};
                 return false;
@@ -228,51 +305,11 @@ namespace simpleath
             Bss best {};
             for (const auto &candidate : entries_)
             {
-                if (!candidate.occupied || candidate.beacon.hiddenSsid ||
-                    candidate.beacon.channel == 0 ||
-                    (channel != 0 && candidate.beacon.channel != channel))
+                if (!eligibleForSelection(candidate, ssid, selection))
                 {
                     continue;
                 }
                 const Security security = candidate.beacon.rsn.security;
-                if (security == Security::Open && !permitOpen)
-                {
-                    continue;
-                }
-                if (security == Security::Wpa2Personal &&
-                    (!permitWpa2 || !candidate.beacon.rsn.groupCcmp))
-                {
-                    continue;
-                }
-                if (security != Security::Open &&
-                    security != Security::Wpa2Personal)
-                {
-                    continue;
-                }
-                // Rank only BSSes whose mandatory basic rates this PHY can
-                // honor and which have at least one common association rate.
-                // Otherwise a stronger unjoinable BSSID can mask a weaker
-                // compatible AP with the same SSID and security policy.
-                if (associationRequestLength(candidate.beacon) == 0)
-                {
-                    continue;
-                }
-                if (ssidLength != 0)
-                {
-                    if (candidate.beacon.ssidLength != ssidLength)
-                    {
-                        continue;
-                    }
-                    uint8_t difference = 0;
-                    for (size_t j = 0; j < ssidLength; ++j)
-                    {
-                        difference |= candidate.beacon.ssid[j] ^ ssid[j];
-                    }
-                    if (difference != 0)
-                    {
-                        continue;
-                    }
-                }
                 // Never prefer a stronger Open BSS over compatible WPA2
                 // solely because both policies were explicitly allowed.
                 // RSSI is only the tiebreaker within a security class.

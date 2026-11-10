@@ -177,8 +177,10 @@ namespace simpleath
             // An explicit SSID is mandatory for association. A wildcard
             // scan result is never authorization to join an arbitrary BSS.
             Bss candidate {};
-            if (!cache_.strongest(ssid, ssidLength, requestedChannel, allowOpen,
-                                  allowWpa2, candidate))
+            if (!cache_.strongest(ssid,
+                                  ScanSelection {ssidLength, requestedChannel,
+                                                 allowOpen, allowWpa2},
+                                  candidate))
             {
                 return EngineResult::NoMatchingBss;
             }
@@ -569,8 +571,9 @@ namespace simpleath
                 {
                     if (station_.state() == StationState::Scanning)
                     {
-                        if (cache_.observe(frame, macBytes, rssi, nowMs) ==
-                            Result::Ok)
+                        if (cache_.observe(
+                                frame, ScanObservation {macBytes, rssi,
+                                                        nowMs}) == Result::Ok)
                         {
                             return emitPrepared(ActionKind::ScanCacheUpdated, 0,
                                                 action);

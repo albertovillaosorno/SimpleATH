@@ -66,7 +66,8 @@ namespace
         ScanCache cache;
         uint8_t advertised[kBeaconBytes] {};
         makeBeacon(advertised, 6);
-        if (cache.observe(advertised, sizeof(advertised), -60, 1) != Result::Ok)
+        if (cache.observe(advertised, ScanObservation {sizeof(advertised), -60,
+                                                       1}) != Result::Ok)
         {
             return false;
         }
@@ -76,13 +77,15 @@ namespace
         advertised[15] = advertised[21] = 0x66;
         advertised[44] = 0xff;
         advertised[45] = 0x82;
-        if (cache.observe(advertised, sizeof(advertised), -25, 2) != Result::Ok)
+        if (cache.observe(advertised, ScanObservation {sizeof(advertised), -25,
+                                                       2}) != Result::Ok)
         {
             return false;
         }
         const uint8_t ssid[] {'T', 'e', 's', 't'};
         Bss choice {};
-        if (!cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
+        if (!cache.strongest(ssid, ScanSelection {sizeof(ssid), 6, true, false},
+                             choice) ||
             choice.beacon.bssid.bytes[5] != 0x55)
         {
             return false;
@@ -91,9 +94,10 @@ namespace
         // Unknown optional rates do not prevent joining when a compatible
         // rate remains; a stronger compatible AP should still win.
         advertised[44] = 0x7f;
-        if (cache.observe(advertised, sizeof(advertised), -25, 3) !=
-                Result::Ok ||
-            !cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) ||
+        if (cache.observe(advertised, ScanObservation {sizeof(advertised), -25,
+                                                       3}) != Result::Ok ||
+            !cache.strongest(ssid, ScanSelection {sizeof(ssid), 6, true, false},
+                             choice) ||
             choice.beacon.bssid.bytes[5] != 0x66)
         {
             return false;
@@ -101,9 +105,12 @@ namespace
 
         // Optional rates alone are insufficient without any common rate.
         advertised[45] = 0x7e;
-        return cache.observe(advertised, sizeof(advertised), -20, 4) ==
+        return cache.observe(advertised,
+                             ScanObservation {sizeof(advertised), -20, 4}) ==
                    Result::Ok &&
-               cache.strongest(ssid, sizeof(ssid), 6, true, false, choice) &&
+               cache.strongest(ssid,
+                               ScanSelection {sizeof(ssid), 6, true, false},
+                               choice) &&
                choice.beacon.bssid.bytes[5] == 0x55;
     }
 } // namespace
@@ -121,7 +128,7 @@ int main()
     // A forged borrowed RX source from inside the cache must not be parsed
     // as a real air frame or erase cached BSS metadata.
     const auto *cacheBytes = reinterpret_cast<const uint8_t *>(&cache);
-    if (cache.observe(cacheBytes, kBeaconBytes, -41, 1) !=
+    if (cache.observe(cacheBytes, ScanObservation {kBeaconBytes, -41, 1}) !=
             Result::InvalidFrame ||
         cache.size() != 0)
     {
@@ -132,7 +139,8 @@ int main()
     Bss aliasedResult {};
     aliasedResult.rssiDbm = 37;
     const auto *badSsid = reinterpret_cast<const uint8_t *>(&aliasedResult);
-    if (cache.strongest(badSsid, 4, 6, true, true, aliasedResult) ||
+    if (cache.strongest(badSsid, ScanSelection {4, 6, true, true},
+                        aliasedResult) ||
         aliasedResult.rssiDbm != 37 || cache.size() != 0)
     {
         return 19;
@@ -168,7 +176,8 @@ int main()
     {
         return 32;
     }
-    if (cache.observe(beacon, sizeof(beacon), -41, 1000) != Result::Ok ||
+    if (cache.observe(beacon, ScanObservation {sizeof(beacon), -41, 1000}) !=
+            Result::Ok ||
         bridge.completeScan(cache, {ticket.generation, 2}, true) !=
             ScanBridgeResult::InvalidState ||
         bridge.completeScan(cache, ticket, true) != ScanBridgeResult::Ok ||
@@ -237,7 +246,7 @@ int main()
     // An invalid channel never becomes a new accepted BSS. A genuinely
     // completed empty scan revokes the previous snapshot, unlike a failure.
     makeBeacon(beacon, 15);
-    if (cache.observe(beacon, sizeof(beacon), -30, 1100) !=
+    if (cache.observe(beacon, ScanObservation {sizeof(beacon), -30, 1100}) !=
             Result::InvalidElement ||
         bridge.beginScan(3, ticket) != ScanBridgeResult::Ok ||
         bridge.completeScan(cache, ticket, true) != ScanBridgeResult::Ok ||
@@ -254,7 +263,8 @@ int main()
     // The next completed scan contains actual validated frame data, but is
     // still not proof that a native Apple80211 interface or radio exists.
     makeBeacon(beacon, 11);
-    if (cache.observe(beacon, sizeof(beacon), 18, 1200) != Result::Ok ||
+    if (cache.observe(beacon, ScanObservation {sizeof(beacon), 18, 1200}) !=
+            Result::Ok ||
         bridge.beginScan(4, ticket) != ScanBridgeResult::Ok ||
         bridge.completeScan(cache, ticket, true) != ScanBridgeResult::Ok ||
         bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok ||
@@ -421,7 +431,8 @@ int main()
     {
         makeBeacon(visible, 6);
         visible[15] = visible[21] = static_cast<uint8_t>(i + 1);
-        if (recycledCache.observe(visible, sizeof(visible), -40, i + 10) !=
+        if (recycledCache.observe(
+                visible, ScanObservation {sizeof(visible), -40, i + 10}) !=
             Result::Ok)
         {
             return 20;
@@ -439,8 +450,8 @@ int main()
     {
         hidden[38 + i] = visible[42 + i];
     }
-    if (recycledCache.observe(hidden, sizeof(hidden), -35, 1000) !=
-            Result::Ok ||
+    if (recycledCache.observe(hidden, ScanObservation {sizeof(hidden), -35,
+                                                       1000}) != Result::Ok ||
         recycledCache.size() != ScanCache::kCapacity)
     {
         return 21;
@@ -470,9 +481,10 @@ int main()
 
     // An actual visible SSID from the *same* BSSID may still be retained
     // when its subsequent advertisement hides the name.
-    if (recycledCache.observe(visible, sizeof(visible), -35, 1001) !=
-            Result::Ok ||
-        recycledCache.observe(hidden, sizeof(hidden), -35, 1002) != Result::Ok)
+    if (recycledCache.observe(visible, ScanObservation {sizeof(visible), -35,
+                                                        1001}) != Result::Ok ||
+        recycledCache.observe(
+            hidden, ScanObservation {sizeof(hidden), -35, 1002}) != Result::Ok)
     {
         return 25;
     }
@@ -501,13 +513,15 @@ int main()
     static ScanCache chronologicalCache;
     uint8_t ordered[kBeaconBytes] {};
     makeBeacon(ordered, 6);
-    if (chronologicalCache.observe(ordered, sizeof(ordered), -40, 2000) !=
+    if (chronologicalCache.observe(
+            ordered, ScanObservation {sizeof(ordered), -40, 2000}) !=
         Result::Ok)
     {
         return 28;
     }
     makeBeacon(ordered, 11);
-    if (chronologicalCache.observe(ordered, sizeof(ordered), -25, 1999) !=
+    if (chronologicalCache.observe(
+            ordered, ScanObservation {sizeof(ordered), -25, 1999}) !=
             Result::InvalidFrame ||
         !chronologicalCache.snapshot(0, recycled) ||
         recycled.lastSeenMs != 2000 || recycled.beacon.channel != 6 ||
@@ -522,8 +536,9 @@ int main()
     {
         makeBeacon(ordered, 6);
         ordered[15] = ordered[21] = static_cast<uint8_t>(i + 1);
-        if (chronologicalCache.observe(ordered, sizeof(ordered), -40,
-                                       2001 + i) != Result::Ok)
+        if (chronologicalCache.observe(
+                ordered, ScanObservation {sizeof(ordered), -40, 2001 + i}) !=
+            Result::Ok)
         {
             return 29;
         }
@@ -531,7 +546,8 @@ int main()
     makeBeacon(ordered, 6);
     ordered[15] = ordered[21] = 0xfdU;
     if (chronologicalCache.size() != ScanCache::kCapacity ||
-        chronologicalCache.observe(ordered, sizeof(ordered), -20, 2030) !=
+        chronologicalCache.observe(
+            ordered, ScanObservation {sizeof(ordered), -20, 2030}) !=
             Result::InvalidFrame ||
         chronologicalCache.size() != ScanCache::kCapacity)
     {
@@ -562,11 +578,14 @@ int main()
     ScanBridgeTicket zeroNameTicket {};
     if (parseBeacon(zeroNamed, sizeof(zeroNamed), zeroParsed) != Result::Ok ||
         !zeroParsed.hiddenSsid || zeroParsed.ssidLength != 4 ||
-        zeroNameCache.observe(zeroNamed, sizeof(zeroNamed), -38, 3000) !=
+        zeroNameCache.observe(zeroNamed,
+                              ScanObservation {sizeof(zeroNamed), -38, 3000}) !=
             Result::Ok ||
-        zeroNameCache.strongest(nullName, sizeof(nullName), 6, true, true,
+        zeroNameCache.strongest(nullName,
+                                ScanSelection {sizeof(nullName), 6, true, true},
                                 zeroSelected) ||
-        zeroNameCache.strongest(nullptr, 0, 6, true, true, zeroSelected) ||
+        zeroNameCache.strongest(nullptr, ScanSelection {0, 6, true, true},
+                                zeroSelected) ||
         zeroNameBridge.beginScan(1, zeroNameTicket) != ScanBridgeResult::Ok ||
         zeroNameBridge.completeScan(zeroNameCache, zeroNameTicket, true) !=
             ScanBridgeResult::Ok ||
