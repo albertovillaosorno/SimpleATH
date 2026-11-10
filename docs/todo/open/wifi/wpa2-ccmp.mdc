@@ -71,9 +71,10 @@ not be enabled on an exposed shared kernel without cryptographic side-channel
 review or a constant-time native/hardware alternative. The portable data path
 now has an explicit CCMP-protected transmit API for ordinary WPA2 Ethernet-II
 traffic and supplicant-authenticated Group2; the existing cleartext serializer
-still refuses Group2. It is **not** wired into WifiEngine, DMA descriptors,
-native keycache or Tahoe, and is **not** evidence of an authorized protected
-network data port. Inbound Group1 is now admitted by `DataPath` only when
+still refuses Group2. The native PCI owner now calls the protected TX
+serializer and queues its software-encrypted MPDU with hardware cipher mode
+Clear. This is **not** a live authorized Tahoe network data port: keycache,
+OS supplicant ownership, protected RX and regulatory RF setup remain open. Inbound Group1 is now admitted by `DataPath` only when
 verified-protected and key-installed, but `WifiEngine` does not dispatch it to
 the supplicant; owner-driven PN persistence and native integration remain open.
 
