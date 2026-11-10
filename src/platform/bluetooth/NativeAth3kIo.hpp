@@ -15,6 +15,9 @@ namespace simpleath
             IOService *owner {};
             IOUSBHostInterface *interface {};
             IOUSBHostPipe *firmwareBulkOut {};
+            // Exact physical USB identity captured while opening the DFU
+            // session. A later bootstrap must verify the same interface.
+            Ath3kUsbIdentity identity {};
             void *policyContext {};
             uint64_t epoch {};
             bool (*permit)(void *, uint64_t) {};
