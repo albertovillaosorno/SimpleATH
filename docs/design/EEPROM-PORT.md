@@ -122,6 +122,18 @@ bins constitute calibrated gain/TPC data or permission to transmit. The
 other two generic-format chains remain unparsed since AR9565 requires mask
 0x11, and no assumption about the physical board's factory values is made.
 
+The separate `readBoardTxModal2G` extraction now carries four additional
+AR9300 packed, 2-GHz-only TX power-control inputs from an admitted board:
+the signed `pwrTableOffset` byte (base header offset 39), feature-enable bits
+(offset 42), and signed modal temperature/voltage slopes (offsets 73/74).
+Its typed `BoardTxModal2G` value also appears in source-only
+`PowerCandidates`, alongside the already interpolated chain-zero calibration
+pier. Inputs are checked through structural board/gain admission, signed
+bytes are preserved, invalid boards clear output, and unsafe output aliasing
+is rejected without mutation. Synthetic fixtures cover negative slope/offset
+and invalid-board reset. These are **raw factory inputs**, not adjusted
+per-rate power, calibrated TPC registers, or a grant to activate RF.
+
 `calibrationValidated` and `regulatoryAuthorized` remain false. This module
 does not set the hardware core's EEPROM-valid state or create permission to
 transmit. Calibration application, legal country intersection, CTL

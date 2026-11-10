@@ -657,7 +657,8 @@ namespace simpleath
         candidate.legacyOnlyChannel14 = channel.primary == kCckOnlyChannel;
         if (calculateBoardCalibration2G(board, candidate.controlMhz,
                                         candidate.channelCalibration) !=
-            EepromResult::Ok)
+                EepromResult::Ok ||
+            readBoardTxModal2G(image, candidate.txModal) != EepromResult::Ok)
         {
             return PowerResult::InvalidBoard;
         }

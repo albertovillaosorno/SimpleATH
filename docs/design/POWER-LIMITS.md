@@ -86,6 +86,24 @@ and TX/RX gain outputs cannot overlap the board or each other. These invalid
 aliases return InvalidArgument before modifying either output or input;
 ordinary failed power calculations still clear stale output.
 
+## Modal open-loop TX inputs — 2026-11-10
+
+The packed AR9300 board input path now separately extracts `pwrTableOffset`
+(signed dB), signed 2-GHz `tempSlope`/`voltSlope`, and the raw
+`featureEnable` byte from an admitted reconstructed image. It copies these
+into `PowerCandidates::txModal` next to the interpolated per-channel
+reference correction, voltage and temperature. This preserves the raw
+source inputs used by Linux ath9k's `ar9003_hw_power_control_override`
+without inventing live temperature, additional compensation or register
+settings. Invalid structural board admission blocks the output and clears
+stale values. The synthetic C++14 and C++17 sanitizer regressions exercise
+signed values and the power-candidate handoff; focused strict Tidy passes.
+
+This is **not** a hardware transmitter power-control implementation, a
+successful radio calibration, or an authorization to transmit. The native
+serialized owner still has to establish live board provenance, real TPC
+register programming/readback and the verified country/antenna/RF gates.
+
 ## What remains before any transmission
 
 PowerCandidates contains **half-dBm candidate limits**, not descriptor power

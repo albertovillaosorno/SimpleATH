@@ -73,6 +73,13 @@ namespace simpleath
         constexpr size_t kRfSilentOffset = 35;
         constexpr size_t kBluetoothOptionsOffset = 36;
         constexpr size_t kWlanDisableGpioOffset = 45;
+        // ar9300_base_eep_hdr starts at 28; modalHeader2G starts at 53.
+        // Signed temperature/voltage slopes follow the three chain antenna
+        // and attenuation fields of the packed modal header.
+        constexpr size_t kPowerTableOffset = 39;
+        constexpr size_t kFeatureEnableOffset = 42;
+        constexpr size_t kModal2GTemperatureSlopeOffset = 73;
+        constexpr size_t kModal2GVoltageSlopeOffset = 74;
         constexpr size_t kGainIndexOffset = 48;
         constexpr size_t kAntennaControlCommonOffset = 53;
         constexpr size_t kAntennaControlCommon2Offset = 57;
@@ -842,6 +849,39 @@ namespace simpleath
                                              : RxGainProfile::Standard;
         tx = selectedTx;
         rx = selectedRx;
+        return EepromResult::Ok;
+    }
+
+    EepromResult readBoardTxModal2G(const EepromImage &image,
+                                    BoardTxModal2G &out)
+    {
+        if (overlaps(&image, sizeof(image), &out, sizeof(out)))
+        {
+            return EepromResult::InvalidArgument;
+        }
+        out = {};
+        BoardDataSummary board {};
+        if (summarizeBoardData(image, board) != EepromResult::Ok)
+        {
+            return EepromResult::InvalidBoardIdentity;
+        }
+        TxGainProfile tx = TxGainProfile::Unknown;
+        RxGainProfile rx = RxGainProfile::Unknown;
+        const EepromResult admission = selectBoardGainProfiles(board, tx, rx);
+        if (admission != EepromResult::Ok)
+        {
+            return admission;
+        }
+        const uint8_t *const bytes = &image.bytes[0];
+        BoardTxModal2G result {};
+        result.powerTableOffsetDb =
+            signedByte(*byteOffset(bytes, kPowerTableOffset));
+        result.temperatureSlope =
+            signedByte(*byteOffset(bytes, kModal2GTemperatureSlopeOffset));
+        result.voltageSlope =
+            signedByte(*byteOffset(bytes, kModal2GVoltageSlopeOffset));
+        result.featureEnable = *byteOffset(bytes, kFeatureEnableOffset);
+        out = result;
         return EepromResult::Ok;
     }
 

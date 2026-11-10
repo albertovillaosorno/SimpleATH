@@ -49,6 +49,18 @@ namespace
     constexpr auto kEepromByte157 = 157;
     constexpr auto kEepromByte158 = 158;
     constexpr auto kEepromByte32 = 32;
+    constexpr auto kEepromPowerTableOffset = 39;
+    constexpr auto kEepromFeatureEnable = 42;
+    constexpr auto kEepromModalTempSlope = 73;
+    constexpr auto kEepromModalVoltSlope = 74;
+    constexpr auto kPowerTableOffsetMinusSix = 0xfa;
+    constexpr auto kModalTemperatureSlopeMinusTwentyFour = 0xe8;
+    constexpr auto kModalVoltageSlopeSeven = 7;
+    constexpr auto kPowerOffsetExpected = -6;
+    constexpr auto kTemperatureSlopeExpected = -24;
+    constexpr auto kVoltageSlopeExpected = 7;
+    constexpr auto kTemperatureVoltageFeatures = 3;
+    constexpr auto kInvalidSlopeSentinel = 45;
     constexpr auto kEepromByte33 = 33;
     constexpr auto kEepromByte5 = 5;
     constexpr auto kEepromByte6 = 6;
@@ -145,6 +157,8 @@ namespace
         UnsupportedCalibrationChannel = 37,
         InvalidCalibrationGeometry = 38,
         InvalidCalibrationIdentity = 39,
+        InvalidTxModal = 40,
+        InvalidTxModalIdentity = 41,
     };
 
     struct BorrowedTemplateReturn
@@ -252,6 +266,11 @@ namespace
         image.bytes[kEepromByte32] =
             kMacOrChainMask; // Single AR9565 transmit/receive chain.
         image.bytes[kEepromByte33] = 0x02; // Supported 2.4-GHz operation flag.
+        image.bytes[kEepromPowerTableOffset] = kPowerTableOffsetMinusSix;
+        image.bytes[kEepromFeatureEnable] = kTemperatureVoltageFeatures;
+        image.bytes[kEepromModalTempSlope] =
+            kModalTemperatureSlopeMinusTwentyFour;
+        image.bytes[kEepromModalVoltSlope] = kModalVoltageSlopeSeven;
         image.bytes[kEepromByte99] =
             kErasedByte; // Negative antenna-gain diagnostic.
 
@@ -766,6 +785,29 @@ namespace
         return 0;
     }
 
+    int verifyTxModal(const Fixture &fixture)
+    {
+        BoardTxModal2G modal {};
+        if (readBoardTxModal2G(fixture.image, modal) != EepromResult::Ok ||
+            modal.powerTableOffsetDb != kPowerOffsetExpected ||
+            modal.temperatureSlope != kTemperatureSlopeExpected ||
+            modal.voltageSlope != kVoltageSlopeExpected ||
+            modal.featureEnable != kTemperatureVoltageFeatures)
+        {
+            return static_cast<int>(Failure::InvalidTxModal);
+        }
+        EepromImage untrusted = fixture.image;
+        untrusted.bytes[0] = 0; // No valid AR9300 layout.
+        modal.temperatureSlope = kInvalidSlopeSentinel;
+        if (readBoardTxModal2G(untrusted, modal) !=
+                EepromResult::InvalidBoardIdentity ||
+            modal.temperatureSlope != 0 || modal.featureEnable != 0)
+        {
+            return static_cast<int>(Failure::InvalidTxModalIdentity);
+        }
+        return 0;
+    }
+
     int verifyCalibration(const Fixture &fixture)
     {
         const auto &accepted = fixture.board;
@@ -887,6 +929,10 @@ int main()
         return failure;
     }
     if (const int failure = verifyCalibration(fixture))
+    {
+        return failure;
+    }
+    if (const int failure = verifyTxModal(fixture))
     {
         return failure;
     }

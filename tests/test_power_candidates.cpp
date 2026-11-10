@@ -51,6 +51,17 @@ namespace
     constexpr auto kEepromOffset311 = 311;
     constexpr auto kEepromOffset313 = 313;
     constexpr auto kEepromOffset32 = 32;
+    constexpr auto kEepromPowerTableOffset = 39;
+    constexpr auto kEepromFeatureEnable = 42;
+    constexpr auto kEepromModalTempSlope = 73;
+    constexpr auto kEepromModalVoltSlope = 74;
+    constexpr auto kPowerTableOffsetMinusSix = 0xfa;
+    constexpr auto kModalTemperatureSlopeMinusTwentyFour = 0xe8;
+    constexpr auto kModalVoltageSlopeSeven = 7;
+    constexpr auto kPowerOffsetExpected = -6;
+    constexpr auto kTemperatureSlopeExpected = -24;
+    constexpr auto kVoltageSlopeExpected = 7;
+    constexpr auto kTemperatureVoltageFeatures = 3;
     constexpr auto kEepromOffset322 = 322;
     constexpr auto kEepromOffset323 = 323;
     constexpr auto kEepromOffset324 = 324;
@@ -376,6 +387,11 @@ namespace
         image.bytes[kEepromOffset6] = kPhysicalMacFour;
         image.bytes[kEepromOffset7] = kPhysicalMacFive;
         image.bytes[kEepromOffset32] = kPhysicalMacOne;
+        image.bytes[kEepromPowerTableOffset] = kPowerTableOffsetMinusSix;
+        image.bytes[kEepromFeatureEnable] = kTemperatureVoltageFeatures;
+        image.bytes[kEepromModalTempSlope] =
+            kModalTemperatureSlopeMinusTwentyFour;
+        image.bytes[kEepromModalVoltSlope] = kModalVoltageSlopeSeven;
         image.bytes[kEepromOffset33] =
             kPhysicalMacTwo; // 2 GHz, with HT target lookup disabled.
         // A reconstructed AR9565 board has three structurally ordered 2G
@@ -430,7 +446,11 @@ namespace
                 kVoltageReferenceOrOffbandBin ||
             output.channelCalibration.temperatureMeasurement !=
                 kTemperatureReference ||
-            output.channelCalibration.interpolated)
+            output.channelCalibration.interpolated ||
+            output.txModal.powerTableOffsetDb != kPowerOffsetExpected ||
+            output.txModal.temperatureSlope != kTemperatureSlopeExpected ||
+            output.txModal.voltageSlope != kVoltageSlopeExpected ||
+            output.txModal.featureEnable != kTemperatureVoltageFeatures)
         {
             return static_cast<int>(Failure::ValidCalibratedBoard);
         }

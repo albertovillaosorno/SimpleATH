@@ -210,5 +210,25 @@ namespace simpleath
                                              uint16_t channelMhz,
                                              BoardChannelCalibration2G &out);
 
+    // Packed AR9300 base-header and 2-GHz modal-header values consumed by
+    // ath9k's open-loop transmitter power control (power_control_override).
+    // All are factory bytes, not live thermal/voltage readings or adjusted
+    // TX powers. No calibration validation or permission to transmit follows
+    // from this extraction. The native owner must retain an epoch-current,
+    // independently verified physical board and gate any subsequent MMIO.
+    struct BoardTxModal2G
+    {
+            int8_t powerTableOffsetDb {};
+            int8_t temperatureSlope {};
+            int8_t voltageSlope {};
+            uint8_t featureEnable {};
+    };
+
+    // Requires the same structural board/gain admission as the power-candidate
+    // path; rejects an un-restored image, bad MAC or generic template MAC.
+    // Aliased output is left untouched; ordinary failures clear stale output.
+    EepromResult readBoardTxModal2G(const EepromImage &image,
+                                    BoardTxModal2G &out);
+
 } // namespace simpleath
 #endif
