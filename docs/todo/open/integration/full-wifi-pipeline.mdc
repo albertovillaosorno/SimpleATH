@@ -55,10 +55,17 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 
 ## Start here and next implementation step
 
-Start at src/SimpleATH.cpp, not at a disconnected unit test. It currently
-publishes passive diagnostics; WifiEngine is not its hardware/network service.
-The native PCI/DMA macros remain disabled, and the radio recipe remains
-non-executable. An integrated driver is therefore still missing.
+Start at src/SimpleATH.cpp, not at a disconnected unit test. The native
+PCI/RTC/NVM/keycache, EDMA queue, and CCMP/EAPOL packet paths now have
+production call sites, but the radio/connection owner is incomplete. In the
+current native source, `radioOperational_` and `channelAuthorized_` begin
+false and are only cleared on teardown; no successful startup/scan/tune path
+sets either true. The existing source-backed
+`runAr9565ReceiveOnlyRadioSequence` (INI, PHY mode, board modal, RF bus,
+PLL, synthesizer, OFDM timing, calibration) is not called by the native
+controller, and is RX-only even when it succeeds. The driver must not
+replace missing calibrated/channel/regulatory operations with asserted flags.
+An end-to-end integrated, authorized driver is therefore still missing.
 
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
@@ -127,6 +134,14 @@ and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/ma
 - Post-commit repository tools/validate.py: 570 checks, 534 pass,
   36 existing strict Clang-Tidy failures, zero skips. No offline host-test
   failures; focused Darwin C++14 syntax, format and diff checks passed.
+- DCO 24df117 binds the OS-owned M2/M4 pre-port EAPOL sender to the strict
+  unprotected handshake serializer and post-install Group2 to the protected
+  CCMP sender. This resolves a source-side pre-port send gate without
+  certifying a Tahoe supplicant or any transmission on air.
+- Static integration audit on 2026-11-10: native `radioOperational_` and
+  `channelAuthorized_` have no true-producing call site; the portable full
+  receive-only radio sequence has no native caller. These are concrete source
+  blockers, not reasons to bypass physical RF/board/regulatory authorization.
 - Outstanding: actual native scan/connect control, calibrated radio,
   exact Tahoe OS supplicant and Wi-Fi ABI, group-rekey completion,
   Bluetooth and AWDL. No kext build or physical radio test occurred.
