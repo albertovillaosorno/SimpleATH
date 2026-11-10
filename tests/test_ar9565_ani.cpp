@@ -14,6 +14,7 @@ namespace
 {
     constexpr uint64_t kEpoch = 76U;
     constexpr uint8_t kTestChannel = 6U;
+    constexpr uint8_t kHt40SecondaryChannel = 10U;
     constexpr size_t kProgramReadCount = 8U;
     constexpr uint8_t kOtherChannel = 7U;
     constexpr uint8_t kJapanChannel = 14U;
@@ -196,7 +197,9 @@ static int checkSuccessfulStages(Fake &fake, Ar9565AniState &state)
     if (baseline.result != AniResult::Ok || baseline.completedReads != 4U ||
         baseline.completedWrites != 0U || fake.writes != 0U ||
         !state.initialized || state.ownerEpoch != kEpoch ||
-        state.channel != kTestChannel ||
+        state.channel != kTestChannel || state.silicon != Revision::V1_1 ||
+        state.width != ChannelWidth::Ht20 || state.secondary != 0U ||
+        state.referenceClock != RfReferenceClock::Crystal25Mhz ||
         state.firstStepDefault != kFirstDefault ||
         state.firstStepLowDefault != kFirstLowDefault ||
         state.spurDefault != kSpurDefault ||
@@ -289,6 +292,36 @@ static int checkRejectedAndAmbiguous(Fake &fake, Ar9565AniState &state)
     {
         return static_cast<int>(TestExit::Epoch);
     }
+    // The same primary 2.4-GHz channel has distinct PHY defaults in HT40,
+    // for a new silicon revision, or under a different crystal: never reuse.
+    auto changedGeometry = channel();
+    changedGeometry.width = ChannelWidth::Ht40;
+    changedGeometry.secondary = kHt40SecondaryChannel;
+    if (programAr9565AniLevels(changedGeometry, permitted(), backend(stale),
+                               old, 2U, 3U)
+                .result != AniResult::NotInitialized ||
+        stale.writes != 0U)
+    {
+        return static_cast<int>(TestExit::Epoch);
+    }
+    changedGeometry = channel();
+    changedGeometry.referenceClock = RfReferenceClock::Crystal40Mhz;
+    if (programAr9565AniLevels(changedGeometry, permitted(), backend(stale),
+                               old, 2U, 3U)
+                .result != AniResult::NotInitialized ||
+        stale.writes != 0U)
+    {
+        return static_cast<int>(TestExit::Epoch);
+    }
+    changedGeometry = channel();
+    changedGeometry.silicon = Revision::V1_0;
+    if (programAr9565AniLevels(changedGeometry, permitted(), backend(stale),
+                               old, 2U, 3U)
+                .result != AniResult::NotInitialized ||
+        stale.writes != 0U)
+    {
+        return static_cast<int>(TestExit::Epoch);
+    }
     // The standalone ANI executor must not accept forged silicon, even
     // when the control channel itself is canonical.
     auto wrongChip = channel();
@@ -325,9 +358,14 @@ static int checkRejectedAndAmbiguous(Fake &fake, Ar9565AniState &state)
     {
         return static_cast<int>(TestExit::Japan);
     }
+    return 0;
+}
+
+static int checkReadWriteFailures()
+{
     Fake failed {};
     setIni(failed);
-    old = {};
+    Ar9565AniState old {};
     failed.failedRead = kFirstStepLow;
     if (cacheAr9565AniIniDefaults(channel(), permitted(), backend(failed), old)
                 .result != AniResult::ReadFailed ||
@@ -379,5 +417,10 @@ int main()
     {
         return success;
     }
-    return checkRejectedAndAmbiguous(fake, state);
+    const int safety = checkRejectedAndAmbiguous(fake, state);
+    if (safety != 0)
+    {
+        return safety;
+    }
+    return checkReadWriteFailures();
 }

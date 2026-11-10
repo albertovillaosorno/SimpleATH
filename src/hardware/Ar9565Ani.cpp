@@ -179,6 +179,10 @@ namespace simpleath
         Ar9565AniState captured {};
         captured.ownerEpoch = stable.io.ownerEpoch;
         captured.channel = channel.control.number;
+        captured.silicon = channel.silicon;
+        captured.width = channel.width;
+        captured.secondary = channel.secondary;
+        captured.referenceClock = channel.referenceClock;
         for (const RegisterField &field : kAniFields)
         {
             uint32_t word = 0;
@@ -232,7 +236,11 @@ namespace simpleath
         }
         progress.result = AniResult::NotInitialized;
         if (!saved.initialized || saved.ownerEpoch != stable.io.ownerEpoch ||
-            saved.channel != channel.control.number)
+            saved.silicon != channel.silicon ||
+            saved.channel != channel.control.number ||
+            saved.width != channel.width ||
+            saved.secondary != channel.secondary ||
+            saved.referenceClock != channel.referenceClock)
         {
             return progress;
         }

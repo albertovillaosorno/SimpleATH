@@ -2,6 +2,7 @@
 #define SIMPLEATH_AR9565_ANI_HPP
 
 #include "Ar9565Calibration.hpp"
+#include "Ar9565Channel.hpp"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -24,11 +25,16 @@ namespace simpleath
 
     // ath9k AR9003 ANI first-step and spur-immunity defaults are read from
     // the *applied* channel INI registers, never a generic gain template.
-    // This state is bound to one physical owner epoch and a single channel.
+    // This state is bound to a physical owner epoch and complete channel
+    // geometry (primary, HT width, secondary, silicon and reference crystal).
     struct Ar9565AniState
     {
             uint64_t ownerEpoch {};
+            Revision silicon {Revision::Unknown};
             uint8_t channel {};
+            ChannelWidth width {ChannelWidth::Ht20};
+            uint8_t secondary {};
+            RfReferenceClock referenceClock {RfReferenceClock::Crystal25Mhz};
             uint8_t firstStepLevel {2U};
             uint8_t spurLevel {3U};
             uint8_t firstStepDefault {};
