@@ -34,12 +34,39 @@ namespace simpleath
             return (address & kUsbEndpointNumber) != 0U &&
                    (address & kUsbEndpointReserved) == 0U;
         }
+
+        bool overlaps(const void *const firstBuffer, size_t firstBytes,
+                      const void *const secondBuffer, size_t secondBytes)
+        {
+            uintptr_t first = 0U;
+            uintptr_t second = 0U;
+            static_assert(sizeof(first) == sizeof(firstBuffer),
+                          "pointer addresses must fit uintptr_t");
+            __builtin_memcpy(static_cast<void *>(&first),
+                             static_cast<const void *>(&firstBuffer),
+                             sizeof(first));
+            __builtin_memcpy(static_cast<void *>(&second),
+                             static_cast<const void *>(&secondBuffer),
+                             sizeof(second));
+            return first <= second ? second - first < firstBytes
+                                   : first - second < secondBytes;
+        }
     } // namespace
 
     UsbHciEndpointResult
     selectUsbHciEndpoints(const UsbHciEndpointDescriptor *descriptors,
                           size_t count, UsbHciEndpoints &endpoints)
     {
+        // The output must not invalidate borrowed endpoint descriptors,
+        // including when it overlays only a later descriptor in the array.
+        // Check the full declared input span before clearing any output.
+        if (descriptors != nullptr && count != 0U &&
+            (count > SIZE_MAX / sizeof(*descriptors) ||
+             overlaps(descriptors, count * sizeof(*descriptors), &endpoints,
+                      sizeof(endpoints))))
+        {
+            return UsbHciEndpointResult::InvalidArgument;
+        }
         endpoints = {};
         if (descriptors == nullptr || count == 0U || count > kUsbMaxEndpoints)
         {

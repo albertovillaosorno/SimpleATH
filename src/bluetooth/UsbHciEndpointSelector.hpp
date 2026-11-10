@@ -30,6 +30,7 @@ namespace simpleath
     // Reject duplicate addresses and ambiguous alternate pipes instead of
     // inventing conventional endpoint addresses (e.g. 0x81/0x82/0x02).
     // Ignore unrelated isochronous SCO endpoints; no SCO support implied.
+    // Overlapping output/descriptor storage fails without mutation.
     UsbHciEndpointResult
     selectUsbHciEndpoints(const UsbHciEndpointDescriptor *descriptors,
                           size_t count, UsbHciEndpoints &endpoints);

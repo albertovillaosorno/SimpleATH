@@ -106,6 +106,39 @@ namespace
         return 0;
     }
 
+    int rejectAliasedOutputAt(size_t offset)
+    {
+        // Deliberately invalid caller: the result points into borrowed USB
+        // descriptor storage. The selector must reject it before any access
+        // through the output reference, keeping every descriptor unchanged.
+        auto descriptors = kDescriptors;
+        const auto *const borrowed = &descriptors.at(offset);
+        UsbHciEndpoints *output = nullptr;
+        static_assert(sizeof(UsbHciEndpoints *) ==
+                          sizeof(const UsbHciEndpointDescriptor *),
+                      "USB fixture pointers must share an address width");
+        __builtin_memcpy(static_cast<void *>(&output),
+                         static_cast<const void *>(&borrowed),
+                         sizeof(UsbHciEndpoints *));
+        if (selectUsbHciEndpoints(descriptors.data(), descriptors.size(),
+                                  *output) !=
+            UsbHciEndpointResult::InvalidArgument)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        for (size_t index = 0U; index < descriptors.size(); ++index)
+        {
+            if (descriptors.at(index).address !=
+                    kDescriptors.at(index).address ||
+                descriptors.at(index).transferType !=
+                    kDescriptors.at(index).transferType)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+        }
+        return 0;
+    }
+
     int verifyPhysicalHciIdentity()
     {
         // All matching is based on USB VID/PID/bcdDevice and interface
@@ -202,6 +235,14 @@ int main()
         return result;
     }
     if (const int result = rejectMalformed())
+    {
+        return result;
+    }
+    if (const int result = rejectAliasedOutputAt(0U))
+    {
+        return result;
+    }
+    if (const int result = rejectAliasedOutputAt(2U))
     {
         return result;
     }
