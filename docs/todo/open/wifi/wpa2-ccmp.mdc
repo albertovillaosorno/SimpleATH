@@ -139,6 +139,23 @@ Use synthetic keys only; passing vectors is not cryptographic certification.
 
 ## Evidence
 
+- 2026-11-10: native `src/SimpleATH.cpp` now exposes a gate-serialized
+  `WirelessOwnerV1::installKey` software CCMP key consumer for pairwise
+  TX/RX and group RX keys bound to the physical epoch and selected AP.
+  Duplicate key installs, wrong peer, out-of-range RSC, reuse after pairwise key
+  revocation, and unreviewed in-place TK/PN replacement fail closed.
+  The native Ethernet transmit callback selects the existing
+  `prepareProtectedStationTx` CCMP protector and submits its ciphertext
+  using `TxCrypto::Clear` to avoid double encryption. It uses a separate
+  erased plaintext scratch buffer, retains the TX PN after a failed DMA
+  submission, and revokes keys at stop/sleep. Native RX CCMP decrypt,
+  Group1/Group2 dispatch, the single OS supplicant/connection owner,
+  side-channel-safe AES, real calibrated RF/TPC policy, physical keycache
+  programming, and port authorization are **not complete**; the controlled
+  port remains deliberately unavailable. This is no evidence of OTA Wi-Fi.
+  A full `tools/validate.py --tidy --tests --json` run reports 534 passed,
+  36 existing strict Clang-Tidy failures and zero skips.
+
 - 2026-11-10: portable protected WPA2 data and Group2 framing calls the real
   `crypto::CcmpSession::protect` with link/key-epoch checks, bounded disjoint
   caller scratch storage and erased plaintext. Standalone C++14/C++17

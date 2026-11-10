@@ -12,9 +12,11 @@
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "wifi/DataFrames.hpp"
+#include "wifi/DataPath.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
 #include "wifi/WifiEngine.hpp"
+#include "wifi/crypto/Ccmp.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
@@ -50,6 +52,7 @@ namespace
     constexpr size_t kMaximumMpduBytes = 2342;
     constexpr size_t kFcsBytes = 4;
     constexpr uint8_t kNoKeyCacheSlot = 0xff;
+    constexpr uint8_t kProtectedFrameFlag = 0x40U;
     constexpr uint16_t kSequenceMask = 0x0fffU;
     constexpr size_t kSequenceControlOffset = 22;
     constexpr uint8_t kSequenceFragmentBits = 4;
@@ -363,10 +366,121 @@ class SimpleATH final : public IOService
             return kIOReturnNotReady;
         }
 
-        static IOReturn
-        ownerInstallKey(void *, const simpleath::tahoe::NativeCcmpKey *key)
+        static IOReturn ownerInstallKeyAction(OSObject *object, void *argument,
+                                              void *, void *, void *)
         {
-            return key ? kIOReturnNotReady : kIOReturnBadArgument;
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto &key =
+                *static_cast<const simpleath::tahoe::NativeCcmpKey *>(argument);
+            const auto &link = self.engine_.linkStatus();
+            // This is the native OS-owned software CCMP transmit key, not an
+            // assertion that the AR9565 hardware keycache or RX port is ready.
+            // Do not mix an OS supplicant with the portable installed-key
+            // owner. Native EAPOL delivery and association control remain
+            // separate prerequisites before this path can carry traffic.
+            if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.rfKillKnownUnblocked_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                !self.board_.view(self.epoch_) ||
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                self.engine_.stationState() !=
+                    simpleath::ieee80211::StationState::WaitingForWpa2Keys ||
+                !simpleath::ieee80211::validStationMac(link.station) ||
+                !simpleath::ieee80211::validStationMac(link.bssid))
+            {
+                return kIOReturnNotReady;
+            }
+            // Revocation is never allowed to race with a device-owned TX
+            // descriptor. On stop/sleep the queue is isolated first instead.
+            if (key.remove)
+            {
+                if (!self.queues_.hasTransmitSpace())
+                    return kIOReturnBusy;
+                if (key.pairwise && key.keyId == 0 &&
+                    memcmp(key.peer, link.bssid.bytes,
+                           simpleath::tahoe::kWirelessMacBytes) == 0)
+                {
+                    self.nativePairwiseTx_.revoke();
+                    self.nativePairwiseRx_.revoke();
+                    for (auto &group : self.nativeGroupRx_)
+                        group.revoke();
+                    self.nativePairwiseKeyRevoked_ = true;
+                    self.controlledPortAuthorized_ = false;
+                    return kIOReturnSuccess;
+                }
+                if (!key.pairwise && key.keyId < simpleath::kCcmpGroupSlots &&
+                    memcmp(key.peer, link.bssid.bytes,
+                           simpleath::tahoe::kWirelessMacBytes) == 0)
+                {
+                    self.nativeGroupRx_[key.keyId].revoke();
+                    self.controlledPortAuthorized_ = false;
+                    return kIOReturnSuccess;
+                }
+                return kIOReturnUnsupported;
+            }
+            if (key.receivePacketNumber >
+                    simpleath::ieee80211::crypto::kCcmpMaximumPacketNumber ||
+                memcmp(key.peer, link.bssid.bytes,
+                       simpleath::tahoe::kWirelessMacBytes) != 0 ||
+                self.nativePairwiseKeyRevoked_ ||
+                self.controlledPortAuthorized_)
+                return kIOReturnUnsupported;
+            if (!key.pairwise)
+            {
+                if (key.keyId >= simpleath::kCcmpGroupSlots ||
+                    !self.nativePairwiseTx_.installed() ||
+                    !self.nativePairwiseRx_.installed() ||
+                    self.nativeGroupRx_[key.keyId].installed())
+                    return kIOReturnUnsupported;
+                // A GTK is receive-only. Never use it to transmit station
+                // unicast data, and never trust the packet's KeyID to select
+                // a key before independently parsing and validating its IV.
+                const auto installed = self.nativeGroupRx_[key.keyId].install(
+                    key.material, link.bssid.bytes, key.keyId, self.epoch_, 0,
+                    key.receivePacketNumber);
+                return installed == simpleath::ieee80211::crypto::CcmpResult::Ok
+                           ? kIOReturnSuccess
+                           : kIOReturnBadArgument;
+            }
+            if (key.keyId != 0 || self.nativePairwiseTx_.installed() ||
+                self.nativePairwiseRx_.installed() ||
+                self.nativeGroupInstalled())
+            {
+                // In-place pairwise TK replacement cannot reset the TX PN.
+                // Require a fresh connection epoch with guaranteed new keys.
+                return kIOReturnUnsupported;
+            }
+            const auto installed = self.nativePairwiseTx_.install(
+                key.material, link.station.bytes, 0, self.epoch_, 0, 0);
+            if (installed != simpleath::ieee80211::crypto::CcmpResult::Ok)
+                return kIOReturnBadArgument;
+            const auto receiveInstalled = self.nativePairwiseRx_.install(
+                key.material, link.bssid.bytes, 0, self.epoch_, 0,
+                key.receivePacketNumber);
+            if (receiveInstalled !=
+                simpleath::ieee80211::crypto::CcmpResult::Ok)
+            {
+                self.nativePairwiseTx_.revoke();
+                return kIOReturnBadArgument;
+            }
+            // Software key presence does not authorize the controlled port:
+            // native RX decrypt/GTK and OS supplicant arbitration are missing.
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn
+        ownerInstallKey(void *context,
+                        const simpleath::tahoe::NativeCcmpKey *key)
+        {
+            if (!context || !key)
+                return kIOReturnBadArgument;
+            auto &self = *static_cast<SimpleATH *>(context);
+            if (!self.gate_)
+                return kIOReturnNotReady;
+            // Borrowed material remains valid through synchronous runAction.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+            auto *request = const_cast<simpleath::tahoe::NativeCcmpKey *>(key);
+            return self.gate_->runAction(ownerInstallKeyAction, request);
         }
 
         static IOReturn ownerAuthorizePort(void *, bool)
@@ -375,11 +489,22 @@ class SimpleATH final : public IOService
             return kIOReturnNotReady;
         }
 
+        bool nativeGroupInstalled() const
+        {
+            for (const auto &group : nativeGroupRx_)
+            {
+                if (group.installed())
+                    return true;
+            }
+            return false;
+        }
+
         // Submit only engine-authored 802.11 frames. The RF owner must first
         // publish independently verified channel/rate/TPC authorization; no
         // EEPROM interpolation, software station state, or mailbox flag can
         // manufacture permission to transmit. This runs inside the PCI gate.
-        IOReturn submitPreparedTransmit(const uint8_t *frame, size_t bytes)
+        IOReturn submitPreparedTransmit(const uint8_t *frame, size_t bytes,
+                                        bool softwareProtected = false)
         {
             if (frame == nullptr || bytes < kMinimumMpduBytes ||
                 bytes > kMaximumMpduBytes || !powered_ || stopping_ ||
@@ -404,6 +529,13 @@ class SimpleATH final : public IOService
             simpleath::edma::TxControlRequest control {};
             control.onAirFrameLength = static_cast<uint16_t>(bytes + kFcsBytes);
             control.packetType = simpleath::edma::TxPacketType::Normal;
+            // The source CCMP session has already generated and authenticated
+            // the entire 802.11 protected MPDU, including ExtIV and MIC. Use
+            // hardware CLEAR descriptor mode to avoid double encryption; a
+            // protected 802.11 frame with no software key is never accepted.
+            if (softwareProtected && (!nativePairwiseTx_.installed() ||
+                                      (frame[1] & kProtectedFrameFlag) == 0))
+                return kIOReturnNotReady;
             control.crypto = simpleath::edma::TxCrypto::Clear;
             control.keyCacheIndex = kNoKeyCacheSlot;
             control.rate[0] = txRate_;
@@ -442,13 +574,59 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
+            if (!self->queues_.hasTransmitSpace())
+                return kIOReturnNoResources;
             simpleath::ieee80211::InputTrust trust {};
             trust.radioReady = true;
             trust.channelAuthorized = true;
             simpleath::ieee80211::EngineAction action {};
-            const auto prepared = self->engine_.encodeOutgoingEthernet(
-                packet.bytes, packet.length, self->txSequence_, trust,
-                &self->ethernetTx_[0], sizeof(self->ethernetTx_), action);
+            // The portable engine emits clear MPDUs for open associations.
+            // Native WPA2 uses the OS-supplied same-epoch TK and the portable
+            // CCM implementation, never an unencrypted fallback. A failed DMA
+            // submission burns the CCM PN (safe) rather than reusing it.
+            const bool protectedWpa2 = self->nativePairwiseTx_.installed();
+            simpleath::ieee80211::EngineResult prepared =
+                simpleath::ieee80211::EngineResult::CryptoUnavailable;
+            if (protectedWpa2)
+            {
+                const simpleath::ieee80211::LinkContext connection {
+                    link.station,
+                    link.bssid,
+                    simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
+                    true,
+                    self->radioOperational_,
+                    self->channelAuthorized_,
+                    self->nativePairwiseRx_.installed() &&
+                        self->nativeGroupInstalled(),
+                };
+                simpleath::ieee80211::SerializedData serialized {};
+                const auto encrypted =
+                    simpleath::ieee80211::prepareProtectedStationTx(
+                        connection, packet.bytes, packet.length,
+                        self->txSequence_, self->nativePairwiseTx_,
+                        self->epoch_, &self->protectedScratch_[0],
+                        sizeof(self->protectedScratch_), &self->ethernetTx_[0],
+                        sizeof(self->ethernetTx_), serialized);
+                if (encrypted == simpleath::ieee80211::DataPathResult::Ok)
+                {
+                    action.kind =
+                        serialized.isEapol
+                            ? simpleath::ieee80211::ActionKind::TransmitEapol
+                            : simpleath::ieee80211::ActionKind::TransmitData;
+                    action.bytes = serialized.frameBytes;
+                    prepared = simpleath::ieee80211::EngineResult::Ok;
+                }
+                else if (encrypted ==
+                         simpleath::ieee80211::DataPathResult::BufferTooSmall)
+                    prepared =
+                        simpleath::ieee80211::EngineResult::BufferTooSmall;
+            }
+            else
+            {
+                prepared = self->engine_.encodeOutgoingEthernet(
+                    packet.bytes, packet.length, self->txSequence_, trust,
+                    &self->ethernetTx_[0], sizeof(self->ethernetTx_), action);
+            }
             if (prepared ==
                 simpleath::ieee80211::EngineResult::CryptoUnavailable)
             {
@@ -467,7 +645,7 @@ class SimpleATH final : public IOService
                 return kIOReturnBadArgument;
             }
             const IOReturn result = self->submitPreparedTransmit(
-                &self->ethernetTx_[0], action.bytes);
+                &self->ethernetTx_[0], action.bytes, protectedWpa2);
             if (result == kIOReturnSuccess)
             {
                 self->txSequence_ = static_cast<uint16_t>(
@@ -731,6 +909,12 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             if (!self.radioOperational_ || !self.powered_)
+                return;
+            // A native OS-installed TK must never coexist with the portable
+            // engine processing M1/M3 or clear EAPOL. Native RX decryption,
+            // authenticated replay and OS EAPOL dispatch are separate stages;
+            // until then the controlled port and this receive path stay shut.
+            if (self.nativePairwiseTx_.installed())
                 return;
             simpleath::ieee80211::InputTrust trust {};
             trust.radioReady = true;
@@ -1202,6 +1386,12 @@ class SimpleATH final : public IOService
             txRate_ = {};
             txSequence_ = 0;
             memset(&ethernetTx_[0], 0, sizeof(ethernetTx_));
+            memset(&protectedScratch_[0], 0, sizeof(protectedScratch_));
+            nativePairwiseTx_.revoke();
+            nativePairwiseRx_.revoke();
+            for (auto &group : nativeGroupRx_)
+                group.revoke();
+            nativePairwiseKeyRevoked_ = false;
             if (queuesAdopted_)
             {
                 queues_.stopGated(access ==
@@ -1344,6 +1534,15 @@ class SimpleATH final : public IOService
         uint8_t managementReply_[4096] {};
         uint8_t ethernetRx_[kNativeEthernetCapacity] {};
         uint8_t ethernetTx_[kNativeTxMpduCapacity] {};
+        uint8_t protectedScratch_[kNativeTxMpduCapacity] {};
+        // Software CCMP sessions exist only in the current physical epoch.
+        // TX uses local station address; RX needs the AP transmitter instead.
+        // They are distinct because PN ownership differs by direction.
+        simpleath::ieee80211::crypto::CcmpSession nativePairwiseTx_;
+        simpleath::ieee80211::crypto::CcmpSession nativePairwiseRx_;
+        simpleath::ieee80211::crypto::CcmpSession
+            nativeGroupRx_[simpleath::kCcmpGroupSlots] {};
+        bool nativePairwiseKeyRevoked_ {false};
         // Acquired only from independently validated native RF/TPC setup.
         // Source-only EEPROM power candidates must never populate these.
         simpleath::edma::TxSafetyPolicy txSafety_ {};
