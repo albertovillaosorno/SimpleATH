@@ -53,6 +53,12 @@ live signal or transmission tests.**
 ## Start here and next implementation step
 
 The native owner now executes Ar9565RtcPower through actual PCI MMIO.
+It also derives the regulator and crystal capacitor settings from a live
+same-epoch physical EEPROM/OTP lease, scrubs physical keycache first, samples
+EEPROM-selected RF-kill GPIO as a real input, and guards each PMU/XTAL MMIO
+with a fresh switch read when the pin is present. A configured blocked or
+unstable pin aborts startup; a missing pin stays **unknown**, not authorized.
+See commits `8cc4e8f`, `7991ff4` and `13b2a9f`.
 Ar9565InitCatalog selects canonical INI tables and Ar9565RfIni executes them;
 the obsolete permanently false whole-driver recipe flag has been replaced
 with the precise tablesComplete stage. Explicit ReceiveOnly authorization
@@ -61,7 +67,13 @@ it does not enable TX, automatic ACK/CTS or probe requests. Required board,
 antenna, permitted receive channel, RF-kill and coexistence proofs remain.
 Ar9565Power returns numerical candidates, not calibrated register values or
 transmission authority. PLL, synthesizer and RF-bus executors are implemented
-in separate source modules; native orchestration/calibration remains open.
+in separate source modules. The ath9k OFDM/short-GI timing stage is also
+implemented with canonical HT20/HT40 center math and per-register readback
+(commit `810d661`). Regulator, board modal, coexistence and OFDM timing are
+now listed in the normal Xcode target, but those latter three stages are
+**not yet executed** by the native controller. Actual ordered RF INI, PLL,
+synthesizer, BT-safe antenna allocation, calibration and country/channel
+policy remain blocking; source-only tests do not prove physical reception.
 
 Implement the actual ordered radio executor after A2/A3 contracts exist:
 reset/wake -> PLL -> revision/mode/gain INI phases -> board values -> calibration

@@ -4,8 +4,15 @@
 owner, opens/verifies the physical function, maps BAR0, quiesces MAC engines,
 boots RTC and discovers EEPROM/OTP board data. Sleep/resume and termination
 share the same serialization gate. PCI and DMA adapters are compiled normally.
-RF calibration, hardware packet queues/interrupts and native AirPort registration
-remain required before Wi-Fi can scan, connect or transfer traffic. These
+The native controller also applies EEPROM-derived PMU1 and XTAL capacitor
+registers and samples physical RF-kill after a same-epoch MAC quiesce and
+keycache scrub. Configured blocked/unstable RF-kill aborts startup; missing
+RF-kill wiring is unknown and grants no radio authority. A valid GPIO is
+rechecked on every analog power write. The normal Xcode target now contains
+board-modal, coexistence and OFDM/SGI timing code, but does not claim their
+native execution or Wi-Fi operation. RF calibration, live channel/rate/country
+policy, packet queues/interrupts and native AirPort registration still remain
+required before Wi-Fi can scan, connect or transfer traffic. These
 remaining tasks are implementation priorities, not a reason for indefinite
 hardening. A macOS build still requires successful CI.
 
