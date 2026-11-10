@@ -44,6 +44,8 @@ namespace simpleath
             constexpr size_t kMaxMpduWithFcs = 2346U;
             constexpr uint16_t kMacSequenceMax = 0x0fffU;
             constexpr uint16_t kMacSequenceHalfRange = 0x0800U;
+            constexpr uint32_t kAwdlDataSequenceMask = 0xffffU;
+            constexpr uint32_t kAwdlDataSequenceHalfRange = 0x8000U;
             constexpr uint8_t kMacSequenceShift = 4U;
             constexpr uint8_t kDataFrameControl = 0x08U;
             constexpr uint8_t kActionFrameControl = 0xd0U;
@@ -1015,6 +1017,24 @@ namespace simpleath
                     sameMac(entry.neighbor.source, data.header.source) &&
                     validAt(nowMs, entry.neighbor.lastHeardMs))
                 {
+                    // AWDL data carries a separate 16-bit serial. Reject
+                    // duplicates, reverse steps and half-range ambiguity:
+                    // none may renew a neighbor via replayed IPv6 bytes.
+                    // This is not authentication of unprotected data.
+                    if (entry.ipv6SequenceSeen)
+                    {
+                        const uint32_t distance =
+                            (static_cast<uint32_t>(data.sequence) -
+                             static_cast<uint32_t>(entry.lastIpv6Sequence)) &
+                            kAwdlDataSequenceMask;
+                        if (distance == 0U ||
+                            distance >= kAwdlDataSequenceHalfRange)
+                        {
+                            return Result::InvalidFrame;
+                        }
+                    }
+                    entry.lastIpv6Sequence = data.sequence;
+                    entry.ipv6SequenceSeen = true;
                     entry.neighbor.lastHeardMs = nowMs;
                     return Result::Ok;
                 }

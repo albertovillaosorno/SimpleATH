@@ -179,9 +179,10 @@ namespace simpleath
         // Only structurally complete MIFs with nonzero Version, Sync,
         // Election-v2 and Channel Sequence TLVs establish peer eligibility.
         // PSFs never create peers. Valid IPv6 data may refresh existing ones.
-        // Replayed, duplicate or half-range-ambiguous MIF MAC sequence
-        // values cannot move the lastMifMs phase anchor forward. This is
-        // freshness bookkeeping, NOT cryptographic peer authentication.
+        // Replayed, duplicate or half-range-ambiguous MIF MAC or AWDL
+        // IPv6 data sequence values cannot renew their respective leases.
+        // This is freshness bookkeeping, NOT peer authentication or replay
+        // protection for delivered AirDrop traffic.
         class AwdlNeighbors
         {
             public:
@@ -201,6 +202,11 @@ namespace simpleath
                 struct Entry
                 {
                         AwdlNeighbor neighbor {};
+                        // Data has its own 16-bit AWDL sequence space, not
+                        // the 12-bit management MAC sequence. Retain this
+                        // across later MIF updates for the same peer.
+                        uint16_t lastIpv6Sequence {};
+                        bool ipv6SequenceSeen {};
                         bool occupied {};
                 };
 

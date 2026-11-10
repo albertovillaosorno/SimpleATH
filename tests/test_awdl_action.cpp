@@ -1969,6 +1969,110 @@ namespace
                !peers.find(fixture.source, expiredAfterRefresh, neighbor);
     }
 
+    bool neighborIpv6ReplayDoesNotRenewLifetime()
+    {
+        constexpr uint16_t kInitialSequence = 0xfffeU;
+        constexpr uint16_t kOlderSequence = 0xfffdU;
+        constexpr uint16_t kHalfRangeSequence = 0x7ffeU;
+        constexpr uint16_t kWrappedSequence = 0U;
+        constexpr uint16_t kAdvancedSequence = 1U;
+        constexpr uint16_t kWrappedDataDeltaMs = 5U;
+        constexpr uint16_t kNewMifDeltaMs = 6U;
+        constexpr uint16_t kAdvancedDataDeltaMs = 7U;
+        constexpr uint16_t kLastReplayDeltaMs = 8U;
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        AwdlNeighbor neighbor {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        std::array<uint8_t, kNeighborIpv6Bytes> ipv6 {};
+        ipv6.at(0U) = kNeighborIpv6Version;
+        const Mac multicast {{0x33U, 0x33U, 0U, 0U, 0U, 1U}};
+        AwdlIpv6Tx tx {
+            fixture.source, multicast,   0U,          kInitialSequence,
+            false,          ipv6.data(), ipv6.size(),
+        };
+        std::array<uint8_t, kNeighborDataBytes> output {};
+        size_t written = 0U;
+        const auto observe = [&]
+        {
+            return makeAwdlIpv6Data(tx, output.data(), output.size(),
+                                    written) == Result::Ok
+                       ? peers.observeIpv6(
+                             kNeighborFirstSeenMs +
+                                 static_cast<uint64_t>(tx.macSequence),
+                             output.data(), written)
+                       : Result::InvalidFrame;
+        };
+        tx.macSequence = 1U;
+        if (observe() != Result::Ok)
+        {
+            return false;
+        }
+        tx.macSequence = 2U;
+        if (observe() != Result::InvalidFrame ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 2U, neighbor) ||
+            neighbor.lastHeardMs != kNeighborFirstSeenMs + 1U)
+        {
+            return false;
+        }
+        tx.awdlSequence = kOlderSequence;
+        tx.macSequence = 3U;
+        if (observe() != Result::InvalidFrame)
+        {
+            return false;
+        }
+        tx.awdlSequence = kHalfRangeSequence;
+        tx.macSequence = 4U;
+        if (observe() != Result::InvalidFrame)
+        {
+            return false;
+        }
+        tx.awdlSequence = kWrappedSequence;
+        tx.macSequence = kWrappedDataDeltaMs;
+        if (observe() != Result::Ok)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, 1U);
+        tx.macSequence = kNewMifDeltaMs;
+        if (peers.observeMif(kNeighborFirstSeenMs + kNewMifDeltaMs,
+                             fixture.frame.data(),
+                             fixture.length) != Result::Ok ||
+            observe() != Result::InvalidFrame)
+        {
+            return false;
+        }
+        tx.awdlSequence = kAdvancedSequence;
+        tx.macSequence = kAdvancedDataDeltaMs;
+        if (observe() != Result::Ok ||
+            !peers.find(fixture.source,
+                        kNeighborFirstSeenMs + kAdvancedDataDeltaMs,
+                        neighbor) ||
+            neighbor.lastHeardMs != kNeighborFirstSeenMs + kAdvancedDataDeltaMs)
+        {
+            return false;
+        }
+        // Replayed data cannot keep a peer live past its last fresh packet.
+        tx.macSequence = kLastReplayDeltaMs;
+        if (observe() != Result::InvalidFrame ||
+            peers.find(fixture.source,
+                       kNeighborFirstSeenMs + kAdvancedDataDeltaMs +
+                           AwdlNeighbors::kExpiryMs,
+                       neighbor))
+        {
+            return false;
+        }
+        peers.clear();
+        return peers.observeMif(kNeighborFirstSeenMs + kLastReplayDeltaMs,
+                                fixture.frame.data(),
+                                fixture.length) == Result::Ok &&
+               observe() == Result::Ok;
+    }
+
 } // namespace
 
 int main()
@@ -2032,6 +2136,11 @@ int main()
     {
         constexpr int kNeighborRefreshFailure = 12;
         return kNeighborRefreshFailure;
+    }
+    if (!neighborIpv6ReplayDoesNotRenewLifetime())
+    {
+        constexpr int kNeighborIpv6ReplayFailure = 19;
+        return kNeighborIpv6ReplayFailure;
     }
     if (!neighborChannelEncodings())
     {
