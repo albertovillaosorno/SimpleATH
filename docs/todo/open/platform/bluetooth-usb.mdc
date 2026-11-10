@@ -136,6 +136,30 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   controller completion/cancellation and active/passive report dispatch.
   C++14/C++17 ASan+UBSan, scoped strict Clang-Tidy and formatting passed.
   This does **not** attach the real macOS host or establish AirDrop readiness.
+- Commit `47d4546` validates any needed ATH3K ROM-clock configuration
+  filename before uploading the patch. Unsupported ROM clocks now fail with
+  `UnsupportedClock` and **no** prior firmware writes or forced USB reset;
+  already-loaded configurations do not require a ROM clock mapping.
+  Synthetic C++14/C++17 ASan+UBSan and scoped strict Clang-Tidy passed.
+- Commit `72aff64` closes the USB HCI transport's direct-attach admission
+  gap: even a caller bypassing the descriptor selector must present a nonzero
+  physical owner epoch and distinct interrupt/ACL IN pipe addresses. Failure
+  leaves the adapter detached. C++14/C++17 sanitizer and direct Tidy
+  regressions passed.
+- Commit `3f6e72c` keeps a successful preliminary HCI Command Status
+  pending until the matching Command Complete for all five implemented LE
+  advertising/scanning setup opcodes. Duplicate preliminary statuses and
+  overtaking HCI commands are rejected, while final controller rejections
+  remain terminal. LE advertising/discovery host fixtures now account
+  preliminary status and completion through the **same** USB HCI event path,
+  not just the producer state machine. All three Bluetooth fixtures passed
+  C++14/C++17 ASan+UBSan; scoped strict Clang-Tidy and formatting passed.
+  This does not attach macOS's Bluetooth host or prove actual HCI traffic.
+- The last completed whole-repository validation on the integrated
+  `362d385` snapshot (before `3f6e72c`) reported **576 checks, 542 passed,
+  34 pre-existing strict Clang-Tidy failures, zero skipped checks and zero
+  source-snapshot errors**. The latest LE-only source changes have focused
+  positive checks, not an independently completed full-tree validator.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
