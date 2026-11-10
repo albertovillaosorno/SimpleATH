@@ -18,9 +18,9 @@ import sys
 import zipfile
 
 if __package__:
-    from .references.download import REPOSITORIES as SOURCE_REPOSITORIES
-    from .references.download import download
-    from .references.download import update_ledger
+    from tools.references.download import REPOSITORIES as SOURCE_REPOSITORIES
+    from tools.references.download import download
+    from tools.references.download import update_ledger
 else:
     from references.download import REPOSITORIES as SOURCE_REPOSITORIES
     from references.download import download
@@ -29,8 +29,9 @@ else:
 ROOT = Path(__file__).resolve().parent.parent
 PARENT_COMPONENT = ".."
 MAC_METADATA_COMPONENT = "__MACOSX"
+MAC_KERNEL_SDK = "MacKernelSDK"
 REPOSITORIES: dict[str, tuple[str, str, list[str]]] = {
-    "MacKernelSDK": (
+    MAC_KERNEL_SDK: (
         "https://github.com/acidanthera/MacKernelSDK.git",
         "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
         ["/Headers/", "/Library/x86_64/", "/LICENSE.txt"],
@@ -180,7 +181,7 @@ def main() -> None:
     research = ROOT / ".references"
     research.mkdir(exist_ok=True)
     for name, repository in REPOSITORIES.items():
-        if name == "MacKernelSDK":
+        if name == MAC_KERNEL_SDK:
             sdk = next(
                 item for item in SOURCE_REPOSITORIES if item.name == name
             )

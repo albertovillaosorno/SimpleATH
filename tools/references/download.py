@@ -3,7 +3,8 @@
 """Cache pinned upstream source trees and preserve a per-file reuse ledger.
 
 Downloads are source material only. No upstream build, installer or executable
-is run. A cached file is not an implemented SimpleATH feature or a license grant.
+is run. A cached file is not an implemented SimpleATH feature or a
+license grant.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import subprocess
 import tarfile
 import tempfile
 from typing import NamedTuple
+from typing import TypedDict
 import urllib.request
 import time
 
@@ -37,6 +39,24 @@ class Repository(NamedTuple):
     revision: str
     files: int
     flat: bool = False
+
+
+class ReferenceRecord(TypedDict):
+    """Retained, verified per-file upstream source inventory entry."""
+
+    schema: str
+    repository: str
+    revision: str
+    path: str
+    cache_path: str
+    sha256: str
+    bytes: int
+    kind: str
+    spdx_in_source: str | None
+    license_review: str
+    status: str
+    destinations: list[str]
+    notes: str
 
 
 REPOSITORIES = (
@@ -141,8 +161,10 @@ def extract_sources(archive: Path, destination: Path) -> int:
     return count
 
 
-def source_records(repository: Repository, checkout: Path) -> list[dict]:
-    records = []
+def source_records(
+    repository: Repository, checkout: Path
+) -> list[ReferenceRecord]:
+    records: list[ReferenceRecord] = []
     prefix = (
         repository.name
         if repository.flat
@@ -190,7 +212,7 @@ def source_records(repository: Repository, checkout: Path) -> list[dict]:
 
 def download(
     repository: Repository, references: Path, *, offline: bool = False
-) -> list[dict]:
+) -> list[ReferenceRecord]:
     checkout = references / repository.name
     if not repository.flat:
         checkout /= repository.revision
@@ -279,7 +301,7 @@ def download(
         return records
 
 
-def update_ledger(path: Path, records: list[dict]) -> int:
+def update_ledger(path: Path, records: list[ReferenceRecord]) -> int:
     """Add missing identities; retain existing assessment/destination records."""
     previous = path.read_text(encoding="utf-8") if path.exists() else ""
     latest = {}
