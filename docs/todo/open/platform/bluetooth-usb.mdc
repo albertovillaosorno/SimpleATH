@@ -358,3 +358,23 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   host fixture runs. Physical USB lifecycle and Tahoe Bluetooth adoption
   were not tested: no dedicated native USB mock fixture or on-device run
   exists, and the P0 host/coexistence work remains open.
+
+- **Shared-Bluetooth AR9565 MCI DMA staging (2026-11-10):**
+  `src/hardware/Ar9565Coexistence.{hpp,cpp}` now contains a production-target
+  entrypoint to stage the 256-byte MCI scheduler and adjacent 256-byte GPM
+  receive ring (16 entries) at exact ath9k register addresses. The guarded
+  sequence revokes automatic responses and MCI interrupts, disables MCI mode,
+  writes the controller-visible coherent bus addresses, verifies readbacks,
+  and requires full reset after uncertain register writes. Preflight requires
+  an independently owned Bluetooth host, antenna/coexistence lease, quiesced
+  MAC/MCI, a physically validated single-chain board and an initialized
+  contiguous `0xfe`-filled coherent DMA region. Synthetic C++14/C++17
+  ASan+UBSan fixtures cover the physical register sequence, denied leases,
+  malformed buffer addresses and lengths, owner loss and readback faults.
+  Focused direct Clang-Tidy and formatting pass. This new stage has **no
+  native caller or DMA allocator yet** and does not enable MCI, configure
+  shared antenna arbitration, negotiate BT calibration/GPM messages, or grant
+  radio authorization. Actual Bluetooth ownership, scheduling and native
+  Apple host integration remain missing production work; this P0 TODO stays
+  open. Upstream source: Linux v6.12 ath9k `mci.c`, `mci.h`, `ar9003_mci.c`
+  and `reg_mci.h`; the sole reference ledger records each consulted scope.

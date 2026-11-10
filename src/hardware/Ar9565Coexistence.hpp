@@ -18,6 +18,35 @@ namespace simpleath
             bool macAndAutoResponsesQuiesced;
     };
 
+    // ath9k mci.h: one 16-entry, 16-byte scheduler table immediately
+    // followed by one 16-entry, 16-byte GPM ring in coherent device memory.
+    constexpr uint32_t kAr9565MciScheduleBytes = 256U;
+    constexpr uint32_t kAr9565MciGpmBytes = 256U;
+    constexpr uint16_t kAr9565MciGpmEntries = 16U;
+
+    struct SharedMciDmaBuffers
+    {
+            uint32_t scheduleBusAddress {};
+            uint32_t gpmBusAddress {};
+            uint32_t scheduleBytes {};
+            uint32_t gpmBytes {};
+            uint16_t gpmEntries {};
+    };
+
+    struct SharedMciEvidence
+    {
+            // These are independently established native physical leases.
+            // No EEPROM Bluetooth field or USB VID/PID proves any of them.
+            bool physicallyVerifiedBoard {};
+            bool bluetoothHostOwned {};
+            bool coexistenceAndAntennaLease {};
+            bool macAndAutoResponsesQuiesced {};
+            bool mciEngineQuiesced {};
+            // Both coherent, contiguous rings must have been filled with
+            // 0xfe BEFORE DMA publication (ath9k MCI_GPM_RSVD_PATTERN).
+            bool initializedCoherentDma {};
+    };
+
     enum class CoexistenceResult : uint8_t
     {
         Ok,
@@ -29,6 +58,7 @@ namespace simpleath
         ReadFailed,
         WriteFailed,
         ReadbackMismatch,
+        InvalidDma,
     };
 
     struct CoexistenceProgress
@@ -39,6 +69,18 @@ namespace simpleath
             uint32_t lastOffset;
             bool requiresReset;
     };
+
+    // Physically stage the shared-Bluetooth MCI scheduler/GPM DMA addresses
+    // while the MAC and MCI are quiesced and all MCI interrupts are masked.
+    // Every register is read back and every access rechecks the live owner.
+    // This deliberately DOES NOT enable MCI, configure antenna arbitration,
+    // reset MCI RX/TX, exchange GPM messages, or authorize RF/BT traffic.
+    // The native PCI owner must complete those operations in the same lease
+    // before claiming shared coexistence readiness. All buffer addresses are
+    // the controller-visible coherent 32-bit bus addresses, not host pointers.
+    CoexistenceProgress stageAr9565SharedMciDma(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers, const RxAgcBackend &backend);
 
     // Park the AR9565 MCI/BT coexistence controller for an independently
     // verified WLAN-only board/epoch, following ath9k reg_mci.h register

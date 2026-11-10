@@ -27,9 +27,14 @@ namespace simpleath
     {
         // MCI must not be started without programmed GPM/scheduler DMA,
         // interrupts, a negotiated antenna architecture and live BT owner.
-        // This source deliberately performs only a WLAN-only shutdown.
+        // Shared-DMA staging leaves MCI disabled and every IRQ masked.
         constexpr uint32_t kSelfGeneratedMask = 0x832c;
         constexpr uint32_t kMciInterruptEnable = 0x182c;
+        constexpr uint32_t kMciScheduleAddress = 0x1818;
+        constexpr uint32_t kMciGpmAddress = 0x1820;
+        constexpr uint32_t kMciGpmEntries = 0x1824;
+        constexpr uint32_t kMciModeEnable = 0x4U;
+        constexpr uint32_t kMciDmaAlignmentMask = 0xfU;
         constexpr uint32_t kMciReceiveMessageEnable = 0x183c;
         constexpr uint32_t kMciRemoteCpuInterruptEnable = 0x1834;
         constexpr uint32_t kMciTransmitControl = 0x1810;
@@ -111,6 +116,89 @@ namespace simpleath
             return true;
         }
     } // namespace
+
+    CoexistenceProgress stageAr9565SharedMciDma(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers, const RxAgcBackend &backend)
+    {
+        CoexistenceProgress progress {
+            CoexistenceResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0 ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBoard;
+        if (board.eepromVersion != 2 || board.txChainMask != kSingleChain ||
+            board.rxChainMask != kSingleChain ||
+            !board.calibrationPierBinsPlausible)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::MissingIsolation;
+        if (!evidence.physicallyVerifiedBoard || !evidence.bluetoothHostOwned ||
+            !evidence.coexistenceAndAntennaLease ||
+            !evidence.macAndAutoResponsesQuiesced ||
+            !evidence.mciEngineQuiesced || !evidence.initializedCoherentDma)
+        {
+            return progress;
+        }
+        // Linux ath_mci_setup allocates one contiguous coherent region and
+        // programs schedule at its base, GPM at +256 bytes, 16 entries.
+        // Require those exact physical lengths/ordering; never publish
+        // guessed IOVAs or the CPU's virtual addresses to the silicon.
+        progress.result = CoexistenceResult::InvalidDma;
+        if (buffers.scheduleBytes != kAr9565MciScheduleBytes ||
+            buffers.gpmBytes != kAr9565MciGpmBytes ||
+            buffers.gpmEntries != kAr9565MciGpmEntries ||
+            buffers.scheduleBusAddress == 0 ||
+            (buffers.scheduleBusAddress & kMciDmaAlignmentMask) != 0 ||
+            buffers.scheduleBusAddress >
+                UINT32_MAX - (kAr9565MciScheduleBytes + kAr9565MciGpmBytes) ||
+            buffers.gpmBusAddress !=
+                buffers.scheduleBusAddress + kAr9565MciScheduleBytes)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBar;
+        if (io.barLengthBytes < kSelfGeneratedMask + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        // Source: Linux ath9k ar9003_mci_reset and reg_mci.h. Disable
+        // automatic responses and MCI message delivery BEFORE changing the
+        // DMA registers. MCI stays OFF; the later live-BT handshake/reset
+        // path must explicitly enable it after validating arbitration.
+        const RegisterOperation operations[] {
+            {kSelfGeneratedMask, 0xffffffffU, 0U},
+            {kMciInterruptEnable, 0xffffffffU, 0U},
+            {kMciReceiveMessageEnable, 0xffffffffU, 0U},
+            {kMciRemoteCpuInterruptEnable, 0xffffffffU, 0U},
+            {kBtCoexistenceControl, kMciModeEnable, 0U},
+            {kMciGpmAddress, 0xffffffffU, buffers.gpmBusAddress},
+            {kMciGpmEntries, 0xffffffffU, buffers.gpmEntries},
+            {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
+        };
+        progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &operation : operations)
+        {
+            if (!apply(stable, progress, operation))
+            {
+                return progress;
+            }
+        }
+        if (!permit(io, progress))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::Ok;
+        progress.requiresReset = false;
+        return progress;
+    }
 
     CoexistenceProgress
     parkAr9565WlanOnlyCoexistence(const BoardDataSummary &board,

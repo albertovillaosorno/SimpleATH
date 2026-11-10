@@ -14,6 +14,16 @@ namespace
     constexpr uint32_t kBar = 0x24000;
     constexpr uint32_t kSeed = 0xffffffffU;
     constexpr size_t kSteps = 10;
+    constexpr size_t kTotalRegisters = 13;
+    constexpr size_t kSharedMciStageSteps = 8;
+    constexpr uint32_t kMciScheduleAddress = 0x1818;
+    constexpr uint32_t kMciGpmAddress = 0x1820;
+    constexpr uint32_t kMciGpmEntries = 0x1824;
+    constexpr uint32_t kPhysicalScheduleAddress = 0x00100000U;
+    constexpr uint32_t kInvalidGpmOffset = 16U;
+    constexpr uint32_t kMciEnableBit = 0x4U;
+    constexpr uint32_t kInvalidOverflowOffset = 15U;
+    constexpr uint16_t kShortGpmEntries = 15U;
     constexpr size_t kRevokeAfter = 3;
     constexpr size_t kFailSecondWrite = 2;
     constexpr size_t kFailSecondReadback = 4;
@@ -36,6 +46,7 @@ namespace
     constexpr int kFailedAdmission = 2;
     constexpr int kFailedBackend = 3;
     constexpr int kFailedErrorPaths = 4;
+    constexpr int kFailedSharedMci = 5;
 
     struct Register
     {
@@ -45,7 +56,7 @@ namespace
 
     struct Mock
     {
-            std::array<Register, kSteps> registers {
+            std::array<Register, kTotalRegisters> registers {
                 {
                     {kSelfGen, kSeed},
                     {kMciInterrupt, kSeed},
@@ -57,8 +68,12 @@ namespace
                     {kGlobal, kSeed},
                     {kBtLnaControl, kSeed},
                     {kPhyRestart, kSeed},
+                    {kMciScheduleAddress, kSeed},
+                    {kMciGpmAddress, kSeed},
+                    {kMciGpmEntries, kSeed},
                 },
             };
+            std::array<uint32_t, kTotalRegisters> writeOrder {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -111,6 +126,10 @@ namespace
     {
         auto &mock = *static_cast<Mock *>(context);
         ++mock.writes;
+        if (mock.writes <= mock.writeOrder.size())
+        {
+            mock.writeOrder.at(mock.writes - 1) = address;
+        }
         if (mock.writes == mock.failWrite)
         {
             return false;
@@ -154,6 +173,143 @@ namespace
         result.rxChainMask = 1;
         result.calibrationPierBinsPlausible = true;
         return result;
+    }
+
+    SharedMciEvidence sharedAuthorized()
+    {
+        return {true, true, true, true, true, true};
+    }
+
+    SharedMciDmaBuffers sharedBuffers()
+    {
+        return {
+            kPhysicalScheduleAddress,
+            kPhysicalScheduleAddress + kAr9565MciScheduleBytes,
+            kAr9565MciScheduleBytes,
+            kAr9565MciGpmBytes,
+            kAr9565MciGpmEntries,
+        };
+    }
+
+    bool sharedMciTests()
+    {
+        const BoardDataSummary physicalBoard = board();
+        const SharedMciEvidence valid = sharedAuthorized();
+        const SharedMciDmaBuffers dma = sharedBuffers();
+        {
+            Mock mock {};
+            const CoexistenceProgress result =
+                stageAr9565SharedMciDma(physicalBoard, valid, dma, io(mock));
+            const std::array<uint32_t, kSharedMciStageSteps> expectedOrder {
+                kSelfGen,
+                kMciInterrupt,
+                kMciMessageInterrupt,
+                kMciRemoteInterrupt,
+                kMciControl,
+                kMciGpmAddress,
+                kMciGpmEntries,
+                kMciScheduleAddress,
+            };
+            bool correctOrder = true;
+            for (size_t i = 0; i < expectedOrder.size(); ++i)
+            {
+                correctOrder = correctOrder &&
+                               mock.writeOrder.at(i) == expectedOrder.at(i);
+            }
+            if (!correctOrder || result.result != CoexistenceResult::Ok ||
+                result.requiresReset ||
+                result.completedWrites != kSharedMciStageSteps ||
+                result.completedReads != kSharedMciStageSteps * 2 ||
+                find(mock, kMciScheduleAddress)->bits !=
+                    kPhysicalScheduleAddress ||
+                find(mock, kMciGpmAddress)->bits != dma.gpmBusAddress ||
+                find(mock, kMciGpmEntries)->bits != kAr9565MciGpmEntries ||
+                find(mock, kMciControl)->bits != (kSeed & ~kMciEnableBit) ||
+                find(mock, kMciInterrupt)->bits != 0 ||
+                find(mock, kSelfGen)->bits != 0)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            auto invalid = valid;
+            invalid.bluetoothHostOwned = false;
+            if (stageAr9565SharedMciDma(physicalBoard, invalid, dma, io(mock))
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+            invalid = valid;
+            invalid.initializedCoherentDma = false;
+            if (stageAr9565SharedMciDma(physicalBoard, invalid, dma, io(mock))
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            auto bad = dma;
+            bad.gpmBusAddress += kInvalidGpmOffset;
+            if (stageAr9565SharedMciDma(physicalBoard, valid, bad, io(mock))
+                        .result != CoexistenceResult::InvalidDma ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+            bad = dma;
+            bad.scheduleBusAddress = UINT32_MAX - kInvalidOverflowOffset;
+            bad.gpmBusAddress =
+                bad.scheduleBusAddress + kAr9565MciScheduleBytes;
+            if (stageAr9565SharedMciDma(physicalBoard, valid, bad, io(mock))
+                        .result != CoexistenceResult::InvalidDma ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+            bad = dma;
+            bad.gpmEntries = kShortGpmEntries;
+            if (stageAr9565SharedMciDma(physicalBoard, valid, bad, io(mock))
+                        .result != CoexistenceResult::InvalidDma ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+            auto shortBar = io(mock);
+            shortBar.io.barLengthBytes = kSelfGen;
+            if (stageAr9565SharedMciDma(physicalBoard, valid, dma, shortBar)
+                        .result != CoexistenceResult::InvalidBar ||
+                mock.writes != 0)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            mock.revokeAfter = 3;
+            const auto status =
+                stageAr9565SharedMciDma(physicalBoard, valid, dma, io(mock));
+            if (status.result != CoexistenceResult::OwnershipLost ||
+                !status.requiresReset || mock.writes != 3)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            mock.skipWrite = 1;
+            const auto status =
+                stageAr9565SharedMciDma(physicalBoard, valid, dma, io(mock));
+            if (status.result != CoexistenceResult::ReadbackMismatch ||
+                !status.requiresReset || mock.writes != 1)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     WlanOnlyCoexistenceEvidence authorized()
@@ -244,6 +400,10 @@ int main()
         {
             return kFailedErrorPaths;
         }
+    }
+    if (!sharedMciTests())
+    {
+        return kFailedSharedMci;
     }
     return 0;
 }
