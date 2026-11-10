@@ -59,6 +59,17 @@ EEPROM-selected RF-kill GPIO as a real input, and guards each PMU/XTAL MMIO
 with a fresh switch read when the pin is present. A configured blocked or
 unstable pin aborts startup; a missing pin stays **unknown**, not authorized.
 See commits `8cc4e8f`, `7991ff4` and `13b2a9f`.
+Native source commit `ccae41c` now also checks the epoch-current physical
+RF-kill GPIO at runtime: an immutable read-only observer double-samples with a
+100-us settle and rejects blocked, unstable, missing, stale-epoch, short-BAR or
+unreadable states. Native TX, RX dispatch, key/port admission and Tahoe owner
+snapshot consume this fail-closed result. The EDMA admission callback also
+rechecks the same GPIO before ring start or descriptor submission, and its
+fault path revokes channel/TPC evidence and wipes temporary packet buffers.
+These are source-level safety gates, not PHY setup, RF-switch interrupts or a
+physical verification of blocked radio emissions: automatic MAC responses,
+quiescence on asynchronous RF-kill, channel/INI/calibration, TPC and genuine
+native receiver authorization still require full native integration.
 Ar9565InitCatalog selects canonical INI tables and Ar9565RfIni executes them;
 the obsolete permanently false whole-driver recipe flag has been replaced
 with the precise tablesComplete stage. Explicit ReceiveOnly authorization

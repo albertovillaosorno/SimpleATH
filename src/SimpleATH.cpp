@@ -1231,7 +1231,11 @@ class SimpleATH final : public IOService
         static bool queueRadioReady(void *context, uint64_t epoch)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
-            return currentQueueOwner(context, epoch) && self.radioOperational_;
+            // EDMA start and each descriptor submission must recheck the
+            // physical switch, not just an earlier boot-time radio flag.
+            return currentQueueOwner(context, epoch) &&
+                   self.radioOperational_ && self.channelAuthorized_ &&
+                   self.liveRfKillUnblocked();
         }
 
         static bool queueBusMaster(void *context, bool enabled)
@@ -1628,7 +1632,20 @@ class SimpleATH final : public IOService
             self.queues_.stopGated(!self.pci_->isInactive());
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
+            self.channelAuthorized_ = false;
+            // A descriptor/IRQ fault destroys all derived RF/TPC claims. A
+            // later queue or radio restart must recompute real channel and
+            // per-rate limits under a fresh hardware setup, never inherit
+            // safety bits from the failed ring.
+            self.txSafety_ = {};
+            self.txRate_ = {};
+            self.txSequence_ = 0;
             self.controlledPortAuthorized_ = false;
+            memset(&self.ethernetTx_[0], 0, sizeof(self.ethernetTx_));
+            memset(&self.ethernetRx_[0], 0, sizeof(self.ethernetRx_));
+            memset(&self.protectedScratch_[0], 0,
+                   sizeof(self.protectedScratch_));
+            memset(&self.managementReply_[0], 0, sizeof(self.managementReply_));
             self.nativePairwiseTx_.revoke();
             self.nativePairwiseRx_.revoke();
             for (auto &group : self.nativeGroupRx_)
