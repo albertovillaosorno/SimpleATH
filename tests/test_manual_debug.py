@@ -27,53 +27,68 @@ class ManualDebugTests(TestCase):
         source = Path(debug.__file__).read_text(encoding="utf-8")
         _ = ast.parse(source, feature_version=(3, 9))
 
-    def test_refuses_non_macos_before_any_collection(self) -> None:
+    @staticmethod
+    def test_refuses_non_macos_before_any_collection() -> None:
         """A Linux host test must never run diagnostic commands or sudo."""
         with (
             patch("platform.system", return_value="Linux"),
-            patch("os.execv") as execute,
+            patch("os.posix_spawn") as execute,
         ):
-            with self.assertRaisesRegex(RuntimeError, "macOS is required"):
-                debug.require_macos_root(Path("/tmp/unused-debug.py"))
+            message = ""
+            try:
+                debug.require_macos_root(Path("unused-debug.py"))
+            except RuntimeError as error:
+                message = str(error)
+        expected_failure = "macOS is required"
+        assert expected_failure in message
         execute.assert_not_called()
 
-    def test_mandatory_sudo_preserves_spaces_and_arguments(self) -> None:
-        """The root relaunch uses an argv vector instead of shell interpolation."""
-        script = Path("/tmp/owner folder/SimpleATH-debug.py")
+    @staticmethod
+    def test_mandatory_sudo_preserves_spaces_and_arguments() -> None:
+        """The sudo child uses argv and preserves the original arguments."""
+        script = Path("owner folder") / "SimpleATH-debug.py"
         args = [str(script), "--minutes", "25"]
         with (
             patch("platform.system", return_value="Darwin"),
             patch.object(sys, "argv", args),
             patch("os.geteuid", return_value=501),
-            patch(
-                "os.execv", side_effect=RuntimeError("intercepted")
-            ) as execute,
+            patch("os.posix_spawn", return_value=4321) as execute,
+            patch("os.waitpid", return_value=(4321, 0)),
         ):
-            with self.assertRaisesRegex(RuntimeError, "intercepted"):
+            code = None
+            try:
                 debug.require_macos_root(script)
+            except SystemExit as error:
+                code = error.code
+        assert code == 0
         execute.assert_called_once_with(
-            "/usr/bin/sudo",
+            debug.SUDO_PATH,
             ("sudo", "--", sys.executable, str(script), "--minutes", "25"),
+            os.environ.copy(),
         )
 
-    def test_private_unique_logs_are_beside_script(self) -> None:
-        """Collection ignores the caller's working directory and never overwrites."""
+    @staticmethod
+    def test_private_unique_logs_are_beside_script() -> None:
+        """Collection ignores the caller directory and never overwrites."""
         with (
             TemporaryDirectory() as directory,
             patch.dict(os.environ, {"SUDO_UID": ""}),
         ):
             script = Path(directory) / "SimpleATH-debug.py"
             first, output = debug.open_report(script)
+            payload = b"first"
             with output:
-                _ = output.write(b"first")
+                _ = output.write(payload)
             second, output = debug.open_report(script)
             output.close()
             assert first.parent == script.parent
             assert first != second
-            assert first.read_bytes() == b"first"
-            assert stat.S_IMODE(first.stat().st_mode) == 0o600
+            assert first.read_bytes() == payload
+            expected_permissions = 0o600
+            assert stat.S_IMODE(first.stat().st_mode) == expected_permissions
 
-    def test_nonzero_exit_is_not_labeled_pass(self) -> None:
+    @staticmethod
+    def test_nonzero_exit_is_not_labeled_pass() -> None:
         """Retain raw diagnostics and the child's real failure status."""
         output = io.BytesIO()
         report = debug.Report(output)
@@ -82,11 +97,14 @@ class ManualDebugTests(TestCase):
             (sys.executable, "-c", "print('fixture'); raise SystemExit(7)"),
         )
         debug.capture(probe, report, 5)
-        assert b"fixture" in output.getvalue()
-        assert b"exit=7" in output.getvalue()
+        expected_message = b"fixture"
+        expected_code = b"exit=7"
+        assert expected_message in output.getvalue()
+        assert expected_code in output.getvalue()
         assert report.counts == {"command-failed": 1}
 
-    def test_deadline_stops_only_owned_synthetic_child(self) -> None:
+    @staticmethod
+    def test_deadline_stops_only_owned_synthetic_child() -> None:
         """No live macOS service is involved in the timeout regression."""
         output = io.BytesIO()
         report = debug.Report(output)
@@ -97,7 +115,8 @@ class ManualDebugTests(TestCase):
         debug.capture(probe, report, 0)
         assert report.counts == {"timeout": 1}
 
-    def test_output_is_bounded_and_truncation_explicit(self) -> None:
+    @staticmethod
+    def test_output_is_bounded_and_truncation_explicit() -> None:
         """A noisy diagnostic cannot fill the report silently."""
         output = io.BytesIO()
         report = debug.Report(output)
@@ -111,7 +130,7 @@ class ManualDebugTests(TestCase):
 
     @staticmethod
     def test_hash_rejects_symlink_and_nonregular_source() -> None:
-        """Driver identity cannot accidentally read an unbounded special file."""
+        """Driver hashing refuses symlinks and nonregular special files."""
         payload = b"synthetic driver bytes"
         with TemporaryDirectory() as directory:
             source = Path(directory) / "driver"
@@ -129,19 +148,22 @@ class ManualDebugTests(TestCase):
                 rejected = True
             assert rejected
 
-    def test_probe_plan_covers_all_three_project_goals(self) -> None:
-        """Inventory is read-only and includes USB Bluetooth, AWDL and loaded kexts."""
+    @staticmethod
+    def test_probe_plan_covers_all_three_project_goals() -> None:
+        """Inventory covers USB Bluetooth, AWDL and loaded kexts."""
         vectors = [
             p.argv for p in debug.system_probes() + debug.device_probes(30)
         ]
         assert ("/usr/bin/kmutil", "showloaded", "--list-only") in vectors
         assert ("/sbin/ifconfig", "awdl0") in vectors
-        assert any("SPBluetoothDataType" in vector for vector in vectors)
-        assert any("IOUSBHostDevice" in vector for vector in vectors)
+        bluetooth_profile = "SPBluetoothDataType"
+        usb_device_class = "IOUSBHostDevice"
+        assert any(bluetooth_profile in vector for vector in vectors)
+        assert any(usb_device_class in vector for vector in vectors)
         assert all(Path(vector[0]).is_absolute() for vector in vectors)
+        forbidden_arguments = ("install", "load", "-setairportpower")
         assert not any(
-            "install" in vector
-            or "load" in vector
-            or "-setairportpower" in vector
+            argument in vector
             for vector in vectors
+            for argument in forbidden_arguments
         )
