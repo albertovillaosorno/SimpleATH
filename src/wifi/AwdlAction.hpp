@@ -136,6 +136,8 @@ namespace simpleath
                 uint32_t ownMetric {};
                 uint32_t ownCounter {};
                 uint64_t lastHeardMs {};
+                // RX data refreshes lastHeardMs, never this MIF phase anchor.
+                uint64_t lastMifMs {};
         };
 
         // At most 16 peers; no allocation, OS side effects, hardware access
@@ -171,6 +173,49 @@ namespace simpleath
                 uint64_t lastClockMs_ {};
                 bool clockInitialized_ {};
         };
+
+        // A conservative, read-only candidate for a unicast AWDL channel-6
+        // availability window. The native owner must capture mifRxUsec at
+        // the hardware-stamped MIF RX boundary, in the same monotonic clock
+        // domain as nowUsec, compensating for PHY and callback latency. It
+        // must separately verify master election/synchronization, real
+        // channel tune, regulatory permission, coexistence, native AWDL
+        // ownership, peer trust and TX airtime. This result is NEVER a grant
+        // to transmit, schedule a channel change or advertise AirDrop.
+        struct AwdlRendezvousRequest
+        {
+                uint64_t mifRxUsec {};
+                uint64_t nowUsec {};
+                uint32_t frameAirtimeUsec {};
+        };
+
+        struct AwdlRendezvousWindow
+        {
+                uint16_t awSequence {};
+                uint8_t channelSlot {};
+                uint32_t remainingEawUsec {};
+        };
+
+        enum class AwdlRendezvousStatus : uint8_t
+        {
+            Candidate,
+            InvalidInput,
+            StaleSync,
+            PeerOffChannel,
+            GuardInterval,
+        };
+
+        // The peer's last MIF clock milliseconds MUST match mifRxUsec / 1000;
+        // data RX can extend lifetime but cannot refresh the MIF phase.
+        // Each channel slot is a 64-TU extended availability window (EAW)
+        // spanning four 16-TU AWs. The synchronization counter is the TU
+        // remaining until the NEXT EAW boundary, from 1 through 64.
+        // The first and last 3 TU of each EAW are unicast guard periods.
+        // Aliasing the output to either input is rejected without mutation.
+        AwdlRendezvousStatus
+        planAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
+                                     const AwdlRendezvousRequest &request,
+                                     AwdlRendezvousWindow &out);
 
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before

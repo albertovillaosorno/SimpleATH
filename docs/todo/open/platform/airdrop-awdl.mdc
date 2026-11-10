@@ -174,3 +174,34 @@ opclass entry, so a channel number inside an incompatible class cannot
 misrepresent AR9565 2.4-GHz availability. Offline synthetic MIFs exercise
 all three encodings, channel-6 acceptance and incompatible class rejection.
 This prevents a peer advertisement from becoming an unverified RF grant.
+
+## Source progress — 2026-11-10: guarded channel-6 window candidates
+
+The normal production target's `planAwdlChannelSixRendezvous` evaluates a
+bounded, **read-only candidate** for unicast AWDL channel-6 timing from a
+verified MIF peer snapshot and an independently hardware-timestamped RX
+sample. The 16 channel slots each span four 16-TU availability windows:
+its sync down-counter is to the next **64-TU extended AW boundary**, not
+an individual 16-TU boundary. The planner advances the 16-bit AW counter,
+selects the corresponding advertised peer channel slot and enforces 3-TU
+entry/exit guards plus declared packet airtime. It rejects absent channel-6
+slots, invalid 1–64 TU down-counters, callback-clock rollback, stale MIF
+phase at five seconds and timing samples not matching the most recent MIF.
+`lastMifMs` is separate from neighbor lifetime: IPv6 data can keep a peer
+present without forging a new timing anchor.
+
+The independent schedule model was checked against the published OWL
+`src/sync.c`, `src/schedule.c` and `src/rx.c` algorithms and AWDL-7/10/11/12
+in https://github.com/t4t5/owly/blob/main/docs/SPEC.md. No OWL source was
+copied. Synthetic tests cover the EAW boundary, first/last guard, exact
+packet-fit limit, 16-bit sequence wrap, slot 0/10 vs unsupported slots,
+clock and airtime rejection, MIF expiry and peer lifetime.
+C++14/C++17 ASan+UBSan, direct strict Clang-Tidy and formatting passed.
+
+A candidate is **never** a radio TX authorization. The native owner still
+must establish real RX TSF/monotonic calibration, master-election phase,
+local radio channel-6 dwell, regulatory/transmit-power clearance,
+coexistence with the associated Wi-Fi and Bluetooth sessions, native AWDL
+interface ownership, peer security, DMA TX completion and an actual
+AirDrop/Continuity host integration. No such runtime links were added here;
+this P0 TODO remains open. Offline checks do not establish physical timing.

@@ -972,6 +972,189 @@ namespace
         fixture.length += kNeighborExtraChannelBytes;
     }
 
+    bool rejectsOutOfRangeMifCountdown(AwdlNeighbors &peers,
+                                       NeighborFixture fixture)
+    {
+        // A sync TLV's EAW countdown must fit 1..64 TU.
+        constexpr uint8_t kTooLongDownCounterTu = 65U;
+        constexpr uint8_t kMaxValidDownCounterTu = 64U;
+        fixture.frame.at(fixture.syncOffset + 1U) = 0U;
+        if (peers.observeMif(kNeighborFirstSeenMs + 1U, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture.frame.at(fixture.syncOffset + 1U) = kTooLongDownCounterTu;
+        if (peers.observeMif(kNeighborFirstSeenMs + 1U, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture.frame.at(fixture.syncOffset + 1U) = kMaxValidDownCounterTu;
+        return peers.observeMif(kNeighborFirstSeenMs + 1U, fixture.frame.data(),
+                                fixture.length) == Result::Ok;
+    }
+
+    bool channelSixRendezvousCandidates()
+    {
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint64_t kMifRxUsec = kNeighborFirstSeenMs * kUsecPerMs;
+        constexpr uint64_t kTuUsec = 1024U;
+        constexpr uint64_t kAwUsec = 16U * kTuUsec;
+        constexpr uint64_t kEawUsec = 4U * kAwUsec;
+        constexpr uint64_t kDownCounterUsec = kAwUsec;
+        constexpr uint64_t kGuardUsec = 3U * kTuUsec;
+        constexpr uint32_t kAirtimeUsec = 512U;
+        constexpr uint16_t kFirstSlotBaseAw = 0U;
+        constexpr uint16_t kOtherSlotBaseAw = 4U;
+        constexpr uint16_t kTenthSlotBaseAw = 40U;
+        constexpr uint16_t kTenthSlotLastAw = 43U;
+        constexpr uint16_t kWrapBaseAw = 0xfffcU;
+        constexpr uint16_t kWrapSlot = 15U;
+        constexpr uint16_t kFullAwDownCounterTu = 16U;
+        constexpr auto kOversizeAirtimeUsec =
+            static_cast<uint32_t>(kEawUsec - (2U * kGuardUsec) + 1U);
+        constexpr uint64_t kNearBoundaryUsec =
+            kMifRxUsec + kDownCounterUsec - kGuardUsec - kAirtimeUsec;
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        AwdlNeighbor peer {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs, peer))
+        {
+            return false;
+        }
+        // A channel-sequence slot contains four AWs. The MIF countdown is
+        // to the next *extended* AW (64 TU), not to the next 16-TU AW.
+        peer.nextAwSequence = kFirstSlotBaseAw;
+        peer.txDownCounterTu = kFullAwDownCounterTu;
+        AwdlRendezvousRequest request {
+            kMifRxUsec,
+            kMifRxUsec + kGuardUsec,
+            kAirtimeUsec,
+        };
+        AwdlRendezvousWindow window {};
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.awSequence != 3U || window.channelSlot != 0U ||
+            window.remainingEawUsec != kDownCounterUsec - kGuardUsec)
+        {
+            return false;
+        }
+        // A new EAW changes channel slot. Guard both sides and ensure that
+        // the declared entire airtime leaves room for the final guard.
+        peer.channelSixSlots =
+            static_cast<uint16_t>(static_cast<uint32_t>(peer.channelSixSlots) |
+                                  (uint32_t {1U} << 1U));
+        request.nowUsec = kMifRxUsec + kDownCounterUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::GuardInterval ||
+            window.remainingEawUsec != 0U)
+        {
+            return false;
+        }
+        request.nowUsec += kGuardUsec - 1U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::GuardInterval)
+        {
+            return false;
+        }
+        request.nowUsec = kMifRxUsec + kDownCounterUsec + kGuardUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.awSequence != kOtherSlotBaseAw || window.channelSlot != 1U)
+        {
+            return false;
+        }
+        request.nowUsec = kNearBoundaryUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::Candidate)
+        {
+            return false;
+        }
+        ++request.nowUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::GuardInterval ||
+            window.remainingEawUsec != 0U)
+        {
+            return false;
+        }
+        // A correctly phased but unadvertised peer cannot be scheduled.
+        request.nowUsec = kMifRxUsec + kGuardUsec;
+        peer.channelSixSlots = kNeighborSlotMask;
+        peer.nextAwSequence = kOtherSlotBaseAw;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::PeerOffChannel)
+        {
+            return false;
+        }
+        peer.nextAwSequence = kTenthSlotBaseAw;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.channelSlot != kNeighborSlotTen ||
+            window.awSequence != kTenthSlotLastAw)
+        {
+            return false;
+        }
+        peer.channelSixSlots = 0U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::PeerOffChannel)
+        {
+            return false;
+        }
+        // End of the 16-bit AW sequence wraps on the next EAW boundary.
+        peer.nextAwSequence = kWrapBaseAw;
+        peer.channelSixSlots = 1U << kWrapSlot;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            window.awSequence != UINT16_MAX || window.channelSlot != kWrapSlot)
+        {
+            return false;
+        }
+        // IPv6 refresh preserves peer lifetime but cannot extend last MIF
+        // timing or impersonate a new synchronization sample.
+        peer.lastHeardMs = kNeighborFirstSeenMs + 1U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::Candidate)
+        {
+            return false;
+        }
+        peer.lastMifMs = kNeighborFirstSeenMs + 1U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::InvalidInput)
+        {
+            return false;
+        }
+        peer.lastMifMs = kNeighborFirstSeenMs;
+        request.nowUsec = kMifRxUsec - 1U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::StaleSync)
+        {
+            return false;
+        }
+        request.nowUsec = kMifRxUsec + (AwdlNeighbors::kExpiryMs * kUsecPerMs);
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::StaleSync)
+        {
+            return false;
+        }
+        request.nowUsec = kMifRxUsec + kGuardUsec;
+        request.frameAirtimeUsec = 0U;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::InvalidInput)
+        {
+            return false;
+        }
+        request.frameAirtimeUsec = kOversizeAirtimeUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+            AwdlRendezvousStatus::InvalidInput)
+        {
+            return false;
+        }
+        return rejectsOutOfRangeMifCountdown(peers, fixture);
+    }
+
     bool neighborChannelEncodings()
     {
         AwdlNeighbors peers {};
@@ -1031,7 +1214,8 @@ namespace
             neighbor.ownCounter != kNeighborElectionCounter ||
             !sameMac(neighbor.syncMaster, fixture.source) ||
             !sameMac(neighbor.electionMaster, fixture.source) ||
-            neighbor.lastHeardMs != kNeighborFirstSeenMs)
+            neighbor.lastHeardMs != kNeighborFirstSeenMs ||
+            neighbor.lastMifMs != kNeighborFirstSeenMs)
         {
             return false;
         }
@@ -1191,7 +1375,8 @@ namespace
             peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
                              fixture.length) != Result::InvalidFrame ||
             !peers.find(fixture.source, kNeighborExpiredMs, neighbor) ||
-            neighbor.lastHeardMs != refreshedMs)
+            neighbor.lastHeardMs != refreshedMs ||
+            neighbor.lastMifMs != kNeighborFirstSeenMs)
         {
             return false;
         }
@@ -1277,6 +1462,11 @@ int main()
     {
         constexpr int kNeighborChannelEncodingFailure = 13;
         return kNeighborChannelEncodingFailure;
+    }
+    if (!channelSixRendezvousCandidates())
+    {
+        constexpr int kRendezvousFailure = 14;
+        return kRendezvousFailure;
     }
     return 0;
 }

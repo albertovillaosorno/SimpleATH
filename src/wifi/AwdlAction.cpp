@@ -538,6 +538,20 @@ namespace simpleath
             constexpr uint8_t kChannelSlotCount = 15U;
             constexpr uint8_t kChannelStepCount = 3U;
             constexpr uint16_t kAwdlPeriodTu = 16U;
+            constexpr uint32_t kAwdlUsecPerTu = 1024U;
+            constexpr uint32_t kAwdlUsecPerMs = 1000U;
+            constexpr uint32_t kAwdlAwUsec = kAwdlUsecPerTu * kAwdlPeriodTu;
+            constexpr uint32_t kAwdlAwPerChannelSlot = 4U;
+            constexpr uint32_t kAwdlEawTu =
+                kAwdlPeriodTu * kAwdlAwPerChannelSlot;
+            constexpr uint32_t kAwdlEawUsec =
+                kAwdlAwUsec * kAwdlAwPerChannelSlot;
+            constexpr uint32_t kAwdlUnicastGuardUsec = kAwdlUsecPerTu * 3U;
+            constexpr uint64_t kAwdlPeerExpiryUsec =
+                AwdlNeighbors::kExpiryMs * kAwdlUsecPerMs;
+            constexpr uint32_t kAwdlAwSequenceMask = 0xffffU;
+            constexpr uint32_t kAwdlChannelSlotMask = 0x0fU;
+            constexpr uint32_t kAwdlEawSequenceMask = 0xfffcU;
             constexpr uint16_t kChannelFill = 0xffffU;
 
             bool validAt(uint64_t nowMs, uint64_t lastHeardMs)
@@ -621,14 +635,19 @@ namespace simpleath
 
             bool decodeSync(const AwdlTlv &tlv, AwdlNeighbor &out)
             {
-                if (tlv.length < kSyncMinBytes ||
+                const uint16_t downCounter =
+                    tlv.length < kSyncMinBytes
+                        ? 0U
+                        : readLittle16(
+                              usbByteOffset(tlv.data, kSyncDownCounter));
+                if (tlv.length < kSyncMinBytes || downCounter == 0U ||
+                    downCounter > kAwdlEawTu ||
                     readLittle16(usbByteOffset(tlv.data, kSyncPeriod)) !=
                         kAwdlPeriodTu)
                 {
                     return false;
                 }
-                out.txDownCounterTu =
-                    readLittle16(usbByteOffset(tlv.data, kSyncDownCounter));
+                out.txDownCounterTu = downCounter;
                 out.awPeriodTu = kAwdlPeriodTu;
                 out.nextAwSequence =
                     readLittle16(usbByteOffset(tlv.data, kSyncAwSequence));
@@ -765,6 +784,7 @@ namespace simpleath
                 return result;
             }
             candidate.lastHeardMs = nowMs;
+            candidate.lastMifMs = nowMs;
             expire(nowMs);
             Entry *freeEntry = nullptr;
             for (size_t index = 0U; index < kCapacity; ++index)
@@ -865,6 +885,71 @@ namespace simpleath
                     entry = {};
                 }
             }
+        }
+
+        AwdlRendezvousStatus
+        planAwdlChannelSixRendezvous(const AwdlNeighbor &peer,
+                                     const AwdlRendezvousRequest &request,
+                                     AwdlRendezvousWindow &out)
+        {
+            if (overlaps(&out, sizeof(out), &peer, sizeof(peer)) ||
+                overlaps(&out, sizeof(out), &request, sizeof(request)))
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            out = {};
+            if (!validStationMac(peer.source) ||
+                peer.awPeriodTu != kAwdlPeriodTu ||
+                peer.txDownCounterTu == 0U ||
+                peer.txDownCounterTu > kAwdlEawTu ||
+                request.mifRxUsec / kAwdlUsecPerMs != peer.lastMifMs ||
+                request.frameAirtimeUsec == 0U ||
+                request.frameAirtimeUsec >
+                    kAwdlEawUsec - (2U * kAwdlUnicastGuardUsec))
+            {
+                return AwdlRendezvousStatus::InvalidInput;
+            }
+            if (request.nowUsec < request.mifRxUsec)
+            {
+                return AwdlRendezvousStatus::StaleSync;
+            }
+            const uint64_t ageUsec = request.nowUsec - request.mifRxUsec;
+            if (ageUsec >= kAwdlPeerExpiryUsec)
+            {
+                return AwdlRendezvousStatus::StaleSync;
+            }
+            // The advertised down-counter is to the next 64-TU extended
+            // availability window (EAW), NOT to every 16-TU AW. Four AWs
+            // share each channel-sequence slot. Derive the elapsed time from
+            // the MIF's EAW epoch, then advance the 16-bit AW sequence.
+            const uint32_t untilEawUsec = peer.txDownCounterTu * kAwdlUsecPerTu;
+            const uint64_t elapsedUsec =
+                (kAwdlEawUsec - untilEawUsec) + ageUsec;
+            const uint64_t elapsedEawUsec = elapsedUsec % kAwdlEawUsec;
+            const uint64_t advancedAw = elapsedUsec / kAwdlAwUsec;
+            const auto awSequence = static_cast<uint32_t>(
+                ((peer.nextAwSequence & kAwdlEawSequenceMask) + advancedAw) &
+                kAwdlAwSequenceMask);
+            const auto slot = static_cast<uint8_t>(
+                (awSequence / kAwdlAwPerChannelSlot) & kAwdlChannelSlotMask);
+            const uint32_t peerSlots = peer.channelSixSlots;
+            if ((peerSlots & (uint32_t {1U} << slot)) == 0U)
+            {
+                return AwdlRendezvousStatus::PeerOffChannel;
+            }
+            if (elapsedEawUsec < kAwdlUnicastGuardUsec ||
+                elapsedEawUsec + request.frameAirtimeUsec +
+                        kAwdlUnicastGuardUsec >
+                    kAwdlEawUsec)
+            {
+                return AwdlRendezvousStatus::GuardInterval;
+            }
+            out = {
+                static_cast<uint16_t>(awSequence),
+                slot,
+                static_cast<uint32_t>(kAwdlEawUsec - elapsedEawUsec),
+            };
+            return AwdlRendezvousStatus::Candidate;
         }
 
         void AwdlNeighbors::clear()
