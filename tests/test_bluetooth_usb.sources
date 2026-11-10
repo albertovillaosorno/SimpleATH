@@ -1,0 +1,2 @@
+src/bluetooth/Ath3kUsb.cpp
+src/bluetooth/UsbHci.cpp
