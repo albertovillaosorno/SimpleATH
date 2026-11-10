@@ -12,7 +12,8 @@ namespace simpleath
         // The callers establish each frame/IE capacity before dereferencing.
         // Byte-span addresses are computed without C++ out-of-range pointer
         // additions, including when checking adversarial frame lengths.
-        template <typename Byte> Byte *byteOffset(Byte *base, size_t offset)
+        template <typename Byte>
+        static Byte *byteOffset(Byte *base, size_t offset)
         {
             static_assert(sizeof(base) == sizeof(uintptr_t),
                           "frame pointer and address widths must match");
@@ -58,6 +59,22 @@ namespace simpleath
             __builtin_trap(); // Each caller validated the corresponding count.
         }
 
+        // Bind fixed-size octet arrays by reference before handing a bounded
+        // pointer to byte-span APIs; array-to-pointer decay is never implicit.
+        template <typename Byte, size_t N>
+        static Byte *arrayData(Byte (&bytes)[N])
+        {
+            return &bytes[0];
+        }
+
+        // IEEE 802.11 rate, regulatory and management bit contracts.
+        static constexpr uint8_t kRateValueMask = 0x7fU;
+        static constexpr uint8_t kBasicRateFlag = 0x80U;
+        static constexpr uint16_t kPrivacyCapabilityBit = 0x10U;
+        static constexpr uint16_t kMoreFragmentsBit = 0x0400U;
+        static constexpr uint8_t kRsnOuiMiddleOctet = 0x0fU;
+        static constexpr uint8_t kRsnOuiLastOctet = 0xacU;
+        static constexpr uint8_t kCckOnlyChannel = 14U;
         static constexpr size_t kCckRateCount = 4;
         static constexpr size_t kTimestampBytes = 8;
         static constexpr size_t kLegacyRateCount = 8;
@@ -101,15 +118,15 @@ namespace simpleath
         static Mac readMacAddress(const uint8_t *bytes)
         {
             Mac out {};
-            copyBytes(out.bytes, bytes, kMacAddressBytes);
+            copyBytes(arrayData(out.bytes), bytes, kMacAddressBytes);
             return out;
         }
 
         static bool matchesSuite(const uint8_t *bytes, uint8_t id)
         {
             return (*byteOffset(bytes, 0)) == 0x00 &&
-                   (*byteOffset(bytes, 1)) == 0x0f &&
-                   (*byteOffset(bytes, 2)) == 0xac &&
+                   (*byteOffset(bytes, 1)) == kRsnOuiMiddleOctet &&
+                   (*byteOffset(bytes, 2)) == kRsnOuiLastOctet &&
                    (*byteOffset(bytes, 3)) == id;
         }
 
@@ -182,7 +199,7 @@ namespace simpleath
             for (size_t i = 0; i < network.rateCount; ++i)
             {
                 const uint8_t rate = elementAt(network.rates, i);
-                const uint8_t phyRate = rate & 0x7fU;
+                const uint8_t phyRate = rate & kRateValueMask;
                 if (phyRate == 0)
                 {
                     return false;
@@ -192,24 +209,24 @@ namespace simpleath
                 // untransmittable BSS look joinable. An unsupported *basic*
                 // rate must reject the BSS; optional rates can be omitted.
                 bool available = false;
-                const size_t baseRateCount = network.channel == 14
+                const size_t baseRateCount = network.channel == kCckOnlyChannel
                                                  ? kCckRateCount
                                                  : sizeof(kLegacyRates);
                 for (size_t j = 0; j < baseRateCount; ++j)
                 {
-                    available |=
-                        (elementAt(kLegacyRates, j) & 0x7fU) == phyRate;
+                    available |= (elementAt(kLegacyRates, j) &
+                                  kRateValueMask) == phyRate;
                 }
-                if (network.channel != 14)
+                if (network.channel != kCckOnlyChannel)
                 {
                     for (const uint8_t known : kExtendedRates)
                     {
-                        available |= (known & 0x7fU) == phyRate;
+                        available |= (known & kRateValueMask) == phyRate;
                     }
                 }
                 if (!available)
                 {
-                    if ((rate & 0x80U) != 0)
+                    if ((rate & kBasicRateFlag) != 0)
                     {
                         return false;
                     }
@@ -218,11 +235,11 @@ namespace simpleath
                 bool duplicate = false;
                 for (size_t j = 0; j < selectedCount; ++j)
                 {
-                    if ((elementAt(selected, j) & 0x7fU) == phyRate)
+                    if ((elementAt(selected, j) & kRateValueMask) == phyRate)
                     {
                         // A later duplicate marked basic must not lose that
                         // mandatory bit when we collapse duplicate PHY rates.
-                        elementAt(selected, j) |= rate & 0x80U;
+                        elementAt(selected, j) |= rate & kBasicRateFlag;
                         duplicate = true;
                         break;
                     }
@@ -248,10 +265,10 @@ namespace simpleath
         static bool validAssociationCadenceAndChannel(const Beacon &network)
         {
             return network.intervalTu != 0 && network.channel >= 1U &&
-                   network.channel <= 14U &&
+                   network.channel <= kCckOnlyChannel &&
                    // Even a forged public Beacon snapshot must not advertise
                    // HT on channel 14, where the PHY is legacy CCK only.
-                   (network.channel != 14 ||
+                   (network.channel != kCckOnlyChannel ||
                     (!network.htSupported && !network.ht40Allowed));
         }
 
@@ -270,7 +287,7 @@ namespace simpleath
             {
                 return Result::InvalidFrame;
             }
-            if (network.ssidLength == 0 || network.ssidLength > 32 ||
+            if (network.ssidLength == 0 || network.ssidLength > kMaxSsidBytes ||
                 !network.infrastructure || network.hiddenSsid)
             {
                 return Result::InvalidSsid;
@@ -278,7 +295,8 @@ namespace simpleath
             bool hasVisibleByte = false;
             for (size_t i = 0; i < network.ssidLength; ++i)
             {
-                hasVisibleByte |= (*byteOffset(network.ssid, i)) != 0;
+                hasVisibleByte |=
+                    (*byteOffset(arrayData(network.ssid), i)) != 0;
             }
             if (!hasVisibleByte)
             {
@@ -292,15 +310,16 @@ namespace simpleath
             }
             if (!secure)
             {
-                return ((network.capabilities & 0x10U) != 0 ||
+                return ((network.capabilities & kPrivacyCapabilityBit) != 0 ||
                         network.rsn.present || network.rsnIeLength != 0)
                            ? Result::InvalidSecurity
                            : Result::Ok;
             }
-            if ((network.capabilities & 0x10U) == 0 || !network.rsn.present ||
-                !network.rsn.valid || !network.rsn.pairwiseCcmp ||
-                !network.rsn.groupCcmp || !network.rsn.akmPsk ||
-                network.rsn.pmfRequired || network.rsnIeLength < 20 ||
+            if ((network.capabilities & kPrivacyCapabilityBit) == 0 ||
+                !network.rsn.present || !network.rsn.valid ||
+                !network.rsn.pairwiseCcmp || !network.rsn.groupCcmp ||
+                !network.rsn.akmPsk || network.rsn.pmfRequired ||
+                network.rsnIeLength < 20 ||
                 network.rsnIeLength > sizeof(network.rsnIe) ||
                 network.rsnIe[0] != 48 ||
                 static_cast<size_t>(network.rsnIe[1]) + 2 !=
@@ -338,14 +357,15 @@ namespace simpleath
         {
             uint8_t selected[kMaxLocalRates] {};
             size_t selectedCount = 0;
-            if ((rateCode & 0x7fU) == 0 ||
+            if ((rateCode & kRateValueMask) == 0 ||
                 !selectAssociationRates(network, selected, selectedCount))
             {
                 return false;
             }
             for (size_t i = 0; i < selectedCount; ++i)
             {
-                if ((elementAt(selected, i) & 0x7fU) == (rateCode & 0x7fU))
+                if ((elementAt(selected, i) & kRateValueMask) ==
+                    (rateCode & kRateValueMask))
                 {
                     return true;
                 }
@@ -358,9 +378,9 @@ namespace simpleath
             uint8_t difference = 0;
             for (size_t index = 0; index < kMacAddressBytes; ++index)
             {
-                difference |=
-                    static_cast<uint8_t>((*byteOffset(left.bytes, index)) ^
-                                         (*byteOffset(right.bytes, index)));
+                difference |= static_cast<uint8_t>(
+                    (*byteOffset(arrayData(left.bytes), index)) ^
+                    (*byteOffset(arrayData(right.bytes), index)));
             }
             return difference == 0;
         }
@@ -406,7 +426,8 @@ namespace simpleath
                 return Result::UnsupportedFrame;
             }
             if (type == FrameType::Management &&
-                (toDs || fromDs || ordered || (control & 0x0400U) != 0))
+                (toDs || fromDs || ordered ||
+                 (control & kMoreFragmentsBit) != 0))
             {
                 return Result::UnsupportedFrame;
             }
@@ -450,7 +471,7 @@ namespace simpleath
             parsed.type = type;
             parsed.subtype = subtype;
             parsed.protectedFrame = (control & 0x4000U) != 0;
-            parsed.moreFragments = (control & 0x0400U) != 0;
+            parsed.moreFragments = (control & kMoreFragmentsBit) != 0;
             parsed.toDs = toDs;
             parsed.fromDs = fromDs;
             const uint16_t sequenceControl =
@@ -716,9 +737,10 @@ namespace simpleath
             }
             parsed.infrastructure = (parsed.capabilities & 1U) != 0;
             parsed.hiddenSsid = true;
-            parsed.rsn.security = (parsed.capabilities & 0x10U) != 0
-                                      ? Security::LegacyProtected
-                                      : Security::Open;
+            parsed.rsn.security =
+                (parsed.capabilities & kPrivacyCapabilityBit) != 0
+                    ? Security::LegacyProtected
+                    : Security::Open;
 
             Elements cursor(byteOffset(fixed, 12),
                             length - header.headerLength - 12);
@@ -745,7 +767,7 @@ namespace simpleath
                 }
                 if (element.id == 0)
                 {
-                    if (seenSsid || element.length > 32)
+                    if (seenSsid || element.length > kMaxSsidBytes)
                     {
                         return Result::InvalidElement;
                     }
@@ -757,7 +779,7 @@ namespace simpleath
                     parsed.hiddenSsid = true;
                     for (size_t i = 0; i < element.length; ++i)
                     {
-                        (*byteOffset(parsed.ssid, i)) =
+                        (*byteOffset(arrayData(parsed.ssid), i)) =
                             (*byteOffset(element.data, i));
                         if ((*byteOffset(element.data, i)) != 0)
                         {
@@ -780,7 +802,8 @@ namespace simpleath
                     }
                     for (size_t i = 0; i < element.length; ++i)
                     {
-                        if (((*byteOffset(element.data, i)) & 0x7fU) == 0)
+                        if (((*byteOffset(element.data, i)) & kRateValueMask) ==
+                            0)
                         {
                             return Result::InvalidElement;
                         }
@@ -807,7 +830,7 @@ namespace simpleath
                     }
                     seenDs = true;
                     dsChannel = (*byteOffset(element.data, 0));
-                    if (dsChannel == 0 || dsChannel > 14)
+                    if (dsChannel == 0 || dsChannel > kCckOnlyChannel)
                     {
                         return Result::InvalidElement;
                     }
@@ -826,7 +849,8 @@ namespace simpleath
                 }
                 else if (element.id == 48)
                 {
-                    if (seenRsn || (parsed.capabilities & 0x10U) == 0)
+                    if (seenRsn ||
+                        (parsed.capabilities & kPrivacyCapabilityBit) == 0)
                     {
                         return Result::InvalidSecurity;
                     }
@@ -859,7 +883,8 @@ namespace simpleath
                     }
                     seenHtOperation = true;
                     htPrimaryChannel = (*byteOffset(element.data, 0));
-                    if (htPrimaryChannel == 0 || htPrimaryChannel > 14)
+                    if (htPrimaryChannel == 0 ||
+                        htPrimaryChannel > kCckOnlyChannel)
                     {
                         return Result::InvalidElement;
                     }
@@ -900,7 +925,8 @@ namespace simpleath
             {
                 return Result::InvalidAddress;
             }
-            if (ssidLength > 32 || ((ssidLength != 0U) && (ssid == nullptr)))
+            if (ssidLength > kMaxSsidBytes ||
+                ((ssidLength != 0U) && (ssid == nullptr)))
             {
                 return Result::InvalidSsid;
             }
@@ -914,10 +940,11 @@ namespace simpleath
                 (*byteOffset(output, i)) = 0;
             }
             writeLittle16(output, 0x0040U); // Management: probe request.
-            copyBytes(byteOffset(output, 4), kBroadcastAddress,
+            copyBytes(byteOffset(output, 4), arrayData(kBroadcastAddress),
                       kMacAddressBytes);
-            copyBytes(byteOffset(output, 10), station.bytes, kMacAddressBytes);
-            copyBytes(byteOffset(output, 16), kBroadcastAddress,
+            copyBytes(byteOffset(output, 10), arrayData(station.bytes),
+                      kMacAddressBytes);
+            copyBytes(byteOffset(output, 16), arrayData(kBroadcastAddress),
                       kMacAddressBytes);
             writeLittle16(byteOffset(output, 22),
                           static_cast<uint16_t>((sequence & 0xfffU) << 4U));
@@ -931,12 +958,12 @@ namespace simpleath
             offset += ssidLength;
             (*byteOffset(output, offset++)) = 1;
             (*byteOffset(output, offset++)) = 8;
-            copyBytes(byteOffset(output, offset), kLegacyRates,
+            copyBytes(byteOffset(output, offset), arrayData(kLegacyRates),
                       sizeof(kLegacyRates));
             offset += 8;
             (*byteOffset(output, offset++)) = 50;
             (*byteOffset(output, offset++)) = 4;
-            copyBytes(byteOffset(output, offset), kExtendedRates,
+            copyBytes(byteOffset(output, offset), arrayData(kExtendedRates),
                       sizeof(kExtendedRates));
             offset += 4;
             written = offset;
@@ -979,9 +1006,12 @@ namespace simpleath
                 (*byteOffset(output, i)) = 0;
             }
             writeLittle16(output, 0x00b0U); // Management: authentication.
-            copyBytes(byteOffset(output, 4), bssid.bytes, kMacAddressBytes);
-            copyBytes(byteOffset(output, 10), station.bytes, kMacAddressBytes);
-            copyBytes(byteOffset(output, 16), bssid.bytes, kMacAddressBytes);
+            copyBytes(byteOffset(output, 4), arrayData(bssid.bytes),
+                      kMacAddressBytes);
+            copyBytes(byteOffset(output, 10), arrayData(station.bytes),
+                      kMacAddressBytes);
+            copyBytes(byteOffset(output, 16), arrayData(bssid.bytes),
+                      kMacAddressBytes);
             writeLittle16(byteOffset(output, 22),
                           static_cast<uint16_t>((sequence & 0xfffU) << 4U));
             writeLittle16(byteOffset(output, 24),
@@ -1047,12 +1077,13 @@ namespace simpleath
             DisassociationWire frame {};
             frame.frameControl[0] = kFrameControl;
             __builtin_memcpy(&frame.destination[0],
-                             &(*byteOffset(bssid.bytes, 0)),
+                             &(*byteOffset(arrayData(bssid.bytes), 0)),
                              sizeof(frame.destination));
-            __builtin_memcpy(&(*byteOffset(frame.source, 0)),
-                             &(*byteOffset(station.bytes, 0)),
+            __builtin_memcpy(&(*byteOffset(arrayData(frame.source), 0)),
+                             &(*byteOffset(arrayData(station.bytes), 0)),
                              sizeof(frame.source));
-            __builtin_memcpy(&frame.bssid[0], &(*byteOffset(bssid.bytes, 0)),
+            __builtin_memcpy(&frame.bssid[0],
+                             &(*byteOffset(arrayData(bssid.bytes), 0)),
                              sizeof(frame.bssid));
             const uint32_t sequenceField =
                 (static_cast<uint32_t>(fields.sequence) & kSequenceMask)
@@ -1115,27 +1146,30 @@ namespace simpleath
                 (*byteOffset(output, i)) = 0;
             }
             writeLittle16(output, 0x0000U); // Management: association request.
-            copyBytes(byteOffset(output, 4), network.bssid.bytes,
+            copyBytes(byteOffset(output, 4), arrayData(network.bssid.bytes),
                       kMacAddressBytes);
-            copyBytes(byteOffset(output, 10), station.bytes, kMacAddressBytes);
-            copyBytes(byteOffset(output, 16), network.bssid.bytes,
+            copyBytes(byteOffset(output, 10), arrayData(station.bytes),
+                      kMacAddressBytes);
+            copyBytes(byteOffset(output, 16), arrayData(network.bssid.bytes),
                       kMacAddressBytes);
             writeLittle16(byteOffset(output, 22),
                           static_cast<uint16_t>((sequence & 0xfffU) << 4U));
             writeLittle16(byteOffset(output, 24),
-                          static_cast<uint16_t>(1U | (secure ? 0x10U : 0U)));
+                          static_cast<uint16_t>(
+                              1U | (secure ? kPrivacyCapabilityBit : 0U)));
             writeLittle16(byteOffset(output, 26),
                           10); // Listen interval in beacon units.
             size_t offset = 28;
             (*byteOffset(output, offset++)) = 0;
             (*byteOffset(output, offset++)) = network.ssidLength;
-            copyBytes(byteOffset(output, offset), network.ssid,
+            copyBytes(byteOffset(output, offset), arrayData(network.ssid),
                       network.ssidLength);
             offset += network.ssidLength;
             const size_t baseCount = selectedCount > 8 ? 8U : selectedCount;
             (*byteOffset(output, offset++)) = 1;
             (*byteOffset(output, offset++)) = static_cast<uint8_t>(baseCount);
-            copyBytes(byteOffset(output, offset), selectedRates, baseCount);
+            copyBytes(byteOffset(output, offset), arrayData(selectedRates),
+                      baseCount);
             offset += baseCount;
             if (selectedCount > baseCount)
             {
@@ -1156,7 +1190,8 @@ namespace simpleath
                 };
                 (*byteOffset(output, offset++)) = 48;
                 (*byteOffset(output, offset++)) = sizeof(rsn);
-                copyBytes(byteOffset(output, offset), rsn, sizeof(rsn));
+                copyBytes(byteOffset(output, offset), arrayData(rsn),
+                          sizeof(rsn));
                 offset += sizeof(rsn);
             }
             written = offset;
@@ -1331,7 +1366,7 @@ namespace simpleath
                 }
                 for (size_t i = 0; i < element.length; ++i)
                 {
-                    if (((*byteOffset(element.data, i)) & 0x7fU) == 0)
+                    if (((*byteOffset(element.data, i)) & kRateValueMask) == 0)
                     {
                         return Result::InvalidElement;
                     }
