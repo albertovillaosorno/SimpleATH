@@ -165,3 +165,12 @@ connected yet. The P0 TODO remains open.
 Source for the advertised peer eligibility and five-second timeout:
 https://github.com/t4t5/owly/blob/main/docs/SPEC.md (AWDL-17).
 This independent community protocol draft is not an Apple ABI contract.
+
+The channel-sequence decoder was subsequently checked against the
+independent AWDL-10 layout: simple and operating-class encodings put the
+channel first, while legacy encoding puts the channel second. The decoded
+16-slot channel-6 mask additionally requires operating class 81 for an
+opclass entry, so a channel number inside an incompatible class cannot
+misrepresent AR9565 2.4-GHz availability. Offline synthetic MIFs exercise
+all three encodings, channel-6 acceptance and incompatible class rejection.
+This prevents a peer advertisement from becoming an unverified RF grant.

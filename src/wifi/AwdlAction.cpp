@@ -533,6 +533,7 @@ namespace simpleath
             constexpr uint8_t kChannelSimple = 0U;
             constexpr uint8_t kChannelLegacy = 1U;
             constexpr uint8_t kChannelOpClass = 3U;
+            constexpr uint8_t kOpClass24Ghz20Mhz = 81U;
             constexpr uint8_t kChannelSix = 6U;
             constexpr uint8_t kChannelSlotCount = 15U;
             constexpr uint8_t kChannelStepCount = 3U;
@@ -590,7 +591,14 @@ namespace simpleath
                     const size_t entry = kChannelPrefix + (slot * slotWidth);
                     const size_t channelOffset =
                         entry + (encoding == kChannelLegacy ? 1U : 0U);
-                    if (*usbByteOffset(data, channelOffset) == kChannelSix)
+                    // In opclass encoding the FIRST byte is the channel;
+                    // legacy encoding stores it SECOND, after flags. Only
+                    // 2.4-GHz class 81 can describe channel 6 for this NIC.
+                    const bool allowedClass =
+                        encoding != kChannelOpClass ||
+                        *usbByteOffset(data, entry + 1U) == kOpClass24Ghz20Mhz;
+                    if (allowedClass &&
+                        *usbByteOffset(data, channelOffset) == kChannelSix)
                     {
                         slotMask |= static_cast<uint16_t>(1U << slot);
                     }

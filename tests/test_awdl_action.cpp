@@ -809,6 +809,15 @@ namespace
     constexpr uint8_t kNeighborTlvUnknown = 250U;
     constexpr uint8_t kNeighborChannelStep = 3U;
     constexpr uint8_t kNeighborChannelSlotsMinusOne = 15U;
+    enum class NeighborEncoding : uint8_t
+    {
+        Legacy = 1U,
+        OperatingClass = 3U,
+    };
+    constexpr uint8_t kNeighborOpClass24Ghz = 81U;
+    constexpr uint8_t kNeighborOpClass5Ghz = 124U;
+    constexpr size_t kNeighborChannelEncodingOffset = 1U;
+    constexpr size_t kNeighborExtraChannelBytes = 16U;
     constexpr uint8_t kNeighborIpv6Version = 0x60U;
     constexpr uint8_t kNeighborMif = 3U;
     constexpr uint8_t kNeighborPsf = 0U;
@@ -914,6 +923,88 @@ namespace
         result.versionOffset += kPayloadStart;
         result.unknownOffset += kPayloadStart;
         return result;
+    }
+
+    // Promote a valid simple 16-slot TLV to a two-byte-per-slot encoding.
+    // Shift subsequent TLVs before expanding backwards, preserving their
+    // offsets and avoiding reserialization of the control frame under test.
+    void expandNeighborChannels(NeighborFixture &fixture,
+                                NeighborEncoding encoding, uint8_t opClass)
+    {
+        const size_t oldEnd = fixture.channelOffset + kNeighborChannelBytes;
+        for (size_t cursor = fixture.length; cursor > oldEnd; --cursor)
+        {
+            fixture.frame.at(cursor + kNeighborExtraChannelBytes - 1U) =
+                fixture.frame.at(cursor - 1U);
+        }
+        for (size_t slot = kNeighborSlotCount; slot > 0U; --slot)
+        {
+            const size_t index = slot - 1U;
+            const uint8_t channel = fixture.frame.at(
+                fixture.channelOffset + kNeighborChannelOffset + index);
+            const size_t first =
+                fixture.channelOffset + kNeighborChannelOffset + (2U * index);
+            if (encoding == NeighborEncoding::Legacy)
+            {
+                fixture.frame.at(first) = 0U;
+                fixture.frame.at(first + 1U) = channel;
+            }
+            else
+            {
+                fixture.frame.at(first) = channel;
+                fixture.frame.at(first + 1U) = opClass;
+            }
+        }
+        const size_t padding = fixture.channelOffset + kNeighborChannelOffset +
+                               (2U * kNeighborSlotCount);
+        for (size_t index = 0U; index < kNeighborTlvHeader; ++index)
+        {
+            fixture.frame.at(padding + index) = 0U;
+        }
+        fixture.frame.at(fixture.channelOffset - 2U) = static_cast<uint8_t>(
+            kNeighborChannelBytes + kNeighborExtraChannelBytes);
+        fixture.frame.at(fixture.channelOffset +
+                         kNeighborChannelEncodingOffset) =
+            static_cast<uint8_t>(encoding);
+        fixture.electionOffset += kNeighborExtraChannelBytes;
+        fixture.versionOffset += kNeighborExtraChannelBytes;
+        fixture.unknownOffset += kNeighborExtraChannelBytes;
+        fixture.length += kNeighborExtraChannelBytes;
+    }
+
+    bool neighborChannelEncodings()
+    {
+        AwdlNeighbors peers {};
+        AwdlNeighbor candidate {};
+        NeighborFixture legacy = makeNeighborFixture(kNeighborSourceLast);
+        expandNeighborChannels(legacy, NeighborEncoding::Legacy,
+                               kNeighborOpClass24Ghz);
+        if (peers.observeMif(kNeighborFirstSeenMs, legacy.frame.data(),
+                             legacy.length) != Result::Ok ||
+            !peers.find(legacy.source, kNeighborFirstSeenMs, candidate) ||
+            candidate.channelSixSlots != kNeighborSlotMask)
+        {
+            return false;
+        }
+        peers.clear();
+        NeighborFixture class24 = makeNeighborFixture(kNeighborSourceLast);
+        expandNeighborChannels(class24, NeighborEncoding::OperatingClass,
+                               kNeighborOpClass24Ghz);
+        if (peers.observeMif(kNeighborFirstSeenMs, class24.frame.data(),
+                             class24.length) != Result::Ok ||
+            !peers.find(class24.source, kNeighborFirstSeenMs, candidate) ||
+            candidate.channelSixSlots != kNeighborSlotMask)
+        {
+            return false;
+        }
+        peers.clear();
+        NeighborFixture class5 = makeNeighborFixture(kNeighborSourceLast);
+        expandNeighborChannels(class5, NeighborEncoding::OperatingClass,
+                               kNeighborOpClass5Ghz);
+        return peers.observeMif(kNeighborFirstSeenMs, class5.frame.data(),
+                                class5.length) == Result::Ok &&
+               peers.find(class5.source, kNeighborFirstSeenMs, candidate) &&
+               candidate.channelSixSlots == 0U;
     }
 
     bool neighborElectionAndExpiry()
@@ -1181,6 +1272,11 @@ int main()
     {
         constexpr int kNeighborRefreshFailure = 12;
         return kNeighborRefreshFailure;
+    }
+    if (!neighborChannelEncodings())
+    {
+        constexpr int kNeighborChannelEncodingFailure = 13;
+        return kNeighborChannelEncodingFailure;
     }
     return 0;
 }
