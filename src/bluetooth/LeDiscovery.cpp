@@ -11,6 +11,7 @@ namespace simpleath
     namespace
     {
         constexpr uint8_t kCommandComplete = 0x0eU;
+        constexpr uint8_t kCommandStatus = 0x0fU;
         constexpr uint8_t kLeMetaEvent = 0x3eU;
         constexpr uint8_t kLegacyAdvertisingReport = 0x02U;
         constexpr uint16_t kLeSetScanParameters = 0x200bU;
@@ -21,6 +22,10 @@ namespace simpleath
         constexpr size_t kScanParamsBytes = 10U;
         constexpr size_t kScanEnableBytes = 5U;
         constexpr size_t kCommandCompleteBytes = 6U;
+        constexpr size_t kCommandStatusBytes = 6U;
+        constexpr size_t kStatusEventStatusOffset = 2U;
+        constexpr size_t kStatusEventCreditsOffset = 3U;
+        constexpr size_t kStatusEventOpcodeOffset = 4U;
         constexpr size_t kCommandStatusOffset = 5U;
         constexpr size_t kAdvertDataLengthOffset = 8U;
         constexpr size_t kAdvertisingHeaderBytes = 2U;
@@ -122,6 +127,47 @@ namespace simpleath
             }
             state.phase = LeScanPhase::Scanning;
             return LeDiscoveryResult::Ok;
+        }
+
+        LeDiscoveryResult completeStatus(LeDiscoveryState &state,
+                                         const uint8_t *event, size_t bytes)
+        {
+            // Failed HCI commands may complete with Command Status rather
+            // than Command Complete. If we ignore a rejection, the scan can
+            // remain stuck awaiting an acknowledgment that will never come.
+            if (bytes != kCommandStatusBytes)
+            {
+                return fault(state, LeDiscoveryResult::MalformedEvent);
+            }
+            const uint32_t opcode =
+                static_cast<uint32_t>(
+                    *usbByteOffset(event, kStatusEventOpcodeOffset)) |
+                (static_cast<uint32_t>(
+                     *usbByteOffset(event, kStatusEventOpcodeOffset + 1U))
+                 << kBitsPerByte);
+            const bool pendingParameters =
+                state.phase == LeScanPhase::AwaitParameters &&
+                opcode == kLeSetScanParameters;
+            const bool pendingEnable =
+                (state.phase == LeScanPhase::AwaitEnable ||
+                 state.phase == LeScanPhase::AwaitDisable) &&
+                opcode == kLeSetScanEnable;
+            if (!pendingParameters && !pendingEnable)
+            {
+                return LeDiscoveryResult::Ignored;
+            }
+            if (*usbByteOffset(event, kStatusEventStatusOffset) != 0U)
+            {
+                return fault(state, LeDiscoveryResult::ControllerRejected);
+            }
+            if (*usbByteOffset(event, kStatusEventCreditsOffset) == 0U)
+            {
+                return fault(state,
+                             LeDiscoveryResult::CommandCreditUnavailable);
+            }
+            // A successful Command Status is only preliminary. Do not claim
+            // scanning/disabled until the matching Command Complete arrives.
+            return LeDiscoveryResult::Ignored;
         }
 
         // Validate ALL reports before delivery, avoiding partial consumption
@@ -345,6 +391,10 @@ namespace simpleath
                 return fault(state, LeDiscoveryResult::MalformedEvent);
             }
             return completeCommand(state, transport, host, event);
+        }
+        if (type == kCommandStatus)
+        {
+            return completeStatus(state, event, bytes);
         }
         if (type != kLeMetaEvent || bytes < 4U ||
             *usbByteOffset(event, 2U) != kLegacyAdvertisingReport)

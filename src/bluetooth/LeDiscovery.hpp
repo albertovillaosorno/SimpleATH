@@ -73,9 +73,10 @@ namespace simpleath
     // supplies the same live USB-HCI session and epoch on EVERY operation.
     // interval/window are HCI 0.625ms units: 4..0x4000, window <= interval.
     // This issues passive LE Set Scan Parameters then waits for controller
-    // Command Complete before sending LE Set Scan Enable. No ready state is
-    // inferred from a successful USB transfer alone. A zero controller HCI
-    // command credit is a fault requiring the owning USB service to recover.
+    // Command Complete before sending LE Set Scan Enable. Failed HCI Command
+    // Status events for the pending scan opcode terminate the procedure.
+    // No ready state is inferred from a successful USB transfer alone.
+    // Zero command credit requires the USB owner to recover.
     LeDiscoveryResult beginLePassiveScan(LeDiscoveryState &state,
                                          UsbHciState &transport,
                                          const UsbHciHostCallbacks &host,

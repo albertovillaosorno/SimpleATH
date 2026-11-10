@@ -156,6 +156,21 @@ namespace
     constexpr std::array<uint8_t, 6> kUnrelatedComplete = {
         0x0eU, 0x04U, 0x01U, 0x05U, 0x10U, 0x00U,
     };
+    constexpr std::array<uint8_t, 6> kParamsStatusRejected = {
+        0x0fU, 0x04U, 0x0cU, 0x01U, 0x0bU, 0x20U,
+    };
+    constexpr std::array<uint8_t, 6> kEnableStatusRejected = {
+        0x0fU, 0x04U, 0x0cU, 0x01U, 0x0cU, 0x20U,
+    };
+    constexpr std::array<uint8_t, 6> kParamsStatusSuccess = {
+        0x0fU, 0x04U, 0x00U, 0x01U, 0x0bU, 0x20U,
+    };
+    constexpr std::array<uint8_t, 6> kParamsStatusNoCredits = {
+        0x0fU, 0x04U, 0x00U, 0x00U, 0x0bU, 0x20U,
+    };
+    constexpr std::array<uint8_t, 6> kUnrelatedStatus = {
+        0x0fU, 0x04U, 0x0cU, 0x01U, 0x05U, 0x10U,
+    };
     constexpr std::array<uint8_t, 18> kAdvertisement = {
         0x3eU, 0x10U, 0x02U, 0x01U, 0x00U, 0x01U, 0xa1U, 0xa2U, 0xa3U,
         0xa4U, 0xa5U, 0xa6U, 0x03U, 0x02U, 0x01U, 0x06U, 0xd3U, 0x00U,
@@ -307,6 +322,55 @@ namespace
         return 0;
     }
 
+    int commandStatusLifecycle()
+    {
+        Fixture pending {};
+        if (!pending.attach() || pending.begin() != LeDiscoveryResult::Ok ||
+            pending.accept(kUnrelatedStatus.data(), kUnrelatedStatus.size()) !=
+                LeDiscoveryResult::Ignored ||
+            pending.accept(kParamsStatusSuccess.data(),
+                           kParamsStatusSuccess.size()) !=
+                LeDiscoveryResult::Ignored ||
+            pending.phase() != LeScanPhase::AwaitParameters ||
+            pending.completeParameters() != LeDiscoveryResult::Ok ||
+            pending.phase() != LeScanPhase::AwaitEnable ||
+            pending.accept(kEnableStatusRejected.data(),
+                           kEnableStatusRejected.size()) !=
+                LeDiscoveryResult::ControllerRejected ||
+            pending.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture rejected {};
+        if (!rejected.attach() || rejected.begin() != LeDiscoveryResult::Ok ||
+            rejected.accept(kParamsStatusRejected.data(),
+                            kParamsStatusRejected.size()) !=
+                LeDiscoveryResult::ControllerRejected ||
+            rejected.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture noCredits {};
+        if (!noCredits.attach() || noCredits.begin() != LeDiscoveryResult::Ok ||
+            noCredits.accept(kParamsStatusNoCredits.data(),
+                             kParamsStatusNoCredits.size()) !=
+                LeDiscoveryResult::CommandCreditUnavailable ||
+            noCredits.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture disabling {};
+        if (!disabling.start() || disabling.stop() != LeDiscoveryResult::Ok ||
+            disabling.accept(kEnableStatusRejected.data(),
+                             kEnableStatusRejected.size()) !=
+                LeDiscoveryResult::ControllerRejected ||
+            disabling.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int malformedAndOwnership()
     {
         Fixture invalid {};
@@ -442,6 +506,10 @@ int main()
     if (const int stopped = cancellation())
     {
         return stopped;
+    }
+    if (const int statuses = commandStatusLifecycle())
+    {
+        return statuses;
     }
     if (const int errors = malformedAndOwnership())
     {
