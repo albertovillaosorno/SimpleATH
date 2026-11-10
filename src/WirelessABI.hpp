@@ -15,6 +15,55 @@
 namespace ath
 {
 
+    // Every caller bounds the wire extent before addressing a field. Avoid
+    // C++ pointer arithmetic beyond a possibly hostile ABI buffer and reject
+    // virtual-address wraparound without casting between pointer types.
+    template <typename Byte> inline Byte *wireByteAt(Byte *base, size_t offset)
+    {
+        if (base == nullptr)
+        {
+            return nullptr;
+        }
+        static_assert(sizeof(base) == sizeof(uintptr_t),
+                      "wire buffer address must fit native pointer width");
+        uintptr_t address = 0U;
+        __builtin_memcpy(&address, static_cast<const void *>(&base),
+                         sizeof(base));
+        if (offset > UINTPTR_MAX - address)
+        {
+            return nullptr;
+        }
+        address += offset;
+        Byte *result = nullptr;
+        __builtin_memcpy(static_cast<void *>(&result), &address,
+                         sizeof(result));
+        return result;
+    }
+
+    template <typename Byte>
+    inline uintptr_t wirePointerBits(const Byte *pointer)
+    {
+        static_assert(sizeof(pointer) == sizeof(uintptr_t),
+                      "wire buffer pointer width must fit uintptr_t");
+        uintptr_t bits = 0U;
+        __builtin_memcpy(&bits, static_cast<const void *>(&pointer),
+                         sizeof(pointer));
+        return bits;
+    }
+
+    template <typename Object>
+    inline Object *wireObjectAt(uint8_t *base, size_t offset)
+    {
+        const uint8_t *const address = wireByteAt(base, offset);
+        Object *result = nullptr;
+        static_assert(sizeof(Object *) == sizeof(uintptr_t),
+                      "native wire object pointers must fit byte pointers");
+        __builtin_memcpy(static_cast<void *>(&result),
+                         static_cast<const void *>(&address),
+                         sizeof(uintptr_t));
+        return result;
+    }
+
     constexpr uint32_t getCommand = 0xC02869C9;
     constexpr uint32_t setCommand = 0x802869C8;
     constexpr size_t commandCapacity = 0x3C00;
@@ -225,11 +274,11 @@ namespace ath
         const auto *const bytes = static_cast<const uint8_t *>(source);
         for (size_t offset = 0; offset < length; ++offset)
         {
-            destination[offset] = bytes[offset];
+            (*wireByteAt(destination, offset)) = (*wireByteAt(bytes, offset));
         }
         for (size_t offset = length; offset < outputLength; ++offset)
         {
-            destination[offset] = 0;
+            (*wireByteAt(destination, offset)) = 0;
         }
         return true;
     }
@@ -314,9 +363,10 @@ namespace ath
         return names[0];
     }
 
-    static_assert(sizeof(LocaleData) == 8 && offsetof(LocaleData, locale) == 4,
+    static_assert(sizeof(LocaleData) == sizeof(uint64_t) &&
+                      offsetof(LocaleData, locale) == 4,
                   "Locale ABI");
-    static_assert(sizeof(CountryCodeData) == 8 &&
+    static_assert(sizeof(CountryCodeData) == sizeof(uint64_t) &&
                       offsetof(CountryCodeData, country) == 4,
                   "Country code ABI");
 
@@ -345,15 +395,16 @@ namespace ath
             return false;
         }
         auto length = static_cast<uint16_t>(
-            static_cast<uint32_t>(buffer[scanIELengthOffset]) |
-            (static_cast<uint32_t>(buffer[scanIELengthOffset + 1])
+            static_cast<uint32_t>((*wireByteAt(buffer, scanIELengthOffset))) |
+            (static_cast<uint32_t>(
+                 (*wireByteAt(buffer, scanIELengthOffset + 1)))
              << bitsPerByte));
-        if (length > legacyScanIECapacity)
-        {
-            length = legacyScanIECapacity;
-        }
-        buffer[scanIELengthOffset] = static_cast<uint8_t>(length);
-        buffer[scanIELengthOffset + 1] =
+        length = length > legacyScanIECapacity
+                     ? static_cast<uint16_t>(legacyScanIECapacity)
+                     : length;
+        (*wireByteAt(buffer, scanIELengthOffset)) =
+            static_cast<uint8_t>(length);
+        (*wireByteAt(buffer, scanIELengthOffset + 1)) =
             static_cast<uint8_t>(length >> bitsPerByte);
         request.length = legacyScanResultSize;
         return true;
@@ -371,7 +422,7 @@ namespace ath
         for (size_t offset = legacyScanResultSize; offset < abi.scanResultSize;
              ++offset)
         {
-            buffer[offset] = 0;
+            (*wireByteAt(buffer, offset)) = 0;
         }
         request.length = static_cast<uint32_t>(abi.scanResultSize);
         return true;
@@ -390,11 +441,11 @@ namespace ath
         for (size_t offset = legacyCapabilitySize; offset < abi.capabilitySize;
              ++offset)
         {
-            buffer[offset] = 0;
+            (*wireByteAt(buffer, offset)) = 0;
         }
         if (scanEvents)
         {
-            buffer[scanCompletionCapabilityByte] |=
+            (*wireByteAt(buffer, scanCompletionCapabilityByte)) |=
                 scanCompletionCapabilityMask;
         }
         request.length = static_cast<uint32_t>(abi.capabilitySize);
@@ -429,20 +480,23 @@ namespace ath
             abi.scanMultipleSize < legacyScanMultipleSize ||
             capacity < abi.scanMultipleSize ||
             request.length != abi.scanMultipleSize || readUInt32(buffer) != 1 ||
-            readUInt32(buffer + scanMultipleCountOffset) >
+            readUInt32(wireByteAt(buffer, scanMultipleCountOffset)) >
                 maximumScanMultipleEntries ||
-            readUInt32(buffer + scanMultipleExtraCountOffset) >
+            readUInt32(wireByteAt(buffer, scanMultipleExtraCountOffset)) >
                 maximumScanMultipleExtras ||
-            readUInt32(buffer + scanMultipleLimitOffset) >
+            readUInt32(wireByteAt(buffer, scanMultipleLimitOffset)) >
                 maximumScanMultipleLimit)
         {
             return false;
         }
         for (size_t index = 0;
-             index < readUInt32(buffer + scanMultipleCountOffset); ++index)
+             index < readUInt32(wireByteAt(buffer, scanMultipleCountOffset));
+             ++index)
         {
-            if (readUInt32(buffer + scanMultipleEntryStart +
-                           (index * scanMultipleEntryBytes)) > maximumSsidBytes)
+            if (readUInt32(
+                    wireByteAt(buffer, scanMultipleEntryStart +
+                                           (index * scanMultipleEntryBytes))) >
+                maximumSsidBytes)
             {
                 return false;
             }
@@ -450,7 +504,7 @@ namespace ath
         for (size_t offset = legacyScanMultipleSize;
              offset < abi.scanMultipleSize; ++offset)
         {
-            buffer[offset] = 0;
+            (*wireByteAt(buffer, offset)) = 0;
         }
         request.length = legacyScanMultipleSize;
         return true;
@@ -468,7 +522,8 @@ namespace ath
         {
             return false;
         }
-        const auto radios = readUInt32(power + powerRadioCountOffset);
+        const auto radios =
+            readUInt32(wireByteAt(power, powerRadioCountOffset));
         if ((radios == 0U) || radios > 4)
         {
             return false;
@@ -476,8 +531,8 @@ namespace ath
         uint32_t available = 0;
         for (size_t index = 0; index < radios; ++index)
         {
-            const auto value = readUInt32(power + powerRadioStatusOffset +
-                                          (index * powerRadioWordBytes));
+            const auto value = readUInt32(wireByteAt(
+                power, powerRadioStatusOffset + (index * powerRadioWordBytes)));
             if (value > 1)
             {
                 return false;
@@ -486,10 +541,10 @@ namespace ath
         }
         for (size_t index = 0; index < abi.driverAvailableSize; ++index)
         {
-            output[index] = 0;
+            (*wireByteAt(output, index)) = 0;
         }
-        writeUInt32(output + powerAvailableOutputOffset, available);
-        writeUInt32(output + powerReasonOutputOffset,
+        writeUInt32(wireByteAt(output, powerAvailableOutputOffset), available);
+        writeUInt32(wireByteAt(output, powerReasonOutputOffset),
                     powerStateAvailabilityReason);
         return true;
     }
@@ -514,20 +569,23 @@ namespace ath
         }
         for (size_t index = 0; index < abi.joinStatusSize; ++index)
         {
-            output[index] = 0;
+            (*wireByteAt(output, index)) = 0;
         }
-        writeUInt32(output + (sequoia ? sequoiaJoinStatus1 : tahoeJoinStatus1),
+        writeUInt32(wireByteAt(output, (sequoia ? sequoiaJoinStatus1
+                                                : tahoeJoinStatus1)),
                     status);
-        writeUInt32(output + (sequoia ? sequoiaJoinStatus2 : tahoeJoinStatus2),
+        writeUInt32(wireByteAt(output, (sequoia ? sequoiaJoinStatus2
+                                                : tahoeJoinStatus2)),
                     status);
         if (!sequoia)
         {
-            writeUInt32(output + tahoeJoinResultOffset, result);
-            writeUInt32(output + tahoeJoinAvailableOffset, 1);
+            writeUInt32(wireByteAt(output, tahoeJoinResultOffset), result);
+            writeUInt32(wireByteAt(output, tahoeJoinAvailableOffset), 1);
         }
         for (size_t index = 0; index < bssidLength; ++index)
         {
-            output[(sequoia ? 0 : tahoeJoinBssidOffset) + index] = bssid[index];
+            (*wireByteAt(output, (sequoia ? 0 : tahoeJoinBssidOffset) +
+                                     index)) = (*wireByteAt(bssid, index));
         }
         return true;
     }
@@ -550,46 +608,50 @@ namespace ath
         }
         if (abi.associateLayout == AssociateLayout::Legacy)
         {
-            if (buffer[legacyAssociateFlagOffset] > 3)
+            if ((*wireByteAt(buffer, legacyAssociateFlagOffset)) > 3)
             {
                 return false;
             }
             request.length = legacyAssociateSize;
             return true;
         }
-        const auto lower = readUInt32(buffer + associateLowerOffset);
-        const auto upper = readUInt32(buffer + associateUpperOffset);
+        const auto lower = readUInt32(wireByteAt(buffer, associateLowerOffset));
+        const auto upper = readUInt32(wireByteAt(buffer, associateUpperOffset));
         if (lower > UINT16_MAX || upper > UINT16_MAX ||
-            buffer[extendedAssociateFlagOffset] > 3)
+            (*wireByteAt(buffer, extendedAssociateFlagOffset)) > 3)
         {
             return false;
         }
         for (size_t offset = associateCopyBegin; offset < associateCopyEnd;
              ++offset)
         {
-            buffer[offset] = buffer[offset + 4];
+            (*wireByteAt(buffer, offset)) = (*wireByteAt(buffer, offset + 4));
         }
-        buffer[associateLowerByte0] = static_cast<uint8_t>(lower);
-        buffer[associateLowerByte1] =
+        (*wireByteAt(buffer, associateLowerByte0)) =
+            static_cast<uint8_t>(lower);
+        (*wireByteAt(buffer, associateLowerByte1)) =
             static_cast<uint8_t>(lower >> bitsPerByte);
-        buffer[associateUpperByte0] = static_cast<uint8_t>(upper);
-        buffer[associateUpperByte1] =
+        (*wireByteAt(buffer, associateUpperByte0)) =
+            static_cast<uint8_t>(upper);
+        (*wireByteAt(buffer, associateUpperByte1)) =
             static_cast<uint8_t>(upper >> bitsPerByte);
-        buffer[associateReserved0] = buffer[associateReserved1] = 0;
+        (*wireByteAt(buffer, associateReserved0)) =
+            (*wireByteAt(buffer, associateReserved1)) = 0;
         for (size_t offset = associateCopyEnd; offset < associateTailBegin;
              ++offset)
         {
-            buffer[offset] = 0;
+            (*wireByteAt(buffer, offset)) = 0;
         }
         for (size_t offset = associateTailBegin; offset < legacyAssociateSize;
              ++offset)
         {
-            buffer[offset] = buffer[offset + associateExtensionBytes];
+            (*wireByteAt(buffer, offset)) =
+                (*wireByteAt(buffer, offset + associateExtensionBytes));
         }
         for (size_t offset = legacyAssociateSize; offset < abi.associateSize;
              ++offset)
         {
-            buffer[offset] = 0;
+            (*wireByteAt(buffer, offset)) = 0;
         }
         request.length = legacyAssociateSize;
         return true;
@@ -602,22 +664,23 @@ namespace ath
         if ((buffer == nullptr) || (band == nullptr) ||
             capacity < legacyRoamBandSize ||
             bandCapacity < nativeRoamBandSize ||
-            readUInt32(band + roamHeaderBytes) != 1)
+            readUInt32(wireByteAt(band, roamHeaderBytes)) != 1)
         {
             return false;
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
-            buffer[offset] = band[offset + roamHeaderBytes];
+            (*wireByteAt(buffer, offset)) =
+                (*wireByteAt(band, offset + roamHeaderBytes));
         }
         for (size_t offset = 4; offset < roamHeaderBytes; ++offset)
         {
-            buffer[offset] = band[offset];
+            (*wireByteAt(buffer, offset)) = (*wireByteAt(band, offset));
         }
         for (size_t offset = roamHeaderBytes; offset < legacyRoamBandSize;
              ++offset)
         {
-            buffer[offset] = band[offset + 4];
+            (*wireByteAt(buffer, offset)) = (*wireByteAt(band, offset + 4));
         }
         request.length = legacyRoamBandSize;
         return true;
@@ -637,53 +700,56 @@ namespace ath
         for (size_t offset = legacyRoamBandSize; offset > roamHeaderBytes;
              --offset)
         {
-            band[offset + 3] = buffer[offset - 1];
+            (*wireByteAt(band, offset + 3)) = (*wireByteAt(buffer, offset - 1));
         }
         for (size_t offset = 4; offset < roamHeaderBytes; ++offset)
         {
-            band[offset] = buffer[offset];
+            (*wireByteAt(band, offset)) = (*wireByteAt(buffer, offset));
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
-            band[offset + roamHeaderBytes] = buffer[offset];
+            (*wireByteAt(band, offset + roamHeaderBytes)) =
+                (*wireByteAt(buffer, offset));
         }
         for (size_t offset = 0; offset < 4; ++offset)
         {
-            band[offset] = 0;
+            (*wireByteAt(band, offset)) = 0;
         }
         return true;
     }
 
+    // Keep the raw event filter an aggregate with the exact 32-byte userspace
+    // ABI. Its policy is an independent function, not mutable object behavior.
     struct EventFilter
     {
             uint8_t all;
             uint8_t bitmap[eventFilterBitmapBytes];
-
-            bool accepts(uint32_t event) const
-            {
-                if (all != 0U)
-                {
-                    return true;
-                }
-                if (event == 0U || event > sizeof(bitmap) * bitsPerByte)
-                {
-                    return false;
-                }
-                const size_t byteIndex = (event - 1U) / bitsPerByte;
-                const uint8_t flag =
-                    static_cast<uint8_t>(1U << ((event - 1U) % bitsPerByte));
-                size_t index = 0;
-                for (const uint8_t octet : bitmap)
-                {
-                    if (index == byteIndex)
-                    {
-                        return (octet & flag) != 0U;
-                    }
-                    ++index;
-                }
-                return false;
-            }
     };
+
+    inline bool eventFilterAccepts(const EventFilter &filter, uint32_t event)
+    {
+        if (filter.all != 0U)
+        {
+            return true;
+        }
+        if (event == 0U || event > sizeof(filter.bitmap) * bitsPerByte)
+        {
+            return false;
+        }
+        const size_t byteIndex = (event - 1U) / bitsPerByte;
+        const auto flag =
+            static_cast<uint8_t>(1U << ((event - 1U) % bitsPerByte));
+        size_t index = 0U;
+        for (const uint8_t octet : filter.bitmap)
+        {
+            if (index == byteIndex)
+            {
+                return (octet & flag) != 0U;
+            }
+            ++index;
+        }
+        return false;
+    }
 
     struct EventState
     {
@@ -712,6 +778,14 @@ namespace ath
         Invalid,
     };
 
+    // Keep a deliberately typed timestamp boundary so ring length cannot be
+    // accidentally interchanged with a timestamp component.
+    struct EventTimestamp
+    {
+            uint64_t seconds;
+            uint64_t microseconds;
+    };
+
     class EventRing
     {
         public:
@@ -719,8 +793,7 @@ namespace ath
                                      EventState *state, uint32_t &write,
                                      uint16_t &sequence, const char *name,
                                      uint32_t event, const void *payload,
-                                     size_t length, uint64_t seconds,
-                                     uint64_t microseconds)
+                                     size_t length, EventTimestamp timestamp)
             {
                 if ((ring == nullptr) || (state == nullptr) ||
                     (name == nullptr) || capacity < minimumEventRingBytes ||
@@ -733,7 +806,7 @@ namespace ath
                 // The status word is atomically published at a 4-byte aligned
                 // address. Never clobber retained ring/owner metadata or
                 // borrowed inputs while serializing a new event record.
-                const auto ringStart = reinterpret_cast<uintptr_t>(ring);
+                const auto ringStart = wirePointerBits(ring);
                 const auto overlapsRing = [ringStart,
                                            capacity](const void *pointer,
                                                      size_t bytes) -> bool
@@ -742,7 +815,7 @@ namespace ath
                     {
                         return false;
                     }
-                    const auto source = reinterpret_cast<uintptr_t>(pointer);
+                    const auto source = wirePointerBits(pointer);
                     return ringStart <= source ? source - ringStart < capacity
                                                : ringStart - source < bytes;
                 };
@@ -776,40 +849,41 @@ namespace ath
                 {
                     for (size_t offset = write; offset < capacity; offset += 4)
                     {
-                        __atomic_store_n(
-                            reinterpret_cast<uint32_t *>(ring + offset),
-                            eventWrappedStatus, __ATOMIC_RELEASE);
+                        __atomic_store_n(wireObjectAt<uint32_t>(ring, offset),
+                                         eventWrappedStatus, __ATOMIC_RELEASE);
                     }
                     write = 0;
                 }
-                auto *header = reinterpret_cast<EventHeader *>(ring + write);
+                auto *header = wireObjectAt<EventHeader>(ring, write);
                 __atomic_store_n(&header->status, eventWritingStatus,
                                  __ATOMIC_RELAXED);
                 header->flags = 0;
                 header->sequence = ++sequence;
-                header->seconds = seconds;
-                header->microseconds = microseconds;
+                header->seconds = timestamp.seconds;
+                header->microseconds = timestamp.microseconds;
                 header->length = static_cast<uint16_t>(length);
                 header->padding = static_cast<uint16_t>(
                     record - sizeof(EventHeader) - length);
                 header->event = event;
                 size_t index = 0;
                 for (; index < sizeof(header->interfaceName) - 1 &&
-                       (name[index] != 0);
+                       ((*wireByteAt(name, index)) != 0);
                      ++index)
                 {
-                    header->interfaceName[index] = name[index];
+                    (*wireByteAt(&header->interfaceName[0U], index)) =
+                        (*wireByteAt(name, index));
                 }
                 for (; index < sizeof(header->interfaceName); ++index)
                 {
-                    header->interfaceName[index] = 0;
+                    (*wireByteAt(&header->interfaceName[0U], index)) = 0;
                 }
                 const auto *const bytes = static_cast<const uint8_t *>(payload);
                 for (size_t offset = 0; offset < record - sizeof(EventHeader);
                      ++offset)
                 {
-                    ring[(write + sizeof(EventHeader) + offset) % capacity] =
-                        offset < length ? bytes[offset] : 0;
+                    (*wireByteAt(ring, (write + sizeof(EventHeader) + offset) %
+                                           capacity)) =
+                        offset < length ? (*wireByteAt(bytes, offset)) : 0;
                 }
                 __atomic_store_n(&header->status, eventPublishedStatus,
                                  __ATOMIC_RELEASE);
@@ -819,21 +893,39 @@ namespace ath
             }
     };
 
-    static_assert(sizeof(Request) == 0x28, "Request ABI");
-    static_assert(offsetof(Request, data) == 0x20, "Request pointer ABI");
-    static_assert(sizeof(LegacyRequest) == 0x30, "Legacy request ABI");
+    // ABI size/field expectations are independent of the C++ expressions.
+    constexpr size_t kRequestWireBytes = 0x28U;
+    constexpr size_t kRequestPointerWireOffset = 0x20U;
+    constexpr size_t kLegacyRequestWireBytes = 0x30U;
+    constexpr size_t kCommandBufferWireBytes = 0x3C30U;
+    constexpr size_t kLargeCommandBufferWireBytes = 0x3C030U;
+    constexpr size_t kFilterWireBytes = 0x20U;
+    constexpr size_t kEventStateWireBytes = 0x0CU;
+    constexpr size_t kEventHeaderWireBytes = 0x30U;
+    constexpr size_t kEventLengthWireOffset = 0x18U;
+    constexpr size_t kEventNumberWireOffset = 0x1CU;
+
+    static_assert(sizeof(Request) == kRequestWireBytes, "Request ABI");
+    static_assert(offsetof(Request, data) == kRequestPointerWireOffset,
+                  "Request pointer ABI");
+    static_assert(sizeof(LegacyRequest) == kLegacyRequestWireBytes,
+                  "Legacy request ABI");
     static_assert(sizeof(CommandHeader) + commandCapacity + sizeof(Request) ==
-                      0x3C30,
+                      kCommandBufferWireBytes,
                   "Command ABI");
     static_assert(sizeof(CommandHeader) + largeCommandCapacity +
                           sizeof(Request) ==
-                      0x3C030,
+                      kLargeCommandBufferWireBytes,
                   "Large command ABI");
-    static_assert(sizeof(EventFilter) == 0x20, "Event filter ABI");
-    static_assert(sizeof(EventState) == 0xC, "Event state ABI");
-    static_assert(sizeof(EventHeader) == 0x30, "Event header ABI");
-    static_assert(offsetof(EventHeader, length) == 0x18, "Event length ABI");
-    static_assert(offsetof(EventHeader, event) == 0x1C, "Event number ABI");
+    static_assert(sizeof(EventFilter) == kFilterWireBytes, "Event filter ABI");
+    static_assert(sizeof(EventState) == kEventStateWireBytes,
+                  "Event state ABI");
+    static_assert(sizeof(EventHeader) == kEventHeaderWireBytes,
+                  "Event header ABI");
+    static_assert(offsetof(EventHeader, length) == kEventLengthWireOffset,
+                  "Event length ABI");
+    static_assert(offsetof(EventHeader, event) == kEventNumberWireOffset,
+                  "Event number ABI");
 
 } // namespace ath
 

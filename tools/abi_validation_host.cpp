@@ -563,7 +563,8 @@ template <unsigned Kernel> static void boundaries()
                     payload[i] = static_cast<uint8_t>(i * 7);
                 auto result = ath::EventRing::append(
                     ring, capacity, &state, write, sequence, "en0", 1,
-                    payload.data(), payload.size(), 123, 456);
+                    payload.data(), payload.size(),
+                    ath::EventTimestamp {123, 456});
                 if (48 + length + 3 >= capacity)
                 {
                     assert(result == ath::RingResult::Full);
@@ -589,20 +590,24 @@ template <unsigned Kernel> static void boundaries()
     uint32_t write = 0;
     uint16_t sequence = 0;
     const auto before = state;
-    assert(ath::EventRing::append(ring, 16384, &state, write, sequence, "en0",
-                                  1, nullptr, 4097, 0,
-                                  0) == ath::RingResult::Invalid);
+    assert(ath::EventRing::append(
+               ring, 16384, &state, write, sequence, "en0", 1, nullptr, 4097,
+               ath::EventTimestamp {0, 0}) == ath::RingResult::Invalid);
     assert(memcmp(&state, &before, sizeof(state)) == 0);
     state.read = 3;
     assert(ath::EventRing::append(ring, 16384, &state, write, sequence, "en0",
-                                  1, nullptr, 0, 0,
-                                  0) == ath::RingResult::Invalid);
+                                  1, nullptr, 0, ath::EventTimestamp {0, 0}) ==
+           ath::RingResult::Invalid);
     ath::EventFilter filter {};
-    assert(!filter.accepts(1) && !filter.accepts(248) && !filter.accepts(249));
+    assert(!ath::eventFilterAccepts(filter, 1) &&
+           !ath::eventFilterAccepts(filter, 248) &&
+           !ath::eventFilterAccepts(filter, 249));
     filter.bitmap[0] = 1;
     filter.bitmap[30] = 0x80;
-    assert(filter.accepts(1) && filter.accepts(248) && !filter.accepts(2) &&
-           !filter.accepts(249));
+    assert(ath::eventFilterAccepts(filter, 1) &&
+           ath::eventFilterAccepts(filter, 248) &&
+           !ath::eventFilterAccepts(filter, 2) &&
+           !ath::eventFilterAccepts(filter, 249));
 }
 
 static void concurrent()
@@ -623,7 +628,8 @@ static void concurrent()
                 {
                     auto result = ath::EventRing::append(
                         ring, sizeof(ring), &state, write, sequence, "en0",
-                        n + 1, payload.data(), length, length, n);
+                        n + 1, payload.data(), length,
+                        ath::EventTimestamp {length, n});
                     assert(result != ath::RingResult::Invalid);
                     if (result == ath::RingResult::Written)
                         break;
@@ -792,8 +798,9 @@ static unsigned nativeConsumer()
             field(context, 0x50, &result);
             assert(ath::EventRing::append(ring, sizeof(ring), &state, write,
                                           sequence, "en0", 1, payload.data(),
-                                          length, 123,
-                                          456) == ath::RingResult::Written);
+                                          length,
+                                          ath::EventTimestamp {123, 456}) ==
+                   ath::RingResult::Written);
             consume(opaque, ath::eventNotification, nullptr, 0);
             assert(state.read == write);
             assert(result.calls == 1);
@@ -817,8 +824,9 @@ static unsigned nativeConsumer()
             field(context, 0x50, &result);
             assert(ath::EventRing::append(ring, sizeof(ring), &state, write,
                                           sequence, "en0", ath::scanDoneEvent,
-                                          payload, length, 123,
-                                          456) == ath::RingResult::Written);
+                                          payload, length,
+                                          ath::EventTimestamp {123, 456}) ==
+                   ath::RingResult::Written);
             consume(opaque, ath::eventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             assert(dispatch_semaphore_wait(semaphore, DISPATCH_TIME_NOW) == 0);
@@ -847,8 +855,9 @@ static unsigned nativeConsumer()
             field(context, 0x50, &result);
             assert(ath::EventRing::append(
                        ring, sizeof(ring), &state, write, sequence, "en0",
-                       ath::driverAvailableEvent, payload, sizeof(payload), 123,
-                       456) == ath::RingResult::Written);
+                       ath::driverAvailableEvent, payload, sizeof(payload),
+                       ath::EventTimestamp {123, 456}) ==
+                   ath::RingResult::Written);
             consume(opaque, ath::eventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             ++nativeAvailabilityRecords;
@@ -872,8 +881,9 @@ static unsigned nativeConsumer()
             field(context, 0x50, &result);
             assert(ath::EventRing::append(
                        ring, sizeof(ring), &state, write, sequence, "en0",
-                       ath::associationDoneEvent, payload, sizeof(payload), 123,
-                       456) == ath::RingResult::Written);
+                       ath::associationDoneEvent, payload, sizeof(payload),
+                       ath::EventTimestamp {123, 456}) ==
+                   ath::RingResult::Written);
             consume(opaque, ath::eventNotification, nullptr, 0);
             assert(state.read == write && result.calls == 1);
             ++nativeJoinRecords;
@@ -1018,9 +1028,9 @@ static void sonomaVectors()
     ath::EventState state {};
     uint32_t write = 0;
     uint16_t sequence = 0;
-    assert(ath::EventRing::append(ring, sizeof(ring), &state, write, sequence,
-                                  "en0", 9, nullptr, 0, 1,
-                                  2) == ath::RingResult::Written);
+    assert(ath::EventRing::append(
+               ring, sizeof(ring), &state, write, sequence, "en0", 9, nullptr,
+               0, ath::EventTimestamp {1, 2}) == ath::RingResult::Written);
     const auto header = reinterpret_cast<const ath::EventHeader *>(ring);
     assert(header->event == 9 && header->length == 0 &&
            header->status == 0x57 && write == 0x30);

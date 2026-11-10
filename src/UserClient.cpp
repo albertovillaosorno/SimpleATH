@@ -739,7 +739,8 @@ IOReturn ATH80211UserClient::startMonitor()
         ath::AvailabilityEvent initial {};
         monitorSerial = ath::Bridge::copyAvailability(endpoint, initial);
         monitoring = true;
-        if ((initial.length != 0U) && filter.accepts(ath::driverAvailableEvent))
+        if ((initial.length != 0U) &&
+            ath::eventFilterAccepts(filter, ath::driverAvailableEvent))
         {
             const size_t ringBytes = ath::eventCapacity;
             const uint32_t notificationType = ath::driverAvailableEvent;
@@ -747,8 +748,8 @@ IOReturn ATH80211UserClient::startMonitor()
                 static_cast<uint8_t *>(ringMemory->getBytesNoCopy()), ringBytes,
                 static_cast<ath::EventState *>(stateMemory->getBytesNoCopy()),
                 writeOffset, sequence, &endpoint.name[0], notificationType,
-                &initial.payload[0], initial.length, initial.seconds,
-                initial.microseconds);
+                &initial.payload[0], initial.length,
+                ath::EventTimestamp {initial.seconds, initial.microseconds});
             if (result == ath::RingResult::Written)
             {
                 __atomic_fetch_add(&ath::counters.availabilityReplays, 1ULL,
@@ -834,7 +835,7 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
     }
     IOLockLock(eventLock);
     if (closed || !monitoring || serial <= monitorSerial ||
-        !filter.accepts(event))
+        !ath::eventFilterAccepts(filter, event))
     {
         IOLockUnlock(eventLock);
         return;
@@ -843,8 +844,8 @@ void ATH80211UserClient::receive(IOService *controller, const char *name,
         static_cast<uint8_t *>(ringMemory->getBytesNoCopy()),
         ath::eventCapacity,
         static_cast<ath::EventState *>(stateMemory->getBytesNoCopy()),
-        writeOffset, sequence, name, event, payload, length, seconds,
-        microseconds);
+        writeOffset, sequence, name, event, payload, length,
+        ath::EventTimestamp {seconds, microseconds});
     if (result != ath::RingResult::Written)
     {
         __atomic_fetch_add(&ath::counters.dropped, 1ULL, __ATOMIC_RELAXED);
