@@ -18,6 +18,15 @@ namespace
     constexpr uint32_t kAgc = 0xa2c4;
     constexpr uint32_t kCarrier = 0xa2d8;
     constexpr uint32_t kTxIq = 0xa5c4;
+    constexpr uint32_t kSelfgenMask = 0x832c;
+    constexpr uint32_t kReceiveMask = 0xa2a0;
+    constexpr uint32_t kCalMask = 0xa2c0;
+    constexpr uint32_t kSingleChain = 1;
+    constexpr size_t kChainCount = 3;
+    constexpr size_t kRevokeBeforeThirdChainWrite = 5;
+    constexpr int kFailedChainsSuccessExit = 10;
+    constexpr int kFailedChainsAdmissionExit = 11;
+    constexpr int kFailedChainsFailuresExit = 12;
     constexpr uint32_t kNoisePrimary = 0x9e1c;
     constexpr uint32_t kNoiseExtension = 0x9830;
     constexpr uint32_t kNoiseCal = 0x2;
@@ -92,6 +101,9 @@ namespace
             uint32_t txIq = kTxIqEnable | kTxIqUnrelated;
             uint32_t carrier = kCarrierEnable | kCarrierUnrelated;
             uint32_t agc = kFilter | kPeak | kAgcUnrelated;
+            uint32_t selfgen = kSingleChain;
+            uint32_t receiveMask = 0;
+            uint32_t calibrationMask = 0;
             uint32_t noiseControl = kNoiseControlSample;
             uint32_t noiseExtension = kNoiseExtSample;
             uint32_t iqTiming = 0;
@@ -114,6 +126,7 @@ namespace
 
             size_t failReadAt = 0;
             size_t failWriteAt = 0;
+            uint32_t ignoreWriteTo = 0;
             size_t revokeAt = 0;
             bool triggered = false;
             bool noiseTriggered = false;
@@ -133,6 +146,12 @@ namespace
                 return &mock.carrier;
             case kTxIq:
                 return &mock.txIq;
+            case kSelfgenMask:
+                return &mock.selfgen;
+            case kReceiveMask:
+                return &mock.receiveMask;
+            case kCalMask:
+                return &mock.calibrationMask;
             case kNoisePrimary:
                 return &mock.noiseControl;
             case kNoiseExtension:
@@ -211,7 +230,10 @@ namespace
         }
         mock.writes.at(mock.writeCount) = {address, value};
         ++mock.writeCount;
-        *reg(mock, address) = value;
+        if (mock.ignoreWriteTo != address)
+        {
+            *reg(mock, address) = value;
+        }
         if (address == kAgc)
         {
             mock.triggered = true;
@@ -688,6 +710,121 @@ namespace
                neverCompletes.writeCount == 1 && !neverCompletes.badDelay;
     }
 
+    bool testsChainsSuccess()
+    {
+        Mock mock {};
+        const auto result = configureAr9565ReceiveOnlyChains(
+            {kSingleChain, kSingleChain}, authorization(), backend(mock));
+        return result.result == RxChainsResult::Ok && !result.requiresReset &&
+               result.completedWrites == kChainCount &&
+               result.completedReads == kChainCount &&
+               result.lastOffset == kCalMask &&
+               mock.writeCount == kChainCount &&
+               mock.readCount == kChainCount && mock.selfgen == 0 &&
+               mock.receiveMask == kSingleChain &&
+               mock.calibrationMask == kSingleChain &&
+               mock.writes.at(0).address == kSelfgenMask &&
+               mock.writes.at(0).value == 0 &&
+               mock.writes.at(1).address == kReceiveMask &&
+               mock.writes.at(1).value == kSingleChain &&
+               mock.writes.at(2).address == kCalMask &&
+               mock.writes.at(2).value == kSingleChain;
+    }
+
+    bool testsChainsAdmission()
+    {
+        Mock mock {};
+        const Ar9565BoardChainMasks good {kSingleChain, kSingleChain};
+        auto io = backend(mock);
+        io.io.write32 = nullptr;
+        if (configureAr9565ReceiveOnlyChains(good, authorization(), io)
+                .result != RxChainsResult::InvalidBackend)
+        {
+            return false;
+        }
+        if (configureAr9565ReceiveOnlyChains({0, kSingleChain}, authorization(),
+                                             backend(mock))
+                    .result != RxChainsResult::InvalidBoard ||
+            configureAr9565ReceiveOnlyChains({kSingleChain, 0}, authorization(),
+                                             backend(mock))
+                    .result != RxChainsResult::InvalidBoard)
+        {
+            return false;
+        }
+        auto auth = authorization();
+        auth.radioKillUnblocked = false;
+        if (configureAr9565ReceiveOnlyChains(good, auth, backend(mock))
+                .result != RxChainsResult::MissingAuthorization)
+        {
+            return false;
+        }
+        auth = authorization();
+        auth.use = RadioInitialization::TransmitReceive;
+        if (configureAr9565ReceiveOnlyChains(good, auth, backend(mock))
+                .result != RxChainsResult::MissingAuthorization)
+        {
+            return false;
+        }
+        if (configureAr9565ReceiveOnlyChains(good, authorization(),
+                                             backend(mock, kCalMask))
+                .result != RxChainsResult::InvalidBar)
+        {
+            return false;
+        }
+        return mock.writeCount == 0 && mock.readCount == 0;
+    }
+
+    bool testsChainsFailures()
+    {
+        const Ar9565BoardChainMasks board {kSingleChain, kSingleChain};
+        Mock denied {};
+        denied.denied = true;
+        const auto unavailable = configureAr9565ReceiveOnlyChains(
+            board, authorization(), backend(denied));
+        if (unavailable.result != RxChainsResult::OwnershipLost ||
+            unavailable.requiresReset || denied.writeCount != 0)
+        {
+            return false;
+        }
+        Mock writeError {};
+        writeError.failWriteAt = 2;
+        const auto rejected = configureAr9565ReceiveOnlyChains(
+            board, authorization(), backend(writeError));
+        if (rejected.result != RxChainsResult::WriteFailed ||
+            !rejected.requiresReset || rejected.completedWrites != 1 ||
+            writeError.selfgen != 0)
+        {
+            return false;
+        }
+        Mock readError {};
+        readError.failReadAt = 2;
+        const auto unreadable = configureAr9565ReceiveOnlyChains(
+            board, authorization(), backend(readError));
+        if (unreadable.result != RxChainsResult::ReadFailed ||
+            !unreadable.requiresReset || unreadable.completedWrites != 2 ||
+            readError.selfgen != 0)
+        {
+            return false;
+        }
+        Mock ignoredWrite {};
+        ignoredWrite.ignoreWriteTo = kReceiveMask;
+        const auto mismatch = configureAr9565ReceiveOnlyChains(
+            board, authorization(), backend(ignoredWrite));
+        if (mismatch.result != RxChainsResult::ReadbackMismatch ||
+            !mismatch.requiresReset || mismatch.completedWrites != 2 ||
+            ignoredWrite.selfgen != 0 || ignoredWrite.calibrationMask != 0)
+        {
+            return false;
+        }
+        Mock revoked {};
+        revoked.revokeAt = kRevokeBeforeThirdChainWrite;
+        const auto lost = configureAr9565ReceiveOnlyChains(
+            board, authorization(), backend(revoked));
+        return lost.result == RxChainsResult::OwnershipLost &&
+               lost.requiresReset && lost.completedWrites == 2 &&
+               revoked.selfgen == 0 && revoked.calibrationMask == 0;
+    }
+
 } // namespace
 
 int main()
@@ -727,6 +864,18 @@ int main()
     if (!testsNoiseFailures())
     {
         return kFailedNoiseFailureExit;
+    }
+    if (!testsChainsSuccess())
+    {
+        return kFailedChainsSuccessExit;
+    }
+    if (!testsChainsAdmission())
+    {
+        return kFailedChainsAdmissionExit;
+    }
+    if (!testsChainsFailures())
+    {
+        return kFailedChainsFailuresExit;
     }
     return 0;
 }

@@ -140,6 +140,46 @@ namespace simpleath
         const CalibrationAndRegulatory &authorization,
         const RxAgcBackend &backend);
 
+    struct Ar9565BoardChainMasks
+    {
+            uint8_t rx;
+            uint8_t tx;
+    };
+
+    enum class RxChainsResult : uint8_t
+    {
+        Ok,
+        InvalidBackend,
+        InvalidBoard,
+        MissingAuthorization,
+        InvalidBar,
+        OwnershipLost,
+        WriteFailed,
+        ReadFailed,
+        ReadbackMismatch,
+    };
+
+    struct RxChainsProgress
+    {
+            RxChainsResult result;
+            size_t completedWrites;
+            size_t completedReads;
+            uint32_t lastOffset;
+            bool requiresReset;
+    };
+
+    // Programs AR_PHY_RX_CHAINMASK / CAL_CHAINMASK for AR9565 chain zero,
+    // and writes AR_SELFGEN_MASK=0 FIRST so no automatic ACK/CTS may transmit
+    // during receive-only initialization. The board mask MUST come from a
+    // verified EEPROM summary (1 RX and 1 TX); an unknown/multichain board
+    // is not silently downgraded. INI and quiescence precede this stage.
+    // This DOES NOT install a TX mask: TX/self-generated frame permission is
+    // a separate operation requiring calibrated TX power and local rules.
+    RxChainsProgress configureAr9565ReceiveOnlyChains(
+        const Ar9565BoardChainMasks &board,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend);
+
 } // namespace simpleath
 
 #endif

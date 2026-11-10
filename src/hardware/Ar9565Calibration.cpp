@@ -63,6 +63,13 @@ namespace simpleath
         // Linux ath9k calib.c: ath9k_hw_start_nfcal(false),
         // ar9003_phy.c: ar9003_hw_do_getnf(), AR9565 2.4 GHz NF limits;
         // ar9003_phy.h: AR_PHY_CCA_0 / AR_PHY_EXT_CCA.
+        // ath9k ar9003_phy.c: ar9003_hw_set_chain_masks(). RX-only uses
+        // a zero SELFGEN mask, rather than Linux's normal TX-enabled mask.
+        constexpr uint32_t kRxChainmaskRegister = 0xa2a0;
+        constexpr uint32_t kCalibrationChainmaskRegister = 0xa2c0;
+        constexpr uint32_t kSelfGeneratedChainmaskRegister = 0x832c;
+        constexpr uint32_t kSingleRxChain = 1;
+        constexpr uint32_t kNoAutoTransmit = 0;
         constexpr uint32_t kNoiseCal = 0x2;
         constexpr uint32_t kNoiseEnable = 0x8000;
         constexpr uint32_t kNoiseNoUpdate = 0x20000;
@@ -643,6 +650,95 @@ namespace simpleath
             return progress;
         }
         progress.result = RxNoiseResult::Ok;
+        progress.requiresReset = false;
+        return progress;
+    }
+
+    RxChainsProgress configureAr9565ReceiveOnlyChains(
+        const Ar9565BoardChainMasks &board,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend)
+    {
+        RxChainsProgress progress {
+            RxChainsResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const CalibrationAndRegulatory permissions = authorization;
+        if (!validBackend(stable))
+        {
+            return progress;
+        }
+        progress.result = RxChainsResult::InvalidBoard;
+        if (board.rx != kSingleRxChain || board.tx != kSingleRxChain)
+        {
+            return progress;
+        }
+        progress.result = RxChainsResult::MissingAuthorization;
+        if (permissions.use != RadioInitialization::ReceiveOnly ||
+            !radioInitializationAuthorized(permissions))
+        {
+            return progress;
+        }
+        progress.result = RxChainsResult::InvalidBar;
+        if (stable.io.barLengthBytes <
+            kCalibrationChainmaskRegister + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        const auto &io = stable.io;
+
+        // Do not assume no automatic TX while the owner has not quiesced
+        // the MAC; permitWrite must verify the real RX/TX quiescence gate.
+        struct RegisterStep
+        {
+                uint32_t offset;
+                uint32_t value;
+        };
+
+        const RegisterStep steps[] = {
+            {kSelfGeneratedChainmaskRegister, kNoAutoTransmit},
+            {kRxChainmaskRegister, kSingleRxChain},
+            {kCalibrationChainmaskRegister, kSingleRxChain},
+        };
+        for (const auto &step : steps)
+        {
+            progress.result = RxChainsResult::OwnershipLost;
+            if (!io.permitWrite(io.context, io.ownerEpoch))
+            {
+                return progress;
+            }
+            progress.lastOffset = step.offset;
+            progress.requiresReset = true;
+            progress.result = RxChainsResult::WriteFailed;
+            if (!io.write32(io.context, step.offset, step.value))
+            {
+                return progress;
+            }
+            ++progress.completedWrites;
+            progress.result = RxChainsResult::OwnershipLost;
+            if (!io.permitWrite(io.context, io.ownerEpoch))
+            {
+                return progress;
+            }
+            uint32_t observed = 0;
+            progress.result = RxChainsResult::ReadFailed;
+            if (!stable.read32(io.context, step.offset, &observed))
+            {
+                return progress;
+            }
+            ++progress.completedReads;
+            progress.result = RxChainsResult::ReadbackMismatch;
+            if (observed != step.value)
+            {
+                return progress;
+            }
+        }
+        progress.result = RxChainsResult::OwnershipLost;
+        if (!io.permitWrite(io.context, io.ownerEpoch))
+        {
+            return progress;
+        }
+        progress.result = RxChainsResult::Ok;
         progress.requiresReset = false;
         return progress;
     }
