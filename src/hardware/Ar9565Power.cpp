@@ -1069,6 +1069,39 @@ namespace simpleath
         return progress;
     }
 
+    TxPowerWorkflowProgress
+    programAr9565TransmitPower(const PowerCandidates &candidate,
+                               const CalibrationAndRegulatory &authorization,
+                               const TxPowerBackend &backend)
+    {
+        TxPowerWorkflowProgress workflow {};
+        // A callback cannot change the second stage's policy, candidate or
+        // backend pointers after the first stage has touched hardware.
+        const PowerCandidates stableCandidate = candidate;
+        const CalibrationAndRegulatory stablePolicy = authorization;
+        const TxPowerBackend stableBackend = backend;
+        workflow.openLoop = programAr9565TxOpenLoopCalibration(
+            stableCandidate, stablePolicy, stableBackend);
+        workflow.requiresReset = workflow.openLoop.requiresReset;
+        if (workflow.openLoop.result != TxPowerProgramResult::Ok)
+        {
+            return workflow;
+        }
+        // Hardware was changed. Even a *preflight* failure in the bank stage
+        // cannot retire this reset obligation without a completed workflow.
+        workflow.phase = TxPowerWorkflowPhase::RateBank;
+        workflow.requiresReset = true;
+        workflow.rateBank = programAr9565TxRateRegisters(
+            stableCandidate, stablePolicy, stableBackend);
+        if (workflow.rateBank.result != TxPowerProgramResult::Ok)
+        {
+            return workflow;
+        }
+        workflow.phase = TxPowerWorkflowPhase::Completed;
+        workflow.requiresReset = false;
+        return workflow;
+    }
+
     TxPowerProgramProgress
     programAr9565TxRateRegisters(const PowerCandidates &candidate,
                                  const CalibrationAndRegulatory &authorization,

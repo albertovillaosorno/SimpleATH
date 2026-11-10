@@ -178,6 +178,12 @@ namespace
         OlpcReadFailed = 44,
         OlpcWriteFailed = 45,
         OlpcReadbackMismatch = 46,
+        TxWorkflowSuccessful = 47,
+        TxWorkflowUnauthorized = 48,
+        TxWorkflowFirstStageFailed = 49,
+        TxWorkflowBankFailed = 50,
+        TxWorkflowBankReadbackFailed = 51,
+        TxWorkflowSourceSnapshot = 52,
     };
 
     struct RateFixture
@@ -1091,6 +1097,152 @@ namespace
         return 0;
     }
 
+    struct CombinedPowerRegisters
+    {
+            OlpcRegisters olpc {};
+            SimulatedTxRegisters rateBank {};
+            PowerCandidates *borrowedCandidate {};
+    };
+
+    bool combinedPowerPermit(void *context, uint64_t epoch)
+    {
+        auto &state = *static_cast<CombinedPowerRegisters *>(context);
+        return olpcPermit(&state.olpc, epoch) &&
+               fakePermit(&state.rateBank, epoch);
+    }
+
+    bool combinedPowerRead(void *context, uint32_t offset, uint32_t *value)
+    {
+        auto &state = *static_cast<CombinedPowerRegisters *>(context);
+        for (const auto candidate : kOlpcOffsets)
+        {
+            if (offset == candidate)
+            {
+                return olpcRead(&state.olpc, offset, value);
+            }
+        }
+        return fakeRead(&state.rateBank, offset, value);
+    }
+
+    // Fixed TxPowerBackend hardware callback argument order.
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    bool combinedPowerWrite(void *context, uint32_t offset, uint32_t value)
+    {
+        auto &state = *static_cast<CombinedPowerRegisters *>(context);
+        for (const auto candidate : kOlpcOffsets)
+        {
+            if (offset == candidate)
+            {
+                const bool wrote = olpcWrite(&state.olpc, offset, value);
+                if (wrote && state.olpc.writes == kOlpcWrites &&
+                    state.borrowedCandidate != nullptr)
+                {
+                    // Simulate a caller changing the borrowed candidate
+                    // between the OLPC and rate-bank stages. The workflow
+                    // must retain its original immutable transaction value.
+                    state.borrowedCandidate->cck[0] = kOverCeilingHalfDbm;
+                }
+                return wrote;
+            }
+        }
+        return fakeWrite(&state.rateBank, offset, value);
+    }
+
+    int verifyCombinedTxPower(const BoardFixture &fixture)
+    {
+        CombinedPowerRegisters fake {};
+        const TxPowerBackend backend {
+            &fake,
+            kTxEpoch,
+            kTxBarBytes,
+            combinedPowerPermit,
+            combinedPowerWrite,
+            combinedPowerRead,
+        };
+        CalibrationAndRegulatory authority {};
+        authority.use = RadioInitialization::TransmitReceive;
+        auto progress =
+            programAr9565TransmitPower(fixture.output, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::OpenLoop ||
+            progress.openLoop.result !=
+                TxPowerProgramResult::MissingAuthorization ||
+            progress.requiresReset || fake.olpc.writes != 0U ||
+            fake.rateBank.writes != 0U)
+        {
+            return static_cast<int>(Failure::TxWorkflowUnauthorized);
+        }
+        authority.eepromContentsVerified = true;
+        authority.boardAntennaConfigurationVerified = true;
+        authority.localCountryRulesAvailable = true;
+        authority.channelPermitted = true;
+        authority.txPowerLimitsVerified = true;
+        authority.radioKillUnblocked = true;
+        authority.coexistenceConfigurationVerified = true;
+        progress =
+            programAr9565TransmitPower(fixture.output, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::Completed ||
+            progress.openLoop.result != TxPowerProgramResult::Ok ||
+            progress.rateBank.result != TxPowerProgramResult::Ok ||
+            progress.requiresReset ||
+            progress.openLoop.completedWrites != kOlpcWrites ||
+            progress.rateBank.completedWrites != kTxExpectedWrites ||
+            fake.olpc.values != kOlpcExpected ||
+            fake.rateBank.rates.at(0U) != kTxExpectedPacked)
+        {
+            return static_cast<int>(Failure::TxWorkflowSuccessful);
+        }
+        fake = {};
+        PowerCandidates changedCandidate = fixture.output;
+        fake.borrowedCandidate = &changedCandidate;
+        progress =
+            programAr9565TransmitPower(changedCandidate, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::Completed ||
+            progress.rateBank.result != TxPowerProgramResult::Ok ||
+            progress.requiresReset ||
+            changedCandidate.cck[0] != kOverCeilingHalfDbm ||
+            fake.rateBank.rates.at(2U) != kTxExpectedPackedCck2)
+        {
+            return static_cast<int>(Failure::TxWorkflowSourceSnapshot);
+        }
+        fake = {};
+        fake.olpc.failFirstWrite = true;
+        progress =
+            programAr9565TransmitPower(fixture.output, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::OpenLoop ||
+            progress.openLoop.result != TxPowerProgramResult::WriteFailed ||
+            !progress.requiresReset || fake.olpc.writes != 1U ||
+            fake.rateBank.writes != 0U)
+        {
+            return static_cast<int>(Failure::TxWorkflowFirstStageFailed);
+        }
+        fake = {};
+        fake.rateBank.failAfterFirstWrite = true;
+        progress =
+            programAr9565TransmitPower(fixture.output, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::RateBank ||
+            progress.openLoop.result != TxPowerProgramResult::Ok ||
+            progress.rateBank.result != TxPowerProgramResult::WriteFailed ||
+            !progress.requiresReset || fake.olpc.writes != kOlpcWrites ||
+            fake.rateBank.writes != 1U)
+        {
+            return static_cast<int>(Failure::TxWorkflowBankFailed);
+        }
+        fake = {};
+        fake.rateBank.mismatchReadback = true;
+        progress =
+            programAr9565TransmitPower(fixture.output, authority, backend);
+        if (progress.phase != TxPowerWorkflowPhase::RateBank ||
+            progress.openLoop.result != TxPowerProgramResult::Ok ||
+            progress.rateBank.result !=
+                TxPowerProgramResult::ReadbackMismatch ||
+            !progress.requiresReset || fake.olpc.writes != kOlpcWrites ||
+            fake.rateBank.writes != kSecondCommittedWrite)
+        {
+            return static_cast<int>(Failure::TxWorkflowBankReadbackFailed);
+        }
+        return 0;
+    }
+
 } // namespace
 
 int main()
@@ -1118,6 +1270,10 @@ int main()
         return failure;
     }
     if (const int failure = verifyOpenLoopCalibration(board))
+    {
+        return failure;
+    }
+    if (const int failure = verifyCombinedTxPower(board))
     {
         return failure;
     }

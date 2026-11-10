@@ -177,5 +177,34 @@ namespace simpleath
         const CalibrationAndRegulatory &authorization,
         const TxPowerBackend &backend);
 
+    enum class TxPowerWorkflowPhase : uint8_t
+    {
+        OpenLoop,
+        RateBank,
+        Completed,
+    };
+
+    struct TxPowerWorkflowProgress
+    {
+            TxPowerWorkflowPhase phase {TxPowerWorkflowPhase::OpenLoop};
+            TxPowerProgramProgress openLoop {};
+            TxPowerProgramProgress rateBank {};
+            bool requiresReset {};
+    };
+
+    // The source-side TX-power transaction: write chain-zero OLPC references
+    // before the actual per-rate power bank and AR_TPC automatic-response
+    // limits, under one stable candidate/policy/backend snapshot. Both stages
+    // recheck the live epoch/owner before every MMIO access. Even if the bank
+    // rejects a later write, previously committed OLPC writes require reset.
+    // Do not equate Completed with calibrated descriptor power, live thermal/
+    // voltage compensation, country approval or a native TX-ready signal.
+    // The PCI owner must provide independently verified policy and retain
+    // quiescent MAC/EDMA/automatic responses throughout this call.
+    TxPowerWorkflowProgress
+    programAr9565TransmitPower(const PowerCandidates &candidate,
+                               const CalibrationAndRegulatory &authorization,
+                               const TxPowerBackend &backend);
+
 } // namespace simpleath
 #endif
