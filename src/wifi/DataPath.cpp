@@ -530,23 +530,34 @@ namespace simpleath
                     {
                         return DataPathResult::UnverifiedDecryption;
                     }
-                    // There is no reviewed post-install group-rekey path.
-                    // A verified CCMP bit alone cannot make an arbitrary
-                    // encrypted EAPOL packet an authorized engine action.
-                    if (link.pairwiseAndGroupKeysInstalled)
-                    {
-                        return DataPathResult::UnsupportedFrame;
-                    }
-                    // The only pre-install plaintext exception is an exact
-                    // AP-origin M1 or M3; malformed, group, supplicant-side
-                    // or trailing EAPOL data must not enter the handshake.
+                    // EAPOL is never a generic writable network payload.
+                    // Permit post-install Group1 only after this same-link
+                    // CCMP RX has independently verified MIC/PN and the owner
+                    // has removed the CCMP IV/MIC before passing plaintext.
+                    // Wpa2Supplicant still must authenticate the EAPOL MIC,
+                    // replay floor and GTK before returning Group2.
                     KeyFrame key {};
                     if (parseEapolKey(parsed.payload, parsed.payloadLength,
                                       key) != EapolResult::Ok ||
-                        key.eapolLength != parsed.payloadLength ||
-                        (key.message != KeyMessage::Pairwise1 &&
-                         key.message != KeyMessage::Pairwise3))
+                        key.eapolLength != parsed.payloadLength)
                     {
+                        return DataPathResult::UnsupportedFrame;
+                    }
+                    if (link.pairwiseAndGroupKeysInstalled)
+                    {
+                        constexpr uint16_t kGroup1KeyInformation = 0x1382U;
+                        if (!header.protectedFrame || !ccmpMicAndPnValidated ||
+                            key.message != KeyMessage::Group1 ||
+                            key.keyInformation != kGroup1KeyInformation ||
+                            key.keyLength != 16U || key.keyDataLength < 24U)
+                        {
+                            return DataPathResult::UnsupportedFrame;
+                        }
+                    }
+                    else if (key.message != KeyMessage::Pairwise1 &&
+                             key.message != KeyMessage::Pairwise3)
+                    {
+                        // Before keys exist, only cleartext AP M1/M3 is valid.
                         return DataPathResult::UnsupportedFrame;
                     }
                 }

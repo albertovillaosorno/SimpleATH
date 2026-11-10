@@ -73,8 +73,9 @@ now has an explicit CCMP-protected transmit API for ordinary WPA2 Ethernet-II
 traffic and supplicant-authenticated Group2; the existing cleartext serializer
 still refuses Group2. It is **not** wired into WifiEngine, DMA descriptors,
 native keycache or Tahoe, and is **not** evidence of an authorized protected
-network data port. Inbound Group1, owner-driven PN persistence across resets
-and native source integration remain incomplete.
+network data port. Inbound Group1 is now admitted by `DataPath` only when
+verified-protected and key-installed, but `WifiEngine` does not dispatch it to
+the supplicant; owner-driven PN persistence and native integration remain open.
 
 The portable `Wpa2Supplicant` now retains only KCK/KEK after M4 and handles
 post-install Group Key Handshake message 1 through an explicit API. It checks
@@ -85,9 +86,11 @@ Offline synthetic C++14/C++17 sanitizer regressions cover successful rekeys,
 replay, corrupted MIC, bad KDE/RSC, partial install failure, tampering and
 revocation. These callbacks are fake; no hardware key operation is proven.
 
-**Group rekey is still not end-to-end integrated.** `WifiEngine` and
-`DataPath`'s RX admission must accept Group1 only after independently verified
-pairwise CCMP RX. `prepareProtectedStationTx` can encrypt the exact Group2
+**Group rekey is still not end-to-end integrated.** `DataPath`'s RX
+admission now accepts Group1 only with independently verified pairwise CCMP RX,
+but `WifiEngine` must still dispatch it to `Wpa2Supplicant` and submit the
+resulting Group2 through the protected sender. `prepareProtectedStationTx`
+can encrypt the exact Group2
 EAPOL reply under a matching pairwise CCMP session and owner epoch, using a
 caller-owned disjoint and erased plaintext scratch buffer, but it does not
 authenticate the supplicant's EAPOL MIC or bind to a physical native keycache.

@@ -109,8 +109,10 @@ namespace simpleath
         // backend. Association addresses must be valid; WPA2-PSK EAPOL
         // handshake traffic must be unicast to this station. Only a complete
         // parsed AP-side M1/M3 is accepted as cleartext before key install.
-        // Post-install group rekey EAPOL is unsupported until its own guarded
-        // implementation exists, even with otherwise verified CCMP. On error,
+        // Post-install EAPOL is limited to a complete AP-origin protected
+        // Group1 after an independently validated same-link CCMP MIC/PN;
+        // the supplicant must separately authenticate its EAPOL MIC/replay.
+        // No other protected/cleartext EAPOL is admitted. On error,
         // output is zeroed, including its borrowed payload pointer. A result
         // overlapping the link or RX frame returns OverlappingBuffers without
         // modifying the aliased memory. Open links with a key-installed

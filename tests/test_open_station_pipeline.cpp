@@ -805,6 +805,102 @@ namespace
 
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
 
+    // The native owner must have already verified CCMP MIC/PN and stripped
+    // ExtIV/MIC; the fixture feeds the resulting plaintext MPDU with its
+    // protected-frame bit preserved. This does not prove hardware RX.
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+    bool protectedGroup1RxAdmission()
+    {
+        constexpr size_t kGroup1Bytes = 139U;
+        constexpr size_t kDataHeaderBytes = 32U;
+        uint8_t frame[kDataHeaderBytes + kGroup1Bytes] {};
+        frame[0U] = 0x08U;
+        frame[1U] = 0x42U; // FromDS, Protected bit.
+        addresses(frame, kStation);
+        frame[24U] = frame[25U] = 0xaaU;
+        frame[26U] = 3U;
+        frame[30U] = 0x88U;
+        frame[31U] = 0x8eU;
+        uint8_t *const eapol = frame + kDataHeaderBytes;
+        eapol[0U] = 2U;
+        eapol[1U] = 3U;
+        eapol[3U] = 135U;
+        eapol[4U] = 2U;
+        eapol[5U] = 0x13U;
+        eapol[6U] = 0x82U; // Group1 MIC+Secure+ACK+wrapped data.
+        eapol[8U] = 16U;
+        eapol[16U] = 3U;
+        eapol[65U] = 7U; // CCMP group RSC.
+        eapol[81U] = 0x5aU;
+        eapol[98U] = 40U;
+        for (size_t index = 99U; index < kGroup1Bytes; ++index)
+        {
+            eapol[index] = static_cast<uint8_t>(index);
+        }
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+        Msdu parsed {};
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             parsed) != DataPathResult::Ok ||
+            parsed.etherType != 0x888eU || parsed.payload != eapol ||
+            parsed.payloadLength != kGroup1Bytes)
+        {
+            return false;
+        }
+        // CCMP trust, Protected flag and installed keys are ALL required.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, false,
+                             parsed) != DataPathResult::UnverifiedDecryption ||
+            parsed.payload != nullptr)
+        {
+            return false;
+        }
+        frame[1U] = 0x02U; // Plaintext post-install EAPOL forbidden.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             parsed) != DataPathResult::UnverifiedDecryption ||
+            parsed.payload != nullptr)
+        {
+            return false;
+        }
+        frame[1U] = 0x42U;
+        link.pairwiseAndGroupKeysInstalled = false;
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             parsed) != DataPathResult::UnverifiedDecryption ||
+            parsed.payload != nullptr)
+        {
+            return false;
+        }
+        link.pairwiseAndGroupKeysInstalled = true;
+        eapol[6U] = 0x0aU; // Forged station M4, not authenticator Group1.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             parsed) != DataPathResult::UnsupportedFrame ||
+            parsed.payload != nullptr)
+        {
+            return false;
+        }
+        eapol[6U] = 0x82U;
+        eapol[98U] = 0U; // Group1 cannot lack wrapped GTK data.
+        if (inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                             parsed) != DataPathResult::UnsupportedFrame ||
+            parsed.payload != nullptr)
+        {
+            return false;
+        }
+        eapol[98U] = 40U;
+        frame[15U] ^= 1U; // Foreign BSSID, despite valid MIC flag.
+        return inspectStationRx(link, frame, sizeof(frame), false, true, true,
+                                parsed) ==
+                   DataPathResult::NotFromAssociatedAccessPoint &&
+               parsed.payload == nullptr;
+    }
+
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+
     bool rejectUnboundWpa2Eapol()
     {
         // This limited WPA2-PSK station may send only parsed pairwise M2
@@ -1617,6 +1713,10 @@ int main()
     if (!rejectForeignWpa2Authenticator())
     {
         return 21;
+    }
+    if (!protectedGroup1RxAdmission())
+    {
+        return 58;
     }
     if (!protectedWpa2Transmit())
     {
