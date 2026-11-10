@@ -277,3 +277,31 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   The old Bluetooth HCI kernel superclass is not introduced: the public
   Tahoe Bluetooth host path is still userspace and requires an independent
   compatibility/integration contract and actual BLE/AirDrop host policy.
+
+- **USB HCI callback reentrancy hardening (2026-11-10):** Commit `5a304ef`
+  prevents an Event or ACL delivery callback from recursively overwriting
+  the completed packet still borrowed from its reassembly stream. Same-stream
+  nested ingress latches a transport fault, while a callback that replaces the
+  whole USB epoch leaves the new owner's state untouched. The new synthetic
+  Event/ACL regression fails with exit code 24 before the fix. All four
+  Bluetooth host fixtures pass under both C++14/C++17 with ASan+UBSan, and
+  focused strict Clang-Tidy and formatting produce no findings.
+- **Permission-grant epoch verification (2026-11-10):** Commit `82dbbae`
+  revalidates transport epoch and fault state after the USB `permit` callback,
+  and confirms attach permission before installing an initial transport. A
+  grant made before inline detach/re-attach cannot submit commands through or
+  overwrite the successor. Synthetic detach and replacement tests fail with
+  exit code 25 on the pre-fix source; C++14/C++17 sanitized Bluetooth fixtures
+  and focused strict Clang-Tidy/formatting pass after the fix.
+- **Reset-pending connection quarantine (2026-11-10):** Commit `4be1e6a`
+  continues to validate Classic and LE Connection Complete events but refuses
+  to create ACL handle ownership from a connection event received while HCI
+  Reset is pending. A previous-epoch event cannot become authorized merely
+  because new buffer credits were subsequently negotiated. The synthetic
+  regression fails with exit code 26 before the fix, then verifies that a
+  genuine post-reset Connection Complete does permit traffic. All four host
+  Bluetooth fixtures pass in C++14/C++17 ASan+UBSan; focused strict
+  Clang-Tidy and formatting pass. None of these three changes establishes a
+  running native macOS Bluetooth host, successful physical controller reset,
+  Wi-Fi/Bluetooth RF coexistence, pairing, or AirDrop readiness. The P0
+  acceptance checklist above remains open until those implementations exist.
