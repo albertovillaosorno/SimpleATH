@@ -35,6 +35,9 @@ namespace simpleath
         CallbackFailed,
         TransferFailed,
         Faulted,
+        // A bounded native USB IN poll expired without a packet; not a
+        // controller fault or a reason to reset negotiated HCI credits.
+        Idle,
     };
 
     struct UsbHciEndpoints

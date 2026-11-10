@@ -71,8 +71,10 @@ namespace simpleath
                                          const uint8_t *command, size_t bytes);
     UsbHciStatus sendNativeUsbHciAcl(NativeUsbHciIo &native,
                                      const uint8_t *packet, size_t bytes);
-    // These calls synchronously read at most one USB transfer. NEVER call
-    // these blocking operations on the lifecycle workloop/gate; the owning
+    // These calls synchronously read at most one USB transfer, with a
+    // bounded timeout. UsbHciStatus::Idle means a zero-byte timeout, not a
+    // fault; OwnershipLost means the epoch changed during the I/O. NEVER
+    // call these blocking operations on the lifecycle workloop/gate; the
     // native USB service must use an independent, cancellable USB I/O context.
     UsbHciStatus pumpNativeUsbHciEvent(NativeUsbHciIo &native);
     UsbHciStatus pumpNativeUsbHciAcl(NativeUsbHciIo &native);

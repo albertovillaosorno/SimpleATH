@@ -269,12 +269,26 @@ namespace simpleath
             uint32_t transferred = 0U;
             if (prepared == kIOReturnSuccess)
             {
-                status = pipe->io(
-                    descriptor, sizeof(buffer), transferred,
-                    kind == UsbHciPacketKind::Event ? 0U : kUsbTimeoutMs);
+                status = pipe->io(descriptor, sizeof(buffer), transferred,
+                                  kUsbTimeoutMs);
                 (void)descriptor->complete();
             }
             descriptor->release();
+            // An IN poll may outlive device removal or a host-controller
+            // reset. Never parse borrowed USB bytes once the owning epoch
+            // has been revoked, even when the transfer returned success.
+            if (!hciPermit(&native, native.epoch))
+            {
+                return UsbHciStatus::OwnershipLost;
+            }
+            // Interrupt IN can be silent for an arbitrary period. A finite
+            // timeout makes shutdown bounded; a zero-byte timeout is idle,
+            // not a controller fault. Partial/ambiguous failures still latch
+            // the HCI transport fault and require a fresh session.
+            if (status == kIOReturnTimeout && transferred == 0U)
+            {
+                return UsbHciStatus::Idle;
+            }
             if (status != kIOReturnSuccess || transferred == 0U ||
                 transferred > sizeof(buffer))
             {
