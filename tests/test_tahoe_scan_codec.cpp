@@ -47,6 +47,9 @@ namespace
     constexpr int kFailureTruncatedMessage = 9;
     constexpr int kFailureInvalidRsn = 10;
     constexpr int kFailureTooManyRates = 11;
+    constexpr int kFailureAliasedEncoder = 12;
+    constexpr int kFailurePartiallyAliasedEncoder = 13;
+    constexpr int kFailureAliasedDecoder = 14;
 } // namespace
 
 int main()
@@ -156,6 +159,65 @@ int main()
     if (encodeScanBss(bss, message.data(), message.size()) != 0)
     {
         return kFailureTooManyRates;
+    }
+
+    // A native output buffer aliasing the input snapshot must be rejected
+    // *before* the encoder clears it. This covers complete and partial
+    // overlap, not only an identical start address.
+    bss = {};
+    bss.channel = kAllowedChannel;
+    bss.ssidLength = 1U;
+    bss.ssid[0U] = 'x';
+    std::array<uint8_t, sizeof(bss)> sourceBytes {};
+    memcpy(sourceBytes.data(), &bss, sizeof(bss));
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    auto *const aliased = reinterpret_cast<uint8_t *>(&bss);
+    if (encodeScanBss(bss, aliased, sizeof(bss)) != 0)
+    {
+        return kFailureAliasedEncoder;
+    }
+    std::array<uint8_t, sizeof(bss)> afterBytes {};
+    memcpy(afterBytes.data(), &bss, sizeof(bss));
+    if (sourceBytes != afterBytes)
+    {
+        return kFailureAliasedEncoder;
+    }
+    const size_t partialOffset = offsetof(
+        simpleath::ieee80211::NativeBssSnapshot, rsnInformationElement);
+    if (encodeScanBss(bss, simpleath::usbByteOffset(aliased, partialOffset),
+                      sizeof(bss) - partialOffset) != 0)
+    {
+        return kFailurePartiallyAliasedEncoder;
+    }
+    memcpy(afterBytes.data(), &bss, sizeof(bss));
+    if (sourceBytes != afterBytes)
+    {
+        return kFailurePartiallyAliasedEncoder;
+    }
+
+    // A shared request/output owner must not erase its own request bytes
+    // while parsing. The supplied extent is backed by this full fixture.
+    struct AliasedScanRequest
+    {
+            ScanFilter result;
+            uint8_t trailing[kWclScanHeaderBytes];
+    } aliasedRequest {};
+
+    aliasedRequest.result.identifier = kSyntheticScanIdentifier;
+    std::array<uint8_t, sizeof(aliasedRequest)> requestCopy {};
+    memcpy(requestCopy.data(), &aliasedRequest, sizeof(aliasedRequest));
+    const auto *const requestBytes =
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        reinterpret_cast<const uint8_t *>(&aliasedRequest);
+    if (decodeScan(requestBytes, sizeof(aliasedRequest), aliasedRequest.result))
+    {
+        return kFailureAliasedDecoder;
+    }
+    std::array<uint8_t, sizeof(aliasedRequest)> afterRequest {};
+    memcpy(afterRequest.data(), &aliasedRequest, sizeof(aliasedRequest));
+    if (requestCopy != afterRequest)
+    {
+        return kFailureAliasedDecoder;
     }
     return 0;
 }

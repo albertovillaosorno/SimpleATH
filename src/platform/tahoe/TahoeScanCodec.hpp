@@ -55,6 +55,32 @@ namespace simpleath
         constexpr uint32_t kWclSignalMeasuredBit = (1U << 14U);
         constexpr uint32_t kWclHasSsidBit = 2U;
 
+        // A native caller must not serialize a BSS over the snapshot from
+        // which it is reading, or decode a request into its own request bytes.
+        // Subtraction avoids overflowing when an untrusted extent is large.
+        inline uintptr_t scanPointerAddress(const void *pointer)
+        {
+            uintptr_t address = 0;
+            static_assert(sizeof(address) == sizeof(pointer),
+                          "native pointer width must match uintptr_t");
+            __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                             sizeof(pointer));
+            return address;
+        }
+
+        inline bool scanRangesOverlap(const void *left, size_t leftBytes,
+                                      const void *right, size_t rightBytes)
+        {
+            if (left == nullptr || right == nullptr || leftBytes == 0 ||
+                rightBytes == 0)
+            {
+                return false;
+            }
+            const uintptr_t a = scanPointerAddress(left);
+            const uintptr_t b = scanPointerAddress(right);
+            return a >= b ? a - b < rightBytes : b - a < leftBytes;
+        }
+
         // All reads are bounded by the caller's fixed native request extent.
         struct ScanFilter
         {
@@ -69,6 +95,12 @@ namespace simpleath
         inline bool decodeScan(const uint8_t *bytes, size_t length,
                                ScanFilter &out)
         {
+            // Check before clearing out: when it aliases the input, even a
+            // rejected request must not destroy its own source bytes.
+            if (scanRangesOverlap(bytes, length, &out, sizeof(out)))
+            {
+                return false;
+            }
             out = {};
             if (bytes == nullptr || length < kWclScanHeaderBytes)
             {
@@ -202,7 +234,8 @@ namespace simpleath
             const size_t total = kWclBssPrefixBytes + kWclBssSsidLengthBytes +
                                  bss.ssidLength + ratesLength +
                                  kWclBssFixedTailBytes + bss.rsnIeLength;
-            if (capacity < total)
+            if (capacity < total ||
+                scanRangesOverlap(message, total, &bss, sizeof(bss)))
             {
                 return 0;
             }
