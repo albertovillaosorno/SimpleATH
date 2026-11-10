@@ -10,7 +10,7 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 | --- | --- | --- |
 | AR9003 descriptor representation | src/hardware/Ar9003Descriptors.* | 128-byte TX pointer layout, four 32-bit DMA buffer addresses and lengths, AR9565 descriptor-id formatting, pointer checksum and link updates; 48-byte RX status parsing and error flags |
 | AR9003 TX controls | src/hardware/Ar9003TxControl.* | Four retry/rate series, per-series power caps, HT40/GI/STBC/antenna selection, CCMP keycache controls, RTS/CTS duration, 36-byte TX completion flags; never enables hardware transmission |
-| DMA safety checks | src/hardware/Ar9003Dma.* | Reject unmapped buffers, 64-to-32-bit truncation, 4-GiB crossing, cache-synchronization and alignment errors; bounded 64-slot TX *metadata* ownership model |
+| DMA safety checks | src/hardware/Ar9003Dma.* | Reject unmapped buffers, 64-to-32-bit truncation, 4-GiB crossing, cache-synchronization and alignment errors; bounded 64-slot TX and RX *metadata* ownership models |
 | Management frames | src/wifi/Frames.* | Bounds-checked 802.11 management/data header parsing, beacons/probe responses, SSID, DS channel, HT and RSN suites, serializers for probe, open authentication and limited WPA2-PSK CCMP association requests |
 | BSS cache | src/wifi/ScanCache.* | Allocation-free maximum 48 APs, expiry, visible/hidden SSID updates, channel/security filtering and RSSI preference |
 | Station protocol state | src/wifi/Station.* | Scan/candidate, authentication and association state transitions; explicit stop at unimplemented WPA2 crypto or network-interface registration |
@@ -82,6 +82,19 @@ for the **next separately authorized build**.
   no IODMACommand allocation, IOMMU mapping, physical device access,
   interrupt acknowledgement or hardware doorbell. A multi-descriptor ring
   also requires each descriptor stride to preserve the specified alignment.
+  The receive side now separately tracks nonwrapping RX slot generations,
+  buffer reservation, DMA handoff, verified completion and release. Missing
+  synchronization or unproven ownership prevents publishing a completed
+  packet; RX slots still owned by hardware cannot be released or reset.
+  When the native owner has truly isolated device DMA and drained deferred
+  completion callbacks, `retireQuiesced` can mark a buffer for cleanup, but
+  it uses a distinct `Quiesced` state so a stopped, unreadable buffer cannot
+  masquerade as a validated RX completion. The ring cannot itself prove that
+  an external controller is quiescent. RX descriptor mapping has a separate
+  `FromDevice` direction/stride/full-IOVA-span validator. Host C++14/17
+  sanitizer regressions test ordering, exhaustion, wrong-direction metadata,
+  stale token rejection and quiesced recovery. No real ring, IRQ, IOMMU,
+  cache synchronization, FCS or CCMP verification is implemented by this.
   The existing `src/platform/Ar9565PciSession.*` provides a portable read-only
   inspection contract; its native platform adapter is
   still missing. All hardware access must use one verified PCI owner.

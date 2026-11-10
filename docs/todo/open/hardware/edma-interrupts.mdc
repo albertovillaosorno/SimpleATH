@@ -62,6 +62,17 @@ allocation/sync/release outside the owner gate, with explicit worker lifetime
 and epoch revalidation when returning under the gate. Map before publication;
 stop producers and isolate hardware before retiring/freeing uncertain DMA.
 
+The portable `Ar9003Dma` metadata stage now also has a bounded RX slot
+lifecycle with unique nonwrapping tokens, completion/sync gates, explicit
+quiesced retirement (a distinct non-packet `Quiesced` state) and independent
+`FromDevice` descriptor-ring mapping
+checks. Synthetic C++14/C++17 sanitizer regressions pass. These are
+owner-supplied attestations, not verified actual quiescence or completed RX;
+the native controller still must allocate/program coherent rings, synchronize
+real mappings, identify the completed descriptor, drain interrupts and safely
+publish the packet. This incremental source stage does **not** complete this
+P1 TODO or authorize an active DMA path.
+
 Primary references: [IODMACommand](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IODMACommand.cpp),
 [ath9k EDMA MAC/status](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mac.c),
 [RX queues](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/recv.c),

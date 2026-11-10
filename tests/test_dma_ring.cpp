@@ -2,6 +2,101 @@
 // Synthetic ring ownership regression: no PCI, DMA or hardware access.
 #include "hardware/Ar9003Dma.hpp"
 
+namespace
+{
+    int testReceiveRing()
+    {
+        using namespace simpleath::dma;
+        RxRing rx;
+        if (rx.initialize(0) != Error::InvalidCount ||
+            rx.initialize(RxRing::kMaximumSlots + 1) != Error::InvalidCount ||
+            rx.initialize(2) != Error::Ok ||
+            rx.initialize(2) != Error::UnexpectedState || rx.active() != 0 ||
+            rx.capacity() != 2)
+            return 21;
+        RxSlotToken first {}, second {};
+        if (rx.reserve(first, 19) != Error::Ok || !first.generation ||
+            rx.bufferPrepared(first, false, true) != Error::NotReadyToReceive ||
+            rx.bufferPrepared(first, true, false) != Error::NotReadyToReceive ||
+            rx.postedToHardware(first, true, true) != Error::UnexpectedState ||
+            rx.bufferPrepared(first, true, true) != Error::Ok ||
+            rx.postedToHardware(first, false, true) !=
+                Error::NotReadyToReceive ||
+            rx.postedToHardware(first, true, false) !=
+                Error::NotReadyToReceive ||
+            rx.postedToHardware(first, true, true) != Error::Ok)
+            return 22;
+        if (rx.release(first) != Error::UnexpectedState ||
+            rx.reset() != Error::UnexpectedState ||
+            rx.complete(first, false, true) != Error::UnexpectedState ||
+            rx.complete(first, true, false) != Error::NotSynchronized ||
+            rx.slot(first.index)->state != SlotState::OwnedByHardware)
+            return 23;
+        if (rx.reserve(second, 20) != Error::Ok || rx.active() != 2)
+            return 24;
+        const RxSlotToken saved = first;
+        if (rx.reserve(first, 21) != Error::RingFull ||
+            first.index != saved.index || first.cookie != saved.cookie ||
+            first.generation != saved.generation ||
+            rx.release(second) != Error::Ok || rx.active() != 1)
+            return 25;
+        if (rx.complete(first, true, true) != Error::Ok ||
+            rx.complete(first, true, true) != Error::UnexpectedState ||
+            rx.release(first) != Error::Ok || rx.reset() != Error::Ok ||
+            rx.initialize(2) != Error::Ok)
+            return 26;
+        RxSlotToken reused {};
+        if (rx.reserve(reused, 19) != Error::Ok ||
+            reused.index != first.index ||
+            reused.generation <= first.generation ||
+            rx.complete(first, true, true) != Error::UnexpectedState ||
+            rx.release(first) != Error::UnexpectedState ||
+            rx.bufferPrepared(reused, true, true) != Error::Ok ||
+            rx.postedToHardware(reused, true, true) != Error::Ok ||
+            rx.retireQuiesced(reused, false) != Error::UnexpectedState ||
+            rx.release(reused) != Error::UnexpectedState ||
+            rx.retireQuiesced(reused, true) != Error::Ok ||
+            rx.slot(reused.index)->state != SlotState::Quiesced ||
+            rx.complete(reused, true, true) != Error::UnexpectedState ||
+            rx.release(reused) != Error::Ok || rx.reset() != Error::Ok)
+            return 27;
+        // A token output alias inside the ring must not clear active state.
+        if (rx.initialize(2) != Error::Ok || rx.reserve(first, 31) != Error::Ok)
+            return 28;
+        auto *aliased = reinterpret_cast<RxSlotToken *>(&rx);
+        const RingSlot before = *rx.slot(first.index);
+        if (rx.reserve(*aliased, 32) != Error::UnexpectedState ||
+            rx.active() != 1 ||
+            rx.slot(first.index)->generation != before.generation ||
+            rx.slot(first.index)->cookie != before.cookie ||
+            rx.release(first) != Error::Ok || rx.reset() != Error::Ok)
+            return 29;
+        alignas(64) uint8_t host[64] {};
+        Mapping receive {host, 0x1000u, sizeof(host), Direction::FromDevice,
+                         true, true};
+        if (validateReceiveDescriptorRing(receive, 16, 4, 16) != Error::Ok ||
+            validateDescriptorRing(receive, 16, 4, 16) !=
+                Error::InvalidAlignment)
+            return 30;
+        receive.direction = Direction::ToDevice;
+        if (validateReceiveDescriptorRing(receive, 16, 4, 16) !=
+            Error::InvalidAlignment)
+            return 31;
+        receive.direction = Direction::FromDevice;
+        receive.deviceBusAddress = 0xfffffff0u;
+        if (validateReceiveDescriptorRing(receive, 16, 4, 16) !=
+            Error::AddressOverflow)
+            return 32;
+        receive.deviceBusAddress = 0x1000u;
+        if (validateReceiveDescriptorRing(receive, 17, 3, 16) !=
+                Error::InvalidAlignment ||
+            validateReceiveDescriptorRing(receive, 16, 0, 16) !=
+                Error::InvalidCount)
+            return 33;
+        return 0;
+    }
+} // namespace
+
 int main()
 {
     using namespace simpleath::dma;
@@ -147,5 +242,5 @@ int main()
         validateDescriptorRing(receiveMapping, 16, 2, 16) !=
             Error::InvalidAlignment)
         return 16;
-    return 0;
+    return testReceiveRing();
 }

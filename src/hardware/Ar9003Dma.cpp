@@ -81,9 +81,9 @@ namespace simpleath
             return Error::Ok;
         }
 
-        Error validateDescriptorRing(const Mapping &mapping,
-                                     size_t descriptorBytes, size_t count,
-                                     size_t alignment)
+        static Error validateRing(const Mapping &mapping,
+                                  size_t descriptorBytes, size_t count,
+                                  size_t alignment, Direction direction)
         {
             if (descriptorBytes == 0 || count == 0 ||
                 count > TxRing::kMaximumSlots || alignment == 0 ||
@@ -105,7 +105,7 @@ namespace simpleath
             {
                 return Error::InvalidAlignment;
             }
-            if (mapping.direction != Direction::ToDevice ||
+            if (mapping.direction != direction ||
                 (mapping.deviceBusAddress & (alignment - 1U)) != 0 ||
                 (reinterpret_cast<uintptr_t>(mapping.cpuAddress) &
                  (alignment - 1U)) != 0)
@@ -113,6 +113,22 @@ namespace simpleath
                 return Error::InvalidAlignment;
             }
             return Error::Ok;
+        }
+
+        Error validateDescriptorRing(const Mapping &mapping,
+                                     size_t descriptorBytes, size_t count,
+                                     size_t alignment)
+        {
+            return validateRing(mapping, descriptorBytes, count, alignment,
+                                Direction::ToDevice);
+        }
+
+        Error validateReceiveDescriptorRing(const Mapping &mapping,
+                                            size_t descriptorBytes,
+                                            size_t count, size_t alignment)
+        {
+            return validateRing(mapping, descriptorBytes, count, alignment,
+                                Direction::FromDevice);
         }
 
         TxRing::TxRing() : slots_ {}, capacity_(0), active_(0), generation_(0)
@@ -293,6 +309,214 @@ namespace simpleath
 
         const RingSlot *TxRing::slot(size_t index) const
         {
+            return index < capacity_ ? &slots_[index] : nullptr;
+        }
+
+        RxRing::RxRing() : slots_ {}, capacity_(0), active_(0), generation_(0)
+        {
+        }
+
+        Error RxRing::initialize(size_t numberOfSlots)
+        {
+            if (numberOfSlots == 0 || numberOfSlots > kMaximumSlots)
+            {
+                return Error::InvalidCount;
+            }
+            if (capacity_ != 0)
+            {
+                return Error::UnexpectedState;
+            }
+            capacity_ = numberOfSlots;
+            for (RingSlot &slot : slots_)
+            {
+                slot = {};
+                slot.state = SlotState::Free;
+            }
+            return Error::Ok;
+        }
+
+        Error RxRing::reserve(RxSlotToken &token, uint32_t cookie)
+        {
+            if (overlapsStorage(&token, sizeof(token), this, sizeof(*this)))
+            {
+                return Error::UnexpectedState;
+            }
+            if (capacity_ == 0)
+            {
+                return Error::UninitializedRing;
+            }
+            if (generation_ == kGenerationMax)
+            {
+                return Error::GenerationExhausted;
+            }
+            size_t i = 0;
+            for (RingSlot &slot : slots_)
+            {
+                if (i >= capacity_)
+                {
+                    break;
+                }
+                if (slot.state != SlotState::Free)
+                {
+                    ++i;
+                    continue;
+                }
+                slot.state = SlotState::Reserved;
+                slot.generation = ++generation_;
+                slot.cookie = cookie;
+                slot.dmaMapped = false;
+                slot.descriptorCompleted = false;
+                ++active_;
+                token = {i, cookie, slot.generation};
+                return Error::Ok;
+            }
+            return Error::RingFull;
+        }
+
+        Error RxRing::bufferPrepared(const RxSlotToken &token, bool dmaMapped,
+                                     bool synchronized)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            RingSlot &slot = mutableSlot(token.index);
+            if (!matches(token) || slot.state != SlotState::Reserved)
+            {
+                return Error::UnexpectedState;
+            }
+            if (!dmaMapped || !synchronized)
+            {
+                return Error::NotReadyToReceive;
+            }
+            slot.dmaMapped = true;
+            // RX descriptor is ready for the device, not yet RX-completed.
+            slot.descriptorCompleted = true;
+            slot.state = SlotState::ReadyForHardware;
+            return Error::Ok;
+        }
+
+        Error RxRing::postedToHardware(const RxSlotToken &token,
+                                       bool radioReady, bool channelAllowed)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            RingSlot &slot = mutableSlot(token.index);
+            if (!matches(token) || slot.state != SlotState::ReadyForHardware)
+            {
+                return Error::UnexpectedState;
+            }
+            if (!slot.dmaMapped || !slot.descriptorCompleted || !radioReady ||
+                !channelAllowed)
+            {
+                return Error::NotReadyToReceive;
+            }
+            slot.state = SlotState::OwnedByHardware;
+            return Error::Ok;
+        }
+
+        Error RxRing::complete(const RxSlotToken &token, bool ownershipReturned,
+                               bool synchronized)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            RingSlot &slot = mutableSlot(token.index);
+            if (!matches(token) || slot.state != SlotState::OwnedByHardware)
+            {
+                return Error::UnexpectedState;
+            }
+            if (!ownershipReturned)
+            {
+                return Error::UnexpectedState;
+            }
+            if (!synchronized)
+            {
+                return Error::NotSynchronized;
+            }
+            slot.state = SlotState::Completed;
+            return Error::Ok;
+        }
+
+        Error RxRing::retireQuiesced(const RxSlotToken &token, bool quiesced)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            RingSlot &slot = mutableSlot(token.index);
+            if (!matches(token) || slot.state != SlotState::OwnedByHardware)
+            {
+                return Error::UnexpectedState;
+            }
+            if (!quiesced)
+            {
+                return Error::UnexpectedState;
+            }
+            slot.state = SlotState::Quiesced;
+            return Error::Ok;
+        }
+
+        Error RxRing::release(const RxSlotToken &token)
+        {
+            if (token.index >= capacity_)
+            {
+                return Error::InvalidSlot;
+            }
+            RingSlot &slot = mutableSlot(token.index);
+            if (!matches(token) || active_ == 0 ||
+                (slot.state != SlotState::Reserved &&
+                 slot.state != SlotState::ReadyForHardware &&
+                 slot.state != SlotState::Completed &&
+                 slot.state != SlotState::Quiesced))
+            {
+                return Error::UnexpectedState;
+            }
+            slot = {};
+            slot.state = SlotState::Free;
+            --active_;
+            return Error::Ok;
+        }
+
+        Error RxRing::reset()
+        {
+            if (active_ != 0)
+            {
+                return Error::UnexpectedState;
+            }
+            capacity_ = 0;
+            for (RingSlot &slot : slots_)
+            {
+                slot = {};
+            }
+            // Preserve monotonic generation for next initialization.
+            return Error::Ok;
+        }
+
+        bool RxRing::matches(const RxSlotToken &token) const
+        {
+            if (token.index >= capacity_ || token.generation == 0)
+            {
+                return false;
+            }
+            const RingSlot *const current = slot(token.index);
+            return current != nullptr &&
+                   current->generation == token.generation &&
+                   current->cookie == token.cookie;
+        }
+
+        RingSlot &RxRing::mutableSlot(size_t index)
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+            return slots_[index]; // Only used after index < capacity_.
+        }
+
+        const RingSlot *RxRing::slot(size_t index) const
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
             return index < capacity_ ? &slots_[index] : nullptr;
         }
 

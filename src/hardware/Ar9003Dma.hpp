@@ -33,6 +33,7 @@ namespace simpleath
             GenerationExhausted,
             InvalidDirection,
             AliasedMetadata,
+            NotReadyToReceive,
         };
 
         enum class Direction : uint8_t
@@ -64,6 +65,12 @@ namespace simpleath
         Error validateDescriptorRing(const Mapping &mapping,
                                      size_t descriptorBytes, size_t count,
                                      size_t alignment);
+        // RX status/descriptor rings must have device-to-host mapping, not
+        // the TX direction silently reused by a caller. Both require complete
+        // IOVA coverage and equal CPU/device alignment.
+        Error validateReceiveDescriptorRing(const Mapping &mapping,
+                                            size_t descriptorBytes,
+                                            size_t count, size_t alignment);
 
         enum class SlotState : uint8_t
         {
@@ -72,6 +79,8 @@ namespace simpleath
             ReadyForHardware,
             OwnedByHardware,
             Completed,
+            // RX only: DMA was isolated, but no valid received frame exists.
+            Quiesced,
         };
 
         struct RingSlot
@@ -134,6 +143,71 @@ namespace simpleath
 
             private:
                 bool matches(const TxSlotToken &token) const;
+                RingSlot slots_[kMaximumSlots];
+                size_t capacity_;
+                size_t active_;
+                uint32_t generation_;
+        };
+
+        struct RxSlotToken
+        {
+                size_t index;
+                uint32_t cookie;
+                uint32_t generation;
+        };
+
+        // Receive ownership complements TxRing: each buffer belongs to the
+        // device from posting until a verified completion OR proven DMA stop.
+        // Metadata alone never grants a host pointer, syncs caches, programs
+        // descriptors or proves that the hardware has stopped. The native
+        // owner must serialize all transitions and retain the actual mapping
+        // until release; stale tokens are rejected across reset/reinit.
+        class RxRing final
+        {
+            public:
+                enum : size_t
+                {
+                    kMaximumSlots = TxRing::kMaximumSlots,
+                };
+
+                RxRing();
+                Error initialize(size_t numberOfSlots);
+                Error reserve(RxSlotToken &token, uint32_t cookie);
+                Error bufferPrepared(const RxSlotToken &token, bool dmaMapped,
+                                     bool synchronized);
+                Error postedToHardware(const RxSlotToken &token,
+                                       bool radioReady, bool channelAllowed);
+                // Completion is an external descriptor/ownership attestation.
+                // A returned RX frame still needs FCS, bounds and crypto
+                // checks.
+                Error complete(const RxSlotToken &token, bool ownershipReturned,
+                               bool synchronized);
+                // Exceptional teardown: only after the device's DMA engine is
+                // isolated AND deferred IRQ/completion work has been drained.
+                // This does not publish a received packet; state is Quiesced,
+                // distinct from a synchronized, verified completion.
+                Error retireQuiesced(const RxSlotToken &token, bool quiesced);
+                // May cancel a reserved/prepared buffer; never release a
+                // device-owned buffer until completion or safe quiescence.
+                Error release(const RxSlotToken &token);
+                Error reset();
+
+                size_t active() const
+                {
+                    return active_;
+                }
+
+                size_t capacity() const
+                {
+                    return capacity_;
+                }
+
+                const RingSlot *slot(size_t index) const;
+
+            private:
+                bool matches(const RxSlotToken &token) const;
+                // Each caller has already checked index < capacity_.
+                RingSlot &mutableSlot(size_t index);
                 RingSlot slots_[kMaximumSlots];
                 size_t capacity_;
                 size_t active_;
