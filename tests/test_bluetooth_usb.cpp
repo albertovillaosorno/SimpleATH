@@ -518,6 +518,18 @@ namespace
         {
             return false;
         }
+        // An endpoint descriptor can be borrowed from the detached transport.
+        // Attach must preserve the validated addresses before it clears state.
+        state.endpoints = endpoints;
+        if (attachUsbHci(state, state.endpoints, host(fake)) !=
+                UsbHciStatus::Ok ||
+            state.endpoints.eventInterruptIn != endpoints.eventInterruptIn ||
+            state.endpoints.aclBulkIn != endpoints.aclBulkIn ||
+            state.endpoints.aclBulkOut != endpoints.aclBulkOut)
+        {
+            return false;
+        }
+        detachUsbHci(state);
         return attachUsbHci(state, endpoints, host(fake)) == UsbHciStatus::Ok &&
                state.attached && state.epoch == kEpoch;
     }

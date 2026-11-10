@@ -794,10 +794,13 @@ namespace simpleath
             // A zero epoch cannot identify an exclusive physical owner.
             return UsbHciStatus::InvalidArgument;
         }
-        if (!validEndpoint(endpoints.eventInterruptIn, true) ||
-            !validEndpoint(endpoints.aclBulkIn, true) ||
-            !validEndpoint(endpoints.aclBulkOut, false) ||
-            endpoints.eventInterruptIn == endpoints.aclBulkIn)
+        // Descriptor storage may be borrowed from this detached state.
+        // Snapshot before validation, permit callbacks or clearing the owner.
+        const UsbHciEndpoints selected = endpoints;
+        if (!validEndpoint(selected.eventInterruptIn, true) ||
+            !validEndpoint(selected.aclBulkIn, true) ||
+            !validEndpoint(selected.aclBulkOut, false) ||
+            selected.eventInterruptIn == selected.aclBulkIn)
         {
             return UsbHciStatus::InvalidEndpoint;
         }
@@ -819,7 +822,7 @@ namespace simpleath
         state = {};
         state.epoch = host.ownerEpoch;
         state.generation = priorGeneration + 1U;
-        state.endpoints = endpoints;
+        state.endpoints = selected;
         state.attached = true;
         return UsbHciStatus::Ok;
     }
