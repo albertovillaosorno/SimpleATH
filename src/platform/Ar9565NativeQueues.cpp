@@ -533,6 +533,8 @@ namespace simpleath
         {
             return kIOReturnNotReady;
         }
+        keyUpdateIsolated_ = false;
+        keyUpdateRestartPending_ = false;
         phase_ = NativeQueuePhase::Running; // Hardware may observe a partial
                                             // publication.
         uint32_t txConfiguration = 0;
@@ -616,6 +618,139 @@ namespace simpleath
             return kIOReturnIOError;
         }
         return kIOReturnSuccess;
+    }
+
+    bool NativeQueues::isolateHardwareGated()
+    {
+        if (!gated())
+        {
+            return false;
+        }
+        // Disabling the interrupt source does not prove DMA isolation.
+        // Attempt every hardware mask even after an earlier failure.
+        bool masked = write(kIer, 0);
+        masked = write(kAsyncMask, 0) && masked;
+        masked = write(kAsyncEnable, 0) && masked;
+        masked = write(kSyncMask, 0) && masked;
+        masked = write(kSyncEnable, 0) && masked;
+        const bool masterOff =
+            callbacks_.setBusMaster(callbacks_.context, false);
+        const RegisterBus bus {
+            callbacks_.context,
+            callbacks_.read32,
+            callbacks_.write32,
+            callbacks_.barLengthBytes,
+        };
+        const bool stopped =
+            quiesceAr9565Mac(bus, callbacks_.delayMicros) == MacStopResult::Ok;
+        return masked && masterOff && stopped;
+    }
+
+    void NativeQueues::clearQuiescedBuffers()
+    {
+        // Only after verified DMA/MAC isolation and all RX borrowers exit.
+        // Never reset a live descriptor or reuse a completed frame.
+        clearPublishedBytes(memory_->descriptors.cpu,
+                            memory_->descriptors.length);
+        clearPublishedBytes(memory_->transmit.cpu, memory_->transmit.length);
+        clearPublishedBytes(memory_->receive.cpu, memory_->receive.length);
+        clearPublishedBytes(memory_->completions.cpu,
+                            memory_->completions.length);
+        rxHead_[0] = rxHead_[1] = 0;
+        droppedChain_[0] = droppedChain_[1] = false;
+        txSlot_ = completionHead_ = pendingDescriptorId_ = 0;
+        txToken_ = 0;
+        txPending_ = false;
+        // nextDescriptorId_ never resets within an owner epoch.
+    }
+
+    IOReturn NativeQueues::beginKeyUpdateGated()
+    {
+        if (!gated() || !attached_ || phase_ != NativeQueuePhase::Running ||
+            !callbacks_.radioReady(callbacks_.context, epoch_) ||
+            keyUpdateIsolated_ || keyUpdateRestartPending_)
+        {
+            return kIOReturnNotReady;
+        }
+        // Do not discard a device-owned EAPOL/management TX descriptor.
+        if (txPending_)
+        {
+            return kIOReturnBusy;
+        }
+        interrupt_->disable();
+        if (!isolateHardwareGated())
+        {
+            phase_ = NativeQueuePhase::Quarantined;
+            // A synchronous RX borrower must unwind before the owner can
+            // tear down queues or revoke the station in its fault callback.
+            if (inInterruptService_)
+            {
+                keyUpdateFaultPending_ = true;
+            }
+            else
+            {
+                callbacks_.fault(callbacks_.context, kIOReturnIOError);
+            }
+            return kIOReturnIOError;
+        }
+        phase_ = NativeQueuePhase::Prepared;
+        keyUpdateIsolated_ = true;
+        // Current RX callback may still borrow its completed DMA frame.
+        return kIOReturnSuccess;
+    }
+
+    bool NativeQueues::keyUpdateIsolatedGated() const
+    {
+        return gated() && attached_ && keyUpdateIsolated_ &&
+               phase_ == NativeQueuePhase::Prepared &&
+               !keyUpdateRestartPending_;
+    }
+
+    IOReturn NativeQueues::restartAfterKeyUpdateGated()
+    {
+        if (!gated() || !keyUpdateIsolated_ || !keyUpdateRestartPending_ ||
+            inReceiveCallback_ || inInterruptService_ ||
+            phase_ != NativeQueuePhase::Prepared)
+        {
+            return kIOReturnNotReady;
+        }
+        // The lease has ended, DMA was stopped and no RX borrower remains.
+        // A failed readiness preflight must quarantine this key generation;
+        // startGated itself notifies the owner on partial hardware failure.
+        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        {
+            keyUpdateIsolated_ = false;
+            keyUpdateRestartPending_ = false;
+            phase_ = NativeQueuePhase::Quarantined;
+            callbacks_.fault(callbacks_.context, kIOReturnNotReady);
+            return kIOReturnNotReady;
+        }
+        clearQuiescedBuffers();
+        const IOReturn result = startGated();
+        if (result != kIOReturnSuccess)
+        {
+            return result;
+        }
+        if (callbacks_.keyUpdateResumed != nullptr)
+        {
+            callbacks_.keyUpdateResumed(callbacks_.context, epoch_);
+        }
+        return kIOReturnSuccess;
+    }
+
+    IOReturn NativeQueues::endKeyUpdateGated()
+    {
+        if (!keyUpdateIsolatedGated())
+        {
+            return kIOReturnNotReady;
+        }
+        keyUpdateRestartPending_ = true;
+        // A synchronous WPA2 M3 callback still borrows the RX slot.
+        if (inReceiveCallback_ || inInterruptService_)
+        {
+            return kIOReturnSuccess;
+        }
+        return restartAfterKeyUpdateGated();
     }
 
     IOReturn NativeQueues::transmitGated(const uint8_t *frame, size_t bytes,
@@ -725,8 +860,10 @@ namespace simpleath
                 fault(kIOReturnIOError);
                 return ReceiveStep::Stopped;
             }
+            inReceiveCallback_ = true;
             callbacks_.receive(callbacks_.context, frame, status.frameLength,
                                status);
+            inReceiveCallback_ = false;
         }
         if (!gated() || phase_ != NativeQueuePhase::Running)
         {
@@ -831,10 +968,29 @@ namespace simpleath
 
     void NativeQueues::serviceInterruptGated()
     {
-        if (!gated() || phase_ != NativeQueuePhase::Running)
+        if (!gated() || phase_ != NativeQueuePhase::Running ||
+            inInterruptService_)
         {
             return;
         }
+        inInterruptService_ = true;
+        serviceInterruptBodyGated();
+        inInterruptService_ = false;
+        if (keyUpdateFaultPending_)
+        {
+            keyUpdateFaultPending_ = false;
+            callbacks_.fault(callbacks_.context, kIOReturnIOError);
+            return;
+        }
+        if (keyUpdateRestartPending_ && keyUpdateIsolated_)
+        {
+            // The borrowed RX callback has returned; restart is now safe.
+            restartAfterKeyUpdateGated();
+        }
+    }
+
+    void NativeQueues::serviceInterruptBodyGated()
+    {
         uint32_t async = 0;
         uint32_t sync = 0;
         uint32_t isr = 0;
@@ -887,6 +1043,9 @@ namespace simpleath
         {
             interrupt_->disable();
         }
+        keyUpdateIsolated_ = false;
+        keyUpdateRestartPending_ = false;
+        keyUpdateFaultPending_ = false;
         phase_ = NativeQueuePhase::Quarantined;
         callbacks_.fault(callbacks_.context, result);
     }
@@ -897,6 +1056,9 @@ namespace simpleath
         {
             return false;
         }
+        keyUpdateIsolated_ = false;
+        keyUpdateRestartPending_ = false;
+        keyUpdateFaultPending_ = false;
         if (interrupt_ != nullptr)
         {
             interrupt_->disable();
@@ -911,29 +1073,7 @@ namespace simpleath
         {
             return true;
         }
-        bool isolated = false;
-        if (available && gated())
-        {
-            // Attempt every isolation operation even after an earlier write
-            // fails. One failed register must not leave another IRQ enabled.
-            bool masked = write(kIer, 0);
-            masked = write(kAsyncMask, 0) && masked;
-            masked = write(kAsyncEnable, 0) && masked;
-            masked = write(kSyncMask, 0) && masked;
-            masked = write(kSyncEnable, 0) && masked;
-            const bool masterOff =
-                callbacks_.setBusMaster(callbacks_.context, false);
-            const RegisterBus bus {
-                callbacks_.context,
-                callbacks_.read32,
-                callbacks_.write32,
-                callbacks_.barLengthBytes,
-            };
-            const bool stopped =
-                quiesceAr9565Mac(bus, callbacks_.delayMicros) ==
-                MacStopResult::Ok;
-            isolated = masked && masterOff && stopped;
-        }
+        const bool isolated = available && isolateHardwareGated();
         phase_ = isolated ? NativeQueuePhase::Prepared
                           : NativeQueuePhase::Quarantined;
         txPending_ = false;
@@ -981,6 +1121,9 @@ namespace simpleath
             memory_ = nullptr;
         }
         callbacks_ = {};
+        inReceiveCallback_ = inInterruptService_ = false;
+        keyUpdateIsolated_ = keyUpdateRestartPending_ = false;
+        keyUpdateFaultPending_ = false;
         epoch_ = txToken_ = 0;
         nextDescriptorId_ = 1;
         pendingDescriptorId_ = txSlot_ = completionHead_ = 0;

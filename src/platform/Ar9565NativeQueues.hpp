@@ -28,6 +28,9 @@ namespace simpleath
                                 const edma::TxCompletion &);
             void (*fault)(void *, IOReturn);
             uint32_t barLengthBytes;
+            // Optional same-epoch notification after DMA safely restarts.
+            // Caller may flush an EAPOL M4 deferred during a key update.
+            void (*keyUpdateResumed)(void *, uint64_t) = nullptr;
     };
     enum class NativeQueuePhase : uint8_t
     {
@@ -55,6 +58,17 @@ namespace simpleath
                           IOInterruptEventSource::Action interruptAction);
             IOReturn adoptGated(uint64_t currentEpoch);
             IOReturn startGated();
+            // A receive callback may install WPA2 keys synchronously while it
+            // borrows a DMA buffer. Physically stop RX/TX and bus mastering,
+            // but do not recycle borrowed storage until that callback exits.
+            // A successful begin grants only a same-epoch, gated key-write
+            // lease; no transmit/receive data is authorized by this lease.
+            IOReturn beginKeyUpdateGated();
+            bool keyUpdateIsolatedGated() const;
+            // Success can mean restart is deferred until the current IRQ and
+            // borrowed RX callback unwind. A failed restart quarantines DMA
+            // and calls fault; keyUpdateResumed runs only after real restart.
+            IOReturn endKeyUpdateGated();
             IOReturn transmitGated(const uint8_t *frame, size_t bytes,
                                    uint64_t token,
                                    const edma::TxControlRequest &control,
@@ -95,6 +109,10 @@ namespace simpleath
             ReceiveStep processRxSlot(uint32_t queue);
             void receiveCompleted();
             void transmitCompleted();
+            void serviceInterruptBodyGated();
+            bool isolateHardwareGated();
+            void clearQuiescedBuffers();
+            IOReturn restartAfterKeyUpdateGated();
             IOService *owner_ {nullptr};
             IOService *pci_ {nullptr};
             IOWorkLoop *loop_ {nullptr};
@@ -110,6 +128,11 @@ namespace simpleath
             uint16_t completionHead_ {0};
             bool attached_ {false};
             bool txPending_ {false};
+            bool inReceiveCallback_ {false};
+            bool inInterruptService_ {false};
+            bool keyUpdateIsolated_ {false};
+            bool keyUpdateRestartPending_ {false};
+            bool keyUpdateFaultPending_ {false};
             uint8_t rxHead_[2] {};
             bool droppedChain_[2] {};
     };
