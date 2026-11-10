@@ -65,7 +65,14 @@ namespace
             SimpleATH *owner;
     };
 
-    bool gSimpleATHEnabled = true;
+    // Kernel entrypoint writes this before IOKit calls probe/start.
+    // A function-local state slot avoids unrelated mutable globals.
+    bool &driverEnabled()
+    {
+        static bool enabled = true;
+        return enabled;
+    }
+
     constexpr size_t kNvmStorageBytes = 4096;
     constexpr size_t kNativeEthernetCapacity = 1518;
     constexpr size_t kNativeTxMpduCapacity = 1600;
@@ -154,7 +161,7 @@ class SimpleATH final : public IOService
 
         public : IOService *probe(IOService *provider, SInt32 *score) override
         {
-            return gSimpleATHEnabled && OSDynamicCast(IOPCIDevice, provider)
+            return driverEnabled() && OSDynamicCast(IOPCIDevice, provider)
                        ? IOService::probe(provider, score)
                        : nullptr;
         }
@@ -166,7 +173,7 @@ class SimpleATH final : public IOService
 
         bool start(IOService *provider) override
         {
-            if (!gSimpleATHEnabled || !IOService::start(provider))
+            if (!driverEnabled() || !IOService::start(provider))
             {
                 return false;
             }
@@ -608,12 +615,10 @@ class SimpleATH final : public IOService
         // verified on-channel receiver can enter this path: NVM acquisition,
         // a registry property, or a queued DMA map is not a tuning proof.
         static IOReturn ownerBeginScanAction(OSObject *object, void *argument,
-                                             void *unused1, void *unused2,
-                                             void *unused3)
+                                             void * /*unused1*/,
+                                             void * /*unused2*/,
+                                             void * /*unused3*/)
         {
-            (void)unused1;
-            (void)unused2;
-            (void)unused3;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(object);
             auto &generation = *static_cast<uint64_t *>(argument);
@@ -702,12 +707,10 @@ class SimpleATH final : public IOService
         }
 
         static IOReturn ownerCancelScanAction(OSObject *object, void *argument,
-                                              void *unused1, void *unused2,
-                                              void *unused3)
+                                              void * /*unused1*/,
+                                              void * /*unused2*/,
+                                              void * /*unused3*/)
         {
-            (void)unused1;
-            (void)unused2;
-            (void)unused3;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(object);
             const uint64_t expected = *static_cast<const uint64_t *>(argument);
@@ -750,12 +753,10 @@ class SimpleATH final : public IOService
         }
 
         static IOReturn ownerNextBssAction(OSObject *object, void *argument,
-                                           void *unused1, void *unused2,
-                                           void *unused3)
+                                           void * /*unused1*/,
+                                           void * /*unused2*/,
+                                           void * /*unused3*/)
         {
-            (void)unused1;
-            (void)unused2;
-            (void)unused3;
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(object);
             const auto &request =
@@ -3550,7 +3551,7 @@ OSDefineMetaClassAndStructors(SimpleATH, IOService)
     SimpleATH_kern_start(kmod_info_t * /*unused*/, void * /*unused*/)
 {
     int ignored = 0;
-    gSimpleATHEnabled =
+    driverEnabled() =
         PE_parse_boot_argn("-simpleathoff", &ignored, sizeof(ignored)) == 0;
     return KERN_SUCCESS;
 }
