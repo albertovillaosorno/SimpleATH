@@ -72,5 +72,5 @@ src/**/*          linguist-documentation=false eol=lf linguist-detectable
 *.mdc             text eol=lf linguist-detectable
 *.bib             text eol=lf linguist-detectable
 *.tex             text eol=lf linguist-detectable
-*.json            text eol=lf linguist-detectable
+*.json            linguist-detectable=false linguist-generated=true
 *.jsonc           linguist-detectable=false linguist-generated=true
