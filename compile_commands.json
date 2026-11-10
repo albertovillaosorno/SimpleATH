@@ -1570,6 +1570,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_disassociation.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_disassociation.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_dma_ring.cpp",
     "arguments": [
       "clang++",

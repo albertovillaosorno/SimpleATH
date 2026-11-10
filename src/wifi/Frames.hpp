@@ -167,6 +167,21 @@ namespace simpleath
                                              uint16_t sequence, uint8_t *output,
                                              size_t capacity, size_t &written);
 
+        // Non-PMF infrastructure disassociation: exactly 24-byte management
+        // header and 2-byte IEEE reason. The native owner must verify live
+        // association/BSSID and TX regulatory authority independently; never
+        // emit an unprotected leave frame on a PMF-negotiated connection.
+        struct DisassociationParameters
+        {
+                uint16_t reason;
+                uint16_t sequence;
+        };
+
+        Result makeDisassociationRequest(const Mac &station, const Mac &bssid,
+                                         DisassociationParameters fields,
+                                         uint8_t *output, size_t capacity,
+                                         size_t &written);
+
         // Exact association TX capacity for the selected BSS's common legacy
         // rates, or zero if the BSS requires a PHY rate this station lacks.
         // Does not itself authorize a link or validate its security policy.

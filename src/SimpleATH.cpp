@@ -457,11 +457,77 @@ class SimpleATH final : public IOService
             return self.gate_->runAction(ownerConnectAction, &stable);
         }
 
-        static IOReturn ownerDisconnect(void *, uint16_t)
+        static IOReturn ownerDisconnectAction(OSObject *object, void *argument,
+                                              void * /*unused1*/,
+                                              void * /*unused2*/,
+                                              void * /*unused3*/)
         {
-            // A disassociation cannot be acknowledged before the native
-            // station and protected management TX paths have completed.
-            return kIOReturnNotReady;
+            // The provider owns this command gate and the physical link.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const uint16_t reason = *static_cast<const uint16_t *>(argument);
+            const auto link = self.engine_.linkStatus();
+            if (link.state != simpleath::ieee80211::LinkState::Associated ||
+                link.pmfNegotiated || !self.canSubmitTransmit())
+            {
+                return kIOReturnNotReady;
+            }
+            if (!self.queues_.hasTransmitSpace())
+            {
+                return kIOReturnNoResources;
+            }
+            size_t written = 0;
+            const auto encoded =
+                simpleath::ieee80211::makeDisassociationRequest(
+                    link.station, link.bssid, {reason, self.txSequence_},
+                    &self.managementReply_[0], sizeof(self.managementReply_),
+                    written);
+            if (encoded != simpleath::ieee80211::Result::Ok)
+            {
+                return kIOReturnBadArgument;
+            }
+            const IOReturn sent =
+                self.submitPreparedTransmit(&self.managementReply_[0], written);
+            if (sent != kIOReturnSuccess)
+            {
+                return sent;
+            }
+            self.txSequence_ =
+                static_cast<uint16_t>((self.txSequence_ + 1U) & kSequenceMask);
+            // A successfully queued disassociation ends the native local
+            // association immediately; no stale PTK/GTK, replay state or
+            // receive port may survive the leave request. Hardware DMA still
+            // owns its copied management frame until completion.
+            self.controlledPortAuthorized_ = false;
+            self.nativePairwiseTx_.revoke();
+            self.nativePairwiseRx_.revoke();
+            for (auto &group : self.nativeGroupRx_)
+            {
+                group.revoke();
+            }
+            self.nativePairwiseKeyRevoked_ = true;
+            self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+            memset(&self.protectedRxScratch_[0], 0,
+                   sizeof(self.protectedRxScratch_));
+            self.engine_.radioStopped(
+                nowMicros(nullptr) / kMicrosPerMillisecond, false);
+            self.notifyWirelessChange(false);
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerDisconnect(void *context, uint16_t reason)
+        {
+            if (context == nullptr || reason == 0)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            uint16_t stable = reason;
+            return self.gate_->runAction(ownerDisconnectAction, &stable);
         }
 
         static IOReturn ownerInstallKeyAction(OSObject *object, void *argument,

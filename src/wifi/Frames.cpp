@@ -921,6 +921,80 @@ namespace simpleath
             return Result::Ok;
         }
 
+        Result makeDisassociationRequest(const Mac &station, const Mac &bssid,
+                                         DisassociationParameters fields,
+                                         uint8_t *output, size_t capacity,
+                                         size_t &written)
+        {
+            if (aliasesSerializedInput(output, capacity, written, &station,
+                                       sizeof(station)) ||
+                aliasesSerializedInput(output, capacity, written, &bssid,
+                                       sizeof(bssid)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (output == nullptr)
+            {
+                written = 0;
+                return Result::NullBuffer;
+            }
+            written = 0;
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
+            {
+                return Result::InvalidAddress;
+            }
+            if (fields.reason == 0)
+            {
+                return Result::InvalidFrame;
+            }
+
+            // All fields are byte arrays: the fixed management layout has no
+            // padding or unaligned accesses. Copy only after every validation
+            // so rejected inputs leave borrowed destination bytes untouched.
+            struct DisassociationWire
+            {
+                    uint8_t frameControl[2];
+                    uint8_t duration[2];
+                    uint8_t destination[kMacAddressBytes];
+                    uint8_t source[kMacAddressBytes];
+                    uint8_t bssid[kMacAddressBytes];
+                    uint8_t sequence[2];
+                    uint8_t reason[2];
+            };
+
+            constexpr uint8_t kFrameControl = 0xa0U;
+            constexpr uint32_t kSequenceMask = 0x0fffU;
+            constexpr uint32_t kFragmentShift = 4;
+            constexpr size_t kManagementBytes = 26;
+            static_assert(sizeof(DisassociationWire) == kManagementBytes,
+                          "disassociation frame must be 26 octets");
+            if (capacity < sizeof(DisassociationWire))
+            {
+                return Result::BufferTooSmall;
+            }
+            DisassociationWire frame {};
+            frame.frameControl[0] = kFrameControl;
+            __builtin_memcpy(&frame.destination[0], &bssid.bytes[0],
+                             sizeof(frame.destination));
+            __builtin_memcpy(&frame.source[0], &station.bytes[0],
+                             sizeof(frame.source));
+            __builtin_memcpy(&frame.bssid[0], &bssid.bytes[0],
+                             sizeof(frame.bssid));
+            const uint32_t sequenceField =
+                (static_cast<uint32_t>(fields.sequence) & kSequenceMask)
+                << kFragmentShift;
+            frame.sequence[0] = static_cast<uint8_t>(sequenceField);
+            frame.sequence[1] =
+                static_cast<uint8_t>(sequenceField >> kBitsPerByte);
+            frame.reason[0] = static_cast<uint8_t>(fields.reason);
+            frame.reason[1] =
+                static_cast<uint8_t>(fields.reason >> kBitsPerByte);
+            __builtin_memcpy(output, &frame, sizeof(frame));
+            written = sizeof(frame);
+            return Result::Ok;
+        }
+
         Result makeAssociationRequest(const Mac &station, const Beacon &network,
                                       uint16_t sequence, uint8_t *output,
                                       size_t capacity, size_t &written)
