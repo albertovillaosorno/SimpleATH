@@ -180,6 +180,39 @@ namespace simpleath
         const CalibrationAndRegulatory &authorization,
         const RxAgcBackend &backend);
 
+    enum class RxCalibrationPhase : uint8_t
+    {
+        ChainMasks,
+        AgcOffset,
+        IqCorrection,
+        NoiseFloor,
+        Completed,
+    };
+
+    struct RxCalibrationWorkflowProgress
+    {
+            // Phase is the stage that failed, or Completed for success.
+            // Only attempted per-stage results are meaningful. A failed
+            // stage cannot be retried without reset if prior writes occurred.
+            RxCalibrationPhase phase;
+            RxChainsProgress chains;
+            RxAgcProgress agc;
+            RxIqProgress iq;
+            RxNoiseProgress noise;
+            bool requiresReset;
+    };
+
+    // Complete AR9565 chain-zero, RX-only calibration source workflow:
+    // SELFGEN off + RX/CAL masks, AGC offset, RX IQ mismatch, NF sampling.
+    // The native caller must have completed verified INI/PLL/tuning, released
+    // RF-bus lease and quiesced the MAC, and MUST use one live serial owner
+    // epoch across all stages. NO TX, automatic responses, PHY readiness,
+    // ANI policy or native receiver activation is implied by completion.
+    RxCalibrationWorkflowProgress runAr9565ReceiveOnlyCalibration(
+        const RfChannelRequest &request, const Ar9565BoardChainMasks &board,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend);
+
 } // namespace simpleath
 
 #endif

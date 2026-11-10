@@ -27,6 +27,13 @@ namespace
     constexpr int kFailedChainsSuccessExit = 10;
     constexpr int kFailedChainsAdmissionExit = 11;
     constexpr int kFailedChainsFailuresExit = 12;
+    constexpr size_t kWorkflowWrites = 11;
+    constexpr size_t kWorkflowReads = 20;
+    constexpr size_t kWorkflowBeforeIqWriteCount = 6;
+    constexpr size_t kWorkflowBeforeIqCorrectionWriteCount = 9;
+    constexpr size_t kWorkflowRevokeAfterMasks = 8;
+    constexpr int kFailedWorkflowSuccessExit = 13;
+    constexpr int kFailedWorkflowFailuresExit = 14;
     constexpr uint32_t kNoisePrimary = 0x9e1c;
     constexpr uint32_t kNoiseExtension = 0x9830;
     constexpr uint32_t kNoiseCal = 0x2;
@@ -112,7 +119,7 @@ namespace
             uint32_t iqPowerQ = kIqSampleQ;
             uint32_t iqCorrelation = kIqSampleCorrelation;
             uint32_t iqCorrection = kIqUnrelated;
-            std::array<Write, kIqExpectedWrites> writes {};
+            std::array<Write, kWorkflowWrites> writes {};
             size_t writeCount = 0;
             size_t readCount = 0;
             size_t permitCount = 0;
@@ -825,6 +832,104 @@ namespace
                revoked.selfgen == 0 && revoked.calibrationMask == 0;
     }
 
+    bool testsWorkflowSuccess()
+    {
+        Mock mock {};
+        const Ar9565BoardChainMasks board {kSingleChain, kSingleChain};
+        const auto progress = runAr9565ReceiveOnlyCalibration(
+            request(), board, authorization(), backend(mock));
+        if (progress.phase != RxCalibrationPhase::Completed ||
+            progress.requiresReset ||
+            progress.chains.result != RxChainsResult::Ok ||
+            progress.agc.result != RxAgcResult::Ok ||
+            progress.iq.result != RxIqResult::Ok ||
+            progress.noise.result != RxNoiseResult::Ok ||
+            progress.noise.controlDbm != kNoiseExpectedControlDbm ||
+            progress.noise.hasExtension || mock.writeCount != kWorkflowWrites ||
+            mock.readCount != kWorkflowReads || mock.selfgen != 0 ||
+            mock.receiveMask != kSingleChain ||
+            mock.calibrationMask != kSingleChain || mock.badDelay ||
+            mock.writes.at(0).address != kSelfgenMask ||
+            mock.writes.at(kWorkflowWrites - 1).address != kAgc)
+        {
+            return false;
+        }
+        Mock ht40 {};
+        auto wide = request();
+        wide.width = ChannelWidth::Ht40;
+        wide.secondary = kHt40Secondary;
+        const auto band = runAr9565ReceiveOnlyCalibration(
+            wide, board, authorization(), backend(ht40));
+        return band.phase == RxCalibrationPhase::Completed &&
+               !band.requiresReset && band.noise.hasExtension &&
+               band.noise.extensionDbm == kNoiseExpectedExtensionDbm &&
+               ht40.writeCount == kWorkflowWrites;
+    }
+
+    bool testsWorkflowFailures()
+    {
+        const Ar9565BoardChainMasks board {kSingleChain, kSingleChain};
+        Mock invalid {};
+        const auto noBoard = runAr9565ReceiveOnlyCalibration(
+            request(), {0, kSingleChain}, authorization(), backend(invalid));
+        if (noBoard.phase != RxCalibrationPhase::ChainMasks ||
+            noBoard.chains.result != RxChainsResult::InvalidBoard ||
+            noBoard.requiresReset || invalid.writeCount != 0)
+        {
+            return false;
+        }
+        Mock badChannel {};
+        auto req = request();
+        req.control.centerMhz = 0;
+        const auto tuning = runAr9565ReceiveOnlyCalibration(
+            req, board, authorization(), backend(badChannel));
+        if (tuning.phase != RxCalibrationPhase::AgcOffset ||
+            tuning.agc.result != RxAgcResult::InvalidChannel ||
+            !tuning.requiresReset || badChannel.writeCount != kChainCount)
+        {
+            return false;
+        }
+        Mock revoke {};
+        revoke.revokeAt = kWorkflowRevokeAfterMasks;
+        const auto lost = runAr9565ReceiveOnlyCalibration(
+            request(), board, authorization(), backend(revoke));
+        if (lost.phase != RxCalibrationPhase::AgcOffset ||
+            lost.agc.result != RxAgcResult::OwnershipLost ||
+            !lost.requiresReset || revoke.writeCount != kChainCount)
+        {
+            return false;
+        }
+        Mock invalidIq {};
+        invalidIq.iqPowerQ = 0;
+        const auto iq = runAr9565ReceiveOnlyCalibration(
+            request(), board, authorization(), backend(invalidIq));
+        if (iq.phase != RxCalibrationPhase::IqCorrection ||
+            iq.iq.result != RxIqResult::InvalidMeasurement ||
+            !iq.requiresReset ||
+            invalidIq.writeCount != kWorkflowBeforeIqCorrectionWriteCount)
+        {
+            return false;
+        }
+        Mock invalidNoise {};
+        invalidNoise.noiseControl = kNoiseSampleZero;
+        const auto noise = runAr9565ReceiveOnlyCalibration(
+            request(), board, authorization(), backend(invalidNoise));
+        if (noise.phase != RxCalibrationPhase::NoiseFloor ||
+            noise.noise.result != RxNoiseResult::InvalidMeasurement ||
+            !noise.requiresReset || invalidNoise.writeCount != kWorkflowWrites)
+        {
+            return false;
+        }
+        Mock failedAgcWrite {};
+        failedAgcWrite.failWriteAt = kWorkflowBeforeIqWriteCount;
+        const auto stalled = runAr9565ReceiveOnlyCalibration(
+            request(), board, authorization(), backend(failedAgcWrite));
+        return stalled.phase == RxCalibrationPhase::AgcOffset &&
+               stalled.agc.result == RxAgcResult::WriteFailed &&
+               stalled.requiresReset &&
+               failedAgcWrite.writeCount == kWorkflowBeforeIqWriteCount - 1;
+    }
+
 } // namespace
 
 int main()
@@ -876,6 +981,14 @@ int main()
     if (!testsChainsFailures())
     {
         return kFailedChainsFailuresExit;
+    }
+    if (!testsWorkflowSuccess())
+    {
+        return kFailedWorkflowSuccessExit;
+    }
+    if (!testsWorkflowFailures())
+    {
+        return kFailedWorkflowFailuresExit;
     }
     return 0;
 }

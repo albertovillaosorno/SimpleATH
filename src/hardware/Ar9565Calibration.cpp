@@ -743,4 +743,53 @@ namespace simpleath
         return progress;
     }
 
+    RxCalibrationWorkflowProgress runAr9565ReceiveOnlyCalibration(
+        const RfChannelRequest &request, const Ar9565BoardChainMasks &board,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &backend)
+    {
+        RxCalibrationWorkflowProgress progress {
+            RxCalibrationPhase::ChainMasks,
+            {RxChainsResult::InvalidBackend, 0, 0, 0, false},
+            {RxAgcResult::InvalidBackend, 0, 0, 0, 0, false},
+            {RxIqResult::InvalidBackend, 0, 0, 0, 0, 0, false},
+            {RxNoiseResult::InvalidBackend, 0, 0, 0, 0, 0, false, false},
+            false,
+        };
+        progress.chains =
+            configureAr9565ReceiveOnlyChains(board, authorization, backend);
+        progress.requiresReset = progress.chains.requiresReset;
+        if (progress.chains.result != RxChainsResult::Ok)
+        {
+            return progress;
+        }
+        // Even if a subsequent stage rejects before touching the BAR, the
+        // earlier successful writes have changed the PHY state. Require
+        // owner reset on ANY downstream failure, including epoch loss.
+        progress.requiresReset = true;
+        progress.phase = RxCalibrationPhase::AgcOffset;
+        progress.agc =
+            runAr9565RxAgcCalibration(request, authorization, backend);
+        if (progress.agc.result != RxAgcResult::Ok)
+        {
+            return progress;
+        }
+        progress.phase = RxCalibrationPhase::IqCorrection;
+        progress.iq = runAr9565RxIqCalibration(request, authorization, backend);
+        if (progress.iq.result != RxIqResult::Ok)
+        {
+            return progress;
+        }
+        progress.phase = RxCalibrationPhase::NoiseFloor;
+        progress.noise =
+            runAr9565RxNoiseFloorCalibration(request, authorization, backend);
+        if (progress.noise.result != RxNoiseResult::Ok)
+        {
+            return progress;
+        }
+        progress.phase = RxCalibrationPhase::Completed;
+        progress.requiresReset = false;
+        return progress;
+    }
+
 } // namespace simpleath
