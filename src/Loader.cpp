@@ -27,6 +27,7 @@
 #include <mach/machine/vm_types.h>
 #include <mach/vm_prot.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 extern "C" kern_return_t kext_alloc(vm_offset_t *, vm_size_t, boolean_t);
@@ -62,25 +63,60 @@ namespace ath
     static constexpr size_t kPrelinkPathCapacity = 256U;
     static constexpr size_t kErrorHexCapacity = sizeof("0x00000000");
     static constexpr unsigned kPropertyBits = 32U;
-    static LinkedImage images[2];
-    static OSObject *modules[2];
+
+    namespace
+    {
+        // One private lifetime owner for the embedded loader. Mutable state is
+        // neither exported nor separately accessible across translation units.
+        struct LoaderState
+        {
+                LinkedImage images[2] {};
+                OSObject *modules[2] {};
+                const char *status {"NotPrepared"};
+                const char *failedModule {""};
+                uint32_t lastError {0};
+                uint32_t loadedCount {0};
+                uint32_t validatedCount {0};
+                bool prepared {false};
+                bool started {false};
+        };
+
+        // This must remain constant-initializable inside the kernel: no
+        // dynamic first-use guard, allocations or startup order dependency.
+        static_assert(LoaderState {}.status != nullptr,
+                      "loader state must be constant-initializable");
+
+        LoaderState &loaderState()
+        {
+            static LoaderState state {};
+            return state;
+        }
+
+        // Only two fixed embedded modules are loadable. This accessor keeps
+        // runtime indices away from unchecked array subscripts.
+        LinkedImage &selectedImage(uint32_t index)
+        {
+            return index == 0U ? loaderState().images[0]
+                               : loaderState().images[1];
+        }
+
+        OSObject *&selectedModule(uint32_t index)
+        {
+            return index == 0U ? loaderState().modules[0]
+                               : loaderState().modules[1];
+        }
+    } // namespace
+
     static constexpr uint32_t selected[] = {0, 1};
-    static const char *status = "NotPrepared";
-    static const char *failedModule = "";
-    static uint32_t lastError;
-    static uint32_t loadedCount;
-    static uint32_t validatedCount;
-    static bool prepared;
-    static bool started;
 
     static bool fail(const char *reason, const char *module, uint32_t error = 0)
     {
         Bridge::disable(reason);
-        status = reason;
-        failedModule = module;
-        lastError = error;
+        loaderState().status = reason;
+        loaderState().failedModule = module;
+        loaderState().lastError = error;
         SYSLOG("loader", "%s: %s (0x%08x)", reason, module, error);
-        for (auto &image : images)
+        for (auto &image : loaderState().images)
         {
             if ((image.memory != nullptr) && !image.registered)
             {
@@ -187,8 +223,8 @@ namespace ath
                     section_64 section {};
                     memcpy(&section,
                            image.memory + cursor + sizeof(segment) +
-                               static_cast<size_t>(sectionIndex) *
-                                   sizeof(section),
+                               (static_cast<size_t>(sectionIndex) *
+                                sizeof(section)),
                            sizeof(section));
                     if (section.addr > payload.mappedSize ||
                         section.addr > UINT64_MAX - delta)
@@ -205,7 +241,11 @@ namespace ath
 
     static bool registerImage(uint32_t index)
     {
-        auto &image = images[index];
+        if (index > 1U)
+        {
+            return false;
+        }
+        auto &image = selectedImage(index);
         if (!validateImageCommands(image))
         {
             return false;
@@ -273,18 +313,19 @@ namespace ath
                 reinterpret_cast<uint8_t *>(command) + command->cmdsize);
         }
         image.registered = true;
-        modules[index] = athRegisterKext(dictionary, true, kKcKindUnknown);
+        selectedModule(index) =
+            athRegisterKext(dictionary, true, kKcKindUnknown);
         dictionary->release();
-        if (modules[index] == nullptr)
+        if (selectedModule(index) == nullptr)
         {
             return false;
         }
-        athSetAutounloadEnabled(modules[index], false);
+        athSetAutounloadEnabled(selectedModule(index), false);
         image.editable = false;
-        auto result = athProtectKext(modules[index], true, false);
+        auto result = athProtectKext(selectedModule(index), true, false);
         if (result != KERN_SUCCESS)
         {
-            lastError = result;
+            loaderState().lastError = result;
             return false;
         }
         command = reinterpret_cast<load_command *>(header + 1);
@@ -301,7 +342,7 @@ namespace ath
                                          VM_PROT_READ, 0);
                     if (result != KERN_SUCCESS)
                     {
-                        lastError = result;
+                        loaderState().lastError = result;
                         return false;
                     }
                 }
@@ -315,7 +356,7 @@ namespace ath
 
     bool preparePayloads()
     {
-        if (prepared)
+        if (loaderState().prepared)
         {
             return true;
         }
@@ -364,10 +405,10 @@ namespace ath
                             nativeImportNames[guard.parent], guard.offset);
             }
         }
-        status = "Mapping";
+        loaderState().status = "Mapping";
         for (auto const index : selected)
         {
-            auto &image = images[index];
+            auto &image = selectedImage(index);
             image.payload =
                 &payloads[(index != 0U) ? nativeSystem->airPortPayloadIndex
                                         : 0];
@@ -388,100 +429,109 @@ namespace ath
                             image.payload->identifier);
             }
         }
-        status = "Linking";
+        loaderState().status = "Linking";
         for (auto const index : selected)
         {
-            if (!relocateImage(images[index], images, 2, athNativeImports,
-                               nativeImportCount, athCompatibilityImports,
+            if (!relocateImage(selectedImage(index), loaderState().images, 2,
+                               athNativeImports, nativeImportCount,
+                               athCompatibilityImports,
                                compatibilityImportCount))
             {
-                return fail("LinkFailed", images[index].payload->identifier);
+                return fail("LinkFailed",
+                            selectedImage(index).payload->identifier);
             }
         }
         Bridge::initialize();
-        status = "Patching";
-        if (!prepareNativeSkywalk(images, 2))
+        loaderState().status = "Patching";
+        if (!prepareNativeSkywalk(loaderState().images, 2))
         {
             return fail("NativeAdapterFailed", "SimpleATH");
         }
         Bridge::enableNativeSkywalk();
-        if (!Bridge::prepareImage(images[0], 0) ||
-            !Bridge::prepareImage(images[1], 1) || !Bridge::ready())
+        if (!Bridge::prepareImage(loaderState().images[0], 0) ||
+            !Bridge::prepareImage(loaderState().images[1], 1) ||
+            !Bridge::ready())
         {
             return fail("BridgeFailed", "SimpleATH");
         }
-        status = "Registering";
+        loaderState().status = "Registering";
         for (auto const index : selected)
         {
             if (!registerImage(index))
             {
                 return fail("RegistrationFailed",
-                            images[index].payload->identifier, lastError);
+                            selectedImage(index).payload->identifier,
+                            loaderState().lastError);
             }
         }
-        prepared = true;
-        status = "Prepared";
+        loaderState().prepared = true;
+        loaderState().status = "Prepared";
         return true;
     }
 
     bool startPayloads()
     {
-        if (started)
+        if (loaderState().started)
         {
             return true;
         }
-        if (!prepared)
+        if (!loaderState().prepared)
         {
             return false;
         }
-        status = "Loading";
+        loaderState().status = "Loading";
         for (auto const index : selected)
         {
-            auto const result = athLoadKext(images[index].payload->identifier,
-                                            false, true, 2, 2, nullptr);
+            auto const result =
+                athLoadKext(selectedImage(index).payload->identifier, false,
+                            true, 2, 2, nullptr);
             if (result != KERN_SUCCESS)
             {
-                return fail("LoadFailed", images[index].payload->identifier,
-                            result);
+                return fail("LoadFailed",
+                            selectedImage(index).payload->identifier, result);
             }
-            ++loadedCount;
+            ++loaderState().loadedCount;
         }
-        status = "ValidatingMappings";
+        loaderState().status = "ValidatingMappings";
         for (auto const index : selected)
         {
-            auto const result = athValidateKextMapping(modules[index], true);
+            auto const result =
+                athValidateKextMapping(selectedModule(index), true);
             if (result != KERN_SUCCESS)
             {
                 return fail("MappingValidationFailed",
-                            images[index].payload->identifier, result);
+                            selectedImage(index).payload->identifier, result);
             }
-            ++validatedCount;
+            ++loaderState().validatedCount;
         }
-        status = "Starting";
+        loaderState().status = "Starting";
         for (auto const index : selected)
         {
-            auto const result = athLoadKext(images[index].payload->identifier,
-                                            false, true, 0, 2, nullptr);
+            auto const result =
+                athLoadKext(selectedImage(index).payload->identifier, false,
+                            true, 0, 2, nullptr);
             if (result != KERN_SUCCESS)
             {
-                return fail("StartFailed", images[index].payload->identifier,
-                            result);
+                return fail("StartFailed",
+                            selectedImage(index).payload->identifier, result);
             }
         }
-        status = "Matching";
+        loaderState().status = "Matching";
         for (auto const index : selected)
         {
-            auto const result = athLoadKext(images[index].payload->identifier,
-                                            false, true, 0, 0, nullptr);
+            auto const result =
+                athLoadKext(selectedImage(index).payload->identifier, false,
+                            true, 0, 0, nullptr);
             if (result != KERN_SUCCESS)
             {
-                return fail("MatchingFailed", images[index].payload->identifier,
-                            result);
+                return fail("MatchingFailed",
+                            selectedImage(index).payload->identifier, result);
             }
-            gIOCatalogue->moduleHasLoaded(images[index].payload->identifier);
+            gIOCatalogue->moduleHasLoaded(
+                selectedImage(index).payload->identifier);
         }
-        started = true;
-        status = "StartedAwaitingHardware";
+        loaderState().started = true;
+        loaderState().status = "StartedAwaitingHardware";
         SYSLOG("loader", "embedded stack started on Darwin %u",
                getKernelVersion());
         return true;
@@ -489,24 +539,26 @@ namespace ath
 
     void publishLoader(IOService *service)
     {
-        service->setProperty("Status", status);
-        service->setProperty("LoaderStatus", status);
-        service->setProperty("LoaderFailedModule", failedModule);
-        service->setProperty("LoaderError", lastError, kPropertyBits);
+        service->setProperty("Status", loaderState().status);
+        service->setProperty("LoaderStatus", loaderState().status);
+        service->setProperty("LoaderFailedModule", loaderState().failedModule);
+        service->setProperty("LoaderError", loaderState().lastError,
+                             kPropertyBits);
         char error[kErrorHexCapacity];
-        snprintf(error, sizeof(error), "0x%08x", lastError);
+        snprintf(error, sizeof(error), "0x%08x", loaderState().lastError);
         service->setProperty("LoaderErrorHex", error);
         service->setProperty("LoaderKCType", "KCKindUnknown");
         service->setProperty("DriverLoading", "Embedded");
         service->setProperty("ExternalLiluRequired", false);
-        service->setProperty("EmbeddedModulesStarted", started);
-        service->setProperty("EmbeddedModulesLoaded", loadedCount,
+        service->setProperty("EmbeddedModulesStarted", loaderState().started);
+        service->setProperty("EmbeddedModulesLoaded", loaderState().loadedCount,
                              kPropertyBits);
-        service->setProperty("EmbeddedMappingsValidated", validatedCount,
-                             kPropertyBits);
-        if (images[1].payload != nullptr)
+        service->setProperty("EmbeddedMappingsValidated",
+                             loaderState().validatedCount, kPropertyBits);
+        if (loaderState().images[1].payload != nullptr)
         {
-            service->setProperty("AirPortSHA256", images[1].payload->sha256);
+            service->setProperty("AirPortSHA256",
+                                 loaderState().images[1].payload->sha256);
         }
         publishNativeSkywalk(service);
     }
