@@ -66,35 +66,33 @@ namespace simpleath
 
     } // namespace
 
+    bool radioInitializationAuthorized(const CalibrationAndRegulatory &r)
+    {
+        if (!r.eepromContentsVerified || !r.boardAntennaConfigurationVerified ||
+            !r.channelPermitted || !r.radioKillUnblocked ||
+            !r.coexistenceConfigurationVerified)
+            return false;
+        if (r.use == RadioInitialization::ReceiveOnly)
+            return true;
+        return r.use == RadioInitialization::TransmitReceive &&
+               r.localCountryRulesAvailable && r.txPowerLimitsVerified;
+    }
+
     bool
     canBeginHardwareInitialization(const RegisterRecipe &recipe,
                                    const CalibrationAndRegulatory &requirements)
     {
-        if (!recipe.implementationComplete || !recipe.regulatoryAuthorized ||
-            !requirements.eepromContentsVerified ||
-            !requirements.boardAntennaConfigurationVerified ||
-            !requirements.localCountryRulesAvailable ||
-            !requirements.channelPermitted ||
-            !requirements.txPowerLimitsVerified ||
-            !requirements.radioKillUnblocked ||
-            !requirements.coexistenceConfigurationVerified)
-        {
+        if (!recipe.tablesComplete ||
+            !radioInitializationAuthorized(requirements))
             return false;
-        }
-
-        // Even when a future owner can legitimately mark the implementation
-        // complete, a caller-mutated recipe is not an acceptable table list.
-        // Compare every phase and immutable table view with the pinned,
-        // revision-specific source recipe. This is still NOT hardware proof.
+        // A caller-mutated recipe cannot replace the pinned phase sequence.
         RegisterRecipe expected {};
         if (createInitRecipe(recipe.silicon, recipe.channel, recipe.width,
                              recipe.txGain, recipe.rxGain, requirements,
                              expected) != Result::Ok ||
-            // This source does not implement active radio initialization.
-            // No caller may turn a source-disabled recipe into an executable
-            // one simply by modifying its implementationComplete flag.
-            !expected.implementationComplete ||
-            !expected.regulatoryAuthorized || recipe.count != expected.count ||
+            !expected.tablesComplete ||
+            recipe.regulatoryAuthorized != expected.regulatoryAuthorized ||
+            recipe.count != expected.count ||
             recipe.registerWrites != expected.registerWrites)
         {
             return false;
@@ -160,10 +158,11 @@ namespace simpleath
         recipe.channel = requestedChannel;
         // A correctly populated table is NOT permission to transmit.
         recipe.regulatoryAuthorized =
+            requestedRequirements.use == RadioInitialization::TransmitReceive &&
             requestedRequirements.localCountryRulesAvailable &&
             requestedRequirements.channelPermitted &&
             requestedRequirements.txPowerLimitsVerified;
-        recipe.implementationComplete = false;
+        recipe.tablesComplete = true;
 
         const bool ht20 = width == ChannelWidth::Ht20;
         append(recipe, RegisterPhase::SocPreamble,

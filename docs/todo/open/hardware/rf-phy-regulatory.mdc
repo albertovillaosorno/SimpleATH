@@ -52,10 +52,16 @@ live signal or transmission tests.**
 
 ## Start here and next implementation step
 
-Ar9565RtcPower.* implements bounded RTC/MAC sequences through a callback
-contract; it is not an active native writer. Ar9565InitCatalog.* selects exact
-source tables but keeps implementationComplete false. Ar9565Power.* returns
-numerical candidates, not calibrated register values or transmission authority.
+The native owner now executes Ar9565RtcPower through actual PCI MMIO.
+Ar9565InitCatalog selects canonical INI tables and Ar9565RfIni executes them;
+the obsolete permanently false whole-driver recipe flag has been replaced
+with the precise tablesComplete stage. Explicit ReceiveOnly authorization
+allows the real table stage without fabricating TX power/country approval;
+it does not enable TX, automatic ACK/CTS or probe requests. Required board,
+antenna, permitted receive channel, RF-kill and coexistence proofs remain.
+Ar9565Power returns numerical candidates, not calibrated register values or
+transmission authority. PLL, synthesizer and RF-bus executors are implemented
+in separate source modules; native orchestration/calibration remains open.
 
 Implement the actual ordered radio executor after A2/A3 contracts exist:
 reset/wake -> PLL -> revision/mode/gain INI phases -> board values -> calibration

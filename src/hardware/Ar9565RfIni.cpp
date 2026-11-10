@@ -8,29 +8,19 @@ namespace simpleath
     {
         constexpr size_t kWriteDelayInterval = 32;
 
-        bool allPrerequisites(const CalibrationAndRegulatory &r)
-        {
-            return r.eepromContentsVerified &&
-                   r.boardAntennaConfigurationVerified &&
-                   r.localCountryRulesAvailable && r.channelPermitted &&
-                   r.txPowerLimitsVerified && r.radioKillUnblocked &&
-                   r.coexistenceConfigurationVerified;
-        }
-
         bool matchesCanonical(const RegisterRecipe &recipe,
                               const CalibrationAndRegulatory &requirements,
                               uint32_t barLength)
         {
             RegisterRecipe expected {};
-            if (!allPrerequisites(requirements) ||
+            if (!canBeginHardwareInitialization(recipe, requirements) ||
                 createInitRecipe(recipe.silicon, recipe.channel, recipe.width,
                                  recipe.txGain, recipe.rxGain, requirements,
                                  expected) != Result::Ok ||
                 recipe.count != expected.count ||
                 recipe.registerWrites != expected.registerWrites ||
-                !recipe.regulatoryAuthorized ||
-                recipe.implementationComplete !=
-                    expected.implementationComplete)
+                recipe.regulatoryAuthorized != expected.regulatoryAuthorized ||
+                recipe.tablesComplete != expected.tablesComplete)
             {
                 return false;
             }

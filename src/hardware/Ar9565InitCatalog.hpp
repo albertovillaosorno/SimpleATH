@@ -72,7 +72,15 @@ namespace simpleath
             size_t count;
             size_t registerWrites;
             bool regulatoryAuthorized;
-            bool implementationComplete;
+            // The selected INI recipe can be executed by Ar9565RfIni. This
+            // describes the table stage, never whole-radio or TX readiness.
+            bool tablesComplete;
+    };
+
+    enum class RadioInitialization : uint8_t
+    {
+        TransmitReceive,
+        ReceiveOnly,
     };
 
     struct CalibrationAndRegulatory
@@ -84,6 +92,7 @@ namespace simpleath
             bool txPowerLimitsVerified;
             bool radioKillUnblocked;
             bool coexistenceConfigurationVerified;
+            RadioInitialization use {RadioInitialization::TransmitReceive};
     };
 
     // This code describes supported Linux ath9k revision-specific table
@@ -96,14 +105,13 @@ namespace simpleath
                             const CalibrationAndRegulatory &requirements,
                             RegisterRecipe &out);
 
-    // Informational guard; also verifies the exact generated phase sequence,
-    // table pointers, row counts, and register count for the requested silicon,
-    // width, gain and channel. This does not establish runtime PCI ownership,
-    // trusted source of the prerequisites or a working calibration backend.
-    // The guard independently checks the source-created recipe's readiness,
-    // not just the caller's mutable implementationComplete flag. Current
-    // source always emits false, so it cannot declare any recipe executable.
-    // "Prepared" never means TX permission.
+    // Receive-only initialization never authorizes TX, automatic ACK/CTS or
+    // probe requests. The owner must keep those paths blocked independently.
+    bool
+    radioInitializationAuthorized(const CalibrationAndRegulatory &requirements);
+
+    // Verifies prerequisites and the exact canonical phase list before the
+    // MMIO executor starts. INI completion alone is not radio readiness.
     bool canBeginHardwareInitialization(
         const RegisterRecipe &recipe,
         const CalibrationAndRegulatory &requirements);

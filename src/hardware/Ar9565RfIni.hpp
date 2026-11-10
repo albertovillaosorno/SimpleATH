@@ -20,7 +20,8 @@ namespace simpleath
 
     // Only the native PCI owner may provide this backend, inside its serialized
     // work-loop gate, after RTC reset and MAC/queues are quiesced. permitWrite
-    // must recheck live D0, board/antenna/country/rfkill and the owner epoch.
+    // must recheck live D0, the requested receive/transmit prerequisites and
+    // the owner epoch; ReceiveOnly keeps TX and automatic ACK/CTS blocked.
     // This interface NEVER claims a calibrated radio or TX readiness.
     struct RfIniBackend
     {

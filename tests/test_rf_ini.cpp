@@ -94,5 +94,24 @@ int main()
     progress = applyAr9565RfIni(recipe, untrusted, backend);
     if (progress.result != RfIniResult::InvalidRecipe || mock.writes)
         return 8;
+    mock = {};
+    auto receive = trusted;
+    receive.use = RadioInitialization::ReceiveOnly;
+    receive.txPowerLimitsVerified = false;
+    receive.localCountryRulesAvailable = false;
+    RegisterRecipe passive {};
+    if (createInitRecipe(Revision::V1_1, channel, ChannelWidth::Ht20,
+                         TxGainProfile::LowOb, RxGainProfile::Standard, receive,
+                         passive) != Result::Ok)
+        return 9;
+    progress = applyAr9565RfIni(passive, receive, backend);
+    if (progress.result != RfIniResult::Ok || passive.regulatoryAuthorized ||
+        mock.writes != passive.registerWrites)
+        return 10;
+    receive.use = RadioInitialization::TransmitReceive;
+    mock = {};
+    progress = applyAr9565RfIni(passive, receive, backend);
+    if (progress.result != RfIniResult::InvalidRecipe || mock.writes)
+        return 11;
     return 0;
 }

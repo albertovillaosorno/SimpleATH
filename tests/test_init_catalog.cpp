@@ -12,7 +12,7 @@ namespace
     bool validRecipe(const RegisterRecipe &recipe, size_t expectedPhases)
     {
         if (recipe.count != expectedPhases || (recipe.registerWrites == 0U) ||
-            recipe.implementationComplete || recipe.count > 11)
+            !recipe.tablesComplete || recipe.count > 11)
         {
             return false;
         }
@@ -83,16 +83,17 @@ int main()
                          requirements, v11) != Result::Ok ||
         !validRecipe(v11, 10) || !v11.regulatoryAuthorized ||
         v11.phases[7].data == v10.phases[7].data ||
-        canBeginHardwareInitialization(v11, requirements))
+        !canBeginHardwareInitialization(v11, requirements))
     {
         return 3;
     }
     RegisterRecipe forged = v11;
-    forged.implementationComplete = true;
+    forged.tablesComplete = false;
     if (canBeginHardwareInitialization(forged, requirements))
     {
         return 4;
     }
+    forged = v11;
     forged.phases[7] = v10.phases[7];
     if (canBeginHardwareInitialization(forged, requirements))
     {
@@ -107,7 +108,7 @@ int main()
         !validRecipe(ht40, 10) || ht40.phases[8].data == v11.phases[8].data ||
         ht40.phases[9].data == v11.phases[9].data ||
         ht40.phases[7].data == v11.phases[7].data ||
-        canBeginHardwareInitialization(ht40, requirements))
+        !canBeginHardwareInitialization(ht40, requirements))
     {
         return 6;
     }
@@ -124,7 +125,7 @@ int main()
                          requirements, special) != Result::Ok ||
         !validRecipe(special, 11) ||
         special.phases[10].phase != RegisterPhase::Japan2484Txfir ||
-        canBeginHardwareInitialization(special, requirements))
+        !canBeginHardwareInitialization(special, requirements))
     {
         return 8;
     }
@@ -133,7 +134,7 @@ int main()
                          TxGainProfile::LowOb, RxGainProfile::Standard,
                          requirements, rejected) != Result::InvalidChannel ||
         (rejected.count != 0U) || (rejected.registerWrites != 0U) ||
-        rejected.regulatoryAuthorized || rejected.implementationComplete ||
+        rejected.regulatoryAuthorized || rejected.tablesComplete ||
         (rejected.phases[0].data != nullptr))
     {
         return 9;
@@ -199,9 +200,28 @@ int main()
                          TxGainProfile::LowOb, RxGainProfile::Standard,
                          requirements, aliased) != Result::InvalidChannel ||
         (aliased.count != 0U) || (aliased.phases[0].data != nullptr) ||
-        aliased.regulatoryAuthorized || aliased.implementationComplete)
+        aliased.regulatoryAuthorized || aliased.tablesComplete)
     {
         return 15;
     }
+    // RX-only startup may execute the real table stage without pretending
+    // that calibrated TX limits or a transmit country have been established.
+    auto receive = requirements;
+    receive.use = RadioInitialization::ReceiveOnly;
+    receive.txPowerLimitsVerified = false;
+    receive.localCountryRulesAvailable = false;
+    RegisterRecipe passive {};
+    if (createInitRecipe(Revision::V1_1, channel, ChannelWidth::Ht20,
+                         TxGainProfile::LowOb, RxGainProfile::Standard, receive,
+                         passive) != Result::Ok ||
+        passive.regulatoryAuthorized ||
+        !canBeginHardwareInitialization(passive, receive))
+        return 16;
+    receive.use = RadioInitialization::TransmitReceive;
+    if (canBeginHardwareInitialization(passive, receive))
+        return 17;
+    receive.use = static_cast<RadioInitialization>(0xff);
+    if (radioInitializationAuthorized(receive))
+        return 18;
     return 0;
 }
