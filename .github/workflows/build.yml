@@ -48,6 +48,25 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Enforce authorized numeric date-time tag
+        shell: bash
+        env:
+          BUILD_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          from datetime import datetime
+          import os
+          import re
+
+          tag = os.environ["BUILD_TAG"]
+          if re.fullmatch(r"build-v[0-9]{4}(?:\.[0-9]{2}){4}", tag) is None:
+              raise SystemExit("Build tag must be build-vYYYY.MM.DD.HH.mm")
+          try:
+              datetime.strptime(tag[len("build-v"):], "%Y.%m.%d.%H.%M")
+          except ValueError as exc:
+              raise SystemExit("Build tag contains an invalid date/time") from exc
+          PY
+
       - name: Checkout exact authorized commit
         uses: actions/checkout@v7
         with:

@@ -81,6 +81,12 @@ CI is advisory for explicitly authorized `build-v*` builds: failures and
 missing macOS prerequisites produce warnings, not a build stop. Standalone CI
 remains strict. Fix findings without weakening checks or hiding failures.
 No build tag, compilation, or hardware activity is authorized by this policy.
+Explicit owner-authorized build tags MUST use `build-vYYYY.MM.DD.HH.mm`,
+with zero-padded numeric date and 24-hour local time in
+`America/Mexico_City`. Only digits and dots follow `build-v`.
+Never reuse a tag or compile a dirty working-tree snapshot; push the
+tag on the exact committed `main` revision after the owner requests
+that build. CI validates the timestamp tag before compiling.
 
 Before notebook testing, after the production-implementation and zero-failure
 validation milestones, the committed AR9565 source must be complete and integrated for all required paths, with no known

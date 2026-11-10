@@ -198,10 +198,14 @@ also explicit production TODOs; both must be integrated before source closure.
 
 ## Build for macOS testing
 
-Kernel artifacts are compiled through the owner-authorized `build-v*` tag
-workflow after successful CI for that exact commit. The workflow uses the
-pinned SDK and Intel macOS toolchain. Local commands must not bypass the CI
-gate or substitute for an authorized build tag.
+Kernel artifacts are compiled only by the owner-authorized timestamp tag
+workflow, using `build-vYYYY.MM.DD.HH.mm` (for example,
+`build-v2026.11.10.15.19`). The date and 24-hour time use the
+`America/Mexico_City` timezone and zero-padded numbers. Never reuse
+a tag; push it for the exact committed `main` snapshot, excluding
+uncommitted edits. The workflow checks the tag format before
+compilation. The pinned SDK and Intel macOS toolchain are required;
+local commands must not bypass this owner-authorized CI build.
 
 The unsigned bundle is `build/Products/Release/SimpleATH.kext`. It now runs
 PCI claim/map, physical silicon inspection, MAC quiescence, RTC bootstrap and
