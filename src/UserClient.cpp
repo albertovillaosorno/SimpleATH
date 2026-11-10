@@ -239,7 +239,17 @@ IOReturn ATH80211UserClient::externalMethod(
     IOExternalMethodDispatch *, OSObject *, void *)
 {
     if ((arguments == nullptr) || (commandGate == nullptr) || !gateAdded ||
-        selector >= ath::Bridge::abi().selectorCount)
+        selector >= ath::kSelectorCount)
+    {
+        return kIOReturnBadArgument;
+    }
+    // The ABI pointer is only initialized when the bridge is usable. Check
+    // readiness before looking up its selector count or touching telemetry.
+    if (!ath::Bridge::ready())
+    {
+        return kIOReturnNotOpen;
+    }
+    if (selector >= ath::Bridge::abi().selectorCount)
     {
         return kIOReturnBadArgument;
     }
