@@ -53,6 +53,7 @@ namespace
             int8_t observedRssi {};
             bool valid {true};
             bool failCommand {};
+            const LeScanPhase *pendingPhase {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
     };
@@ -68,6 +69,28 @@ namespace
         auto &fake = *static_cast<Fake *>(context);
         if (fake.failCommand || packet == nullptr ||
             fake.commandCount >= kMaxCommands)
+        {
+            return false;
+        }
+        // Controller/HCI host callbacks may complete a command inline.
+        // The producer must publish its pending phase before USB control OUT.
+        if (fake.pendingPhase == nullptr || bytes < 4U)
+        {
+            return false;
+        }
+        const uint8_t opcode = *usbByteOffset(packet, 0U);
+        LeScanPhase expected = LeScanPhase::Faulted;
+        if (opcode == kParamsOpcode)
+        {
+            expected = LeScanPhase::AwaitParameters;
+        }
+        else if (opcode == kEnableOpcode)
+        {
+            expected = *usbByteOffset(packet, 3U) == 0U
+                           ? LeScanPhase::AwaitDisable
+                           : LeScanPhase::AwaitEnable;
+        }
+        if (*fake.pendingPhase != expected)
         {
             return false;
         }
@@ -205,6 +228,7 @@ namespace
 
             bool attach()
             {
+                fake_.pendingPhase = &scan_.phase;
                 const UsbHciEndpoints endpoints {0x81U, 0x82U, 0x02U};
                 return attachUsbHci(transport_, endpoints, hostFor(fake_)) ==
                        UsbHciStatus::Ok;

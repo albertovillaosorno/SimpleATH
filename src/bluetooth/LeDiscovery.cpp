@@ -104,11 +104,11 @@ namespace simpleath
                     state = {};
                     return LeDiscoveryResult::Ok;
                 }
+                state.phase = LeScanPhase::AwaitEnable;
                 if (sendEnable(transport, host, true) != LeDiscoveryResult::Ok)
                 {
                     return fault(state, LeDiscoveryResult::TransportFailed);
                 }
-                state.phase = LeScanPhase::AwaitEnable;
                 return LeDiscoveryResult::Ok;
             }
             if (state.phase == LeScanPhase::AwaitDisable)
@@ -118,11 +118,11 @@ namespace simpleath
             }
             if (state.stopRequested)
             {
+                state.phase = LeScanPhase::AwaitDisable;
                 if (sendEnable(transport, host, false) != LeDiscoveryResult::Ok)
                 {
                     return fault(state, LeDiscoveryResult::TransportFailed);
                 }
-                state.phase = LeScanPhase::AwaitDisable;
                 return LeDiscoveryResult::Ok;
             }
             state.phase = LeScanPhase::Scanning;
@@ -334,11 +334,11 @@ namespace simpleath
             state.stopRequested = true;
             return LeDiscoveryResult::Ok;
         }
+        state.phase = LeScanPhase::AwaitDisable;
         if (sendEnable(transport, host, false) != LeDiscoveryResult::Ok)
         {
             return fault(state, LeDiscoveryResult::TransportFailed);
         }
-        state.phase = LeScanPhase::AwaitDisable;
         if (!authorized(state, transport, host, owner))
         {
             return fault(state, LeDiscoveryResult::OwnershipLost);

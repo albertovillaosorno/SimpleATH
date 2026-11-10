@@ -166,18 +166,18 @@ namespace simpleath
             bool sent = false;
             if (state.phase == LeAdvertisingPhase::AwaitParameters)
             {
-                sent = sendData(transport, host, state);
                 state.phase = LeAdvertisingPhase::AwaitData;
+                sent = sendData(transport, host, state);
             }
             else if (state.phase == LeAdvertisingPhase::AwaitData)
             {
-                sent = sendEnable(transport, host, true);
                 state.phase = LeAdvertisingPhase::AwaitEnable;
+                sent = sendEnable(transport, host, true);
             }
             else if (state.stopRequested)
             {
-                sent = sendEnable(transport, host, false);
                 state.phase = LeAdvertisingPhase::AwaitDisable;
+                sent = sendEnable(transport, host, false);
             }
             else
             {

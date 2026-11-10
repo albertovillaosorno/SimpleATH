@@ -67,6 +67,7 @@ namespace
             bool allowAdvertising {true};
             bool revokeOnAuthorization {};
             bool failCommand {};
+            const LeAdvertisingPhase *pendingPhase {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -94,6 +95,33 @@ namespace
         auto &fake = *static_cast<Fake *>(context);
         if (fake.failCommand || data == nullptr || bytes < 3U ||
             bytes > kUsbHciMaxCommandBytes || fake.commandCount >= kMaxCommands)
+        {
+            return false;
+        }
+        // The HCI controller could synchronously complete a submitted
+        // command. Observe state at the actual USB callback boundary, not
+        // after send() has already returned to the producer.
+        if (fake.pendingPhase == nullptr || bytes < 4U)
+        {
+            return false;
+        }
+        const uint8_t opcode = *usbByteOffset(data, 0U);
+        LeAdvertisingPhase expected = LeAdvertisingPhase::Faulted;
+        if (opcode == kAdvertParamsOpcode)
+        {
+            expected = LeAdvertisingPhase::AwaitParameters;
+        }
+        else if (opcode == kAdvertDataOpcode)
+        {
+            expected = LeAdvertisingPhase::AwaitData;
+        }
+        else if (opcode == kAdvertEnableOpcode)
+        {
+            expected = *usbByteOffset(data, 3U) == 0U
+                           ? LeAdvertisingPhase::AwaitDisable
+                           : LeAdvertisingPhase::AwaitEnable;
+        }
+        if (*fake.pendingPhase != expected)
         {
             return false;
         }
@@ -160,6 +188,7 @@ namespace
 
             bool attach()
             {
+                fake_.pendingPhase = &advertising_.phase;
                 const UsbHciEndpoints endpoints {0x81U, 0x82U, 0x02U};
                 return attachUsbHci(transport_, endpoints, host()) ==
                        UsbHciStatus::Ok;
