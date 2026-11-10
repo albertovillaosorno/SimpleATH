@@ -20,6 +20,54 @@ namespace simpleath
             constexpr size_t kSnapBytes = 8U;
             constexpr size_t kFcsBytes = 4U;
             constexpr size_t kMaximumMpduBytes = 2346U;
+            constexpr uint16_t kMinimumEtherType = 0x0600U;
+            constexpr size_t kMacBytes = 6U;
+            constexpr size_t kSnapOuiLastIndex = 5U;
+            constexpr size_t kSnapTypeHighIndex = 6U;
+            constexpr size_t kSnapTypeLowIndex = 7U;
+            constexpr uint8_t kMsbShift = 8U;
+            constexpr uint8_t kDataToDs = 0x01U;
+            constexpr uint8_t kDataFrame = 0x08U;
+            constexpr uint8_t kSnapSap = 0xaaU;
+            constexpr uint8_t kSnapUnnumbered = 3U;
+            constexpr uint8_t kBridgeTunnelOui = 0xf8U;
+            constexpr uint16_t kSequenceMask = 0x0fffU;
+            constexpr uint8_t kSequenceFragmentBits = 4U;
+
+            struct EthernetHeaderBytes
+            {
+                    uint8_t destination[kMacBytes];
+                    uint8_t source[kMacBytes];
+                    uint8_t type[2];
+            };
+
+            static_assert(sizeof(EthernetHeaderBytes) == kEthernetHeaderBytes,
+                          "Ethernet-II header must be exactly 14 bytes");
+
+            struct StationTxHeader
+            {
+                    uint8_t control[2];
+                    uint8_t duration[2];
+                    uint8_t receiver[kMacBytes];
+                    uint8_t transmitter[kMacBytes];
+                    uint8_t destination[kMacBytes];
+                    uint8_t sequence[2];
+                    uint8_t snap[kSnapBytes];
+            };
+
+            static_assert(sizeof(StationTxHeader) ==
+                              kDataHeaderBytes + kSnapBytes,
+                          "802.11 ToDS with LLC/SNAP must be 32 bytes");
+
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                              "pointer address representation must match");
+                uintptr_t address = 0;
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
 
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
@@ -28,24 +76,26 @@ namespace simpleath
                 {
                     return false;
                 }
-                const auto first = reinterpret_cast<uintptr_t>(a);
-                const auto second = reinterpret_cast<uintptr_t>(b);
+                const auto first = pointerAddress(a);
+                const auto second = pointerAddress(b);
                 return first <= second ? second - first < aBytes
                                        : first - second < bBytes;
             }
 
+            // Every caller validates its source/destination capacity and
+            // disjointness before constructing the 802.11 wire frame.
             void copyBytes(uint8_t *dest, const uint8_t *source, size_t length)
             {
-                for (size_t i = 0; i < length; ++i)
+                if (length != 0U)
                 {
-                    dest[i] = source[i];
+                    __builtin_memcpy(dest, source, length);
                 }
             }
 
             bool validDestination(const Mac &address)
             {
                 uint8_t any = 0;
-                for (unsigned char byte : address.bytes)
+                for (const unsigned char byte : address.bytes)
                 {
                     any |= byte;
                 }
@@ -103,34 +153,23 @@ namespace simpleath
             {
                 return DataPathResult::InvalidEthernetFrame;
             }
-            const Mac destination {
-                {
-                    ethernet[0],
-                    ethernet[1],
-                    ethernet[2],
-                    ethernet[3],
-                    ethernet[4],
-                    ethernet[5],
-                },
-            };
-            const Mac source {
-                {
-                    ethernet[6],
-                    ethernet[7],
-                    ethernet[8],
-                    ethernet[9],
-                    ethernet[10],
-                    ethernet[11],
-                },
-            };
+            EthernetHeaderBytes header {};
+            __builtin_memcpy(&header, ethernet, sizeof(header));
+            Mac destination {};
+            Mac source {};
+            __builtin_memcpy(&destination.bytes[0], &header.destination[0],
+                             sizeof(header.destination));
+            __builtin_memcpy(&source.bytes[0], &header.source[0],
+                             sizeof(header.source));
             if (!validDestination(destination) ||
                 !sameMac(source, link.station))
             {
                 return DataPathResult::InvalidAddress;
             }
-            const uint16_t etherType =
-                static_cast<uint16_t>(ethernet[12]) << 8U | ethernet[13];
-            if (etherType < 0x0600U)
+            const auto etherType = static_cast<uint16_t>(
+                (static_cast<uint32_t>(header.type[0]) << kMsbShift) |
+                static_cast<uint32_t>(header.type[1]));
+            if (etherType < kMinimumEtherType)
             {
                 return DataPathResult::InvalidEthernetFrame;
             }
@@ -223,44 +262,46 @@ namespace simpleath
                 return DataPathResult::OverlappingBuffers;
             }
 
-            // 0x0108: data subtype, ToDS=1, FromDS=0, no protection, no
-            // fragments.
-            for (size_t i = 0; i < kDataHeaderBytes + kSnapBytes; ++i)
-            {
-                out[i] = 0;
-            }
-            out[0] = 0x08;
-            out[1] = 0x01;
-            // addr1=AP receiver, addr2=station transmitter, addr3=final
-            // Ethernet DA.
-            copyBytes(out + 4, link.bssid.bytes, 6);
-            copyBytes(out + 10, link.station.bytes, 6);
-            copyBytes(out + 16, destination.bytes, 6);
-            const uint16_t sequenceControl =
-                static_cast<uint16_t>((sequence & 0x0fffU) << 4U);
-            out[22] = static_cast<uint8_t>(sequenceControl);
-            out[23] = static_cast<uint8_t>(sequenceControl >> 8U);
-            // RFC 1042 LLC/SNAP carries an Ethernet-II Ethertype.
-            out[24] = 0xaaU;
-            out[25] = 0xaaU;
-            out[26] = 3U;
-            out[27] = 0;
-            out[28] = 0;
-            // IEEE 802.1H bridge-tunnel SNAP is required for Ethernet-II
-            // AARP and IPX; RFC 1042 (OUI 00:00:00) is used otherwise.
-            out[29] =
+            // 0x0108: data subtype, ToDS=1, FromDS=0, no protection,
+            // no fragments. Construct the entire fixed 802.11+LLC header
+            // before copying it to caller-owned output, never by relying on
+            // unchecked raw output offsets.
+            StationTxHeader stagedHeader {};
+            stagedHeader.control[0] = kDataFrame;
+            stagedHeader.control[1] = kDataToDs;
+            // addr1=AP receiver, addr2=station transmitter, addr3=final DA.
+            __builtin_memcpy(&stagedHeader.receiver[0], &link.bssid.bytes[0],
+                             sizeof(stagedHeader.receiver));
+            __builtin_memcpy(&stagedHeader.transmitter[0],
+                             &link.station.bytes[0],
+                             sizeof(stagedHeader.transmitter));
+            __builtin_memcpy(&stagedHeader.destination[0],
+                             &destination.bytes[0],
+                             sizeof(stagedHeader.destination));
+            const auto sequenceControl = static_cast<uint16_t>(
+                static_cast<uint32_t>(sequence & kSequenceMask)
+                << kSequenceFragmentBits);
+            stagedHeader.sequence[0] = static_cast<uint8_t>(sequenceControl);
+            stagedHeader.sequence[1] =
+                static_cast<uint8_t>(sequenceControl >> kMsbShift);
+            // RFC 1042 SNAP, except 802.1H bridge-tunnel for AARP/IPX.
+            stagedHeader.snap[0] = kSnapSap;
+            stagedHeader.snap[1] = kSnapSap;
+            stagedHeader.snap[2] = kSnapUnnumbered;
+            stagedHeader.snap[kSnapOuiLastIndex] =
                 (etherType == kEtherTypeAarp || etherType == kEtherTypeIpx)
-                    ? 0xf8U
+                    ? kBridgeTunnelOui
                     : 0U;
-            out[30] = ethernet[12];
-            out[31] = ethernet[13];
-            copyBytes(out + kDataHeaderBytes + kSnapBytes,
+            stagedHeader.snap[kSnapTypeHighIndex] = header.type[0];
+            stagedHeader.snap[kSnapTypeLowIndex] = header.type[1];
+            __builtin_memcpy(out, &stagedHeader, sizeof(stagedHeader));
+            copyBytes(out + sizeof(stagedHeader),
                       ethernet + kEthernetHeaderBytes, payloadBytes);
 
             SerializedData staged {};
             staged.frameBytes = written;
             staged.onAirLengthIncludingFcs = written + kFcsBytes;
-            staged.sequence = sequence & 0x0fffU;
+            staged.sequence = sequence & kSequenceMask;
             staged.etherType = etherType;
             staged.needsCcmp = false;
             staged.isEapol = isEapol;
