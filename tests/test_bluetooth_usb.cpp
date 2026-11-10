@@ -459,6 +459,46 @@ namespace
         return {&fake, kEpoch, permit, writeCommand, writeAcl, deliver};
     }
 
+    bool permitZeroEpoch(void * /*context*/, uint64_t epoch)
+    {
+        return epoch == 0U;
+    }
+
+    bool testHciAttachOwnership()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        const UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        UsbHciHostCallbacks callbacks = host(fake);
+        callbacks.ownerEpoch = 0U;
+        callbacks.permit = permitZeroEpoch;
+        if (attachUsbHci(state, endpoints, callbacks) !=
+                UsbHciStatus::InvalidArgument ||
+            state.attached || state.epoch != 0U)
+        {
+            return false;
+        }
+        // Descriptor selection normally rejects duplicate addresses, but
+        // attaching directly must enforce the same physical pipe contract.
+        const UsbHciEndpoints aliased {
+            kEventInEndpoint,
+            kEventInEndpoint,
+            kBulkOutEndpoint,
+        };
+        if (attachUsbHci(state, aliased, host(fake)) !=
+                UsbHciStatus::InvalidEndpoint ||
+            state.attached || state.epoch != 0U)
+        {
+            return false;
+        }
+        return attachUsbHci(state, endpoints, host(fake)) == UsbHciStatus::Ok &&
+               state.attached && state.epoch == kEpoch;
+    }
+
     constexpr std::array<uint8_t, 6U> kResetComplete {
         0x0eU, 4U, 1U, 0x03U, 0x0cU, 0U,
     };
@@ -1327,6 +1367,11 @@ int main()
     {
         constexpr int kFirmwareOwnershipFailure = 10;
         return kFirmwareOwnershipFailure;
+    }
+    if (!testHciAttachOwnership())
+    {
+        constexpr int kHciAttachOwnershipFailure = 12;
+        return kHciAttachOwnershipFailure;
     }
     if (!testHci())
     {

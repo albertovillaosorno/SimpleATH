@@ -640,13 +640,15 @@ namespace simpleath
                               const UsbHciEndpoints &endpoints,
                               const UsbHciHostCallbacks &host)
     {
-        if (!validCallbacks(host))
+        if (!validCallbacks(host) || host.ownerEpoch == 0U)
         {
+            // A zero epoch cannot identify an exclusive physical owner.
             return UsbHciStatus::InvalidArgument;
         }
         if (!validEndpoint(endpoints.eventInterruptIn, true) ||
             !validEndpoint(endpoints.aclBulkIn, true) ||
-            !validEndpoint(endpoints.aclBulkOut, false))
+            !validEndpoint(endpoints.aclBulkOut, false) ||
+            endpoints.eventInterruptIn == endpoints.aclBulkIn)
         {
             return UsbHciStatus::InvalidEndpoint;
         }
