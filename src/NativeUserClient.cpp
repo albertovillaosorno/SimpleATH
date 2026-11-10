@@ -45,9 +45,12 @@ namespace ath
 
     static IOReturn close(IOUserClient *self, bool died)
     {
-        auto state = context(self);
-        if (!state || __atomic_exchange_n(&state->closed, 1U, __ATOMIC_ACQ_REL))
+        auto *state = context(self);
+        if ((state == nullptr) ||
+            (__atomic_exchange_n(&state->closed, 1U, __ATOMIC_ACQ_REL) != 0u))
+        {
             return kIOReturnSuccess;
+        }
         return died ? state->implementation->clientDied()
                     : state->implementation->clientClose();
     }
@@ -56,7 +59,9 @@ namespace ath
     {
         auto result = close(self, false);
         if (!self->isInactive())
+        {
             self->terminate();
+        }
         return result;
     }
 
@@ -64,7 +69,9 @@ namespace ath
     {
         auto result = close(self, true);
         if (!self->isInactive())
+        {
             self->terminate();
+        }
         return result;
     }
 
@@ -100,7 +107,7 @@ namespace ath
 
     static void freeObject(IOUserClient *self)
     {
-        auto state = context(self);
+        auto *state = context(self);
         close(self, false);
         native<void (*)(IOUserClient *)>(
             nativeClientProfiles[state->profile].free)(self);
@@ -110,8 +117,9 @@ namespace ath
 
     static IOUserClient *activeImplementation(IOUserClient *self)
     {
-        auto state = context(self);
-        return state && !__atomic_load_n(&state->closed, __ATOMIC_ACQUIRE)
+        auto *state = context(self);
+        return (state != nullptr) &&
+                       (__atomic_load_n(&state->closed, __ATOMIC_ACQUIRE) == 0u)
                    ? state->implementation
                    : nullptr;
     }
@@ -121,8 +129,8 @@ namespace ath
                                    IOExternalMethodDispatch *dispatch,
                                    OSObject *target, void *reference)
     {
-        auto implementation = activeImplementation(self);
-        return implementation
+        auto *implementation = activeImplementation(self);
+        return (implementation != nullptr)
                    ? implementation->externalMethod(
                          selector, arguments, dispatch,
                          target == self ? implementation : target, reference)
@@ -133,8 +141,8 @@ namespace ath
                                  IOOptionBits *options,
                                  IOMemoryDescriptor **memory)
     {
-        auto implementation = activeImplementation(self);
-        return implementation
+        auto *implementation = activeImplementation(self);
+        return (implementation != nullptr)
                    ? implementation->clientMemoryForType(type, options, memory)
                    : kIOReturnNotOpen;
     }
@@ -142,19 +150,21 @@ namespace ath
     static IOReturn notification64(IOUserClient *self, mach_port_t port,
                                    uint32_t type, uint64_t reference)
     {
-        auto implementation = activeImplementation(self);
-        return implementation ? implementation->registerNotificationPort(
-                                    port, type, reference)
-                              : kIOReturnNotOpen;
+        auto *implementation = activeImplementation(self);
+        return (implementation != nullptr)
+                   ? implementation->registerNotificationPort(port, type,
+                                                              reference)
+                   : kIOReturnNotOpen;
     }
 
     static IOReturn notification32(IOUserClient *self, mach_port_t port,
                                    uint32_t type, uint32_t reference)
     {
-        auto implementation = activeImplementation(self);
-        return implementation ? implementation->registerNotificationPort(
-                                    port, type, reference)
-                              : kIOReturnNotOpen;
+        auto *implementation = activeImplementation(self);
+        return (implementation != nullptr)
+                   ? implementation->registerNotificationPort(port, type,
+                                                              reference)
+                   : kIOReturnNotOpen;
     }
 
     static IOService *getService(IOUserClient *self)
@@ -165,9 +175,13 @@ namespace ath
     bool prepareNativeUserClients()
     {
         if (prepared)
+        {
             return true;
-        if (!nativeSystem)
+        }
+        if (nativeSystem == nullptr)
+        {
             return false;
+        }
         for (uint32_t i = 0; i < 2; ++i)
         {
             const auto &profile = nativeClientProfiles[i];
@@ -179,23 +193,25 @@ namespace ath
                 profile.vtable >= nativeImportCount ||
                 native<const OSMetaClass *>(profile.meta)->getClassSize() !=
                     224)
+            {
                 return false;
-            auto view = clientViews[i];
+            }
+            auto *view = clientViews[i];
             memcpy(view, native<const uintptr_t *>(profile.vtable),
                    sizeof(clientViews[i]));
             view[2] = reinterpret_cast<uintptr_t>(destruct);
             view[3] = reinterpret_cast<uintptr_t>(deleteObject);
-            view[2 + 0x90 / 8] = reinterpret_cast<uintptr_t>(freeObject);
-            view[2 + 0x5c0 / 8] = reinterpret_cast<uintptr_t>(start);
-            view[2 + 0x5c8 / 8] = reinterpret_cast<uintptr_t>(stop);
-            view[2 + 0x850 / 8] = reinterpret_cast<uintptr_t>(externalMethod);
-            view[2 + 0x858 / 8] = reinterpret_cast<uintptr_t>(notification64);
-            view[2 + 0x8e0 / 8] = reinterpret_cast<uintptr_t>(init);
-            view[2 + 0x8f0 / 8] = reinterpret_cast<uintptr_t>(clientClose);
-            view[2 + 0x8f8 / 8] = reinterpret_cast<uintptr_t>(clientDied);
-            view[2 + 0x900 / 8] = reinterpret_cast<uintptr_t>(getService);
-            view[2 + 0x908 / 8] = reinterpret_cast<uintptr_t>(notification32);
-            view[2 + 0x920 / 8] = reinterpret_cast<uintptr_t>(clientMemory);
+            view[2 + (0x90 / 8)] = reinterpret_cast<uintptr_t>(freeObject);
+            view[2 + (0x5c0 / 8)] = reinterpret_cast<uintptr_t>(start);
+            view[2 + (0x5c8 / 8)] = reinterpret_cast<uintptr_t>(stop);
+            view[2 + (0x850 / 8)] = reinterpret_cast<uintptr_t>(externalMethod);
+            view[2 + (0x858 / 8)] = reinterpret_cast<uintptr_t>(notification64);
+            view[2 + (0x8e0 / 8)] = reinterpret_cast<uintptr_t>(init);
+            view[2 + (0x8f0 / 8)] = reinterpret_cast<uintptr_t>(clientClose);
+            view[2 + (0x8f8 / 8)] = reinterpret_cast<uintptr_t>(clientDied);
+            view[2 + (0x900 / 8)] = reinterpret_cast<uintptr_t>(getService);
+            view[2 + (0x908 / 8)] = reinterpret_cast<uintptr_t>(notification32);
+            view[2 + (0x920 / 8)] = reinterpret_cast<uintptr_t>(clientMemory);
         }
         prepared = true;
         return true;
@@ -205,27 +221,40 @@ namespace ath
                                   uint32_t type, OSDictionary *properties,
                                   IOUserClient **result)
     {
-        if (status != kIOReturnSuccess || !result || !*result)
+        if (status != kIOReturnSuccess || (result == nullptr) ||
+            ((*result) == nullptr))
+        {
             return status;
-        auto implementation = *result;
+        }
+        auto *implementation = *result;
         uint32_t profile;
-        if (implementation->metaCast("ATH80211UserClient"))
+        if (implementation->metaCast("ATH80211UserClient") != nullptr)
+        {
             profile = 0;
-        else if (implementation->metaCast("SB80211AsyncEventUserClient"))
+        }
+        else if (implementation->metaCast("SB80211AsyncEventUserClient") !=
+                 nullptr)
+        {
             profile = 1;
+        }
         else
+        {
             return status;
+        }
         *result = nullptr;
-        auto state =
+        auto *state =
             prepared
                 ? static_cast<ClientContext *>(IOMalloc(sizeof(ClientContext)))
                 : nullptr;
-        auto front =
-            state ? static_cast<IOUserClient *>(IOMalloc(232)) : nullptr;
-        if (!front)
+        auto *front = (state != nullptr)
+                          ? static_cast<IOUserClient *>(IOMalloc(232))
+                          : nullptr;
+        if (front == nullptr)
         {
-            if (state)
+            if (state != nullptr)
+            {
                 IOFree(state, sizeof(*state));
+            }
             implementation->clientClose();
             implementation->release();
             return prepared ? kIOReturnNoMemory : kIOReturnNotReady;
@@ -233,7 +262,7 @@ namespace ath
         *state = {implementation, profile, 0};
         bzero(static_cast<void *>(front), 232);
         const auto &spec = nativeClientProfiles[profile];
-        auto meta = native<const OSMetaClass *>(spec.meta);
+        const auto *meta = native<const OSMetaClass *>(spec.meta);
         native<void (*)(IOUserClient *, const OSMetaClass *)>(spec.constructor)(
             front, meta);
         setContext(front, state);

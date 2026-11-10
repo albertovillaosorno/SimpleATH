@@ -24,15 +24,15 @@ namespace
                            const char *key, const char *diagnosticKey)
     {
         OSObject *property = provider->copyProperty(key);
-        auto data = OSDynamicCast(OSData, property);
-        if (data && data->getLength() == sizeof(uint32_t))
+        auto *data = OSDynamicCast(OSData, property);
+        if ((data != nullptr) && data->getLength() == sizeof(uint32_t))
         {
-            const auto bytes =
+            const auto *const bytes =
                 static_cast<const uint8_t *>(data->getBytesNoCopy());
             // Registry properties are diagnostics, not trusted identity.
             // Even a length-valid OSData must not be dereferenced if it has
             // no accessible backing bytes.
-            if (bytes)
+            if (bytes != nullptr)
             {
                 const uint32_t value = static_cast<uint32_t>(bytes[0]) |
                                        (static_cast<uint32_t>(bytes[1]) << 8) |
@@ -41,8 +41,10 @@ namespace
                 service->setProperty(diagnosticKey, value, 32);
             }
         }
-        if (property)
+        if (property != nullptr)
+        {
             property->release();
+        }
     }
 } // namespace
 
@@ -60,7 +62,9 @@ class SimpleATH final : public IOService
         bool start(IOService *provider) override
         {
             if (!gSimpleATHEnabled || !IOService::start(provider))
+            {
                 return false;
+            }
             setProperty("SimpleATHMode", "PassiveQCA9565Discovery");
             setProperty("SimpleATHDriverReady", false);
             setProperty("SimpleATHVendorID", kAtherosVendor, 32);
@@ -93,7 +97,9 @@ OSDefineMetaClassAndStructors(SimpleATH, IOService)
         bool start(IOService *provider) override
         {
             if (!gSimpleATHEnabled || !IOService::start(provider))
+            {
                 return false;
+            }
             setProperty("SimpleATHMode", "IOKitMatchedPCIProbe");
             setProperty("SimpleATHVendorID", kAtherosVendor, 32);
             setProperty("SimpleATHMatchedDeviceIDs",
@@ -155,7 +161,7 @@ OSDefineMetaClassAndStructors(SimpleATHPciProbe, IOService)
     int ignored = 0;
     // Disable matching by adding -simpleathoff to boot-args if necessary.
     gSimpleATHEnabled =
-        !PE_parse_boot_argn("-simpleathoff", &ignored, sizeof(ignored));
+        (PE_parse_boot_argn("-simpleathoff", &ignored, sizeof(ignored)) == 0);
     return KERN_SUCCESS;
 }
 

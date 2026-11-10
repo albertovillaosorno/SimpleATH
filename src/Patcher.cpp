@@ -24,11 +24,17 @@ uintptr_t KernelPatcher::branchTarget(uintptr_t target,
 uintptr_t KernelPatcher::solveSymbol(size_t index, const char *name)
 {
     if (index != KernelID)
+    {
         return ath::findSymbol(image, name);
-    if (!strcmp(name, "_copyin"))
+    }
+    if (strcmp(name, "_copyin") == 0)
+    {
         return reinterpret_cast<uintptr_t>(copyin);
-    if (!strcmp(name, "_copyout"))
+    }
+    if (strcmp(name, "_copyout") == 0)
+    {
         return reinterpret_cast<uintptr_t>(copyout);
+    }
     return 0;
 }
 
@@ -54,20 +60,21 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
     };
 
     static_cast<void>(index);
-    if (!image.editable || !image.payload || !image.memory || !routes ||
-        count == 0 || count > kMaximumRoutes)
+    if (!image.editable || (image.payload == nullptr) ||
+        (image.memory == nullptr) || (routes == nullptr) || count == 0 ||
+        count > kMaximumRoutes)
     {
         return false;
     }
     const auto &payload = *image.payload;
-    if (!payload.size || payload.size > payload.mappedSize ||
+    if ((payload.size == 0u) || payload.size > payload.mappedSize ||
         payload.stubOffset < payload.size ||
         payload.stubOffset > payload.mappedSize ||
         payload.stubSize > payload.mappedSize - payload.stubOffset ||
-        image.stubUsed > payload.stubSize || !image.address ||
+        image.stubUsed > payload.stubSize || (image.address == 0u) ||
         image.address > UINTPTR_MAX - payload.mappedSize ||
         address != image.address || size != payload.mappedSize ||
-        (payload.routeCount && !payload.routes))
+        ((payload.routeCount != 0u) && (payload.routes == nullptr)))
     {
         return false;
     }
@@ -76,12 +83,13 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
     uint32_t used = image.stubUsed;
     for (size_t i = 0; i < count; ++i)
     {
-        if (!routes[i].name || !routes[i].target || !routes[i].original)
+        if ((routes[i].name == nullptr) || (routes[i].target == 0u) ||
+            (routes[i].original == nullptr))
         {
             return false;
         }
         const uintptr_t location = ath::findSymbol(image, routes[i].name);
-        if (!location || location < image.address)
+        if ((location == 0u) || location < image.address)
         {
             return false;
         }
@@ -125,8 +133,12 @@ bool KernelPatcher::routeMultipleLong(size_t index, RouteRequest *routes,
         {
             return false;
         }
-        planned[i] = {location, static_cast<uint32_t>(offset), prefix,
-                      payload.stubOffset + used};
+        planned[i] = {
+            location,
+            static_cast<uint32_t>(offset),
+            prefix,
+            payload.stubOffset + used,
+        };
         used += needed;
     }
 
