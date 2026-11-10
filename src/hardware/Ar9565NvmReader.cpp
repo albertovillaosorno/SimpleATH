@@ -25,6 +25,11 @@
 // ar9003_eeprom.h:
 // 4de071df42f0d91df022c91779f9bb7d0aac57fa7803f240530b4f0acd457bbd
 #include "Ar9565NvmReader.hpp"
+#include "Ar9565Core.hpp"
+#include "Ar9565Eeprom.hpp"
+#include "Ar9565InitCatalog.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -42,12 +47,30 @@ namespace simpleath
         constexpr uint32_t kPollMicros = 10;
         constexpr uint64_t kCaptureMicros = 2000000;
         constexpr uint32_t kMaximumPolls = 200000;
+        constexpr uint32_t kInvalidNvmRegister = UINT32_MAX;
+        constexpr size_t kEepromReadLimit = 4096;
+        constexpr size_t kOtpReadLimit = 1024;
+        constexpr uint32_t kBitsPerByte = 8U;
+        constexpr uint32_t kEepromWordTimeoutMicros = 100000U;
+        constexpr uint32_t kOtpWordTimeoutMicros = 1000U;
+        constexpr uint32_t kOtpReadyMask = 7U;
+        constexpr uint32_t kOtpReadyValue = 4U;
+        constexpr uint8_t kErasedOctet = 0xffU;
+        constexpr size_t kTemplateMacOffset = 2;
+
+        struct WaitSpec
+        {
+                uint32_t reg;
+                uint32_t mask;
+                uint32_t expected;
+                uint32_t timeoutMicros;
+        };
 
         class Capture
         {
             public:
                 Capture(const NvmReadBackend &backend, NvmReadStatus &status)
-                    : backend_(backend), status_(status),
+                    : backend_(&backend), status_(&status),
                       started_(backend.nowMicros(backend.context)),
                       lastMicros_(started_)
                 {
@@ -62,14 +85,14 @@ namespace simpleath
                     // The time source can share the revoked PCI owner. Every
                     // call, including wait timestamps, requires a fresh D0
                     // preflight rather than relying on the previous MMIO read.
-                    if (!backend_.ownerInD0(backend_.context))
+                    if (!backend_->ownerInD0(backend_->context))
                     {
                         return NvmResult::SessionUnavailable;
                     }
-                    now = backend_.nowMicros(backend_.context);
+                    now = backend_->nowMicros(backend_->context);
                     // The clock callback itself may revoke the same owner.
                     // Fail before any next read32/delay through that context.
-                    if (!backend_.ownerInD0(backend_.context))
+                    if (!backend_->ownerInD0(backend_->context))
                     {
                         return NvmResult::SessionUnavailable;
                     }
@@ -96,30 +119,33 @@ namespace simpleath
 
                 NvmResult read(uint32_t offset, uint32_t &value)
                 {
-                    NvmResult result = budget();
+                    const NvmResult result = budget();
                     if (result != NvmResult::Ok)
                     {
                         return result;
                     }
                     if (((offset & 3U) != 0U) ||
-                        offset > backend_.barLengthBytes ||
-                        backend_.barLengthBytes - offset < 4)
+                        offset > backend_->barLengthBytes ||
+                        backend_->barLengthBytes - offset < 4)
                     {
                         return NvmResult::InvalidRegister;
                     }
-                    status_.lastRegister = offset;
-                    status_.lastValue = 0;
-                    if (!backend_.read32(backend_.context, offset, &value))
+                    status_->lastRegister = offset;
+                    status_->lastValue = 0;
+                    if (!backend_->read32(backend_->context, offset, &value))
                     {
                         return NvmResult::RegisterReadFailed;
                     }
-                    status_.lastValue = value;
+                    status_->lastValue = value;
                     return budget();
                 }
 
-                NvmResult wait(uint32_t reg, uint32_t mask, uint32_t expected,
-                               uint32_t timeoutMicros, uint32_t &value)
+                NvmResult wait(const WaitSpec &spec, uint32_t &value)
                 {
+                    const uint32_t reg = spec.reg;
+                    const uint32_t mask = spec.mask;
+                    const uint32_t expected = spec.expected;
+                    const uint32_t timeoutMicros = spec.timeoutMicros;
                     uint64_t wordStarted = 0;
                     NvmResult result = clock(wordStarted);
                     if (result != NvmResult::Ok)
@@ -128,17 +154,17 @@ namespace simpleath
                     }
                     for (uint32_t i = 0; i <= timeoutMicros / kPollMicros; ++i)
                     {
-                        if (status_.polls >= kMaximumPolls)
+                        if (status_->polls >= kMaximumPolls)
                         {
                             return NvmResult::CaptureTimeout;
                         }
-                        ++status_.polls;
+                        ++status_->polls;
                         result = read(reg, value);
                         if (result != NvmResult::Ok)
                         {
                             return result;
                         }
-                        if (value == 0xffffffffU)
+                        if (value == kInvalidNvmRegister)
                         {
                             return NvmResult::RegisterReadFailed;
                         }
@@ -148,19 +174,10 @@ namespace simpleath
                         {
                             return result;
                         }
-                        if (reg == kEepromData)
+                        const NvmResult access = accessStatus(spec, value);
+                        if (access != NvmResult::Ok)
                         {
-                            if ((value & kEepromAbsentAccess) != 0U)
-                            {
-                                return NvmResult::StorageAbsent;
-                            }
-                            // Protection is a terminal access fault, not a
-                            // transient busy condition. Repeatedly polling a
-                            // denied EEPROM word cannot make it readable.
-                            if ((value & kEepromProtected) != 0U)
-                            {
-                                return NvmResult::ProtectedAccess;
-                            }
+                            return access;
                         }
                         if (now - wordStarted >= timeoutMicros)
                         {
@@ -176,18 +193,36 @@ namespace simpleath
                         }
                         // The last clock callback may itself revoke D0. Do
                         // not issue a delay through its now-invalid context.
-                        if (!backend_.ownerInD0(backend_.context))
+                        if (!backend_->ownerInD0(backend_->context))
                         {
                             return NvmResult::SessionUnavailable;
                         }
-                        backend_.delayMicros(backend_.context, kPollMicros);
+                        backend_->delayMicros(backend_->context, kPollMicros);
                     }
                     return NvmResult::WordTimeout;
                 }
 
             private:
-                const NvmReadBackend &backend_;
-                NvmReadStatus &status_;
+                static NvmResult accessStatus(const WaitSpec &spec,
+                                              uint32_t value)
+                {
+                    if (spec.reg == kEepromData)
+                    {
+                        if ((value & kEepromAbsentAccess) != 0U)
+                        {
+                            return NvmResult::StorageAbsent;
+                        }
+                        // A protected EEPROM word is terminal, not busy.
+                        if ((value & kEepromProtected) != 0U)
+                        {
+                            return NvmResult::ProtectedAccess;
+                        }
+                    }
+                    return NvmResult::Ok;
+                }
+
+                const NvmReadBackend *backend_;
+                NvmReadStatus *status_;
                 uint64_t started_;
                 uint64_t lastMicros_;
         };
@@ -195,8 +230,12 @@ namespace simpleath
         bool overlaps(const void *a, size_t aBytes, const void *b,
                       size_t bBytes)
         {
-            const auto first = reinterpret_cast<uintptr_t>(a);
-            const auto second = reinterpret_cast<uintptr_t>(b);
+            uintptr_t first = 0;
+            uintptr_t second = 0;
+            static_assert(sizeof(uintptr_t) == sizeof(a),
+                          "NVM host pointers must fit uintptr_t");
+            __builtin_memcpy(&first, static_cast<const void *>(&a), sizeof(a));
+            __builtin_memcpy(&second, static_cast<const void *>(&b), sizeof(b));
             return (aBytes != 0U) && (bBytes != 0U) &&
                    (first >= second ? first - second < bBytes
                                     : second - first < aBytes);
@@ -204,9 +243,9 @@ namespace simpleath
 
         void clearBytes(uint8_t *destination, size_t length)
         {
-            for (size_t i = 0; i < length; ++i)
+            if (destination != nullptr && length != 0)
             {
-                destination[i] = 0;
+                __builtin_memset(destination, 0, length);
             }
         }
 
@@ -233,22 +272,26 @@ namespace simpleath
                 {&backend, sizeof(backend)},
                 {&physicalIdentity, sizeof(physicalIdentity)},
             };
-            for (size_t i = 0; i < sizeof(spans) / sizeof(spans[0]); ++i)
+            for (const Span &candidate : spans)
             {
-                // The provider may mutate its opaque context while polling.
-                // Neither the borrowed callback table nor the live PCI
-                // identity is safe callback-owned storage, even though those
-                // two inputs are not writable output buffers.
-                if (overlaps(spans[i].address, spans[i].bytes, backend.context,
-                             1))
+                // Protect the opaque provider context and all input/output
+                // storage, comparing each unordered pair exactly once.
+                if (overlaps(candidate.address, candidate.bytes,
+                             backend.context, 1))
                 {
                     return false;
                 }
-                for (size_t j = i + 1; j < sizeof(spans) / sizeof(spans[0]);
-                     ++j)
+                bool foundCandidate = false;
+                for (const Span &other : spans)
                 {
-                    if (overlaps(spans[i].address, spans[i].bytes,
-                                 spans[j].address, spans[j].bytes))
+                    if (&other == &candidate)
+                    {
+                        foundCandidate = true;
+                        continue;
+                    }
+                    if (foundCandidate &&
+                        overlaps(candidate.address, candidate.bytes,
+                                 other.address, other.bytes))
                     {
                         return false;
                     }
@@ -301,10 +344,11 @@ namespace simpleath
         const NvmReadBackend backend = borrowedBackend;
         const Identity physicalIdentity = borrowedIdentity;
 
-        struct ReportOnExit
+        class ReportOnExit final
         {
+            public:
                 explicit ReportOnExit(NvmReadStatus &destination)
-                    : output(destination), local {}
+                    : output_(&destination)
                 {
                 }
 
@@ -315,17 +359,24 @@ namespace simpleath
 
                 ~ReportOnExit()
                 {
-                    output = local;
+                    *output_ = local_;
                 }
 
-                NvmReadStatus &output;
-                NvmReadStatus local;
+                NvmReadStatus &state()
+                {
+                    return local_;
+                }
+
+            private:
+                NvmReadStatus *output_;
+                NvmReadStatus local_ {};
         } report(reportedStatus);
 
-        NvmReadStatus &status = report.local;
+        NvmReadStatus &status = report.state();
         status = {};
         status.source = source;
-        const size_t maximum = source == NvmSource::Eeprom ? 4096 : 1024;
+        const size_t maximum =
+            source == NvmSource::Eeprom ? kEepromReadLimit : kOtpReadLimit;
         if ((destination == nullptr) || byteCount == 0 ||
             firstByte >= maximum || byteCount > maximum - firstByte ||
             (source != NvmSource::Eeprom && source != NvmSource::Otp))
@@ -361,7 +412,7 @@ namespace simpleath
         }
         // A disconnected BAR can read as all ones. This is a transport fault,
         // not evidence that a different silicon revision was discovered.
-        if (value == 0xffffffffU)
+        if (value == kInvalidNvmRegister)
         {
             return status.result = NvmResult::RegisterReadFailed;
         }
@@ -374,7 +425,7 @@ namespace simpleath
         {
             return status.result = result;
         }
-        if (value == 0xffffffffU)
+        if (value == kInvalidNvmRegister)
         {
             return status.result = NvmResult::RegisterReadFailed;
         }
@@ -391,10 +442,12 @@ namespace simpleath
         const uint32_t lastTrigger =
             (source == NvmSource::Eeprom ? kEepromWindow : kOtpWindow) +
             static_cast<uint32_t>((firstWord + words - 1) * 4);
-        const uint32_t lastRegister =
-            source == NvmSource::Eeprom
-                ? (lastTrigger > kEepromData ? lastTrigger : kEepromData)
-                : kOtpData;
+        uint32_t lastRegister = kOtpData;
+        if (source == NvmSource::Eeprom)
+        {
+            lastRegister =
+                lastTrigger > kEepromData ? lastTrigger : kEepromData;
+        }
         if (lastRegister > backend.barLengthBytes ||
             backend.barLengthBytes - lastRegister < 4)
         {
@@ -411,11 +464,23 @@ namespace simpleath
             {
                 break;
             }
-            result =
-                source == NvmSource::Eeprom
-                    ? capture.wait(kEepromData, kEepromBusy | kEepromProtected,
-                                   0, 100000, value)
-                    : capture.wait(kOtpStatus, 7, 4, 1000, value);
+            result = source == NvmSource::Eeprom
+                         ? capture.wait(
+                               WaitSpec {
+                                   kEepromData,
+                                   kEepromBusy | kEepromProtected,
+                                   0U,
+                                   kEepromWordTimeoutMicros,
+                               },
+                               value)
+                         : capture.wait(
+                               WaitSpec {
+                                   kOtpStatus,
+                                   kOtpReadyMask,
+                                   kOtpReadyValue,
+                                   kOtpWordTimeoutMicros,
+                               },
+                               value);
             if (result != NvmResult::Ok)
             {
                 break;
@@ -429,7 +494,7 @@ namespace simpleath
                 {
                     break;
                 }
-                if (value == 0xffffffffU)
+                if (value == kInvalidNvmRegister)
                 {
                     result = NvmResult::RegisterReadFailed;
                 }
@@ -466,7 +531,7 @@ namespace simpleath
                 if (absolute >= firstByte && absolute - firstByte < byteCount)
                 {
                     destination[status.bytesAcquired++] =
-                        static_cast<uint8_t>(value >> (byte * 8));
+                        static_cast<uint8_t>(value >> (byte * kBitsPerByte));
                 }
             }
         }
@@ -520,7 +585,7 @@ namespace simpleath
         board.txGain = TxGainProfile::Unknown;
         board.rxGain = RxGainProfile::Unknown;
         status = {};
-        if ((storage == nullptr) || storageBytes < 4096 ||
+        if ((storage == nullptr) || storageBytes < kEepromReadLimit ||
             (scratch == nullptr) || scratchBytes < kAr9565EepromScratchBytes)
         {
             return status.result = NvmDiscoveryResult::InvalidArgument;
@@ -553,8 +618,8 @@ namespace simpleath
             uint8_t header[4] {};
             const NvmResult probeResult =
                 captureRange(stableBackend, stableIdentity, candidate.source,
-                             length - sizeof(header), header, sizeof(header),
-                             status.lastCapture);
+                             length - sizeof(header), &header[0],
+                             sizeof(header), status.lastCapture);
             if (probeResult == NvmResult::StorageAbsent)
             {
                 continue;
@@ -569,7 +634,7 @@ namespace simpleath
             for (const uint8_t byte : header)
             {
                 empty = empty && byte == 0;
-                erased = erased && byte == 0xff;
+                erased = erased && byte == kErasedOctet;
             }
             if (empty || erased)
             {
@@ -649,13 +714,15 @@ namespace simpleath
                 {
                     continue;
                 }
-                bool identical = true;
-                for (size_t i = 0; i < sizeof(board.summary.mac); ++i)
-                {
-                    identical =
-                        identical && board.summary.mac[i] == defaults[2 + i];
-                }
-                if (identical)
+                // The pinned 1088-byte dictionary is immutable, and the MAC
+                // starts at the fixed two-octet template header offset.
+                uint8_t prefix[kTemplateMacOffset + kPermanentMacBytes] {};
+                uint8_t boardMac[kPermanentMacBytes] {};
+                __builtin_memcpy(&prefix[0], defaults, sizeof(prefix));
+                __builtin_memcpy(&boardMac[0], &board.summary.mac[0],
+                                 sizeof(boardMac));
+                if (__builtin_memcmp(&boardMac[0], &prefix[kTemplateMacOffset],
+                                     sizeof(boardMac)) == 0)
                 {
                     placeholderMac = true;
                     break;
@@ -695,7 +762,7 @@ namespace simpleath
         }
         // Erase all transient NVM bytes, even when a reconstructed immutable
         // snapshot was accepted. Never hand back a partially accepted image.
-        clearBytes(storage, 4096);
+        clearBytes(storage, kEepromReadLimit);
         clearBytes(scratch, kAr9565EepromScratchBytes);
         if (outcome != NvmDiscoveryResult::Ok)
         {
