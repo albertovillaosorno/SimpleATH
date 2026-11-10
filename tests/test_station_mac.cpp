@@ -7,12 +7,18 @@ namespace
 {
     constexpr uint32_t kStationIdLow = 0x8000U;
     constexpr uint32_t kStationIdHigh = 0x8004U;
+    constexpr uint32_t kBssidMaskLow = 0x80e0U;
+    constexpr uint32_t kBssidMaskHigh = 0x80e4U;
     constexpr uint32_t kBarBytes = 0x9000U;
     constexpr uint64_t kEpoch = 17U;
     constexpr uint32_t kOriginalHigh = 0xa5a50000U;
     constexpr uint32_t kExpectedLow = 0x33221102U;
     constexpr uint32_t kExpectedHigh = 0xa5a55544U;
-    constexpr unsigned int kExpectedPermits = 6U;
+    constexpr unsigned int kExpectedPermits = 10U;
+    constexpr unsigned int kExpectedWrites = 4U;
+    constexpr unsigned int kBeforeFilterWrites = 6U;
+    constexpr unsigned int kAfterFirstFilterWrite = 7U;
+    constexpr uint32_t kExactBssidMaskHigh = 0x0000ffffU;
     constexpr int kFailedWriteCase = 5;
     constexpr int kFailedRevocationCase = 6;
     constexpr int kFailedReadbackCase = 7;
@@ -28,6 +34,8 @@ namespace
     {
             uint32_t low {0};
             uint32_t high {kOriginalHigh};
+            uint32_t maskLow {0};
+            uint32_t maskHigh {0};
             uint64_t epoch {kEpoch};
             unsigned int reads {0};
             unsigned int writes {0};
@@ -36,6 +44,7 @@ namespace
             unsigned int failOnWrite {0};
             bool rejectReads {false};
             bool mismatchReadback {false};
+            bool mismatchMaskReadback {false};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -67,6 +76,16 @@ namespace
             *value = hw.high;
             return true;
         }
+        if (offset == kBssidMaskLow)
+        {
+            *value = hw.maskLow;
+            return true;
+        }
+        if (offset == kBssidMaskHigh)
+        {
+            *value = hw.maskHigh ^ (hw.mismatchMaskReadback ? 1U : 0U);
+            return true;
+        }
         return false;
     }
 
@@ -90,7 +109,38 @@ namespace
             hw.high = value;
             return true;
         }
+        if (offset == kBssidMaskLow)
+        {
+            hw.maskLow = value;
+            return true;
+        }
+        if (offset == kBssidMaskHigh)
+        {
+            hw.maskHigh = value;
+            return true;
+        }
         return false;
+    }
+
+    unsigned int expectedWritesBeforeRevocation(unsigned int permitIndex)
+    {
+        if (permitIndex <= 2U)
+        {
+            return 0;
+        }
+        if (permitIndex == 3U)
+        {
+            return 1;
+        }
+        if (permitIndex <= kBeforeFilterWrites)
+        {
+            return 2;
+        }
+        if (permitIndex == kAfterFirstFilterWrite)
+        {
+            return 3;
+        }
+        return kExpectedWrites;
     }
 
     simpleath::MacIdentityProgress program(Hardware &hw, const uint8_t *address,
@@ -100,6 +150,44 @@ namespace
         return simpleath::programAr9565StationMac(bus, address, options.epoch,
                                                   permit);
     }
+
+    int rejectInvalidInputs(const uint8_t *mac)
+    {
+        using simpleath::MacIdentityResult;
+        Hardware invalid;
+        const std::array<uint8_t, 6> zero {};
+        const std::array<uint8_t, 6> multicast {0x03U, 1U, 2U, 3U, 4U, 5U};
+        if (program(invalid, nullptr).result != MacIdentityResult::InvalidMac ||
+            program(invalid, zero.data()).result !=
+                MacIdentityResult::InvalidMac ||
+            program(invalid, multicast.data()).result !=
+                MacIdentityResult::InvalidMac ||
+            program(invalid, mac, {0, kBarBytes}).result !=
+                MacIdentityResult::InvalidBackend ||
+            program(invalid, mac, {kEpoch, kBssidMaskHigh}).result !=
+                MacIdentityResult::InvalidBackend ||
+            invalid.reads != 0 || invalid.writes != 0 || invalid.permits != 0)
+        {
+            return 2;
+        }
+        Hardware denied;
+        denied.epoch = 0;
+        const auto preflight = program(denied, mac);
+        if (preflight.result != MacIdentityResult::OwnershipLost ||
+            preflight.requiresReset || denied.reads != 0 || denied.writes != 0)
+        {
+            return 3;
+        }
+        Hardware badRead;
+        badRead.rejectReads = true;
+        if (program(badRead, mac).result != MacIdentityResult::ReadFailed ||
+            badRead.writes != 0)
+        {
+            return 4;
+        }
+        return 0;
+    }
+
 } // namespace
 
 int main()
@@ -109,43 +197,20 @@ int main()
     Hardware successful;
     const auto committed = program(successful, mac.data());
     if (committed.result != MacIdentityResult::Ok || committed.requiresReset ||
-        committed.completedWrites != 2U || successful.low != kExpectedLow ||
-        successful.high != kExpectedHigh ||
+        committed.completedWrites != kExpectedWrites ||
+        successful.low != kExpectedLow || successful.high != kExpectedHigh ||
+        successful.maskLow != UINT32_MAX ||
+        successful.maskHigh != kExactBssidMaskHigh ||
         successful.permits != kExpectedPermits)
     {
         return 1;
     }
-    Hardware invalid;
-    const std::array<uint8_t, 6> zero {};
-    const std::array<uint8_t, 6> multicast {0x03U, 1U, 2U, 3U, 4U, 5U};
-    if (program(invalid, nullptr).result != MacIdentityResult::InvalidMac ||
-        program(invalid, zero.data()).result != MacIdentityResult::InvalidMac ||
-        program(invalid, multicast.data()).result !=
-            MacIdentityResult::InvalidMac ||
-        program(invalid, mac.data(), {0, kBarBytes}).result !=
-            MacIdentityResult::InvalidBackend ||
-        program(invalid, mac.data(), {kEpoch, kStationIdHigh}).result !=
-            MacIdentityResult::InvalidBackend ||
-        invalid.reads != 0 || invalid.writes != 0 || invalid.permits != 0)
+    const int invalidResult = rejectInvalidInputs(mac.data());
+    if (invalidResult != 0)
     {
-        return 2;
+        return invalidResult;
     }
-    Hardware denied;
-    denied.epoch = 0;
-    const auto preflight = program(denied, mac.data());
-    if (preflight.result != MacIdentityResult::OwnershipLost ||
-        preflight.requiresReset || denied.reads != 0 || denied.writes != 0)
-    {
-        return 3;
-    }
-    Hardware badRead;
-    badRead.rejectReads = true;
-    if (program(badRead, mac.data()).result != MacIdentityResult::ReadFailed ||
-        badRead.writes != 0)
-    {
-        return 4;
-    }
-    for (unsigned int failure = 1; failure <= 2; ++failure)
+    for (unsigned int failure = 1; failure <= kExpectedWrites; ++failure)
     {
         Hardware badWrite;
         badWrite.failOnWrite = failure;
@@ -162,15 +227,8 @@ int main()
         Hardware revoked;
         revoked.revokeOnPermit = revoke;
         const auto attempted = program(revoked, mac.data());
-        unsigned int expectedWrites = 0;
-        if (revoke > 3U)
-        {
-            expectedWrites = 2U;
-        }
-        else if (revoke > 2U)
-        {
-            expectedWrites = 1U;
-        }
+        const unsigned int expectedWrites =
+            expectedWritesBeforeRevocation(revoke);
         if (attempted.result != MacIdentityResult::OwnershipLost ||
             attempted.requiresReset != (revoke > 2U) ||
             attempted.completedWrites != expectedWrites)
@@ -183,6 +241,15 @@ int main()
     const auto readback = program(mismatch, mac.data());
     if (readback.result != MacIdentityResult::ReadbackMismatch ||
         !readback.requiresReset || readback.completedWrites != 2U)
+    {
+        return kFailedReadbackCase;
+    }
+    Hardware badMask;
+    badMask.mismatchMaskReadback = true;
+    const auto rejectedMask = program(badMask, mac.data());
+    if (rejectedMask.result != MacIdentityResult::ReadbackMismatch ||
+        !rejectedMask.requiresReset ||
+        rejectedMask.completedWrites != kExpectedWrites)
     {
         return kFailedReadbackCase;
     }

@@ -2862,8 +2862,8 @@ class SimpleATH final : public IOService
             mac->release();
             setProperty("SimpleATHNvmOrigin", board->origin, 32);
             // The permanent MAC is not only a registry property: program
-            // both PCU identity registers while automatic ACK/CTS, DMA and
-            // transmit queues are physically quiesced. Upper STA_ID1 mode
+            // PCU identity and exact BSSID mask registers while automatic
+            // ACK/CTS, DMA and transmit queues are quiesced. STA_ID1 mode
             // bits must survive; a partial write is recovered by full reset.
             stage("AR9565StationAddress");
             const auto mapped = backend_.activeRegisters();

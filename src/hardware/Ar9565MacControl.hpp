@@ -35,8 +35,9 @@ namespace simpleath
     };
 
     // Program actual EEPROM-acquired station identity into AR_STA_ID0/1
-    // before enabling RX, DMA or automatic acknowledgements. Preserve all
-    // mode/control bits in STA_ID1's upper half. The native PCI owner must
+    // and install the exact-match BSSID mask (AR_BSSMSKL/U) before enabling
+    // RX, DMA or automatic acknowledgements. Preserve all mode/control bits
+    // in STA_ID1's upper half. The native PCI owner must
     // prove D0, same epoch, quiesced MAC and live NVM board lease on EACH
     // MMIO operation; this helper cannot authorize RF or TX.
     MacIdentityProgress

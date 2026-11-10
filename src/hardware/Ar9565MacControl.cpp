@@ -34,6 +34,10 @@ namespace simpleath
         constexpr uint32_t kStationIdLow = 0x8000;
         constexpr uint32_t kStationIdHigh = 0x8004;
         constexpr uint32_t kStationMacHighMask = 0x0000ffffU;
+        constexpr uint32_t kBssidMaskLow = 0x80e0;
+        constexpr uint32_t kBssidMaskHigh = 0x80e4;
+        constexpr uint32_t kExactBssidMaskLow = UINT32_MAX;
+        constexpr uint32_t kExactBssidMaskHigh = 0x0000ffffU;
         constexpr uint32_t kBlockReceiveAndResponses = 0x02000026;
         constexpr uint32_t kObserveBus = 0x806c;
         constexpr uint32_t kReceiveState = 0x01f00000;
@@ -47,6 +51,64 @@ namespace simpleath
         {
             return bus.read32(bus.context, offset, &value) &&
                    value != UINT32_MAX;
+        }
+
+        bool programExactBssidMask(const RegisterBus &bus, uint64_t epoch,
+                                   bool (*permit)(void *, uint64_t),
+                                   MacIdentityProgress &result)
+        {
+            // Default to an exact BSSID mask before any later association or
+            // automatic MAC response. The all-ones low word is legal data, not
+            // the missing-BAR read sentinel used for ordinary registers.
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return false;
+            }
+            result.result = MacIdentityResult::WriteFailed;
+            if (!bus.write32(bus.context, kBssidMaskLow, kExactBssidMaskLow))
+            {
+                return false;
+            }
+            ++result.completedWrites;
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return false;
+            }
+            result.result = MacIdentityResult::WriteFailed;
+            if (!bus.write32(bus.context, kBssidMaskHigh, kExactBssidMaskHigh))
+            {
+                return false;
+            }
+            ++result.completedWrites;
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return false;
+            }
+            uint32_t maskLow = 0;
+            result.result = MacIdentityResult::ReadFailed;
+            // 0xffffffff is the correct exact-match mask; only this offset
+            // intentionally bypasses read()'s all-ones floating-BAR heuristic.
+            if (!bus.read32(bus.context, kBssidMaskLow, &maskLow))
+            {
+                return false;
+            }
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return false;
+            }
+            uint32_t maskHigh = 0;
+            result.result = MacIdentityResult::ReadFailed;
+            if (!read(bus, kBssidMaskHigh, maskHigh))
+            {
+                return false;
+            }
+            result.result = MacIdentityResult::ReadbackMismatch;
+            return maskLow == kExactBssidMaskLow &&
+                   maskHigh == kExactBssidMaskHigh;
         }
 
         bool validBackend(const RegisterBus &bus,
@@ -67,7 +129,7 @@ namespace simpleath
         const RegisterBus bus = supplied;
         if (bus.context == nullptr || bus.read32 == nullptr ||
             bus.write32 == nullptr || permit == nullptr || epoch == 0 ||
-            bus.barLengthBytes < kStationIdHigh + sizeof(uint32_t))
+            bus.barLengthBytes < kBssidMaskHigh + sizeof(uint32_t))
         {
             return result;
         }
@@ -148,6 +210,10 @@ namespace simpleath
         }
         result.result = MacIdentityResult::ReadbackMismatch;
         if (checkLow != low || checkHigh != updatedHigh)
+        {
+            return result;
+        }
+        if (!programExactBssidMask(bus, epoch, permit, result))
         {
             return result;
         }
