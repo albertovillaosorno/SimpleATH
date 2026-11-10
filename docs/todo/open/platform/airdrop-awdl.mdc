@@ -267,3 +267,21 @@ native owner evidence. The serializer is not called by a macOS AWDL host,
 BLE discovery, radio scheduler or TX queue. Apple peer election, service
 policy, RF coexistence, authenticated IPv6 and AirDrop transfer remain
 unimplemented; this P0 TODO is still open.
+
+## AWDL ingress address guard — 2026-11-10
+
+`parseAwdlAction` rejects action frames with an all-zero destination as
+`InvalidAddress`, matching the outbound action serializer and IPv6 ingress
+policy. The malformed frame never becomes a peer observation. A synthetic
+regression keeps the otherwise valid MIF body intact to prove this rejection;
+focused Clang-Tidy, format and C++14/C++17 ASan+UBSan pass. This is only
+input validation, not peer authorization or native AWDL readiness.
+
+## AWDL ingress address guard — 2026-11-10
+
+`parseAwdlAction` rejects action frames with an all-zero destination as
+`InvalidAddress`, matching the outbound action serializer and IPv6 ingress
+policy. The malformed frame never becomes a peer observation. A synthetic
+regression keeps the otherwise valid MIF body intact to prove this rejection;
+focused Clang-Tidy, format and C++14/C++17 ASan+UBSan pass. This is only
+input validation, not peer authorization or native AWDL readiness.

@@ -455,6 +455,15 @@ namespace simpleath
             {
                 return Result::UnsupportedFrame;
             }
+            uint8_t destinationAggregate = 0U;
+            for (const uint8_t octet : header.destination.bytes)
+            {
+                destinationAggregate |= octet;
+            }
+            if (destinationAggregate == 0U)
+            {
+                return Result::InvalidAddress;
+            }
             if (length - header.headerLength < kActionBodyBytes)
             {
                 return Result::Truncated;

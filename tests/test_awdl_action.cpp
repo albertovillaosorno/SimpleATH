@@ -141,6 +141,19 @@ namespace
         {
             return false;
         }
+        // A zero destination cannot be delivered as a real AWDL MIF or
+        // PSF, even if the source, BSSID and TLVs otherwise parse correctly.
+        frame = makeAwdl();
+        for (size_t index = 4U; index < kSourceOffset; ++index)
+        {
+            frame.at(index) = 0U;
+        }
+        if (parseAwdlAction(frame.data(), frame.size(), action) !=
+                Result::InvalidAddress ||
+            action.tlvCount != 0U)
+        {
+            return false;
+        }
         frame = makeAwdl();
         frame.at(kVendorOuiOffset) ^= 0x01U;
         if (parseAwdlAction(frame.data(), frame.size(), action) !=
