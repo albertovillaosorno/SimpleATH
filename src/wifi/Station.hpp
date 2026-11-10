@@ -89,10 +89,10 @@ namespace simpleath
                 }
 
             private:
-                StationState state_;
-                Bss chosen_;
-                Mac stationMac_;
-                uint16_t associationId_;
+                StationState state_ {StationState::Inactive};
+                Bss chosen_ {};
+                Mac stationMac_ {};
+                uint16_t associationId_ {0};
         };
 
     } // namespace ieee80211

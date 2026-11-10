@@ -11,6 +11,40 @@ namespace simpleath
     {
         namespace
         {
+            constexpr uint8_t kExtendedRatesElementId = 50;
+            constexpr uint8_t kBasicRateFlag = 0x80U;
+            constexpr uint8_t kRateCodeMask = 0x7fU;
+            constexpr uint16_t kPrivacyCapabilityBit = 0x10U;
+            constexpr uint8_t kMaximum2GhzChannel = 14;
+            constexpr size_t kRsnPayloadMinimumBytes = 20;
+            constexpr uint8_t kRsnElementId = 48;
+            constexpr size_t kRsnElementPrefixBytes = 2;
+            constexpr size_t kAssociationCapabilitiesOffset = 24;
+
+            template <typename T, size_t N>
+            T &boundedElement(T (&elements)[N], size_t index)
+            {
+                for (T &element : elements)
+                {
+                    if (index == 0)
+                    {
+                        return element;
+                    }
+                    --index;
+                }
+                __builtin_trap();
+            }
+
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                              "station pointer width must match address width");
+                uintptr_t address = 0;
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
+
             bool overlapsStorage(const void *first, size_t firstBytes,
                                  const void *second, size_t secondBytes)
             {
@@ -19,8 +53,8 @@ namespace simpleath
                 {
                     return false;
                 }
-                const auto left = reinterpret_cast<uintptr_t>(first);
-                const auto right = reinterpret_cast<uintptr_t>(second);
+                const auto left = pointerAddress(first);
+                const auto right = pointerAddress(second);
                 return left <= right ? right - left < firstBytes
                                      : left - right < secondBytes;
             }
@@ -40,7 +74,8 @@ namespace simpleath
                 bool sharedRate = false;
                 while (cursor.next(element) == CursorStatus::Element)
                 {
-                    if (element.id != 1 && element.id != 50)
+                    if (element.id != 1 &&
+                        element.id != kExtendedRatesElementId)
                     {
                         continue;
                     }
@@ -57,13 +92,14 @@ namespace simpleath
                         // after our association request. Duplicate beacon
                         // rates may carry either bit, so accept a required
                         // response rate only when it was originally basic.
-                        if ((element.data[i] & 0x80U) != 0)
+                        if ((element.data[i] & kBasicRateFlag) != 0)
                         {
                             bool selectedBasic = false;
                             for (size_t j = 0; j < selected.rateCount; ++j)
                             {
                                 selectedBasic |=
-                                    selected.rates[j] == element.data[i];
+                                    boundedElement(selected.rates, j) ==
+                                    element.data[i];
                             }
                             if (!supported || !selectedBasic)
                             {
@@ -77,11 +113,7 @@ namespace simpleath
             }
         } // namespace
 
-        Station::Station()
-            : state_(StationState::Inactive), chosen_ {}, stationMac_ {},
-              associationId_(0)
-        {
-        }
+        Station::Station() = default;
 
         void Station::reset()
         {
@@ -122,7 +154,7 @@ namespace simpleath
                 (beacon.capabilities & 0x0003U) != 0x0001U ||
                 beacon.hiddenSsid || beacon.ssidLength == 0 ||
                 beacon.ssidLength > sizeof(beacon.ssid) ||
-                beacon.channel == 0 || beacon.channel > 14 ||
+                beacon.channel == 0 || beacon.channel > kMaximum2GhzChannel ||
                 beacon.intervalTu == 0 || beacon.rateCount == 0 ||
                 beacon.rateCount > sizeof(beacon.rates))
             {
@@ -134,7 +166,7 @@ namespace simpleath
             bool hasVisibleSsidByte = false;
             for (size_t i = 0; i < beacon.ssidLength; ++i)
             {
-                hasVisibleSsidByte |= beacon.ssid[i] != 0;
+                hasVisibleSsidByte |= boundedElement(beacon.ssid, i) != 0;
             }
             if (!hasVisibleSsidByte)
             {
@@ -142,7 +174,7 @@ namespace simpleath
             }
             for (size_t i = 0; i < beacon.rateCount; ++i)
             {
-                if ((beacon.rates[i] & 0x7fU) == 0)
+                if ((boundedElement(beacon.rates, i) & kRateCodeMask) == 0)
                 {
                     return StationResult::UnsupportedNetwork;
                 }
@@ -160,27 +192,30 @@ namespace simpleath
             const Security security = beacon.rsn.security;
             if (security == Security::Open)
             {
-                if ((beacon.capabilities & 0x10U) != 0 || beacon.rsn.present ||
-                    beacon.rsnIeLength != 0)
+                if ((beacon.capabilities & kPrivacyCapabilityBit) != 0 ||
+                    beacon.rsn.present || beacon.rsnIeLength != 0)
                 {
                     return StationResult::UnsupportedNetwork;
                 }
             }
             else if (security == Security::Wpa2Personal)
             {
-                if ((beacon.capabilities & 0x10U) == 0 || !beacon.rsn.present ||
-                    !beacon.rsn.valid || !beacon.rsn.pairwiseCcmp ||
-                    !beacon.rsn.groupCcmp || !beacon.rsn.akmPsk ||
-                    beacon.rsn.pmfRequired || beacon.rsnIeLength < 20 ||
+                if ((beacon.capabilities & kPrivacyCapabilityBit) == 0 ||
+                    !beacon.rsn.present || !beacon.rsn.valid ||
+                    !beacon.rsn.pairwiseCcmp || !beacon.rsn.groupCcmp ||
+                    !beacon.rsn.akmPsk || beacon.rsn.pmfRequired ||
+                    beacon.rsnIeLength < kRsnPayloadMinimumBytes ||
                     beacon.rsnIeLength > sizeof(beacon.rsnIe) ||
-                    beacon.rsnIe[0] != 48 ||
-                    static_cast<size_t>(beacon.rsnIe[1]) + 2 !=
+                    beacon.rsnIe[0] != kRsnElementId ||
+                    static_cast<size_t>(beacon.rsnIe[1]) +
+                            kRsnElementPrefixBytes !=
                         beacon.rsnIeLength)
                 {
                     return StationResult::UnsupportedNetwork;
                 }
                 Rsn validated {};
-                if (parseRsn(beacon.rsnIe + 2, beacon.rsnIeLength - 2,
+                if (parseRsn(&beacon.rsnIe[kRsnElementPrefixBytes],
+                             beacon.rsnIeLength - kRsnElementPrefixBytes,
                              validated) != Result::Ok ||
                     validated.security != Security::Wpa2Personal ||
                     validated.pmfRequired || !validated.groupCcmp ||
@@ -297,7 +332,9 @@ namespace simpleath
             // using a response that advertises the opposite protection bit.
             // parseAssociationResponse already proved the 24-byte header and
             // six-byte fixed response body are present.
-            if (((bytes[24] ^ chosen_.beacon.capabilities) & 0x10U) != 0)
+            if (((static_cast<uint32_t>(bytes[kAssociationCapabilitiesOffset]) ^
+                  static_cast<uint32_t>(chosen_.beacon.capabilities)) &
+                 kPrivacyCapabilityBit) != 0)
             {
                 return StationResult::FrameRejected;
             }
