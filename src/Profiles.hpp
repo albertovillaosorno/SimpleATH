@@ -9,15 +9,18 @@
 #ifndef SIMPLEATH_PROFILES_HPP
 #define SIMPLEATH_PROFILES_HPP
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace ath
 {
+    constexpr size_t kByteGuardWidth = 32U;
+
     struct ByteGuard
     {
             uint32_t offset;
-            uint8_t bytes[32];
-            uint8_t mask[32];
+            uint8_t bytes[kByteGuardWidth];
+            uint8_t mask[kByteGuardWidth];
     };
 
     struct CopySite
@@ -26,12 +29,12 @@ namespace ath
             bool output;
     };
 
-    static const uint16_t ScalarGetRequests[] = {
+    static const uint16_t kScalarGetRequests[] = {
         5,  8,  13,  15,  18,  21,  26,  28,  31,  33,  34,  35,  36,  41,  45,
         50, 52, 55,  56,  57,  58,  59,  60,  63,  64,  70,  71,  72,  82,  87,
         88, 96, 100, 101, 235, 241, 256, 258, 259, 261, 265, 267, 336, 353, 369,
     };
-    static const ByteGuard LegacyGuards[] = {
+    static const ByteGuard kLegacyGuards[] = {
         {
             0x9D978,
             {
@@ -1143,14 +1146,14 @@ namespace ath
             },
         },
     };
-    static const CopySite LegacyCopySites[] = {
+    static const CopySite kLegacyCopySites[] = {
         {0x7E4B2, false}, {0x7E56F, true},  {0x81524, true},  {0x823A3, true},
         {0x8932D, false}, {0x893B2, true},  {0x89489, false}, {0x89546, true},
         {0x8C151, false}, {0x8C20D, false}, {0x8D3D5, false}, {0x8D3FA, false},
         {0x91DC5, false}, {0x92D63, true},
     };
 
-    static const ByteGuard AirPortOriginalGuards[] = {
+    static const ByteGuard kAirPortOriginalGuards[] = {
         {
             0x1AFFB,
             {
@@ -1332,12 +1335,12 @@ namespace ath
             },
         },
     };
-    static const CopySite AirPortOriginalCopySites[] = {
+    static const CopySite kAirPortOriginalCopySites[] = {
         {0x38538, false},
         {0x386C6, true},
     };
 
-    static const ByteGuard AirPortGuards[] = {
+    static const ByteGuard kAirPortGuards[] = {
         {
             0x1AFFB,
             {
@@ -1519,7 +1522,7 @@ namespace ath
             },
         },
     };
-    static const CopySite AirPortCopySites[] = {
+    static const CopySite kAirPortCopySites[] = {
         {0x38538, false},
         {0x386C6, true},
     };

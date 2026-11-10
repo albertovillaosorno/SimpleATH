@@ -60,7 +60,7 @@ class ProfileOutputRegression(TestCase):
         literal = ", ".join(f"0x{value:02X}" for value in ORIGINAL)
         mask = ", ".join("0xFF" for _ in range(GUARD_BYTES))
         assert lines == [
-            "static const ByteGuard SkywalkGuards[] = {",
+            "static const ByteGuard kSkywalkGuards[] = {",
             f"    {{0x{ADDRESS:X}, {{{literal}}}, {{{mask}}}}},",
             "};",
             "",

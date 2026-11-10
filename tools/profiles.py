@@ -538,16 +538,16 @@ def _profile_lines(profile: _ProfileImage) -> list[str]:
     if profile.scalar:
         requests = ", ".join(str(number) for number in SCALAR_GET_REQUESTS)
         lines.append(
-            f"static const uint16_t ScalarGetRequests[] = {{{requests}}};"
+            f"static const uint16_t kScalarGetRequests[] = {{{requests}}};"
         )
-    lines.append(f"static const ByteGuard {profile.label}Guards[] = {{")
+    lines.append(f"static const ByteGuard k{profile.label}Guards[] = {{")
     for address, _ in profile.guards:
         data = numbers(profile.image.read(address, GUARD_SIZE))
         mask = numbers(guard_mask(profile.relocs, address))
         lines.append(f"    {{0x{address:X}, {{{data}}}, {{{mask}}}}},")
     lines.append("};")
     if profile.label in {LEGACY_LABEL, "AirPort", "AirPortOriginal"}:
-        lines.append(f"static const CopySite {profile.label}CopySites[] = {{")
+        lines.append(f"static const CopySite k{profile.label}CopySites[] = {{")
         for address, output in sorted(profile.copies):
             side = "true" if output else "false"
             lines.append(f"    {{0x{address:X}, {side}}},")

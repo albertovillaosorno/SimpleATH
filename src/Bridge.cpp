@@ -165,7 +165,7 @@ namespace ath
 
     bool Bridge::isScalarGet(uint32_t request)
     {
-        for (auto const entry : ScalarGetRequests)
+        for (auto const entry : kScalarGetRequests)
         {
             if (entry == request)
             {
@@ -1067,8 +1067,8 @@ namespace ath
         if (index == 0)
         {
             if (!validate(address, size,
-                          static_cast<const ByteGuard *>(LegacyGuards),
-                          arrsize(LegacyGuards)))
+                          static_cast<const ByteGuard *>(kLegacyGuards),
+                          arrsize(kLegacyGuards)))
             {
                 reject("LegacyBinaryMismatch");
                 return;
@@ -1155,8 +1155,8 @@ namespace ath
             };
             if (!patcher.routeMultipleLong(index, routes, address, size) ||
                 !patchCopies(patcher, address, size,
-                             static_cast<const CopySite *>(LegacyCopySites),
-                             arrsize(LegacyCopySites)))
+                             static_cast<const CopySite *>(kLegacyCopySites),
+                             arrsize(kLegacyCopySites)))
             {
                 patcher.clearError();
                 reject("LegacyRoutingFailed");
@@ -1168,16 +1168,17 @@ namespace ath
         {
             const bool original = abi().backend == AirPortBackend::Original;
             const auto *const guards =
-                original ? static_cast<const ByteGuard *>(AirPortOriginalGuards)
-                         : static_cast<const ByteGuard *>(AirPortGuards);
-            const auto guardCount = original ? arrsize(AirPortOriginalGuards)
-                                             : arrsize(AirPortGuards);
+                original
+                    ? static_cast<const ByteGuard *>(kAirPortOriginalGuards)
+                    : static_cast<const ByteGuard *>(kAirPortGuards);
+            const auto guardCount = original ? arrsize(kAirPortOriginalGuards)
+                                             : arrsize(kAirPortGuards);
             const auto *const copies =
                 original
-                    ? static_cast<const CopySite *>(AirPortOriginalCopySites)
-                    : static_cast<const CopySite *>(AirPortCopySites);
-            const auto copyCount = original ? arrsize(AirPortOriginalCopySites)
-                                            : arrsize(AirPortCopySites);
+                    ? static_cast<const CopySite *>(kAirPortOriginalCopySites)
+                    : static_cast<const CopySite *>(kAirPortCopySites);
+            const auto copyCount = original ? arrsize(kAirPortOriginalCopySites)
+                                            : arrsize(kAirPortCopySites);
             if (!validate(address, size, guards, guardCount))
             {
                 reject(original ? "OriginalAirPortBinaryMismatch"
