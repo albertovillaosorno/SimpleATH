@@ -98,6 +98,22 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   succeeds or fails while revoking ownership. Synthetic C++14/C++17 ASan+UBSan,
   direct strict Clang-Tidy and formatting checks passed; no native firmware
   distribution or USB execution is implied.
+- Commit `98a502a` bounds native HCI Event/ACL USB IN polls to the
+  existing finite transport timeout, so a silent interrupt endpoint cannot
+  block the USB service indefinitely. Zero-byte timeouts produce a distinct
+  nonfaulting `UsbHciStatus::Idle`; post-I/O lease checks reject an epoch
+  revoked while the physical transfer was pending. Partial/ambiguous I/O
+  still faults the controller transport. Darwin C++14 SDK syntax, focused
+  strict Clang-Tidy and formatting passed. No live USB polling was tested.
+- Commit `582c46a` factors the native IN-transfer outcome policy into the
+  portable `classifyUsbHciRead` helper and exercises 12 synthetic outcomes,
+  including successful short/full reads, idle timeout, partial transfer,
+  empty successful transfer, oversize, contradictory status and stale owner.
+  C++14/C++17 ASan+UBSan, focused strict Clang-Tidy, formatting and native
+  Darwin C++14 syntax passed. The full repository validator was blocked by
+  concurrent validator runs, so its post-change aggregate is **not yet
+  verified**. These source checks do not establish macOS HCI host attachment,
+  USB lifetime safety at detach, real controller readiness, or AirDrop.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
