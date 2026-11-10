@@ -11,18 +11,24 @@
 #include "NativeSkywalk.hpp"
 #include "NativeUserClient.hpp"
 #include "Patcher.hpp"
+#include "Payload.hpp"
 #include "Profiles.hpp"
 #include "UserClient.hpp"
 #include "WirelessABI.hpp"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
+#include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOUserClient.h>
 #include <IOKit/IOWorkLoop.h>
 #include <cstdint>
 #include <kern/clock.h>
+#include <kern/thread.h>
 #include <kern/thread_call.h>
 #include <libkern/c++/OSData.h>
+#include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSObject.h>
+#include <libkern/copyio.h>
 #include <mach-o/loader.h>
 #include <mach/mach_time.h>
 #include <mach/mach_types.h>
@@ -285,7 +291,8 @@ namespace ath
         endpoint.interface = interface;
         endpoint.controller = controller;
         endpoint.kind = kind;
-        strlcpy(endpoint.name, name, sizeof(endpoint.name));
+        strlcpy(static_cast<char *>(endpoint.name), name,
+                sizeof(endpoint.name));
         return true;
     }
 
@@ -301,7 +308,8 @@ namespace ath
     static CountryProperty originalCountryProperty;
     static DriverRequest classicRequest;
 
-    static int getLocale(IOService *controller, OSObject *, LocaleData *output)
+    static int getLocale(IOService *controller, OSObject * /*unused*/,
+                         LocaleData *output)
     {
         const auto result = originalLocale(controller, nullptr, output);
         if ((result != 0) || (output == nullptr) || output->version != 1 ||
@@ -318,7 +326,8 @@ namespace ath
     }
 
     static IOReturn updateCountryProperties(OSObject *target, void *argument,
-                                            void *logging, void *, void *)
+                                            void *logging, void * /*unused*/,
+                                            void * /*unused*/)
     {
         auto *controller = static_cast<IOService *>(target);
         auto *interface = static_cast<IOService *>(argument);
@@ -501,7 +510,8 @@ namespace ath
                               uint32_t *value = nullptr)
     {
         LegacyRequest request {};
-        strlcpy(request.request.interfaceName, endpoint.name,
+        strlcpy(static_cast<char *>(request.request.interfaceName),
+                static_cast<const char *>(endpoint.name),
                 sizeof(request.request.interfaceName));
         request.request.type = static_cast<int32_t>(type);
         request.request.length = static_cast<uint32_t>(length);
@@ -521,8 +531,9 @@ namespace ath
         return result;
     }
 
-    static IOReturn captureJoinEvent(OSObject *, void *argument, void *, void *,
-                                     void *)
+    static IOReturn captureJoinEvent(OSObject * /*unused*/, void *argument,
+                                     void * /*unused*/, void * /*unused*/,
+                                     void * /*unused*/)
     {
         auto *event = static_cast<PendingEvent *>(argument);
         Endpoint endpoint {
@@ -531,21 +542,25 @@ namespace ath
             InterfaceKind::Classic,
             {},
         };
-        strlcpy(endpoint.name, event->name, sizeof(endpoint.name));
+        strlcpy(static_cast<char *>(endpoint.name),
+                static_cast<const char *>(event->name), sizeof(endpoint.name));
         uint8_t buffer[kAssociationAddressBytes] {};
         uint32_t status {};
         uint32_t result {};
         auto error = readEventValue(endpoint, kAssociationStatusSelector,
-                                    buffer, sizeof(uint32_t), &status);
+                                    static_cast<uint8_t *>(buffer),
+                                    sizeof(uint32_t), &status);
         if (error == 0)
         {
-            error = readEventValue(endpoint, kAssociationResultSelector, buffer,
+            error = readEventValue(endpoint, kAssociationResultSelector,
+                                   static_cast<uint8_t *>(buffer),
                                    sizeof(uint32_t), &result);
         }
         if ((error == 0) && result == 1)
         {
-            error = readEventValue(endpoint, kAssociationAddressSelector,
-                                   buffer, sizeof(buffer));
+            error =
+                readEventValue(endpoint, kAssociationAddressSelector,
+                               static_cast<uint8_t *>(buffer), sizeof(buffer));
         }
         __atomic_store_n(&counters.lastAssociationEventReadResult,
                          static_cast<uint32_t>(error), __ATOMIC_RELAXED);
@@ -555,8 +570,10 @@ namespace ath
                                __ATOMIC_RELAXED);
             return static_cast<IOReturn>(error);
         }
-        if (encodeJoinStatus(status, result, buffer,
-                             result == 1 ? sizeof(buffer) : 0, event->payload,
+        if (encodeJoinStatus(status, result,
+                             static_cast<const uint8_t *>(buffer),
+                             result == 1 ? sizeof(buffer) : 0,
+                             static_cast<uint8_t *>(event->payload),
                              sizeof(event->payload), Bridge::abi()))
         {
             event->length = static_cast<uint32_t>(Bridge::abi().joinStatusSize);
@@ -566,7 +583,8 @@ namespace ath
         return kIOReturnSuccess;
     }
 
-    static void drainEvents(thread_call_param_t, thread_call_param_t)
+    static void drainEvents(thread_call_param_t /*unused*/,
+                            thread_call_param_t /*unused*/)
     {
         PendingEvent event;
         for (;;)
@@ -602,10 +620,11 @@ namespace ath
             }
             for (size_t index = 0; index < count; ++index)
             {
-                targets[index]->receive(event.controller, event.name,
-                                        event.event, event.payload,
-                                        event.length, event.seconds,
-                                        event.microseconds, event.serial);
+                targets[index]->receive(
+                    event.controller, static_cast<const char *>(event.name),
+                    event.event, static_cast<const uint8_t *>(event.payload),
+                    event.length, event.seconds, event.microseconds,
+                    event.serial);
                 targets[index]->release();
             }
             event.controller->release();
@@ -644,8 +663,10 @@ namespace ath
             {
                 if ((availability[index].controller != nullptr) &&
                     availability[index].controller == endpoint.controller &&
-                    (strncmp(availability[index].name, endpoint.name,
-                             sizeof(endpoint.name)) == 0))
+                    (strncmp(
+                         static_cast<const char *>(availability[index].name),
+                         static_cast<const char *>(endpoint.name),
+                         sizeof(endpoint.name)) == 0))
                 {
                     slot = index;
                     break;
@@ -667,8 +688,9 @@ namespace ath
                 if (powerSnapshot &&
                     (saved.original ||
                      (saved.event.length == abi.driverAvailableSize &&
-                      readUInt32(saved.event.payload +
-                                 kPowerSnapshotWordOffset) ==
+                      readUInt32(
+                          static_cast<const uint8_t *>(saved.event.payload) +
+                          kPowerSnapshotWordOffset) ==
                           readUInt32(static_cast<uint8_t *>(payload) +
                                      kPowerSnapshotWordOffset))))
                 {
@@ -679,16 +701,19 @@ namespace ath
                 {
                     saved.controller = endpoint.controller;
                     saved.controller->retain();
-                    strlcpy(saved.name, endpoint.name, sizeof(saved.name));
+                    strlcpy(static_cast<char *>(saved.name),
+                            static_cast<const char *>(endpoint.name),
+                            sizeof(saved.name));
                 }
                 saved.event.length = 0;
                 saved.original =
                     !powerSnapshot && outputLength == abi.driverAvailableSize;
                 if (outputLength == abi.driverAvailableSize)
                 {
-                    copyEventPayload(message, payload, length,
-                                     saved.event.payload,
-                                     sizeof(saved.event.payload), abi);
+                    copyEventPayload(
+                        message, payload, length,
+                        static_cast<uint8_t *>(saved.event.payload),
+                        sizeof(saved.event.payload), abi);
                     saved.event.length = outputLength;
                     saved.event.seconds = seconds;
                     saved.event.microseconds = microseconds;
@@ -726,12 +751,14 @@ namespace ath
         {
             entry.interface->retain();
         }
-        strlcpy(entry.name, endpoint.name, sizeof(entry.name));
+        strlcpy(static_cast<char *>(entry.name),
+                static_cast<const char *>(endpoint.name), sizeof(entry.name));
         entry.event = message;
         entry.length = outputLength;
         entry.seconds = seconds;
         entry.microseconds = microseconds;
-        copyEventPayload(message, payload, length, entry.payload,
+        copyEventPayload(message, payload, length,
+                         static_cast<uint8_t *>(entry.payload),
                          sizeof(entry.payload), abi);
         pendingWrite = next;
         IOSimpleLockUnlockEnableInterrupt(hubLock, interruptState);
@@ -751,8 +778,8 @@ namespace ath
             return ENOTSUP;
         }
         uint8_t power[powerDataSize] {};
-        return readEventValue(endpoint, kPowerAvailabilitySelector, power,
-                              sizeof(power));
+        return readEventValue(endpoint, kPowerAvailabilitySelector,
+                              static_cast<uint8_t *>(power), sizeof(power));
     }
 
     uint64_t Bridge::copyAvailability(const Endpoint &endpoint,
@@ -861,12 +888,12 @@ namespace ath
             uint8_t event[nativeDriverAvailableSize];
             if ((result == 0) && size >= powerDataSize &&
                 request.request.length == powerDataSize &&
-                encodePowerAvailability(static_cast<const uint8_t *>(shadow),
-                                        powerDataSize, event, sizeof(event),
-                                        abi()))
+                encodePowerAvailability(
+                    static_cast<const uint8_t *>(shadow), powerDataSize,
+                    static_cast<uint8_t *>(event), sizeof(event), abi()))
             {
                 queueEvent(endpoint.interface, endpoint.kind,
-                           driverAvailableEvent, event,
+                           driverAvailableEvent, static_cast<uint8_t *>(event),
                            abi().driverAvailableSize, true);
             }
         }
@@ -1036,7 +1063,9 @@ namespace ath
         }
         if (index == 0)
         {
-            if (!validate(address, size, LegacyGuards, arrsize(LegacyGuards)))
+            if (!validate(address, size,
+                          static_cast<const ByteGuard *>(LegacyGuards),
+                          arrsize(LegacyGuards)))
             {
                 reject("LegacyBinaryMismatch");
                 return;
@@ -1122,7 +1151,8 @@ namespace ath
                 },
             };
             if (!patcher.routeMultipleLong(index, routes, address, size) ||
-                !patchCopies(patcher, address, size, LegacyCopySites,
+                !patchCopies(patcher, address, size,
+                             static_cast<const CopySite *>(LegacyCopySites),
                              arrsize(LegacyCopySites)))
             {
                 patcher.clearError();
@@ -1135,11 +1165,14 @@ namespace ath
         {
             const bool original = abi().backend == AirPortBackend::Original;
             const auto *const guards =
-                original ? AirPortOriginalGuards : AirPortGuards;
+                original ? static_cast<const ByteGuard *>(AirPortOriginalGuards)
+                         : static_cast<const ByteGuard *>(AirPortGuards);
             const auto guardCount = original ? arrsize(AirPortOriginalGuards)
                                              : arrsize(AirPortGuards);
             const auto *const copies =
-                original ? AirPortOriginalCopySites : AirPortCopySites;
+                original
+                    ? static_cast<const CopySite *>(AirPortOriginalCopySites)
+                    : static_cast<const CopySite *>(AirPortCopySites);
             const auto copyCount = original ? arrsize(AirPortOriginalCopySites)
                                             : arrsize(AirPortCopySites);
             if (!validate(address, size, guards, guardCount))
@@ -1321,10 +1354,11 @@ namespace ath
         for (size_t i = 0; i < arrsize(counters.selectors); ++i)
         {
             char name[kMetricNameCapacity];
-            snprintf(name, sizeof(name), "Selector%u",
+            snprintf(static_cast<char *>(name), sizeof(name), "Selector%u",
                      static_cast<unsigned>(i));
             service->setProperty(
-                name, __atomic_load_n(&counters.selectors[i], __ATOMIC_RELAXED),
+                static_cast<const char *>(name),
+                __atomic_load_n(&counters.selectors[i], __ATOMIC_RELAXED),
                 kNumberBits64);
         }
         service->setProperty(
