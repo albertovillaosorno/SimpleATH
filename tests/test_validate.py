@@ -1022,7 +1022,7 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
             for name in (
                 "src/platform/abi/manifest.json",
                 "tools/reference-data.json",
-                "src/linux/linux-port-ledger.jsonl",
+                ".references/ledger.jsonl",
             ):
                 asset = root / name
                 asset.parent.mkdir(parents=True, exist_ok=True)
@@ -1035,7 +1035,7 @@ class NonSourceFixtureSnapshot(unittest.TestCase):
                 assert validator.input_snapshot(root, [source]) == baseline
 
             # Bulk checked-out Linux references are not live native inputs.
-            linux = root / "src/linux/drivers/net/sample.conf"
+            linux = root / ".references/linux/drivers/net/sample.conf"
             linux.parent.mkdir(parents=True)
             _ = linux.write_bytes(b"reference only")
             assert validator.input_snapshot(root, [source]) == baseline
@@ -1923,15 +1923,15 @@ class LinuxReferenceExclusion(unittest.TestCase):
         """Never count vendor/reference Linux sources as validated files."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
-            linux = root / "linux"
-            linux.mkdir()
+            linux = root / ".references/linux"
+            linux.mkdir(parents=True)
             _ = (linux / "reference.py").write_text("not owned source")
             owned = root / "src" / "owned.py"
             _ = owned.write_text("import sys")
             with mock.patch.object(
                 validator,
                 "_inventory",
-                return_value=["src/owned.py", "linux/reference.py"],
+                return_value=["src/owned.py", ".references/linux/reference.py"],
             ):
                 assert validator.source_files(root, ()) == [owned]
 
@@ -1940,10 +1940,12 @@ class LinuxReferenceExclusion(unittest.TestCase):
         """Reject even an explicit source path beneath ignored linux/."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
-            linux = root / "linux"
-            linux.mkdir()
+            linux = root / ".references/linux"
+            linux.mkdir(parents=True)
             _ = (linux / "reference.py").write_text("not owned source")
             assert _rejects(
-                lambda: validator.source_files(root, ("linux/reference.py",)),
-                "Ignored Linux reference directory",
+                lambda: validator.source_files(
+                    root, (".references/linux/reference.py",)
+                ),
+                "Ignored reference directory",
             )

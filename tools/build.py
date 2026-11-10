@@ -1327,7 +1327,7 @@ def copy_package_sources(root: Path, stage: Path) -> None:
         _ = shutil.copy2(document, docs / document.name)
     # A checked-out OCLP reference may carry additional licensing terms.
     # Include its notice when present, never require a downloaded reference.
-    license_file = root / ".research/OpenCore-Legacy-Patcher/LICENSE.txt"
+    license_file = root / ".references/OpenCore-Legacy-Patcher/LICENSE.txt"
     if license_file.is_file() and not license_file.is_symlink():
         _ = shutil.copy2(license_file, extra / "OCLP-LICENSE.txt")
 

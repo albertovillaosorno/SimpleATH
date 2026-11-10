@@ -204,7 +204,7 @@ class BuildSourceLayoutTests(TestCase):
             _ = (root / "tools/collect.py").write_text(
                 "collect", encoding="utf-8"
             )
-            notice = root / ".research/OpenCore-Legacy-Patcher/LICENSE.txt"
+            notice = root / ".references/OpenCore-Legacy-Patcher/LICENSE.txt"
             notice.parent.mkdir(parents=True)
             _ = notice.write_text(OCLP_TEXT, encoding="utf-8")
             copy_package_sources(root, stage)

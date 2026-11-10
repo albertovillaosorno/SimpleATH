@@ -376,7 +376,7 @@ def source_files(root: Path, names: tuple[str, ...]) -> list[Path]:
     paths = (
         _checked_path(root, name) for name in (names or tuple(_inventory(root)))
     )
-    ignored = (root / "linux").resolve()
+    ignored = (root / ".references").resolve()
     return sorted({
         path
         for path in paths
@@ -396,7 +396,7 @@ def _source_candidate(path: Path, ignored: Path, *, explicit: bool) -> bool:
     """
     if path.is_relative_to(ignored):
         if explicit:
-            message = "Ignored Linux reference directory: linux/"
+            message = "Ignored reference directory: .references/"
             raise ValueError(message)
         return False
     return path.suffix.lower() in SUPPORTED
@@ -703,20 +703,20 @@ def _support_inputs(root: Path) -> set[Path]:
         ".mypy_cache",
         ".ruff_cache",
     })
-    linux_reference = root / "src/linux"
-    ledger = linux_reference / "linux-port-ledger.jsonl"
     support_inputs = {
         path
         for section in ("src", "tools", "tests")
         for path in (root / section).rglob("*")
         if (path.is_file() or path.is_symlink())
         and path.suffix.lower() not in SUPPORTED
-        and (not path.is_relative_to(linux_reference) or path == ledger)
         and not any(
             part in generated_directories
             for part in path.relative_to(root).parts[:-1]
         )
     }
+    ledger = root / ".references/ledger.jsonl"
+    if ledger.is_file() or ledger.is_symlink():
+        support_inputs.add(ledger)
     # A source fixture symlink can escape the checkout or change its target
     # without changing the path. Reject before reading any of its bytes.
     linked = next(

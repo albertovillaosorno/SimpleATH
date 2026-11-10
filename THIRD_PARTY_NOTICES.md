@@ -13,7 +13,7 @@ Copyright belongs to the respective Linux kernel contributors.
 The Linux kernel is provided under GPL-2.0-only with the Linux syscall
 exception where applicable; individual source files have their own SPDX
 identifiers and may carry different or dual licenses. The project retains
-original source-level notices. The `linux/` directory is reference material;
+original source-level notices. The `.references/linux/` directory is reference material;
 Linux kernel modules cannot be directly linked into the macOS kext.
 
 ## SimpleBCM

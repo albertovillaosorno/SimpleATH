@@ -46,7 +46,7 @@ jobs:
 
       - name: Build unsigned x86_64 kernel extension
         run: |
-          kernel_sdk="$PWD/.research/MacKernelSDK"
+          kernel_sdk="$PWD/.references/MacKernelSDK"
           xcodebuild \
             -project src/platform/SimpleATH.xcodeproj \
             -target SimpleATH \

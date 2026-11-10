@@ -1,21 +1,21 @@
 # Linux reference ledger
 
 The owner requested a JSONL ledger to track the Linux source migration.
-`linux-port-ledger.jsonl` inventories the files under `linux/` and records
-source provenance separately from implementation progress. Preserve the
+`.references/ledger.jsonl` inventories the files under `.references/linux/`
+and records source provenance separately from implementation progress. Preserve the
 reference tree until the AR9565 retirement TODO is complete. The owner's
 later instruction requests deletion after that source milestone; existing
 inline notices and THIRD_PARTY_NOTICES.md suffice without extra archives.
 
 The initial snapshot contains 419 local reference files: 16 have documented
 partial implementation scopes and 403 have no recorded implementation
-assessment. None is marked complete. The local `linux/` tree is excluded
-from Git by the existing ignore rule; this ledger records its actual file
+assessment. None is marked complete. The local `.references/linux/` tree is
+excluded from Git by the existing ignore rule; this ledger records its actual file
 contents by hash without changing that rule or adding the tree to Git.
 
-Each line is a complete JSON object for one repository-relative `source`
-path and exact `sha256`. The initial inventory covers the reference files
-present at creation. Append another complete record when reviewing or
+Linux schema-1 lines are complete objects for a `source` path relative to
+`.references/` (for example `linux/drivers/...`) and exact `sha256`. The initial
+inventory covers the reference files present at creation. Append another complete record when reviewing or
 porting that source; the last record for a path is current. Readers must
 compare its hash with the current reference file: a mismatch makes the
 record stale, not automatically applicable to the new version. Record a
@@ -63,3 +63,16 @@ through tools/validate.py --tests; a ledger status adds no further permission.
 Delete the local Linux tree only after all conditions in the dedicated
 `linux-reference-retirement` TODO hold. Keep this existing ledger and source
 notices; no additional archive, mirror or preservation tooling is required.
+
+## One ledger for all references
+
+The owner consolidated Linux port history and upstream acquisition into
+`.references/ledger.jsonl`. Do not create a second ledger. Existing schema-1
+Linux records retain their original source identities and full history;
+latest `source` wins. Their verified `revision` and `upstream_path` allow the
+reference downloader to reconstruct missing Linux files without changing
+implementation assessments. Schema `simpleath.reference.v1` records describe
+other upstream sources, including MacKernelSDK: identity is repository,
+revision and path. `cache_path` is relative to `.references/`. Keep download
+status separate from actual implementation/reuse assessments. Receipt JSON
+files are disposable cache verification metadata, not additional ledgers.

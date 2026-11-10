@@ -17,6 +17,10 @@ import subprocess  # ruff: ignore[suspicious-subprocess-import] - Shell-free pin
 import sys
 import zipfile
 
+from references.download import REPOSITORIES as SOURCE_REPOSITORIES
+from references.download import download
+from references.download import update_ledger
+
 ROOT = Path(__file__).resolve().parent.parent
 PARENT_COMPONENT = ".."
 MAC_METADATA_COMPONENT = "__MACOSX"
@@ -113,12 +117,14 @@ def validate_payloads(*, extract: bool = False) -> None:
     """
     for relative, digest in ARCHIVES.items():
         archive = (
-            ROOT / ".research/OpenCore-Legacy-Patcher/payloads/Kexts" / relative
+            ROOT
+            / ".references/OpenCore-Legacy-Patcher/payloads/Kexts"
+            / relative
         )
         if hashlib.sha256(archive.read_bytes()).hexdigest() != digest:
             message = f"Archive checksum verification failed: {archive}"
             raise RuntimeError(message)
-        destination = ROOT / ".research/binaries" / archive.stem
+        destination = ROOT / ".references/binaries" / archive.stem
         with zipfile.ZipFile(archive) as bundle:
             for item in bundle.infolist():
                 _validate_item(bundle, item, destination, extract=extract)
@@ -166,9 +172,16 @@ def main() -> None:
     """Fetch and validate the explicitly pinned upstream build references."""
     parser = argparse.ArgumentParser()
     _ = parser.parse_args()
-    research = ROOT / ".research"
+    research = ROOT / ".references"
     research.mkdir(exist_ok=True)
     for name, repository in REPOSITORIES.items():
+        if name == "MacKernelSDK":
+            sdk = next(
+                item for item in SOURCE_REPOSITORIES if item.name == name
+            )
+            records = download(sdk, research)
+            _ = update_ledger(research / "ledger.jsonl", records)
+            continue
         path = research / name
         if not path.exists():
             _fetch_checkout(path, repository)

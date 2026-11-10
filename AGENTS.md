@@ -14,6 +14,27 @@ never strip or replace those notices. The GPLv2 text under licenses/ applies
 only where an upstream component or derivative explicitly requires it.
 Public availability or personal purpose does not override upstream terms.
 
+## Canonical references and research
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Linux is retained in `.references/linux/`, MacKernelSDK in
+`.references/MacKernelSDK/`, and the other pinned repositories in
+`.references/<repository>/<revision>/`. Research and SDK consumers must use
+these canonical paths. Only `.references/ledger.jsonl` is tracked; bulk
+sources, receipt caches and downloaded libraries stay ignored. Every typed
+TODO names the specific files useful for its implementation.
+
 ## Absolute rule: source-only work and no hardware prerequisites
 
 **EVERY TODO EXCEPT THE SINGLE FINAL USER-TEST TODO MUST BE COMPLETABLE
@@ -160,8 +181,8 @@ Respect ath9k licenses and the origin of third-party materials.
 
 ## Additional upstream code references
 
-The owner requested complete pinned sources under `.cache/references/`, fetched
-by `tools/code-resue/script.py`. Only `.cache/references/ledger.jsonl` is
+The owner requested complete pinned sources under `.references/`, fetched
+by `tools/references/download.py`. Only `.references/ledger.jsonl` is
 tracked; preserve its per-file hashes, reuse assessments and destination
 history. Sources are available for maximal useful code reuse in the required
 production target, with every upstream file's original license/notices.
@@ -171,15 +192,15 @@ is imposed on independently authored code; this never removes upstream terms.
 
 ## Linux reference and implementation ledger
 
-Maintain `linux-port-ledger.jsonl` when consulting or porting a file under
-`linux/`. Follow `docs/design/LINUX-PORT-LEDGER.md`: record the exact source
+Maintain `.references/ledger.jsonl` when consulting or porting a file under
+`.references/linux/`. Follow `docs/design/LINUX-PORT-LEDGER.md`: record the exact source
 SHA-256, the scope implemented, destination files, evidence and remaining
 source work. Reading a file is not implementing it; a partial port is not
 whole-file completion. An unrecorded use is unknown, not proof of non-use.
 
 **Keep the Linux references until the dedicated Linux-reference retirement
 TODO is complete.** The owner's later instruction authorizes deleting the
-local `linux/` tree only AFTER the required AR9565 scopes are implemented
+local `.references/linux/` tree only AFTER the required AR9565 scopes are implemented
 and integrated, every ledger entry is assessed for that target, and no
 retained tool requires the local tree. Use the existing inline notices and
 THIRD_PARTY_NOTICES.md; do not add archival bundles or provenance machinery.

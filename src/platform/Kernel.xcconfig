@@ -20,10 +20,10 @@ GCC_ENABLE_CPP_RTTI = NO
 GCC_ENABLE_FLOATING_POINT_LIBRARY_CALLS = NO
 GCC_ENABLE_KERNEL_DEVELOPMENT = YES
 GCC_SYMBOLS_PRIVATE_EXTERN = YES
-KERNEL_EXTENSION_HEADER_SEARCH_PATHS = $(PROJECT_DIR)/.research/MacKernelSDK/Headers
-KERNEL_FRAMEWORK_HEADERS = $(PROJECT_DIR)/.research/MacKernelSDK/Headers
+KERNEL_EXTENSION_HEADER_SEARCH_PATHS = $(PROJECT_DIR)/.references/MacKernelSDK/Headers
+KERNEL_FRAMEWORK_HEADERS = $(PROJECT_DIR)/.references/MacKernelSDK/Headers
 HEADER_SEARCH_PATHS = $(PROJECT_DIR)/src
-LIBRARY_SEARCH_PATHS = $(PROJECT_DIR)/.research/MacKernelSDK/Library/x86_64
+LIBRARY_SEARCH_PATHS = $(PROJECT_DIR)/.references/MacKernelSDK/Library/x86_64
 OTHER_CFLAGS = -Wall -Wextra -Werror -Wno-unused-parameter -Wno-deprecated-declarations -Wno-ossharedptr-misuse -fno-builtin -fno-asynchronous-unwind-tables -nostdlib
 OTHER_LDFLAGS = -static
 // Required by Apple IO80211 request/ABI headers; compiler-owned, not a source macro.

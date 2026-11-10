@@ -25,7 +25,7 @@ def _kernel_parse_flags(root: Path) -> list[str]:
         Optional native C++ parse flags for the repository's target macOS ABI.
 
     """
-    headers = root / ".research/MacKernelSDK/Headers"
+    headers = root / ".references/MacKernelSDK/Headers"
     if not (headers / "IOKit/IOLib.h").is_file():
         return []
     flags: list[str] = ["-DKERNEL=1"]

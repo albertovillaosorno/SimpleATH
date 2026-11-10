@@ -4,9 +4,9 @@
 #ifndef SIMPLEATH_TAHOE_JOIN_CODEC_HPP
 #define SIMPLEATH_TAHOE_JOIN_CODEC_HPP
 
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 namespace simpleath
 {

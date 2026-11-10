@@ -139,7 +139,7 @@ false. Registry matching, especially a possibly OpenCore-spoofed ID, is
 not a substitute for the future physical-identity/PCI ownership check.
 
 `src/platform/Kernel.xcconfig` points to a separate research
-MacKernelSDK header path (`.research/MacKernelSDK/Headers`), which is not
+MacKernelSDK header path (`.references/MacKernelSDK/Headers`), which is not
 bundled in this working tree and is not automatically the 25G332 KDK.
 Neither Xcode project membership nor symbol-name presence can settle the
 actual compiler-selected header layout, virtual-method contracts, KPI

@@ -16,6 +16,27 @@ Ten agents coordinate in their existing chat, commit directly to main
 and do not open PRs. This repository does not use Jig. Use only the
 installed-tool validator tools/validate.py and its local .cache/ report.
 
+## Canonical references and research
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Linux is retained in `.references/linux/`, MacKernelSDK in
+`.references/MacKernelSDK/`, and the other pinned repositories in
+`.references/<repository>/<revision>/`. Research and SDK consumers must use
+these canonical paths. Only `.references/ledger.jsonl` is tracked; bulk
+sources, receipt caches and downloaded libraries stay ignored. Every typed
+TODO names the specific files useful for its implementation.
+
 ## FIRST IMPLEMENTATION, THEN CORRECTION
 
 Owner directive, 2026-11-09. This is the project's highest-priority order:

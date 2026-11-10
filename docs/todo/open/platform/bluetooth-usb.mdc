@@ -15,6 +15,30 @@ scope:
 
 # TODO - Implement QCA9565 Bluetooth USB support
 
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/linux/drivers/bluetooth/ath3k.c` — AR3012 firmware protocol.
+- `.references/linux/drivers/bluetooth/btusb_main.c` — USB HCI matches, endpoints and pre-firmware behavior.
+- `.references/linux/drivers/bluetooth/btusb_qcom.c` — Qualcomm USB details.
+- `.references/linux/net/bluetooth/hci_core.c` — HCI controller lifecycle.
+- `.references/linux/net/bluetooth/hci_event.c` — HCI event handling.
+- `.references/linux/net/bluetooth/smp.c` — BLE security semantics.
+
+
 ## Owner directive
 
 The project must implement Wi-Fi, Bluetooth and AirDrop. QCA9565/DW1707 is a
@@ -51,7 +75,7 @@ https://github.com/torvalds/linux/blob/v6.12/drivers/bluetooth/btusb.c
 
 ## Local source references
 
-The retained `src/linux/` reference tree already contains `ath3k.c`,
+The retained `.references/linux/` reference tree already contains `ath3k.c`,
 `btusb_main.c`, `btusb_qcom.c/.h`, `btqca.c/.h`, HCI headers, HCI event/core
 handlers and LE advertising/EIR handling. Do not duplicate or replace these
 files merely to reacquire them. Atheros USB bootstrap and the generic HCI
@@ -61,7 +85,7 @@ Missing BLE security references `net/bluetooth/smp.c`, `ecdh_helper.c` and
 `ecdh_helper.h` were downloaded from Linux v6.12, resolved to commit
 `adc218676eef25575469234709c2d87185ca223a`. Their exact hashes,
 upstream URLs, licensing
-and reference-only scope are recorded in `src/linux/linux-port-ledger.jsonl`.
+and reference-only scope are recorded in `.references/ledger.jsonl`.
 The local reference tree remains intentionally excluded from Git. These Linux
 files are research input, not linked macOS code or a completed Bluetooth path.
 

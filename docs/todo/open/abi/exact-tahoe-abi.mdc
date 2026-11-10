@@ -14,6 +14,27 @@ scope:
 
 # TODO - Tahoe ABI
 
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/MacKernelSDK/Headers/IOKit/IOService.h` — IOService ownership/lifetime.
+- `.references/MacKernelSDK/Headers/IOKit/pci/IOPCIDevice.h` — PCI API declarations.
+- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/include/Airport/macOS26/IO80211SkywalkInterface.h` — candidate Tahoe interface declarations; cross-check against exact 25G332 KDK.
+- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.cpp` — modern native request/response and registration examples.
+
 ## Objective
 
 Research public Tahoe KDK/SDK exports, IOPCIFamily, IO80211FamilyLegacy,

@@ -18,14 +18,13 @@ SOURCE_FILES = (
     "README.md",
     "TODO.md",
     "THIRD_PARTY_NOTICES.md",
-    "LICENSE",
-    "src/linux/linux-port-ledger.jsonl",
+    "licenses/GPL-2.0.txt",
+    ".references/ledger.jsonl",
     ".clang-format",
     ".clang-tidy",
     ".editorconfig",
     ".gitattributes",
     ".gitignore",
-    "msvc-cpp.editorconfig",
     "pyrightconfig.json",
     "ruff.toml",
 )
@@ -118,7 +117,7 @@ def _inputs(root: Path) -> list[Path]:
         if len(inputs) > MAX_SOURCE_FILES:
             message = "Source fingerprint has too many inputs"
             raise ValueError(message)
-    # The required ledger also appears under src/. Hash each source once.
+    # Hash each source once; only the unified ledger is read from references.
     return sorted(inputs)
 
 

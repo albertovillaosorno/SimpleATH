@@ -1,8 +1,7 @@
 # Local builds, editor data, secrets, and transient reports.
-/.cache/*
-!/.cache/references/
-/.cache/references/*
-!/.cache/references/ledger.jsonl
+/.cache/
+/.references/*
+!/.references/ledger.jsonl
 /.dependencies/
 /.logs/
 /.temp/
@@ -20,8 +19,6 @@
 .DS_Store
 .idea/
 .vscode/
-src/linux/*
-!src/linux/linux-port-ledger.jsonl
 _pycache_/
 
 # Local Python compilation caches.
@@ -29,7 +26,6 @@ __pycache__/
 *.pyc
 .build/
 build/
-.research/
 .venv/
 
 # Downloaded macOS CI artifacts (not source).

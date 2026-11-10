@@ -75,7 +75,7 @@ class ProfileManifest(TypedDict):
 
 
 ROOT = Path(__file__).resolve().parent.parent
-BINARY = ROOT / ".research/binaries"
+BINARY = ROOT / ".references/binaries"
 IMAGES = {
     "Legacy": BINARY
     / (

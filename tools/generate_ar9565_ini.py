@@ -17,7 +17,7 @@ import sys
 from typing import Final
 
 ROOT = Path(__file__).resolve().parent.parent
-ATH9K = ROOT / "linux/drivers/net/wireless/ath/ath9k"
+ATH9K = ROOT / ".references/linux/drivers/net/wireless/ath/ath9k"
 OUTPUT = ROOT / "src/hardware/generated/Ar9565InitTables.hpp"
 SOURCES = {
     "ar9565_1p0": ATH9K / "ar9565_1p0_initvals.h",

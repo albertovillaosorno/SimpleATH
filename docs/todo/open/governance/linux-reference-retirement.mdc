@@ -10,14 +10,35 @@ dependencies:
   - "full-wifi-pipeline"
   - "source-hardening"
 scope:
-  - "linux-port-ledger.jsonl"
+  - ".references/ledger.jsonl"
   - "docs/design/LINUX-PORT-LEDGER.md"
-  - "linux/"
+  - ".references/linux/"
   - "tools/generate_ar9565_ini.py"
   - "tools/generate_ar9300_templates.py"
 ---
 
 # TODO - Complete the AR9565 Linux ledger and retire local references
+
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/ledger.jsonl` — sole download/reuse/port ledger; preserve historical records.
+- `.references/linux/docs/process/license-rules.rst` — Linux license scope.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p0_initvals.h` — generated table dependency.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c` — generated dictionary dependency.
 
 ## Objective
 
@@ -44,14 +65,14 @@ backups, EFI contents, SDK/KDK evidence or system files.
       provenance infrastructure is required.
 - [ ] Preserve HT20/HT40 variants, RX/TX gain choices, EEPROM dictionaries,
       board/regulatory semantics and the AR9565 1.1 radio postamble.
-- [ ] Retained generation/inspection tools no longer require a local linux/
+- [ ] Retained generation/inspection tools no longer require a local .references/linux/
       tree. Retain the completed source data without requiring new builds,
       hardware experiments; necessary offline host tests are permitted.
 - [ ] Review the actual directory and ledger immediately before deletion:
       no unexpected/new reference, hash mismatch or unrecorded local change
       may be discarded. A path alias or symlink must not redirect deletion.
 - [ ] Once all conditions above hold, delete only this repository's local
-      linux/ tree and record the retirement commit. Keep the JSONL ledger;
+      .references/linux/ tree and record the retirement commit. Keep the JSONL ledger;
       do not create a second manifest or reference archive.
 - [ ] Update AGENTS/README/TODO to describe retired references accurately;
       no compilation or hardware proof is required to complete this task.

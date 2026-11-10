@@ -18,6 +18,30 @@ scope:
 
 # TODO - RF/PHY/regulatory
 
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — reset and PLL sequencing.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_hw.c` — revision-specific initialization.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_phy.c` — synthesizer/channel and PHY controls.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_calib.c` — calibration sequencing.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p0_initvals.h` — AR9565 register tables and gains.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p1_initvals.h` — AR9565 1.1 radio postamble.
+- `.references/linux/net/wireless/reg.c` — regulatory policy; adapt only supported target scope.
+
 ## Objective
 
 Finish revision-aware radio power/reset, PLL/synthesizer, gains, channel

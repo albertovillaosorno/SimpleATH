@@ -71,7 +71,7 @@ class SourceFingerprintTests(TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             _fixture(root)
-            ledger = root / "src/linux/linux-port-ledger.jsonl"
+            ledger = root / ".references/ledger.jsonl"
             baseline = source_fingerprint(root)
             _ = ledger.write_text(CHANGED_SOURCE, encoding="utf-8")
             assert source_fingerprint(root) != baseline
@@ -86,10 +86,10 @@ class SourceFingerprintTests(TestCase):
             _fixture(root)
             baseline = source_fingerprint(root)
             (root / ".cache").mkdir()
-            (root / "linux").mkdir()
+            (root / ".references/linux").mkdir()
             (root / "tools" / "__pycache__").mkdir()
             _ = (root / ".env").write_text("synthetic-only")
-            _ = (root / "linux" / SAMPLE_FILE).write_text(CHANGED_SOURCE)
+            _ = (root / ".references/linux" / SAMPLE_FILE).write_text(CHANGED_SOURCE)
             _ = (root / ".cache" / SAMPLE_FILE).write_text(CHANGED_SOURCE)
             _ = (root / "tools" / "__pycache__" / "cached.pyc").write_bytes(
                 b"not source"

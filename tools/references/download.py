@@ -9,16 +9,20 @@ is run. A cached file is not an implemented SimpleATH feature or a license grant
 from __future__ import annotations
 
 import argparse
+import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 from typing import NamedTuple
 import urllib.request
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
@@ -32,9 +36,17 @@ class Repository(NamedTuple):
     project: str
     revision: str
     files: int
+    flat: bool = False
 
 
 REPOSITORIES = (
+    Repository(
+        "MacKernelSDK",
+        "acidanthera/MacKernelSDK",
+        "3f750085caa17ec3a7880f11c11bf4f48cd6a164",
+        1232,
+        True,
+    ),
     Repository(
         "AirPort_RTW89",
         "FranciumOS-org/AirPort_RTW89",
@@ -131,7 +143,14 @@ def extract_sources(archive: Path, destination: Path) -> int:
 
 def source_records(repository: Repository, checkout: Path) -> list[dict]:
     records = []
+    prefix = (
+        repository.name
+        if repository.flat
+        else f"{repository.name}/{repository.revision}"
+    )
     for path in sorted(checkout.rglob("*")):
+        if ".git" in path.relative_to(checkout).parts:
+            continue
         if path.is_symlink():
             content = os.readlink(path).encode("utf-8")
             digest = hashlib.sha256(content).hexdigest()
@@ -156,7 +175,7 @@ def source_records(repository: Repository, checkout: Path) -> list[dict]:
             "repository": f"https://github.com/{repository.project}",
             "revision": repository.revision,
             "path": path.relative_to(checkout).as_posix(),
-            "cache_path": f"{repository.name}/{repository.revision}/{path.relative_to(checkout).as_posix()}",
+            "cache_path": f"{prefix}/{path.relative_to(checkout).as_posix()}",
             "sha256": digest,
             "bytes": size,
             "kind": kind,
@@ -172,13 +191,11 @@ def source_records(repository: Repository, checkout: Path) -> list[dict]:
 def download(
     repository: Repository, references: Path, *, offline: bool = False
 ) -> list[dict]:
-    checkout = references / repository.name / repository.revision
+    checkout = references / repository.name
+    if not repository.flat:
+        checkout /= repository.revision
     receipt = references / f".{repository.name}-{repository.revision}.json"
-    if checkout.exists():
-        if not receipt.is_file():
-            raise ValueError(
-                f"Existing source has no completed receipt: {checkout}"
-            )
+    if checkout.exists() and receipt.is_file():
         saved = json.loads(receipt.read_text(encoding="utf-8"))
         records = source_records(repository, checkout)
         if (
@@ -189,7 +206,11 @@ def download(
             raise ValueError(f"Cached upstream source changed: {checkout}")
         return records
     if offline:
-        raise FileNotFoundError(f"No cached checkout: {checkout}")
+        raise FileNotFoundError(f"No verified cached checkout: {checkout}")
+    if checkout.exists() and repository.name != "MacKernelSDK":
+        raise ValueError(
+            f"Existing source has no completed receipt: {checkout}"
+        )
     with tempfile.TemporaryDirectory(
         prefix=".download-", dir=references
     ) as scratch:
@@ -225,7 +246,23 @@ def download(
         checkout.parent.mkdir(parents=True, exist_ok=True)
         # Publish only a complete immutable source tree. Never replace existing
         # owner modifications or execute material from a downloaded repository.
-        staging.rename(checkout)
+        if checkout.exists():
+            # Adopt the earlier sparse SDK only after comparing every existing
+            # source byte with this pinned complete archive. Never overwrite it.
+            existing = source_records(repository, checkout)
+            expected = {row["path"]: row for row in records}
+            for row in existing:
+                if row["path"] not in expected or row != expected[row["path"]]:
+                    raise ValueError(
+                        f"Existing SDK source changed: {row["path"]}"
+                    )
+            for row in records:
+                target = checkout / row["path"]
+                if not target.exists() and not target.is_symlink():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    (staging / row["path"]).rename(target)
+        else:
+            staging.rename(checkout)
         receipt.write_text(
             json.dumps(
                 {
@@ -250,8 +287,9 @@ def update_ledger(path: Path, records: list[dict]) -> int:
         if not line.strip():
             continue
         row = json.loads(line)
-        identity = (row["repository"], row["revision"], row["path"])
-        latest[identity] = row
+        if "repository" in row and "source" not in row:
+            identity = (row["repository"], row["revision"], row["path"])
+            latest[identity] = row
     additions = []
     for row in records:
         identity = (row["repository"], row["revision"], row["path"])
@@ -286,13 +324,144 @@ def update_ledger(path: Path, records: list[dict]) -> int:
     return len(additions)
 
 
+def seed_ledger(references: Path) -> None:
+    """Create a missing ledger from this checkout's tracked inventory/history."""
+    ledger = references / "ledger.jsonl"
+    if ledger.exists():
+        return
+    canonical = ROOT / ".references/ledger.jsonl"
+    if canonical.is_file():
+        content = canonical.read_bytes()
+    else:
+        result = subprocess.run(
+            ["git", "-C", str(ROOT), "show", "HEAD:.references/ledger.jsonl"],
+            capture_output=True,
+            check=True,
+        )
+        content = result.stdout
+    # Check the restored inventory before publishing it; no Git index mutation.
+    for line in content.splitlines():
+        json.loads(line)
+    references.mkdir(parents=True, exist_ok=True)
+    with ledger.open("xb") as output:
+        output.write(content)
+
+
+def linux_records(ledger: Path) -> list[dict]:
+    """Read current Linux download identities from the one tracked ledger."""
+    latest = {}
+    if ledger.exists():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            if row.get("schema") == 1 and row.get("source", "").startswith(
+                "linux/"
+            ):
+                latest[row["source"]] = row
+    if not latest:
+        raise ValueError(
+            "Linux download inventory is missing: restore the tracked "
+            ".references/ledger.jsonl from this repository before downloading Linux"
+        )
+    return list(latest.values())
+
+
+def download_linux(references: Path, *, offline: bool = False) -> int:
+    """Restore exactly the Wi-Fi/Bluetooth files and hashes in the ledger.
+
+    Existing assessment history is never replaced by download status. Different
+    Linux revisions can supply individual retained files; each has its own pin.
+    """
+    seed_ledger(references)
+    rows = linux_records(references / "ledger.jsonl")
+
+    def acquire(row: dict) -> None:
+        relative = PurePosixPath(row["source"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"Unsafe Linux source path: {relative}")
+        target = references.joinpath(*relative.parts)
+        if not target.resolve().is_relative_to(references.resolve()):
+            raise ValueError(
+                f"Linux source path escapes references: {relative}"
+            )
+        if target.is_file():
+            if target.is_symlink() or digest_file(target) != row["sha256"]:
+                raise ValueError(f"Cached Linux source changed: {relative}")
+            return
+        if offline:
+            raise FileNotFoundError(f"No cached Linux source: {relative}")
+        revision = row.get("revision", "")
+        upstream = row.get("upstream_path", "")
+        if not re.fullmatch(r"[0-9a-f]{40}", revision) or not upstream:
+            raise ValueError(
+                f"Linux source has no verified upstream pin: {relative}"
+            )
+        url = f"https://raw.githubusercontent.com/torvalds/linux/{revision}/{upstream}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        for attempt in range(4):
+            try:
+                request = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "SimpleATH-reference-acquisition"},
+                )
+                try:
+                    with urllib.request.urlopen(
+                        request, timeout=30
+                    ) as response:
+                        content = response.read(MAX_ARCHIVE_BYTES + 1)
+                except OSError:
+                    # The kernel mirror serves identical Git blobs when raw
+                    # GitHub requests are throttled. SHA-256 remains mandatory.
+                    mirror = (
+                        "https://kernel.googlesource.com/pub/scm/linux/kernel/"
+                        f"git/torvalds/linux/+/{revision}/{upstream}?format=TEXT"
+                    )
+                    with urllib.request.urlopen(mirror, timeout=30) as response:
+                        encoded = response.read(2 * MAX_ARCHIVE_BYTES + 1)
+                    if len(encoded) > 2 * MAX_ARCHIVE_BYTES:
+                        raise ValueError(
+                            "Linux mirror response size limit exceeded"
+                        )
+                    content = base64.b64decode(encoded, validate=False)
+                if len(content) > MAX_ARCHIVE_BYTES:
+                    raise ValueError(
+                        f"Linux source size limit exceeded: {relative}"
+                    )
+                if hashlib.sha256(content).hexdigest() != row["sha256"]:
+                    raise ValueError(
+                        f"Downloaded Linux source hash mismatch: {relative}"
+                    )
+                # Publish complete bytes only; interrupted downloads leave no
+                # partial source, and a concurrent writer is never overwritten.
+                temporary = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        dir=target.parent, delete=False
+                    ) as output:
+                        temporary = Path(output.name)
+                        output.write(content)
+                    temporary.chmod(0o644)
+                    os.link(temporary, target)
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
+                return
+            except OSError:
+                if attempt == 3:
+                    raise
+                time.sleep(attempt + 1)
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        list(workers.map(acquire, rows))
+    return len(rows)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--references", type=Path, default=ROOT / ".references")
     parser.add_argument(
-        "--references", type=Path, default=ROOT / ".cache" / "references"
-    )
-    parser.add_argument(
-        "--repo", choices=[r.name for r in REPOSITORIES], action="append"
+        "--repo",
+        choices=[r.name for r in REPOSITORIES] + ["linux"],
+        action="append",
     )
     parser.add_argument(
         "--offline",
@@ -302,6 +471,13 @@ def main() -> int:
     args = parser.parse_args()
     references = args.references.expanduser().resolve()
     references.mkdir(parents=True, exist_ok=True)
+    seed_ledger(references)
+    if not args.repo or "linux" in args.repo:
+        count = download_linux(references, offline=args.offline)
+        print(
+            f"linux: {count} pinned Wi-Fi/Bluetooth reference files verified",
+            flush=True,
+        )
     for repository in REPOSITORIES:
         if args.repo and repository.name not in args.repo:
             continue

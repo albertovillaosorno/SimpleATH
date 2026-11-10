@@ -10,7 +10,7 @@
     ".logs",
     ".temp",
     ".venv",
-    "linux",
+    ".references",
     "target",
     "**/__pycache__"
   ],

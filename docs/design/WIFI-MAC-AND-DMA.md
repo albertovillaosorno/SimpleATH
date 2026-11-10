@@ -160,7 +160,7 @@ for the **next separately authorized build**.
 
 ## Evidence references
 
-- Linux ath9k (local): linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c,
+- Linux ath9k (local): .references/linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c,
   ar9003_mac.h, mac.h, ar9565_1p0_initvals.h, ar9565_1p1_initvals.h
 - Linux cfg80211 LLC/SNAP translation:
   https://github.com/torvalds/linux/blob/v6.12/net/wireless/util.c

@@ -15,6 +15,28 @@ scope:
 
 # TODO - Native PCI
 
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/MacKernelSDK/Headers/IOKit/pci/IOPCIDevice.h` — PCI config, power and BAR mappings.
+- `.references/MacKernelSDK/Headers/IOKit/IOCommandGate.h` — workloop serialization.
+- `.references/linux/drivers/net/wireless/ath/ath9k/pci.c` — ath9k PCI initialization and power ordering.
+- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — hardware reset/preflight.
+- `.references/nvidia-macos-driver/7412cdde81447f78da0ebb64216dc258d8beaedb/docs/SLEEP-WAKE.md` — power-lifecycle research only; inspect PolyForm restrictions before any code reuse.
+
 ## Objective
 
 Complete source for exact-device identification, PCI ownership and power D0,

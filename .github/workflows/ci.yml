@@ -59,7 +59,7 @@ jobs:
 
       - name: Validate every source and offline host test
         env:
-          CPATH: ${{ github.workspace }}/.research/MacKernelSDK/Headers
+          CPATH: ${{ github.workspace }}/.references/MacKernelSDK/Headers
         run: |
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
           python3 -B tools/validate.py --no-cache

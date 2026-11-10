@@ -12,6 +12,27 @@ The normal target now includes a native PCI owner with serialized power, BAR acc
 verify kernel loading, native AirPort or real device operation. The development goal is genuine
 macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
+## Canonical references and research
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Linux is retained in `.references/linux/`, MacKernelSDK in
+`.references/MacKernelSDK/`, and the other pinned repositories in
+`.references/<repository>/<revision>/`. Research and SDK consumers must use
+these canonical paths. Only `.references/ledger.jsonl` is tracked; bulk
+sources, receipt caches and downloaded libraries stay ignored. Every typed
+TODO names the specific files useful for its implementation.
+
 ## Author's Notes
 
 It’s just for fun—we’ll see if it works or not.
@@ -69,7 +90,7 @@ asks to close it, including after otherwise successful experiments.
 Agents finish missing runtime implementations, reach zero validation failures,
 then continue hardening alongside authorized notebook testing.
 Complete the AR9565 Linux ledger and reference-retirement TODO before removing
-the local linux/ tree. Existing notices preserve third-party attribution.
+the local .references/linux/ tree. Existing notices preserve third-party attribution.
 
 Source-level completeness is not empirical proof. Unknown hardware
 values, regulatory conditions and private macOS ABI differences
@@ -233,7 +254,7 @@ analysis on Fedora (without compiling a kext), run:
     python3 -B tools/generate_compile_commands.py
     python3 -B tools/validate.py --no-cache
 
-The SDK stays in the ignored `.research/MacKernelSDK` directory. On Linux,
+The SDK stays in the ignored `.references/MacKernelSDK` directory. On Linux,
 the generator sets an x86_64 Darwin parse target and detects an available
 LLVM libc++ header configuration. Genuine missing declarations remain
 Clang-Tidy failures; no Linux-only skip exists. The user-space
@@ -281,7 +302,7 @@ No kext compilation, device test or tool installation is authorized. Host
 results are never cached, and file arguments cannot narrow checks. See
 [tests/README.md](tests/README.md) for supported test fixtures and errors.
 These tests exercise synthetic data/fakes, never actual PCI/RF or kernel
-objects. The local `linux/` reference tree is ignored by Git and by this
+objects. The local `.references/linux/` reference tree is ignored by Git and by this
 validator; legacy path arguments never override whole-repo discovery.
 
 The script never formats files in place, builds a kext, generates a
@@ -317,13 +338,22 @@ Wi-Fi or AirPort on the target machine.
 
 ## Upstream source references
 
-Run `python3 -B tools/code-resue/script.py` to download the complete pinned
+Run `python3 -B tools/references/download.py` to download the complete pinned
 AirPort_RTW89, AirportItlwm-BE200 and NullMoth source trees into
-`.cache/references/<repository>/<revision>/`. No upstream code is executed.
+`.references/<repository>/<revision>/`, the full MacKernelSDK into
+`.references/MacKernelSDK/`, and all 422 retained Linux Wi-Fi/Bluetooth
+reference files into `.references/linux/`. Missing Linux files are restored
+from their per-file immutable revisions and SHA-256 values, preserving the
+existing mixed-version snapshot and implementation assessments. No upstream
+code is executed.
 `--offline` checks existing copies without network access. The tracked
-`.cache/references/ledger.jsonl` records hashes, license observations, reuse
+`.references/ledger.jsonl` records hashes, license observations, reuse
 status and destination files; repeated runs preserve existing assessments.
-Only the ledger is included in Git. Source copies retain upstream notices.
+Only the unified ledger is included in Git; there is no separate Linux ledger.
+If missing, its inventory is restored from the local tracked checkout (or
+Git HEAD); `--references PATH` can populate a separate reference directory.
+`--repo linux` or `--repo MacKernelSDK` selects an individual download.
+Source copies retain upstream notices.
 Fetching references does not implement or verify the driver.
 
 ## License and attribution

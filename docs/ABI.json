@@ -3,7 +3,7 @@
   "supportedKernel": "23.x / 24.x / 25.x",
   "images": {
     "Legacy": {
-      "path": ".research/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/MacOS/IO80211FamilyLegacy",
+      "path": ".references/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/MacOS/IO80211FamilyLegacy",
       "uuid": "4c07538b62eb3d6daef993bcdcf45fab",
       "sha256": "ac2dc15b77f8eaf97b71b34c5d0e1b59f862bfeac618396449306e1837e73894",
       "guards": [
@@ -591,7 +591,7 @@
       ]
     },
     "AirPortOriginal": {
-      "path": ".research/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext/Contents/MacOS/AirPortBrcmNIC",
+      "path": ".references/binaries/IO80211FamilyLegacy-v1.0.0/IO80211FamilyLegacy.kext/Contents/PlugIns/AirPortBrcmNIC.kext/Contents/MacOS/AirPortBrcmNIC",
       "uuid": "e4678feb1dc135cc930648021083d04a",
       "sha256": "884e90b27cff151e432bb36275936f57b43e72419e95b51b3ac067d3f2ccd331",
       "guards": [
@@ -663,7 +663,7 @@
       ]
     },
     "AirPort": {
-      "path": ".research/binaries/AirPortBrcmNIC-Tahoe-v1.0.0/AirPortBrcmNIC-Tahoe.kext/Contents/MacOS/AirPortBrcmNIC",
+      "path": ".references/binaries/AirPortBrcmNIC-Tahoe-v1.0.0/AirPortBrcmNIC-Tahoe.kext/Contents/MacOS/AirPortBrcmNIC",
       "uuid": "e4678feb1dc135cc930648021083d04a",
       "sha256": "0b6cf936e594d1372960a60c8f17b6cbf68e3535a191574bd91498da49713775",
       "guards": [

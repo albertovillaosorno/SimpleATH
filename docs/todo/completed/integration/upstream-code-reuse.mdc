@@ -16,6 +16,29 @@ scope:
 
 # Completed - Acquire upstream reference trees and reusable-code ledger
 
+## Required reference workflow and files
+
+Use `.references/` at the repository root for all retained source research.
+Populate it with `python3 -B tools/references/download.py`; use `--offline`
+to verify existing sources. Search ignored references explicitly with
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+and enumerate files with `rg --files --hidden --no-ignore .references/`.
+Whenever a behavior, API or missing implementation is unclear, search these
+sources and the web for the evidence needed (prefer upstream source, published
+specifications and official documentation). Record exact revisions, source
+hashes, adaptation scope, destinations and licenses in the single
+`.references/ledger.jsonl`. Preserve upstream notices; downloaded code is not
+proof of implementation or runtime success.
+
+Concrete files for this task (paths are relative to the repository root):
+
+- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/LICENSE` — RTW89 licensing scope.
+- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/LICENSE` — BE200 licensing scope; per-file notices still apply.
+- `.references/nvidia-macos-driver/7412cdde81447f78da0ebb64216dc258d8beaedb/LICENSE` — PolyForm Noncommercial restrictions.
+- `.references/MacKernelSDK/LICENSE.txt` — SDK license.
+- `.references/ledger.jsonl` — sole acquisition and reuse history; acquisition is not implementation.
+
+
 ## Owner directive — 2026-11-10
 
 Review all three repositories below in depth. Copy or adapt as much useful,
@@ -76,11 +99,11 @@ and creating the ledger. This closure does **not** claim the original maximum
 code-adaptation objective is implemented. That work remains under the open
 `production-implementation` task and each ledger entry's actual status.
 
-- [x] Create `tools/code-resue/script.py` at the owner's requested path.
+- [x] Create `tools/references/download.py` at the owner's requested path.
 - [x] Fetch every tracked file from all three pinned repositories into
-      `.cache/references/<repository>/<revision>/` without running upstream
+      `.references/<repository>/<revision>/` without running upstream
       code: 1,584 RTW89 files, 300 BE200 files and 1,383 NullMoth files.
-- [x] Create `.cache/references/ledger.jsonl` if absent, with 3,267 per-file
+- [x] Create `.references/ledger.jsonl` if absent, with 3,267 per-file
       SHA-256 records, exact revisions, source SPDX observations, actual reuse
       status and destination fields. Existing assessments are preserved.
 - [x] Ignore source checkouts/receipts while explicitly tracking only the
@@ -111,3 +134,23 @@ handshake owner, before claiming WPA2 completion. Modern packet factory and
 queue contracts remain independently checked against the exact KDK.
 No new kext build, installation, EFI change or hardware test is authorized
 by this TODO. Source completeness and physical verification remain separate.
+
+## Reference consolidation — owner-directed follow-up, 2026-11-10
+
+- [x] Move the downloader to `tools/references/download.py` (plural), all
+      retained research/Linux/SDK trees to root `.references/`, and update
+      SDK bootstrap, CI, Xcode settings and existing parse commands.
+- [x] Merge the original 3,267 upstream records and all 475 Linux history
+      records verbatim into one tracked `.references/ledger.jsonl`; append
+      1,232 SDK records and 422 exact Linux upstream download pins without
+      changing port assessments. No separate Linux ledger remains.
+- [x] Download the full SDK and all retained Linux Wi-Fi/Bluetooth files;
+      verify a clean-directory restoration matches their original hashes.
+      The Linux snapshot intentionally uses per-file immutable revisions.
+- [x] Name concrete existing reference files in all 17 typed TODO records
+      and require `rg` searches plus web research whenever evidence is unclear.
+- [x] Verify the full local cache: 4,921 files, zero new records on offline
+      rerun. Eight acquisition regressions and 109 focused Python tests pass;
+      three native integration units pass strict SDK C++14 syntax checks.
+      No kext build, CI execution, device activity or 100% driver claim follows
+      from reference acquisition. Global zero-failure lint remains separate.

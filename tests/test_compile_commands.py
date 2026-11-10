@@ -20,7 +20,7 @@ def _fixture(root: Path) -> tuple[Path, Path, Path, Path]:
         SDK header root, libc++ include roots and a fake compiler path.
 
     """
-    sdk = root / ".research/MacKernelSDK/Headers"
+    sdk = root / ".references/MacKernelSDK/Headers"
     library = root / "compiler/include/c++/v1"
     config = root / "compiler/include/x86_64-linux/c++/v1"
     compiler = root / "compiler/bin/clang++"
