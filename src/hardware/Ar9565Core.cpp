@@ -50,8 +50,14 @@ namespace simpleath
         {
             return false;
         }
-        const auto left = reinterpret_cast<uintptr_t>(first);
-        const auto right = reinterpret_cast<uintptr_t>(second);
+        uintptr_t left = 0;
+        uintptr_t right = 0;
+        static_assert(sizeof(uintptr_t) == sizeof(first),
+                      "host pointers must have address-sized representations");
+        __builtin_memcpy(&left, static_cast<const void *>(&first),
+                         sizeof(first));
+        __builtin_memcpy(&right, static_cast<const void *>(&second),
+                         sizeof(second));
         return left <= right ? right - left < firstBytes
                              : left - right < secondBytes;
     }
@@ -103,40 +109,46 @@ namespace simpleath
         return Result::Ok;
     }
 
-    Result mapChannel(uint8_t number, Channel &out)
+    Result mapChannel(uint8_t ieeeChannel, Channel &out)
     {
         // Do not leave the caller's previous authorized-looking channel on an
         // invalid request. This static mapping never grants radio permission.
         out = {};
-        if (number == 0 || number > kLast2GChannel)
+        if (ieeeChannel == 0 || ieeeChannel > kLast2GChannel)
         {
             return Result::InvalidChannel;
         }
         Channel result {};
-        result.number = number;
+        result.number = ieeeChannel;
         result.centerMhz =
-            number == kLast2GChannel
+            ieeeChannel == kLast2GChannel
                 ? kJapanChannelCenterMhz
-                : static_cast<uint16_t>(
-                      kChannelZeroBaseMhz +
-                      (static_cast<uint16_t>(number) * kChannelSpacingMhz));
-        result.requiresJapanAuthorization = number == kLast2GChannel;
+                : static_cast<uint16_t>(kChannelZeroBaseMhz +
+                                        (static_cast<uint16_t>(ieeeChannel) *
+                                         kChannelSpacingMhz));
+        result.requiresJapanAuthorization = ieeeChannel == kLast2GChannel;
         out = result;
         return Result::Ok;
     }
 
     bool validatePermanentMac(const uint8_t mac[kPermanentMacBytes])
     {
-        if (mac == nullptr || (mac[0] & 0x01U) != 0)
+        if (mac == nullptr)
         {
-            return false; // Multicast or broadcast cannot identify a station.
+            return false;
+        }
+        uint8_t octets[kPermanentMacBytes] {};
+        __builtin_memcpy(&octets[0], mac, sizeof(octets));
+        if ((octets[0] & 0x01U) != 0)
+        {
+            return false; // Multicast and broadcast cannot identify a STA.
         }
         bool allZero = true;
         bool allOnes = true;
-        for (size_t index = 0; index < kPermanentMacBytes; ++index)
+        for (const uint8_t octet : octets)
         {
-            allZero = allZero && mac[index] == 0U;
-            allOnes = allOnes && mac[index] == kMaxMacOctetValue;
+            allZero = allZero && octet == 0U;
+            allOnes = allOnes && octet == kMaxMacOctetValue;
         }
         return !allZero && !allOnes;
     }
@@ -148,48 +160,37 @@ namespace simpleath
         {
             return Result::InvalidMacAddress;
         }
-        // Build the candidate before modifying out, so source words may
-        // overlap the output on success. On failure, clear stale identity.
+        // EEPROM words may share the output's backing bytes on successful
+        // decoding. Snapshot all three words before any output write.
         if (words == nullptr)
         {
-            for (size_t index = 0; index < kPermanentMacBytes; ++index)
-            {
-                out[index] = 0;
-            }
+            __builtin_memset(out, 0, kPermanentMacBytes);
             return Result::InvalidMacAddress;
         }
-        uint8_t candidate[kPermanentMacBytes] {};
-        for (size_t index = 0; index < 3; ++index)
+        uint16_t original[3] {};
+        __builtin_memcpy(&original[0], words, sizeof(original));
+        constexpr uint32_t kHighMacOctetShift = 8U;
+        uint8_t candidate[kPermanentMacBytes] {
+            static_cast<uint8_t>(original[0] >> kHighMacOctetShift),
+            static_cast<uint8_t>(original[0] & kMaxMacOctetValue),
+            static_cast<uint8_t>(original[1] >> kHighMacOctetShift),
+            static_cast<uint8_t>(original[1] & kMaxMacOctetValue),
+            static_cast<uint8_t>(original[2] >> kHighMacOctetShift),
+            static_cast<uint8_t>(original[2] & kMaxMacOctetValue),
+        };
+        if (!validatePermanentMac(&candidate[0]))
         {
-            candidate[index * 2] = static_cast<uint8_t>(words[index] >> 8U);
-            candidate[(index * 2) + 1] =
-                static_cast<uint8_t>(words[index] & kMaxMacOctetValue);
-        }
-        if (!validatePermanentMac(candidate))
-        {
-            // Failed decoding must revoke an old output, but not by erasing
-            // the caller's borrowed EEPROM source. The public API supports
-            // successful in-place decode, so reject only the invalid-source
-            // overlap before writing failure cleanup into raw NVM evidence.
-            const auto source = reinterpret_cast<uintptr_t>(words);
-            const auto destination = reinterpret_cast<uintptr_t>(out);
-            const bool aliased = source <= destination
-                                     ? destination - source < sizeof(candidate)
-                                     : source - destination < sizeof(candidate);
-            if (aliased)
+            // Preserve borrowed raw NVM evidence when invalid input aliases
+            // output. The ordinary non-overlapping invalid case clears out.
+            if (overlapsStorage(words, sizeof(original), out,
+                                sizeof(candidate)))
             {
                 return Result::InvalidMacAddress;
             }
-            for (size_t index = 0; index < sizeof(candidate); ++index)
-            {
-                out[index] = 0;
-            }
+            __builtin_memset(out, 0, sizeof(candidate));
             return Result::InvalidMacAddress;
         }
-        for (size_t index = 0; index < kPermanentMacBytes; ++index)
-        {
-            out[index] = candidate[index];
-        }
+        __builtin_memcpy(out, &candidate[0], sizeof(candidate));
         return Result::Ok;
     }
 
