@@ -7,6 +7,7 @@
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
+#include "wifi/crypto/Ccmp.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -45,6 +46,10 @@ namespace simpleath
             // WPA2 M2 is 121 bytes EAPOL plus 802.11 header and 8-byte
             // LLC/SNAP.
             constexpr size_t kMinimumEapolTxFrameCapacity = 24U + 8U + 121U;
+            constexpr size_t kDataHeaderBytes = 24U;
+            constexpr size_t kSnapHeaderBytes = 8U;
+            constexpr size_t kGroup2ReplyBytes = 99U;
+            constexpr size_t kCcmpOverheadBytes = 16U;
 
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
@@ -65,6 +70,58 @@ namespace simpleath
                 return first <= second ? second - first < aBytes
                                        : first - second < bBytes;
             }
+
+            struct MemoryRange
+            {
+                    const void *data;
+                    size_t bytes;
+            };
+
+            template <size_t Count>
+            bool disjointRanges(const MemoryRange (&ranges)[Count])
+            {
+                for (size_t i = 0; i < Count; ++i)
+                {
+                    for (size_t j = i + 1U; j < Count; ++j)
+                    {
+                        if (overlaps(ranges[i].data, ranges[i].bytes,
+                                     ranges[j].data, ranges[j].bytes))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+
+            class ScopedFrameClear final
+            {
+                public:
+                    ScopedFrameClear(uint8_t *buffer, size_t bytes)
+                        : buffer_(buffer), bytes_(bytes)
+                    {
+                    }
+
+                    ~ScopedFrameClear()
+                    {
+                        volatile uint8_t *const bytes = buffer_;
+                        for (size_t i = 0; i < bytes_; ++i)
+                        {
+                            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                            bytes[i] = 0U;
+                        }
+                    }
+
+                    ScopedFrameClear(const ScopedFrameClear &) = delete;
+                    ScopedFrameClear &
+                    operator=(const ScopedFrameClear &) = delete;
+                    ScopedFrameClear(ScopedFrameClear &&) = delete;
+                    ScopedFrameClear &operator=(ScopedFrameClear &&) = delete;
+
+                private:
+                    uint8_t *buffer_;
+                    size_t bytes_;
+            };
 
             // EngineAction is a caller-owned output, but the RX frame can be
             // borrowed from DMA and the engine stores keys and station state.
@@ -1173,6 +1230,136 @@ namespace simpleath
                                   action);
             }
             return EngineResult::NoAction;
+        }
+
+        EngineResult WifiEngine::acceptProtectedGroupRekey(
+            const uint8_t *encrypted, size_t encryptedBytes, bool includesFcs,
+            const InputTrust &trust, crypto::CcmpSession &receive,
+            crypto::CcmpSession &transmit, uint64_t epoch,
+            uint8_t *receiveScratch, size_t receiveScratchBytes,
+            uint8_t *transmitScratch, size_t transmitScratchBytes, uint8_t *out,
+            size_t capacity, EngineAction &action)
+        {
+            // A forged alias must not clear a live key/session, an RX DMA
+            // input, a trusted metadata report or the caller's action.
+            const MemoryRange ranges[] {
+                {this, sizeof(*this)},
+                {encrypted, encryptedBytes},
+                {&trust, sizeof(trust)},
+                {&receive, sizeof(receive)},
+                {&transmit, sizeof(transmit)},
+                {receiveScratch, receiveScratchBytes},
+                {transmitScratch, transmitScratchBytes},
+                {out, capacity},
+                {&action, sizeof(action)},
+            };
+            if (!disjointRanges(ranges))
+            {
+                return EngineResult::InvalidInput;
+            }
+            action = {};
+            if (encrypted == nullptr || out == nullptr ||
+                receiveScratch == nullptr || transmitScratch == nullptr)
+            {
+                return EngineResult::InvalidInput;
+            }
+            constexpr size_t kGroup2PlainMpduBytes =
+                kDataHeaderBytes + kSnapHeaderBytes + kGroup2ReplyBytes;
+            constexpr size_t kProtectedGroup2Bytes =
+                kGroup2PlainMpduBytes + kCcmpOverheadBytes;
+            if (capacity < kProtectedGroup2Bytes ||
+                transmitScratchBytes < kGroup2PlainMpduBytes)
+            {
+                return EngineResult::BufferTooSmall;
+            }
+            if (encryptedBytes > crypto::kCcmpMaximumMpduBytes + 4U ||
+                encryptedBytes < kDataHeaderBytes + kCcmpOverheadBytes +
+                                     (includesFcs ? 4U : 0U))
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            if (osSupplicantOwned_ || !keysConfigured_ ||
+                station_.state() != StationState::HardwareKeysInstalled ||
+                link_.status().state != LinkState::Associated ||
+                !supplicant_.keysInstalledFor(
+                    stationAddress_, station_.candidate().beacon.bssid))
+            {
+                return EngineResult::InvalidState;
+            }
+            if (!trust.radioReady || !trust.channelAuthorized ||
+                !trust.dmaAndFcsVerified || !channelAuthorized_)
+            {
+                return EngineResult::RadioNotReady;
+            }
+            const Bss &candidate = station_.candidate();
+            LinkContext link {};
+            link.station = stationAddress_;
+            link.bssid = candidate.beacon.bssid;
+            link.security = LinkSecurity::Wpa2Ccmp;
+            link.associated = true;
+            link.rfReady = trust.radioReady;
+            link.channelPermitted = trust.channelAuthorized;
+            link.pairwiseAndGroupKeysInstalled = true;
+            Msdu msdu {};
+            // After decrypt, the borrowed EAPOL points into receiveScratch.
+            // Both plaintext workspaces are erased on all subsequent exits.
+            const ScopedFrameClear rxClear(receiveScratch, receiveScratchBytes);
+            const ScopedFrameClear txClear(transmitScratch,
+                                           transmitScratchBytes);
+            const DataPathResult admitted = inspectProtectedStationRx(
+                link, encrypted, encryptedBytes, includesFcs,
+                trust.dmaAndFcsVerified, receive, epoch, receiveScratch,
+                receiveScratchBytes, msdu);
+            if (admitted != DataPathResult::Ok ||
+                msdu.etherType != kEtherTypeEapol)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            KeyFrame group {};
+            if (parseEapolKey(msdu.payload, msdu.payloadLength, group) !=
+                    EapolResult::Ok ||
+                group.message != KeyMessage::Group1)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            uint8_t reply[kMaximumEapolReply] {};
+            const ScopedFrameClear replyClear(&reply[0], sizeof(reply));
+            size_t replyBytes = 0;
+            const Wpa2Result security = supplicant_.onGroupMessage1(
+                msdu.payload, msdu.payloadLength, &reply[0], sizeof(reply),
+                replyBytes);
+            if (security != Wpa2Result::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            // Group1 authentication installs the new GTK. Every later
+            // failure must revoke it: never allow a partially acknowledged
+            // key epoch to keep sending with uncertain Group2 delivery.
+            uint8_t ethernet[kEthernetHeader + kMaximumEapolReply] {};
+            const ScopedFrameClear ethClear(&ethernet[0], sizeof(ethernet));
+            copyBytes(&ethernet[0], &candidate.beacon.bssid.bytes[0],
+                      kMacAddressBytes);
+            copyBytes(&ethernet[kMacAddressBytes], &stationAddress_.bytes[0],
+                      kMacAddressBytes);
+            ethernet[kEtherTypeHighOffset] = kEtherTypeHighEapol;
+            ethernet[kEtherTypeLowOffset] = kEtherTypeLowEapol;
+            copyBytes(&ethernet[kEthernetHeader], &reply[0], replyBytes);
+            SerializedData packet {};
+            const DataPathResult encoded = prepareProtectedStationTx(
+                link, &ethernet[0], kEthernetHeader + replyBytes, nextSequence_,
+                transmit, epoch, transmitScratch, transmitScratchBytes, out,
+                capacity, packet);
+            if (encoded != DataPathResult::Ok)
+            {
+                clear();
+                return encoded == DataPathResult::BufferTooSmall
+                           ? EngineResult::BufferTooSmall
+                           : EngineResult::CryptoFailure;
+            }
+            nextSequence_ =
+                static_cast<uint16_t>((nextSequence_ + 1U) & kSequenceMask);
+            return emitPrepared(ActionKind::TransmitEapol, packet.frameBytes,
+                                action);
         }
 
         EngineResult WifiEngine::checkBeaconTimeout(uint64_t nowMs,

@@ -227,6 +227,25 @@ namespace simpleath
                                       uint8_t *out, size_t capacity,
                                       EngineAction &action);
 
+                // Driver-owned WPA2 only: authenticate a protected AP
+                // Group1 using the live pairwise RX CCMP session, update the
+                // GTK via the supplicant, then protect its Group2 response
+                // with the live pairwise TX CCMP session. This is one
+                // serialized owner operation. The caller supplies distinct
+                // same-association sessions, verified EDMA/FCS status, and
+                // disjoint scratch; it must submit the returned protected MPDU
+                // or tear down the association if submission fails. A failed
+                // post-install protection revokes the supplicant and link.
+                // OS-owned WPA2 never uses this driver handshake path.
+                EngineResult acceptProtectedGroupRekey(
+                    const uint8_t *encrypted, size_t encryptedBytes,
+                    bool includesFcs, const InputTrust &trust,
+                    crypto::CcmpSession &receive, crypto::CcmpSession &transmit,
+                    uint64_t epoch, uint8_t *receiveScratch,
+                    size_t receiveScratchBytes, uint8_t *transmitScratch,
+                    size_t transmitScratchBytes, uint8_t *out, size_t capacity,
+                    EngineAction &action);
+
                 EngineResult checkBeaconTimeout(uint64_t nowMs,
                                                 EngineAction &action);
                 // Caller must quiesce hardware before invalidating its key
