@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "Ar9565PciSession.hpp"
+#include "hardware/Ar9565Core.hpp"
+#include <cstddef>
+#include <cstdint>
 
 namespace simpleath
 {
@@ -8,6 +11,21 @@ namespace simpleath
         constexpr uint16_t kMemoryDecode = 0x0002;
         constexpr uint16_t kBusMaster = 0x0004;
         constexpr uint32_t kMinimumInspectionBar = kRtcStatusRegister + 4;
+        constexpr uint16_t kPciCommandOffset = 0x04U;
+        constexpr uint16_t kPciClassRevisionOffset = 0x08U;
+        constexpr uint16_t kPciHeaderOffset = 0x0cU;
+        constexpr uint16_t kPciBar0Offset = 0x10U;
+        constexpr uint16_t kPciBar0HighOffset = 0x14U;
+        constexpr uint16_t kPciSubsystemOffset = 0x2cU;
+        constexpr uint16_t kPciConfigMaxOffset = 0xfcU;
+        constexpr uint32_t kInvalidConfigRead = UINT32_MAX;
+        constexpr uint32_t kPciWordHighShift = 16U;
+        constexpr uint32_t kPciHeaderTypeMask = 0x7fU;
+        constexpr uint32_t kPciWirelessClass = 0x0280U;
+        constexpr uint32_t kPciBarReservedMask = 0x09U;
+        constexpr uint32_t kPciBarAddressMask = 0xfffffff0U;
+        constexpr uint32_t kPciMemoryBarTypeShift = 1U;
+        constexpr uint32_t kPciOtherCommandBits = 0xffffU ^ kMemoryDecode;
 
         bool overlaps(const void *a, size_t aBytes, const void *b,
                       size_t bBytes)
@@ -17,23 +35,53 @@ namespace simpleath
             {
                 return false;
             }
-            const auto first = reinterpret_cast<uintptr_t>(a);
-            const auto second = reinterpret_cast<uintptr_t>(b);
+            uintptr_t first = 0;
+            uintptr_t second = 0;
+            static_assert(sizeof(uintptr_t) == sizeof(a),
+                          "portable PCI pointers must fit uintptr_t");
+            __builtin_memcpy(&first, static_cast<const void *>(&a), sizeof(a));
+            __builtin_memcpy(&second, static_cast<const void *>(&b), sizeof(b));
             return first <= second ? second - first < aBytes
                                    : first - second < bBytes;
+        }
+
+        bool validBackend(const PciSessionBackend &backend)
+        {
+            return backend.context != nullptr && backend.claim != nullptr &&
+                   backend.release != nullptr && backend.inD0 != nullptr &&
+                   backend.configRead32 != nullptr &&
+                   backend.commandWrite16 != nullptr &&
+                   backend.mapBar0 != nullptr && backend.unmapBar0 != nullptr &&
+                   backend.readBar0 != nullptr;
+        }
+
+        bool validPciWirelessFunction(uint32_t id, uint32_t header,
+                                      uint32_t classRevision)
+        {
+            return isSupportedPci(
+                       static_cast<uint16_t>(id),
+                       static_cast<uint16_t>(id >> kPciWordHighShift)) &&
+                   ((header >> kPciWordHighShift) & kPciHeaderTypeMask) == 0U &&
+                   (classRevision >> kPciWordHighShift) == kPciWirelessClass;
+        }
+
+        bool validPciBarType(uint32_t bar, uint32_t kind)
+        {
+            return (bar & kPciBarReservedMask) == 0U &&
+                   (kind == 0U || kind == 2U);
         }
 
         // If anything except memory decode changes, ownership is no longer
         // proven. Never restore a stale PCI command word over those changes.
         bool commandBitsChanged(uint32_t observed, uint16_t original)
         {
-            return ((static_cast<uint16_t>(observed) ^ original) &
-                    static_cast<uint16_t>(~kMemoryDecode)) != 0;
+            return ((static_cast<uint32_t>(static_cast<uint16_t>(observed)) ^
+                     static_cast<uint32_t>(original)) &
+                    kPciOtherCommandBits) != 0U;
         }
     } // namespace
 
-    PciReadOnlySession::PciReadOnlySession()
-        : device_ {}, backend_ {}, status_ {}
+    PciReadOnlySession::PciReadOnlySession() : backend_ {}, status_ {}
     {
     }
 
@@ -45,12 +93,12 @@ namespace simpleath
         stop(ProviderAccess::Unavailable);
     }
 
-    bool PciReadOnlySession::readConfig(uint16_t offset, uint32_t &value)
+    bool PciReadOnlySession::readConfig(uint16_t offset, uint32_t &value) const
     {
         return status_.claimed && backend_.inD0(backend_.context) &&
-               (offset & 3U) == 0 && offset <= 0xfcU &&
+               (offset & 3U) == 0 && offset <= kPciConfigMaxOffset &&
                backend_.configRead32(backend_.context, offset, &value) &&
-               value != 0xffffffffU;
+               value != kInvalidConfigRead;
     }
 
     PciSessionResult PciReadOnlySession::start(const PciSessionBackend &backend)
@@ -71,12 +119,7 @@ namespace simpleath
         }
         device_.detach();
         status_ = {};
-        if ((backend.context == nullptr) || (backend.claim == nullptr) ||
-            (backend.release == nullptr) || (backend.inD0 == nullptr) ||
-            (backend.configRead32 == nullptr) ||
-            (backend.commandWrite16 == nullptr) ||
-            (backend.mapBar0 == nullptr) || (backend.unmapBar0 == nullptr) ||
-            (backend.readBar0 == nullptr))
+        if (!validBackend(backend))
         {
             return status_.lastResult = PciSessionResult::MissingBackend;
         }
@@ -97,16 +140,16 @@ namespace simpleath
         uint32_t classRevision = 0;
         uint32_t header = 0;
         uint32_t command = 0;
-        if (!readConfig(0x00, id) || !readConfig(0x2c, subsystem) ||
-            !readConfig(0x08, classRevision) || !readConfig(0x0c, header) ||
-            !readConfig(0x04, command))
+        if (!readConfig(0x00, id) ||
+            !readConfig(kPciSubsystemOffset, subsystem) ||
+            !readConfig(kPciClassRevisionOffset, classRevision) ||
+            !readConfig(kPciHeaderOffset, header) ||
+            !readConfig(kPciCommandOffset, command))
         {
             return failStart(PciSessionResult::ConfigReadFailed);
         }
         // AR9565 is a type-0 PCI wireless network function (class 0x0280).
-        if (!isSupportedPci(static_cast<uint16_t>(id),
-                            static_cast<uint16_t>(id >> 16)) ||
-            ((header >> 16) & 0x7fU) != 0 || (classRevision >> 16) != 0x0280U)
+        if (!validPciWirelessFunction(id, header, classRevision))
         {
             return failStart(PciSessionResult::UnsupportedFunction);
         }
@@ -116,23 +159,36 @@ namespace simpleath
             return failStart(PciSessionResult::InheritedBusMaster);
         }
 
+        return finishStartAfterConfig(PciStartSnapshot {
+            id,
+            subsystem,
+            command,
+        });
+    }
+
+    PciSessionResult
+    PciReadOnlySession::finishStartAfterConfig(const PciStartSnapshot &snapshot)
+    {
+        const uint32_t id = snapshot.id;
+        const uint32_t subsystem = snapshot.subsystem;
+        uint32_t command = snapshot.command;
         uint32_t bar = 0;
-        if (!readConfig(0x10, bar))
+        if (!readConfig(kPciBar0Offset, bar))
         {
             return failStart(PciSessionResult::ConfigReadFailed);
         }
         // Only assigned, non-prefetchable 32-bit or 64-bit memory BARs.
-        const uint32_t kind = (bar >> 1) & 3U;
-        if (((bar & 0x09U) != 0U) || (kind != 0 && kind != 2))
+        const uint32_t kind = (bar >> kPciMemoryBarTypeShift) & 3U;
+        if (!validPciBarType(bar, kind))
         {
             return failStart(PciSessionResult::InvalidBar);
         }
         uint32_t upper = 0;
-        if (kind == 2 && !readConfig(0x14, upper))
+        if (kind == 2 && !readConfig(kPciBar0HighOffset, upper))
         {
             return failStart(PciSessionResult::ConfigReadFailed);
         }
-        if (((bar & 0xfffffff0U) == 0U) && (upper == 0U))
+        if (((bar & kPciBarAddressMask) == 0U) && (upper == 0U))
         {
             return failStart(PciSessionResult::InvalidBar);
         }
@@ -150,7 +206,8 @@ namespace simpleath
                 return failStart(PciSessionResult::CommandWriteFailed);
             }
         }
-        if (!readConfig(0x04, command) || ((command & kMemoryDecode) == 0U) ||
+        if (!readConfig(kPciCommandOffset, command) ||
+            ((command & kMemoryDecode) == 0U) ||
             ((command & kBusMaster) != 0U) ||
             commandBitsChanged(command, status_.originalCommand))
         {
@@ -179,7 +236,7 @@ namespace simpleath
         }
         // Mapping may complete after an unrelated PCI command change. The
         // pre-map readback alone cannot authorize read-ready publication.
-        const bool commandReadOk = readConfig(0x04, command);
+        const bool commandReadOk = readConfig(kPciCommandOffset, command);
         if (!backend_.inD0(backend_.context))
         {
             return failStart(PciSessionResult::NotInD0);
@@ -191,10 +248,11 @@ namespace simpleath
             return failStart(PciSessionResult::CommandReadbackFailed);
         }
 
-        if (device_.matchPci(
-                static_cast<uint16_t>(id), static_cast<uint16_t>(id >> 16),
-                static_cast<uint16_t>(subsystem),
-                static_cast<uint16_t>(subsystem >> 16)) != Result::Ok)
+        if (device_.matchPci(static_cast<uint16_t>(id),
+                             static_cast<uint16_t>(id >> kPciWordHighShift),
+                             static_cast<uint16_t>(subsystem),
+                             static_cast<uint16_t>(
+                                 subsystem >> kPciWordHighShift)) != Result::Ok)
         {
             return failStart(PciSessionResult::CoreRejected);
         }
@@ -222,7 +280,7 @@ namespace simpleath
     bool PciReadOnlySession::readRegister(void *context, uint32_t offset,
                                           uint32_t *value)
     {
-        auto &self = *static_cast<PciReadOnlySession *>(context);
+        const auto &self = *static_cast<PciReadOnlySession *>(context);
         if ((value == nullptr) || !self.status_.readAccessReady ||
             !self.status_.mapped || !self.status_.claimed ||
             !self.backend_.inD0(self.backend_.context) ||
@@ -237,7 +295,7 @@ namespace simpleath
         // Recheck powered ownership before reporting a valid register sample,
         // especially the final EEPROM word used to authorize inspection.
         return self.backend_.readBar0(self.backend_.context, offset, value) &&
-               *value != 0xffffffffU &&
+               *value != kInvalidConfigRead &&
                self.backend_.inD0(self.backend_.context);
     }
 
@@ -261,7 +319,7 @@ namespace simpleath
         // command bits after inspection has finished. Refuse newly enabled
         // bus mastering or unrelated changes before publishing success.
         uint32_t command = 0;
-        const bool commandReadOk = readConfig(0x04, command);
+        const bool commandReadOk = readConfig(kPciCommandOffset, command);
         if (!backend_.inD0(backend_.context))
         {
             unwind(ProviderAccess::Unavailable);
@@ -305,17 +363,19 @@ namespace simpleath
                 // A successful config read can revoke D0 in its own
                 // callback. Neither the saved command nor a previous D0
                 // check authorizes a subsequent PCI command write.
-                if (readConfig(0x04, command) &&
+                if (readConfig(kPciCommandOffset, command) &&
                     backend_.inD0(backend_.context) &&
                     ((command & kBusMaster) == 0U) &&
                     !commandBitsChanged(command, status_.originalCommand) &&
                     (((command & kMemoryDecode) == 0U) ||
                      (backend_.commandWrite16(
                           backend_.context,
-                          static_cast<uint16_t>(command & ~kMemoryDecode)) &&
-                      readConfig(0x04, command) &&
+                          static_cast<uint16_t>(command &
+                                                kPciOtherCommandBits)) &&
+                      readConfig(kPciCommandOffset, command) &&
                       backend_.inD0(backend_.context) &&
-                      ((command & (kMemoryDecode | kBusMaster)) == 0U) &&
+                      ((command & (static_cast<uint32_t>(kMemoryDecode) |
+                                   static_cast<uint32_t>(kBusMaster))) == 0U) &&
                       !commandBitsChanged(command, status_.originalCommand))))
                 {
                     status_.memoryDecodeChanged = false;

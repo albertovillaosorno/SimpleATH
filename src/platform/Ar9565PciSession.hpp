@@ -117,7 +117,17 @@ namespace simpleath
         private:
             static bool readRegister(void *context, uint32_t offset,
                                      uint32_t *value);
-            bool readConfig(uint16_t offset, uint32_t &value);
+            bool readConfig(uint16_t offset, uint32_t &value) const;
+
+            struct PciStartSnapshot
+            {
+                    uint32_t id;
+                    uint32_t subsystem;
+                    uint32_t command;
+            };
+
+            PciSessionResult
+            finishStartAfterConfig(const PciStartSnapshot &snapshot);
             PciSessionResult failStart(PciSessionResult result);
             void unwind(ProviderAccess access);
             Device device_;
