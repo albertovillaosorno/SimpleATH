@@ -5,6 +5,7 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>
 #include <IOKit/IOMapper.h>
+#include <IOKit/IOReturn.h>
 #include <IOKit/IOWorkLoop.h>
 #include <stdint.h>
 
@@ -27,7 +28,7 @@ namespace simpleath
         StaleCompletion,
         GenerationExhausted,
         DeviceStillOwnsBuffer,
-        CleanupFailed
+        CleanupFailed,
     };
 
     struct NativeDmaToken
@@ -63,12 +64,12 @@ namespace simpleath
         Empty,
         CpuOwned,
         DeviceOwned,
-        CleanupFailed
+        CleanupFailed,
     };
     enum class NativeDmaRetirement : uint8_t
     {
         TransferCompleted,
-        HardwareQuiesced
+        HardwareQuiesced,
     };
 
     // Packet-buffer mapping, not a perpetually active descriptor/status ring.
@@ -95,6 +96,8 @@ namespace simpleath
             ~NativeDmaBuffer();
             NativeDmaBuffer(const NativeDmaBuffer &) = delete;
             NativeDmaBuffer &operator=(const NativeDmaBuffer &) = delete;
+            NativeDmaBuffer(NativeDmaBuffer &&) = delete;
+            NativeDmaBuffer &operator=(NativeDmaBuffer &&) = delete;
 
             NativeDmaResult prepareClient(IOService *pciProvider,
                                           IOWorkLoop *ownerLoop,
@@ -144,23 +147,23 @@ namespace simpleath
             bool inClientContext() const;
             bool validRange(uint32_t offset, uint32_t length) const;
             NativeDmaResult cleanupUnpublishedClient(NativeDmaResult original);
-            IOService *provider_;
-            IOWorkLoop *loop_;
-            IOMapper *mapper_;
-            IOBufferMemoryDescriptor *buffer_;
-            IODMACommand *command_;
-            NativeDmaRequest request_;
-            NativeDmaLayout layout_;
-            NativeDmaPhase phase_;
-            IOReturn lastKernelError_;
-            uint64_t nextSubmission_; // Never reset across clear/reprepare; no
-                                      // wrap reuse.
-            bool bufferPrepared_;
-            bool commandAttached_;
-            bool commandPrepared_;
-            bool readyForDevice_;
-            bool completedTransfer_;
-            bool cpuSynchronized_;
+            IOService *provider_ {nullptr};
+            IOWorkLoop *loop_ {nullptr};
+            IOMapper *mapper_ {nullptr};
+            IOBufferMemoryDescriptor *buffer_ {nullptr};
+            IODMACommand *command_ {nullptr};
+            NativeDmaRequest request_ {};
+            NativeDmaLayout layout_ {};
+            NativeDmaPhase phase_ {NativeDmaPhase::Empty};
+            IOReturn lastKernelError_ {kIOReturnSuccess};
+            uint64_t nextSubmission_ {0U}; // Never reset across
+                                           // clear/reprepare; no wrap reuse.
+            bool bufferPrepared_ {false};
+            bool commandAttached_ {false};
+            bool commandPrepared_ {false};
+            bool readyForDevice_ {false};
+            bool completedTransfer_ {false};
+            bool cpuSynchronized_ {false};
     };
 
 } // namespace simpleath
