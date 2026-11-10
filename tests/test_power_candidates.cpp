@@ -3,406 +3,649 @@
 // Synthetic half-dBm EEPROM target selection, NOT a hardware TX power index.
 #include "hardware/Ar9565Eeprom.hpp"
 #include "hardware/Ar9565Power.hpp"
-#include <cstddef>
+#include <array>
 #include <cstdint>
 
 using namespace simpleath;
 
+namespace
+{
+    // Fixed EEPROM fixture layout offsets and numeric values from the
+    // deterministic ath9k power/CTL regression vectors.
+    constexpr auto kCalibrationPierHigh = 162;
+    constexpr auto kCalibrationPierLow = 112;
+    constexpr auto kCalibrationPierMid = 137;
+    constexpr auto kCckCtlMode = 0xe1;
+    constexpr auto kCckElevenMinimum = 19;
+    constexpr auto kCckFiveMinimum = 17;
+    constexpr auto kCckOneMbitRate = 0x1b;
+    constexpr auto kCckReverseMinimum = 12;
+    constexpr auto kCckTargetHalfDbm = 25;
+    constexpr auto kCeilingHalfDbm = 30;
+    constexpr auto kChannelFourteenMhz = 2484;
+    constexpr auto kChannelOneMhz = 2412;
+    constexpr auto kChannelSixMhz = 2437;
+    constexpr auto kChannelSixNumber = 6;
+    constexpr auto kCtlEdgeHalfDbm = 26;
+    constexpr auto kCtlGroupAll = 0xe0U;
+    constexpr auto kCtlLimitedHalfDbm = 24;
+    constexpr auto kCtlTargetBytes = 20U;
+    constexpr auto kEepromOffset138 = 138;
+    constexpr auto kEepromOffset139 = 139;
+    constexpr auto kEepromOffset140 = 140;
+    constexpr auto kEepromOffset141 = 141;
+    constexpr auto kEepromOffset142 = 142;
+    constexpr auto kEepromOffset143 = 143;
+    constexpr auto kEepromOffset147 = 147;
+    constexpr auto kEepromOffset148 = 148;
+    constexpr auto kEepromOffset149 = 149;
+    constexpr auto kEepromOffset153 = 153;
+    constexpr auto kEepromOffset154 = 154;
+    constexpr auto kEepromOffset155 = 155;
+    constexpr auto kEepromOffset195 = 195;
+    constexpr auto kEepromOffset196 = 196;
+    constexpr auto kEepromOffset197 = 197;
+    constexpr auto kEepromOffset198 = 198;
+    constexpr auto kEepromOffset199 = 199;
+    constexpr auto kEepromOffset206 = 206;
+    constexpr auto kEepromOffset310 = 310;
+    constexpr auto kEepromOffset311 = 311;
+    constexpr auto kEepromOffset313 = 313;
+    constexpr auto kEepromOffset32 = 32;
+    constexpr auto kEepromOffset322 = 322;
+    constexpr auto kEepromOffset323 = 323;
+    constexpr auto kEepromOffset324 = 324;
+    constexpr auto kEepromOffset325 = 325;
+    constexpr auto kEepromOffset326 = 326;
+    constexpr auto kEepromOffset327 = 327;
+    constexpr auto kEepromOffset328 = 328;
+    constexpr auto kEepromOffset329 = 329;
+    constexpr auto kEepromOffset33 = 33;
+    constexpr auto kEepromOffset370 = 370;
+    constexpr auto kEepromOffset5 = 5;
+    constexpr auto kEepromOffset6 = 6;
+    constexpr auto kEepromOffset7 = 7;
+    constexpr auto kErasedByte = 0xff;
+    constexpr auto kExtensionMhz = 2432;
+    constexpr auto kHtMcsZeroRate = 0x80;
+    constexpr auto kHtTargetHalfDbm = 15;
+    constexpr auto kInvalidCtlBin = 185;
+    constexpr auto kInvalidExtensionMhz = 2442;
+    constexpr auto kInvalidSynthMhz = 2427;
+    constexpr auto kNegativeCorrectionEncoded = 0xf8;
+    constexpr auto kOfdmCtlMode = 0xe2;
+    constexpr auto kOfdmRateCode = 0x0b;
+    constexpr auto kOfdmTargetHalfDbm = 18;
+    constexpr auto kOffRasterMhz = 2413;
+    constexpr auto kOverCeilingHalfDbm = 31;
+    constexpr auto kPhysicalMacFive = 0x55;
+    constexpr auto kPhysicalMacFour = 0x44;
+    constexpr auto kPhysicalMacOne = 0x11;
+    constexpr auto kPhysicalMacThree = 0x33;
+    constexpr auto kPhysicalMacTwo = 0x22;
+    constexpr auto kRawCckElevenTarget = 27;
+    constexpr auto kReferenceCorrectionMagnitude = 8;
+    constexpr auto kReverseCckRawTarget = 29;
+    constexpr auto kSecondPierCorrection = 16;
+    constexpr auto kSecondPierTemperature = 50;
+    constexpr auto kSecondPierVoltage = 120;
+    constexpr auto kSynthMhz = 2422;
+    constexpr auto kTemperatureReference = 40;
+    constexpr auto kThirdPierTemperature = 60;
+    constexpr auto kThirdPierVoltage = 140;
+    constexpr auto kTwoCtlRowEdgeBytes = 8U;
+    constexpr auto kUnsupportedHtRate = 0x88;
+    constexpr auto kVoltageReferenceOrOffbandBin = 100;
+
+    enum class Failure : int
+    {
+        CckAndHtBase = 1,
+        UnsupportedRate = 2,
+        AboveLimitHt20 = 3,
+        OffRaster = 4,
+        Channel14Legacy = 5,
+        Channel14HtConflict = 6,
+        ValidHt40 = 7,
+        InvalidExtension = 8,
+        InvalidSynth = 9,
+        Ht40OverLimit = 10,
+        UnknownBoard = 11,
+        ValidCalibratedBoard = 12,
+        InteriorCtlZero = 13,
+        CtlCoverageMissing = 14,
+        TargetOutOfBand = 15,
+        CtlOutOfBand = 16,
+        CtlOutOfOrder = 17,
+        MalformedCtlTable = 18,
+        RestoredCtlTable = 19,
+        DuplicateCalibrationPier = 20,
+        RestoredCalibrationPier = 21,
+        PlaceholderMacRejected = 22,
+        RestoredMac = 23,
+        Cck55Minimum = 24,
+        Cck11Minimum = 25,
+        Cck55ReverseMinimum = 26,
+        Cck11ReverseMinimum = 27,
+        Cck12Rates = 28,
+        Channel6Calibration = 30,
+    };
+
+    struct RateFixture
+    {
+            PowerCandidates candidate {};
+            uint8_t halfDbm {};
+    };
+
+    struct BoardFixture
+    {
+            EepromImage image {};
+            PowerCandidates output {};
+            PowerChannel channel {1U, 0U};
+            PowerCeilings ceiling {
+                kCtlGroupAll,
+                kCeilingHalfDbm,
+                kCeilingHalfDbm,
+            };
+    };
+
+    int verifyInitialRate(RateFixture &fixture)
+    {
+        auto &candidate = fixture.candidate;
+        auto &halfDbm = fixture.halfDbm;
+        candidate.controlMhz = kChannelOneMhz;
+        candidate.synthMhz = kChannelOneMhz;
+        candidate.conductedCeilingHalfDbm = kCeilingHalfDbm;
+        candidate.ht20Present = true;
+        candidate.cck[0] = kCckTargetHalfDbm;
+        candidate.ofdm[0] = kOfdmTargetHalfDbm;
+        candidate.ht20[0] = kHtTargetHalfDbm;
+        halfDbm = kErasedByte;
+        if (candidatePowerForRate(candidate, kCckOneMbitRate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kCckTargetHalfDbm ||
+            candidatePowerForRate(candidate, kOfdmRateCode, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kOfdmTargetHalfDbm ||
+            candidatePowerForRate(candidate, kHtMcsZeroRate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kHtTargetHalfDbm)
+        {
+            return 1;
+        }
+
+        halfDbm = kErasedByte;
+        if (candidatePowerForRate(candidate, kUnsupportedHtRate, false,
+                                  halfDbm) != PowerResult::UnsupportedRate ||
+            halfDbm != 0 ||
+            candidatePowerForRate(candidate, kHtMcsZeroRate, true, halfDbm) !=
+                PowerResult::InvalidChannel ||
+            halfDbm != 0)
+        {
+            return 2;
+        }
+        return 0;
+    }
+
+    int verifyCckPreambles(RateFixture &fixture)
+    {
+        auto &candidate = fixture.candidate;
+        auto &halfDbm = fixture.halfDbm;
+        // ath9k uses the lower of 1L_5L / 5S for *both* 5.5-Mbps
+        // preambles, and the lower of 11L / 11S for *both* 11-Mbps
+        // preambles. A public rate selector must not return a higher raw
+        // per-preamble EEPROM target than the PHY actually permits.
+        candidate.cck[1] = kCckFiveMinimum;
+        candidate.cck[2] = kCckElevenMinimum;
+        candidate.cck[3] = kRawCckElevenTarget;
+        const uint8_t cck55Rates[] {0x19, 0x1d};
+        const uint8_t cck11Rates[] {0x18, 0x1c};
+        for (const uint8_t rate : cck55Rates)
+        {
+            if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                    PowerResult::Ok ||
+                halfDbm != kCckFiveMinimum)
+            {
+                return static_cast<int>(Failure::Cck55Minimum);
+            }
+        }
+        for (const uint8_t rate : cck11Rates)
+        {
+            if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                    PowerResult::Ok ||
+                halfDbm != kCckElevenMinimum)
+            {
+                return static_cast<int>(Failure::Cck11Minimum);
+            }
+        }
+        // Reverse the asymmetric target pairs to test the other minimum
+        // direction, while 1/2-Mbps rates still use the original group.
+        candidate.cck[0] = kHtTargetHalfDbm;
+        candidate.cck[1] = kReverseCckRawTarget;
+        candidate.cck[2] = kCtlEdgeHalfDbm;
+        candidate.cck[3] = kCckReverseMinimum;
+        for (const uint8_t rate : cck55Rates)
+        {
+            if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                    PowerResult::Ok ||
+                halfDbm != kHtTargetHalfDbm)
+            {
+                return static_cast<int>(Failure::Cck55ReverseMinimum);
+            }
+        }
+        for (const uint8_t rate : cck11Rates)
+        {
+            if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                    PowerResult::Ok ||
+                halfDbm != kCckReverseMinimum)
+            {
+                return static_cast<int>(Failure::Cck11ReverseMinimum);
+            }
+        }
+        const uint8_t cck12Rates[] {0x1b, 0x1a, 0x1e};
+        for (const uint8_t rate : cck12Rates)
+        {
+            if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
+                    PowerResult::Ok ||
+                halfDbm != kHtTargetHalfDbm)
+            {
+                return static_cast<int>(Failure::Cck12Rates);
+            }
+        }
+        candidate.cck[0] = kCckTargetHalfDbm;
+
+        return 0;
+    }
+
+    int verifyHtChannels(RateFixture &fixture)
+    {
+        auto &candidate = fixture.candidate;
+        auto &halfDbm = fixture.halfDbm;
+        candidate.ht20[0] = kOverCeilingHalfDbm;
+        halfDbm = kErasedByte;
+        if (candidatePowerForRate(candidate, kHtMcsZeroRate, false, halfDbm) !=
+                PowerResult::InvalidCurve ||
+            halfDbm != 0)
+        {
+            return 3;
+        }
+        candidate.ht20[0] = kHtTargetHalfDbm;
+        candidate.controlMhz = kOffRasterMhz; // Invalid 2.4 GHz raster.
+        if (candidatePowerForRate(candidate, kOfdmRateCode, false, halfDbm) !=
+                PowerResult::InvalidChannel ||
+            halfDbm != 0)
+        {
+            return 4;
+        }
+
+        candidate.controlMhz = kChannelFourteenMhz;
+        candidate.synthMhz = kChannelFourteenMhz;
+        candidate.legacyOnlyChannel14 = true;
+        candidate.ht20Present = false;
+        if (candidatePowerForRate(candidate, kCckOneMbitRate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kCckTargetHalfDbm ||
+            candidatePowerForRate(candidate, kOfdmRateCode, false, halfDbm) !=
+                PowerResult::UnsupportedRate ||
+            halfDbm != 0 ||
+            candidatePowerForRate(candidate, kHtMcsZeroRate, false, halfDbm) !=
+                PowerResult::UnsupportedRate ||
+            halfDbm != 0)
+        {
+            return static_cast<int>(Failure::Channel14Legacy);
+        }
+        candidate.ht20Present = true; // HT on channel 14 is contradictory.
+        if (candidatePowerForRate(candidate, kCckOneMbitRate, false, halfDbm) !=
+                PowerResult::InvalidCurve ||
+            halfDbm != 0)
+        {
+            return static_cast<int>(Failure::Channel14HtConflict);
+        }
+
+        candidate.legacyOnlyChannel14 = false;
+        candidate.controlMhz = kChannelOneMhz;
+        candidate.extensionMhz = kExtensionMhz;
+        candidate.synthMhz = kSynthMhz;
+        candidate.ht20Present = true;
+        candidate.ht40Present = true;
+        candidate.ht40[0] = kCckElevenMinimum;
+        if (candidatePowerForRate(candidate, kHtMcsZeroRate, true, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kCckElevenMinimum ||
+            candidatePowerForRate(candidate, kHtMcsZeroRate, false, halfDbm) !=
+                PowerResult::Ok ||
+            halfDbm != kHtTargetHalfDbm)
+        {
+            return static_cast<int>(Failure::ValidHt40);
+        }
+        candidate.extensionMhz =
+            kInvalidExtensionMhz; // Wrong 30 MHz channel displacement.
+        if (candidatePowerForRate(candidate, kHtMcsZeroRate, true, halfDbm) !=
+                PowerResult::InvalidChannel ||
+            halfDbm != 0)
+        {
+            return static_cast<int>(Failure::InvalidExtension);
+        }
+        candidate.extensionMhz = kExtensionMhz;
+        candidate.synthMhz = kInvalidSynthMhz; // Contradictory synth center.
+        if (candidatePowerForRate(candidate, kHtMcsZeroRate, true, halfDbm) !=
+                PowerResult::InvalidChannel ||
+            halfDbm != 0)
+        {
+            return static_cast<int>(Failure::InvalidSynth);
+        }
+        candidate.synthMhz = kSynthMhz;
+        candidate.ht40[0] =
+            kOverCeilingHalfDbm; // Above candidate conducted budget.
+        if (candidatePowerForRate(candidate, kHtMcsZeroRate, true, halfDbm) !=
+                PowerResult::InvalidCurve ||
+            halfDbm != 0)
+        {
+            return static_cast<int>(Failure::Ht40OverLimit);
+        }
+
+        return 0;
+    }
+
+    int verifyBoardSetup(BoardFixture &fixture)
+    {
+        auto &image = fixture.image;
+        auto &output = fixture.output;
+        const auto &channel = fixture.channel;
+        const auto &ceiling = fixture.ceiling;
+        // An unknown EEPROM image must not leave a stale usable power
+        // candidate.
+        output.controlMhz = kChannelOneMhz;
+        output.cck[0] = kCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidBoard ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
+            output.ht20Present || (output.conductedCeilingHalfDbm != 0U))
+        {
+            return static_cast<int>(Failure::UnknownBoard);
+        }
+
+        // Pinned ath9k AR9300 dictionaries carry trailing zero in some 2 GHz
+        // CTL edge rows (and 0xff in others). Both are *padding*, not new
+        // coverage; construct a synthetic board with explicit, in-range edges.
+        image.restored = true;
+        image.appliedBlocks = 1;
+        image.bytes[0] = 2;
+        image.bytes[2] = 0x02;
+        image.bytes[3] = kPhysicalMacOne;
+        image.bytes[4] = kPhysicalMacTwo;
+        image.bytes[kEepromOffset5] = kPhysicalMacThree;
+        image.bytes[kEepromOffset6] = kPhysicalMacFour;
+        image.bytes[kEepromOffset7] = kPhysicalMacFive;
+        image.bytes[kEepromOffset32] = kPhysicalMacOne;
+        image.bytes[kEepromOffset33] =
+            kPhysicalMacTwo; // 2 GHz, with HT target lookup disabled.
+        // A reconstructed AR9565 board has three structurally ordered 2G
+        // calibration piers even when this test only evaluates target limits.
+        image.bytes[kEepromOffset138] = kCalibrationPierLow;
+        image.bytes[kEepromOffset139] = kCalibrationPierMid;
+        image.bytes[kEepromOffset140] = kCalibrationPierHigh;
+        // Synthetic open-loop chain0 measurements; not actual device
+        // calibration.
+        image.bytes[kEepromOffset141] =
+            kNegativeCorrectionEncoded; // -8 correction.
+        image.bytes[kEepromOffset142] = kVoltageReferenceOrOffbandBin;
+        image.bytes[kEepromOffset143] = kTemperatureReference;
+        image.bytes[kEepromOffset147] = kSecondPierCorrection;
+        image.bytes[kEepromOffset148] = kSecondPierVoltage;
+        image.bytes[kEepromOffset149] = kSecondPierTemperature;
+        image.bytes[kEepromOffset153] = kCtlLimitedHalfDbm;
+        image.bytes[kEepromOffset154] = kThirdPierVoltage;
+        image.bytes[kEepromOffset155] = kThirdPierTemperature;
+        image.bytes[kEepromOffset195] = image.bytes[kEepromOffset197] =
+            kCalibrationPierLow;
+        image.bytes[kEepromOffset196] = image.bytes[kEepromOffset198] =
+            kCalibrationPierMid;
+        image.bytes[kEepromOffset199] = kCalibrationPierHigh;
+        // Same 20-byte EEPROM power target region, with fixed-size bounds.
+        __builtin_memset(&image.bytes[kEepromOffset206], kCtlLimitedHalfDbm,
+                         kCtlTargetBytes);
+        image.bytes[kEepromOffset310] = kCckCtlMode;  // CCK CTL.
+        image.bytes[kEepromOffset311] = kOfdmCtlMode; // OFDM CTL.
+        // Two CTL rows with identical pier bins but distinct padding bytes.
+        image.bytes[kEepromOffset322] = image.bytes[kEepromOffset326] =
+            kCalibrationPierLow;
+        image.bytes[kEepromOffset323] = image.bytes[kEepromOffset327] =
+            kCalibrationPierMid;
+        image.bytes[kEepromOffset324] = image.bytes[kEepromOffset328] =
+            kCalibrationPierHigh;
+        image.bytes[kEepromOffset325] = 0;
+        image.bytes[kEepromOffset329] = kErasedByte;
+        __builtin_memset(&image.bytes[kEepromOffset370], kCtlEdgeHalfDbm,
+                         kTwoCtlRowEdgeBytes);
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::Ok ||
+            output.controlMhz != kChannelOneMhz ||
+            output.cck[0] != kCtlLimitedHalfDbm ||
+            output.ofdm[0] != kCtlLimitedHalfDbm || output.ht20Present ||
+            output.ht40Present ||
+            output.conductedCeilingHalfDbm != kCeilingHalfDbm ||
+            output.channelCalibration.channelMhz != kChannelOneMhz ||
+            output.channelCalibration.referenceCorrection !=
+                -kReferenceCorrectionMagnitude ||
+            output.channelCalibration.voltageMeasurement !=
+                kVoltageReferenceOrOffbandBin ||
+            output.channelCalibration.temperatureMeasurement !=
+                kTemperatureReference ||
+            output.channelCalibration.interpolated)
+        {
+            return static_cast<int>(Failure::ValidCalibratedBoard);
+        }
+
+        return 0;
+    }
+
+    int verifyCtlEdges(BoardFixture &fixture)
+    {
+        auto &image = fixture.image;
+        auto &output = fixture.output;
+        const auto &channel = fixture.channel;
+        const auto &ceiling = fixture.ceiling;
+        // Zero cannot be an interior bin followed by later live edges; a row
+        // with only padding cannot grant CTL coverage at any frequency.
+        image.bytes[kEepromOffset323] = 0;
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidCtlEdges ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::InteriorCtlZero);
+        }
+        image.bytes[kEepromOffset322] = 0;
+        image.bytes[kEepromOffset324] = 0;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::MissingCtlCoverage ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::CtlCoverageMissing);
+        }
+
+        // An out-of-band target bin is not a usable 2.4 GHz interpolation pier.
+        // Restore valid CTL rows so the failure is specifically the target
+        // curve.
+        image.bytes[kEepromOffset322] = kCalibrationPierLow;
+        image.bytes[kEepromOffset323] = kCalibrationPierMid;
+        image.bytes[kEepromOffset324] = kCalibrationPierHigh;
+        image.bytes[kEepromOffset195] =
+            kVoltageReferenceOrOffbandBin; // 2400 MHz, not a 2.4 GHz channel
+                                           // center.
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidCurve ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::TargetOutOfBand);
+        }
+        image.bytes[kEepromOffset195] = kCalibrationPierLow;
+
+        // Out-of-band live CTL bins cannot silently authorize a 2.4 GHz
+        // channel.
+        image.bytes[kEepromOffset322] = kInvalidCtlBin;
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidCtlEdges ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::CtlOutOfBand);
+        }
+        image.bytes[kEepromOffset322] = kCalibrationPierLow;
+        image.bytes[kEepromOffset323] = kVoltageReferenceOrOffbandBin;
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidCtlEdges ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::CtlOutOfOrder);
+        }
+
+        // A later live CTL index after a zero sentinel must fail even when the
+        // first two rows cover this request; the rest cannot be ignored.
+        image.bytes[kEepromOffset323] = kCalibrationPierMid;
+        image.bytes[kEepromOffset313] =
+            kCckCtlMode; // Index 312 remains zero (table terminator).
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidCtlIndexes ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U))
+        {
+            return static_cast<int>(Failure::MalformedCtlTable);
+        }
+        image.bytes[kEepromOffset313] =
+            0; // Legitimate trailing zero padding again.
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::Ok ||
+            output.cck[0] != kCtlLimitedHalfDbm ||
+            output.ofdm[0] != kCtlLimitedHalfDbm)
+        {
+            return static_cast<int>(Failure::RestoredCtlTable);
+        }
+
+        return 0;
+    }
+
+    int verifyBoardIdentity(BoardFixture &fixture)
+    {
+        auto &image = fixture.image;
+        auto &output = fixture.output;
+        auto &channel = fixture.channel;
+        const auto &ceiling = fixture.ceiling;
+        // The board summary can be decoded with corrupted calibration-pier
+        // bins, but discovery would refuse to publish it as a selected board.
+        // The direct power candidate API must also reject that inconsistent
+        // geometry rather than return seemingly usable half-dBm limits.
+        image.bytes[kEepromOffset140] =
+            kCalibrationPierMid; // Duplicate of the second calibration pier.
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidBoard ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
+            (output.ofdm[0] != 0U) || (output.conductedCeilingHalfDbm != 0U))
+        {
+            return static_cast<int>(Failure::DuplicateCalibrationPier);
+        }
+        image.bytes[kEepromOffset140] = kCalibrationPierHigh;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::Ok ||
+            output.cck[0] != kCtlLimitedHalfDbm ||
+            output.ofdm[0] != kCtlLimitedHalfDbm)
+        {
+            return static_cast<int>(Failure::RestoredCalibrationPier);
+        }
+
+        // A reconstruction dictionary's built-in placeholder MAC passes the
+        // elementary unicast check, but is not a physical board's identity.
+        // The direct numerical planner cannot bypass the gain selector's
+        // pinned-template exclusion even when targets/CTL/piers look plausible.
+        const std::array<uint8_t, 6U> originalMac {
+            {
+                image.bytes[2],
+                image.bytes[3],
+                image.bytes[4],
+                image.bytes[5],
+                image.bytes[6],
+                image.bytes[7],
+            },
+        };
+        const std::array<uint8_t, 6U> referenceMac {
+            {
+                0x00,
+                0x02,
+                0x03,
+                0x04,
+                0x05,
+                0x06,
+            },
+        };
+        __builtin_memcpy(&image.bytes[2], referenceMac.data(),
+                         referenceMac.size());
+        output.cck[0] = kOverCeilingHalfDbm;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::InvalidBoard ||
+            (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
+            (output.ofdm[0] != 0U) || (output.conductedCeilingHalfDbm != 0U))
+        {
+            return static_cast<int>(Failure::PlaceholderMacRejected);
+        }
+        __builtin_memcpy(&image.bytes[2], originalMac.data(),
+                         originalMac.size());
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::Ok ||
+            output.cck[0] != kCtlLimitedHalfDbm ||
+            output.ofdm[0] != kCtlLimitedHalfDbm)
+        {
+            return static_cast<int>(Failure::RestoredMac);
+        }
+        // The same plan carries the calibration piers selected for the actual
+        // control channel, not an arbitrary stale source or HT40 synth center.
+        channel.primary = kChannelSixNumber;
+        if (calculatePowerCandidates(image, channel, ceiling, output) !=
+                PowerResult::Ok ||
+            output.controlMhz != kChannelSixMhz ||
+            output.channelCalibration.channelMhz != kChannelSixMhz ||
+            output.channelCalibration.lowerPierMhz != kChannelSixMhz ||
+            output.channelCalibration.upperPierMhz != kChannelSixMhz ||
+            output.channelCalibration.referenceCorrection !=
+                kSecondPierCorrection ||
+            output.channelCalibration.voltageMeasurement !=
+                kSecondPierVoltage ||
+            output.channelCalibration.temperatureMeasurement !=
+                kSecondPierTemperature ||
+            output.channelCalibration.interpolated)
+        {
+            return static_cast<int>(Failure::Channel6Calibration);
+        }
+        return 0;
+    }
+
+} // namespace
+
 int main()
 {
-    PowerCandidates candidate {};
-    candidate.controlMhz = 2412;
-    candidate.synthMhz = 2412;
-    candidate.conductedCeilingHalfDbm = 30;
-    candidate.ht20Present = true;
-    candidate.cck[0] = 25;
-    candidate.ofdm[0] = 18;
-    candidate.ht20[0] = 15;
-    uint8_t halfDbm = 0xff;
-    if (candidatePowerForRate(candidate, 0x1b, false, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 25 ||
-        candidatePowerForRate(candidate, 0x0b, false, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 18 ||
-        candidatePowerForRate(candidate, 0x80, false, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 15)
+    RateFixture rates {};
+    BoardFixture board {};
+    if (const int failure = verifyInitialRate(rates))
     {
-        return 1;
+        return failure;
     }
-
-    halfDbm = 0xff;
-    if (candidatePowerForRate(candidate, 0x88, false, halfDbm) !=
-            PowerResult::UnsupportedRate ||
-        halfDbm != 0 ||
-        candidatePowerForRate(candidate, 0x80, true, halfDbm) !=
-            PowerResult::InvalidChannel ||
-        halfDbm != 0)
+    if (const int failure = verifyCckPreambles(rates))
     {
-        return 2;
+        return failure;
     }
-    // ath9k uses the lower of 1L_5L / 5S for *both* 5.5-Mbps
-    // preambles, and the lower of 11L / 11S for *both* 11-Mbps
-    // preambles. A public rate selector must not return a higher raw
-    // per-preamble EEPROM target than the PHY actually permits.
-    candidate.cck[1] = 17;
-    candidate.cck[2] = 19;
-    candidate.cck[3] = 27;
-    const uint8_t cck55Rates[] {0x19, 0x1d};
-    const uint8_t cck11Rates[] {0x18, 0x1c};
-    for (uint8_t rate : cck55Rates)
+    if (const int failure = verifyHtChannels(rates))
     {
-        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
-                PowerResult::Ok ||
-            halfDbm != 17)
-        {
-            return 24;
-        }
+        return failure;
     }
-    for (uint8_t rate : cck11Rates)
+    if (const int failure = verifyBoardSetup(board))
     {
-        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
-                PowerResult::Ok ||
-            halfDbm != 19)
-        {
-            return 25;
-        }
+        return failure;
     }
-    // Reverse the asymmetric target pairs to test the other minimum
-    // direction, while 1/2-Mbps rates still use the original group.
-    candidate.cck[0] = 15;
-    candidate.cck[1] = 29;
-    candidate.cck[2] = 26;
-    candidate.cck[3] = 12;
-    for (uint8_t rate : cck55Rates)
+    if (const int failure = verifyCtlEdges(board))
     {
-        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
-                PowerResult::Ok ||
-            halfDbm != 15)
-        {
-            return 26;
-        }
+        return failure;
     }
-    for (uint8_t rate : cck11Rates)
-    {
-        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
-                PowerResult::Ok ||
-            halfDbm != 12)
-        {
-            return 27;
-        }
-    }
-    const uint8_t cck12Rates[] {0x1b, 0x1a, 0x1e};
-    for (uint8_t rate : cck12Rates)
-    {
-        if (candidatePowerForRate(candidate, rate, false, halfDbm) !=
-                PowerResult::Ok ||
-            halfDbm != 15)
-        {
-            return 28;
-        }
-    }
-    candidate.cck[0] = 25;
-
-    candidate.ht20[0] = 31;
-    halfDbm = 0xff;
-    if (candidatePowerForRate(candidate, 0x80, false, halfDbm) !=
-            PowerResult::InvalidCurve ||
-        halfDbm != 0)
-    {
-        return 3;
-    }
-    candidate.ht20[0] = 15;
-    candidate.controlMhz = 2413; // Invalid 2.4 GHz raster.
-    if (candidatePowerForRate(candidate, 0x0b, false, halfDbm) !=
-            PowerResult::InvalidChannel ||
-        halfDbm != 0)
-    {
-        return 4;
-    }
-
-    candidate.controlMhz = 2484;
-    candidate.synthMhz = 2484;
-    candidate.legacyOnlyChannel14 = true;
-    candidate.ht20Present = false;
-    if (candidatePowerForRate(candidate, 0x1b, false, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 25 ||
-        candidatePowerForRate(candidate, 0x0b, false, halfDbm) !=
-            PowerResult::UnsupportedRate ||
-        halfDbm != 0 ||
-        candidatePowerForRate(candidate, 0x80, false, halfDbm) !=
-            PowerResult::UnsupportedRate ||
-        halfDbm != 0)
-    {
-        return 5;
-    }
-    candidate.ht20Present = true; // HT on channel 14 is contradictory.
-    if (candidatePowerForRate(candidate, 0x1b, false, halfDbm) !=
-            PowerResult::InvalidCurve ||
-        halfDbm != 0)
-    {
-        return 6;
-    }
-
-    candidate.legacyOnlyChannel14 = false;
-    candidate.controlMhz = 2412;
-    candidate.extensionMhz = 2432;
-    candidate.synthMhz = 2422;
-    candidate.ht20Present = true;
-    candidate.ht40Present = true;
-    candidate.ht40[0] = 19;
-    if (candidatePowerForRate(candidate, 0x80, true, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 19 ||
-        candidatePowerForRate(candidate, 0x80, false, halfDbm) !=
-            PowerResult::Ok ||
-        halfDbm != 15)
-    {
-        return 7;
-    }
-    candidate.extensionMhz = 2442; // Wrong 30 MHz channel displacement.
-    if (candidatePowerForRate(candidate, 0x80, true, halfDbm) !=
-            PowerResult::InvalidChannel ||
-        halfDbm != 0)
-    {
-        return 8;
-    }
-    candidate.extensionMhz = 2432;
-    candidate.synthMhz = 2427; // Contradictory synth center.
-    if (candidatePowerForRate(candidate, 0x80, true, halfDbm) !=
-            PowerResult::InvalidChannel ||
-        halfDbm != 0)
-    {
-        return 9;
-    }
-    candidate.synthMhz = 2422;
-    candidate.ht40[0] = 31; // Above candidate conducted budget.
-    if (candidatePowerForRate(candidate, 0x80, true, halfDbm) !=
-            PowerResult::InvalidCurve ||
-        halfDbm != 0)
-    {
-        return 10;
-    }
-
-    // An unknown EEPROM image must not leave a stale usable power candidate.
-    EepromImage image {};
-    PowerCandidates output {};
-    output.controlMhz = 2412;
-    output.cck[0] = 30;
-    PowerChannel channel {1, 0};
-    PowerCeilings ceiling {0xe0, 30, 30};
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidBoard ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
-        output.ht20Present || (output.conductedCeilingHalfDbm != 0U))
-    {
-        return 11;
-    }
-
-    // Pinned ath9k AR9300 dictionaries carry trailing zero in some 2 GHz
-    // CTL edge rows (and 0xff in others). Both are *padding*, not new
-    // coverage; construct a synthetic board with explicit, in-range edges.
-    image.restored = true;
-    image.appliedBlocks = 1;
-    image.bytes[0] = 2;
-    image.bytes[2] = 0x02;
-    image.bytes[3] = 0x11;
-    image.bytes[4] = 0x22;
-    image.bytes[5] = 0x33;
-    image.bytes[6] = 0x44;
-    image.bytes[7] = 0x55;
-    image.bytes[32] = 0x11;
-    image.bytes[33] = 0x22; // 2 GHz, with HT target lookup disabled.
-    // A reconstructed AR9565 board has three structurally ordered 2G
-    // calibration piers even when this test only evaluates target limits.
-    image.bytes[138] = 112;
-    image.bytes[139] = 137;
-    image.bytes[140] = 162;
-    // Synthetic open-loop chain0 measurements; not actual device calibration.
-    image.bytes[141] = 0xf8; // -8 correction.
-    image.bytes[142] = 100;
-    image.bytes[143] = 40;
-    image.bytes[147] = 16;
-    image.bytes[148] = 120;
-    image.bytes[149] = 50;
-    image.bytes[153] = 24;
-    image.bytes[154] = 140;
-    image.bytes[155] = 60;
-    image.bytes[195] = image.bytes[197] = 112;
-    image.bytes[196] = image.bytes[198] = 137;
-    image.bytes[199] = 162;
-    for (size_t i = 206; i < 226; ++i)
-    {
-        image.bytes[i] = 24;
-    }
-    image.bytes[310] = 0xe1; // CCK CTL.
-    image.bytes[311] = 0xe2; // OFDM CTL.
-    for (size_t row = 0; row < 2; ++row)
-    {
-        image.bytes[322 + (row * 4)] = 112;
-        image.bytes[323 + (row * 4)] = 137;
-        image.bytes[324 + (row * 4)] = 162;
-        image.bytes[325 + (row * 4)] = (row != 0U) ? 0xff : 0;
-        for (size_t edge = 0; edge < 4; ++edge)
-        {
-            image.bytes[370 + (row * 4) + edge] = 26;
-        }
-    }
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::Ok ||
-        output.controlMhz != 2412 || output.cck[0] != 24 ||
-        output.ofdm[0] != 24 || output.ht20Present || output.ht40Present ||
-        output.conductedCeilingHalfDbm != 30 ||
-        output.channelCalibration.channelMhz != 2412 ||
-        output.channelCalibration.referenceCorrection != -8 ||
-        output.channelCalibration.voltageMeasurement != 100 ||
-        output.channelCalibration.temperatureMeasurement != 40 ||
-        output.channelCalibration.interpolated)
-    {
-        return 12;
-    }
-
-    // Zero cannot be an interior bin followed by later live edges; a row
-    // with only padding cannot grant CTL coverage at any frequency.
-    image.bytes[323] = 0;
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidCtlEdges ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 13;
-    }
-    image.bytes[322] = 0;
-    image.bytes[324] = 0;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::MissingCtlCoverage ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 14;
-    }
-
-    // An out-of-band target bin is not a usable 2.4 GHz interpolation pier.
-    // Restore valid CTL rows so the failure is specifically the target curve.
-    image.bytes[322] = 112;
-    image.bytes[323] = 137;
-    image.bytes[324] = 162;
-    image.bytes[195] = 100; // 2400 MHz, not a 2.4 GHz channel center.
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidCurve ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 15;
-    }
-    image.bytes[195] = 112;
-
-    // Out-of-band live CTL bins cannot silently authorize a 2.4 GHz channel.
-    image.bytes[322] = 185;
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidCtlEdges ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 16;
-    }
-    image.bytes[322] = 112;
-    image.bytes[323] = 100;
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidCtlEdges ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 17;
-    }
-
-    // A later live CTL index after a zero sentinel must fail even when the
-    // first two rows cover this request; the rest cannot be ignored.
-    image.bytes[323] = 137;
-    image.bytes[313] = 0xe1; // Index 312 remains zero (table terminator).
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidCtlIndexes ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U))
-    {
-        return 18;
-    }
-    image.bytes[313] = 0; // Legitimate trailing zero padding again.
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::Ok ||
-        output.cck[0] != 24 || output.ofdm[0] != 24)
-    {
-        return 19;
-    }
-
-    // The board summary can be decoded with corrupted calibration-pier bins,
-    // but discovery would refuse to publish it as a selected board. The
-    // direct power candidate API must also reject that inconsistent geometry
-    // rather than return seemingly usable half-dBm limits.
-    image.bytes[140] = 137; // Duplicate of the second calibration pier.
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidBoard ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
-        (output.ofdm[0] != 0U) || (output.conductedCeilingHalfDbm != 0U))
-    {
-        return 20;
-    }
-    image.bytes[140] = 162;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::Ok ||
-        output.cck[0] != 24 || output.ofdm[0] != 24)
-    {
-        return 21;
-    }
-
-    // A reconstruction dictionary's built-in placeholder MAC passes the
-    // elementary unicast check, but is not a physical board's identity.
-    // The direct numerical planner cannot bypass the gain selector's
-    // pinned-template exclusion even when targets/CTL/piers look plausible.
-    const uint8_t originalMac[6] {
-        image.bytes[2], image.bytes[3], image.bytes[4],
-        image.bytes[5], image.bytes[6], image.bytes[7],
-    };
-    const uint8_t referenceMac[6] {0x00, 0x02, 0x03, 0x04, 0x05, 0x06};
-    for (size_t i = 0; i < 6; ++i)
-    {
-        image.bytes[i + 2] = referenceMac[i];
-    }
-    output.cck[0] = 31;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::InvalidBoard ||
-        (output.controlMhz != 0U) || (output.cck[0] != 0U) ||
-        (output.ofdm[0] != 0U) || (output.conductedCeilingHalfDbm != 0U))
-    {
-        return 22;
-    }
-    for (size_t i = 0; i < 6; ++i)
-    {
-        image.bytes[i + 2] = originalMac[i];
-    }
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::Ok ||
-        output.cck[0] != 24 || output.ofdm[0] != 24)
-    {
-        return 23;
-    }
-    // The same plan carries the calibration piers selected for the actual
-    // control channel, not an arbitrary stale source or HT40 synth center.
-    channel.primary = 6;
-    if (calculatePowerCandidates(image, channel, ceiling, output) !=
-            PowerResult::Ok ||
-        output.controlMhz != 2437 ||
-        output.channelCalibration.channelMhz != 2437 ||
-        output.channelCalibration.lowerPierMhz != 2437 ||
-        output.channelCalibration.upperPierMhz != 2437 ||
-        output.channelCalibration.referenceCorrection != 16 ||
-        output.channelCalibration.voltageMeasurement != 120 ||
-        output.channelCalibration.temperatureMeasurement != 50 ||
-        output.channelCalibration.interpolated)
-    {
-        return 30;
-    }
-    return 0;
+    return verifyBoardIdentity(board);
 }
