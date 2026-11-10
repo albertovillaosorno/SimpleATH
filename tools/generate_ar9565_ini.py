@@ -5,7 +5,8 @@
 These files are C++ data only. They MUST NOT be used for hardware writes before
 PCI transport, EEPROM/regulatory calibration and reset have been implemented.
 The input tables carry a permissive Qualcomm/Atheros license, copied verbatim
-into each generated file; they are not claimed as independently authored SimpleATH code.
+into each generated file; they are not claimed as independently authored
+SimpleATH code.
 """
 
 from __future__ import annotations

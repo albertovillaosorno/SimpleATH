@@ -89,7 +89,9 @@ class SourceFingerprintTests(TestCase):
             (root / ".references/linux").mkdir()
             (root / "tools" / "__pycache__").mkdir()
             _ = (root / ".env").write_text("synthetic-only")
-            _ = (root / ".references/linux" / SAMPLE_FILE).write_text(CHANGED_SOURCE)
+            _ = (root / ".references/linux" / SAMPLE_FILE).write_text(
+                CHANGED_SOURCE
+            )
             _ = (root / ".cache" / SAMPLE_FILE).write_text(CHANGED_SOURCE)
             _ = (root / "tools" / "__pycache__" / "cached.pyc").write_bytes(
                 b"not source"
