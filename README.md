@@ -16,12 +16,6 @@ macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
 It’s just for fun—we’ll see if it works or not.
 
-GitHub lists this repository as **public**. Standard GitHub-hosted runners
-(including `macos-26-intel`) are free for public repositories; larger
-runners and excess artifact storage can cost money. The workflows stay
-restricted to public visibility and use one-day artifact retention. Details:
-https://docs.github.com/en/actions/concepts/billing-and-usage
-
 ## Development protocol
 
 SimpleATH uses ten coordinating agents with a **direct-to-main,
