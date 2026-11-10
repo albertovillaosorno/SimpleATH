@@ -92,6 +92,14 @@ uintptr_t athPacketCompatibilityVtable[128] {};
 namespace ath
 {
 
+    NativeRuntimeProfileState &nativeRuntimeProfileState()
+    {
+        // Constant-initialized, function-owned kernel profile selection.
+        // No raw mutable profile selector is exported for other TUs to write.
+        static NativeRuntimeProfileState state {};
+        return state;
+    }
+
     struct InterfaceContext
     {
             ATHLegacyInterface *owner;
@@ -109,9 +117,6 @@ namespace ath
     };
 
     static uintptr_t nativeViews[3][512];
-    const NativeSystemProfile *nativeSystem;
-    const SkyClass *skyClasses;
-    uint32_t skyNativeSlotCount;
     static uintptr_t packetView[128];
     static uintptr_t oldViews[3];
     static uintptr_t poolAllocationView;
@@ -225,25 +230,30 @@ namespace ath
     {
         if (nativeABIValidated)
             return true;
-        if (!nativeSystem)
+        if (!nativeRuntimeProfileState().system)
         {
-            nativeSystem = nativeSystemForKernel(
+            nativeRuntimeProfileState().system = nativeSystemForKernel(
                 static_cast<uint32_t>(getKernelVersion()));
-            if (!nativeSystem)
+            if (!nativeRuntimeProfileState().system)
             {
                 nativeStatus = "UnsupportedKernel";
                 return false;
             }
-            skyClasses = nativeSystem->classes;
-            skyNativeSlotCount = nativeSystem->ethernetSlots;
+            nativeRuntimeProfileState().classes =
+                nativeRuntimeProfileState().system->classes;
+            nativeRuntimeProfileState().slotCount =
+                nativeRuntimeProfileState().system->ethernetSlots;
         }
         if (skyClassCount != 3 || skyLegacySlotCount + 2 > 512 ||
-            skyNativeSlotCount + 2 > 512 || skyPacketSlotCount + 2 > 128 ||
+            nativeRuntimeProfileState().slotCount + 2 > 512 ||
+            skyPacketSlotCount + 2 > 128 ||
             skyPacketSubclassSlotCount + 2 > 128)
             return false;
-        for (uint32_t i = 0; i < nativeSystem->classGuardCount; ++i)
+        for (uint32_t i = 0;
+             i < nativeRuntimeProfileState().system->classGuardCount; ++i)
         {
-            const auto &guard = nativeSystem->classGuards[i];
+            const auto &guard =
+                nativeRuntimeProfileState().system->classGuards[i];
             if (guard.meta >= nativeImportCount ||
                 reinterpret_cast<const OSMetaClass *>(
                     athNativeImports[guard.meta])
@@ -253,9 +263,11 @@ namespace ath
                 return false;
             }
         }
-        for (uint32_t i = 0; i < nativeSystem->vtableGuardCount; ++i)
+        for (uint32_t i = 0;
+             i < nativeRuntimeProfileState().system->vtableGuardCount; ++i)
         {
-            const auto &guard = nativeSystem->vtableGuards[i];
+            const auto &guard =
+                nativeRuntimeProfileState().system->vtableGuards[i];
             if (guard.parent >= nativeImportCount ||
                 guard.method >= nativeImportCount ||
                 *reinterpret_cast<const uintptr_t *>(
@@ -278,10 +290,12 @@ namespace ath
         if (section && section->addr && section->size <= 32 * 1024 * 1024 &&
             section->addr <= UINTPTR_MAX - section->size)
         {
-            if (nativeSystem->ethernetLinkSlot < skyNativeSlotCount)
+            if (nativeRuntimeProfileState().system->ethernetLinkSlot <
+                nativeRuntimeProfileState().slotCount)
             {
                 ethernetLink = api<const uintptr_t *>(
-                    SkyAPI::EthernetTable)[2 + nativeSystem->ethernetLinkSlot];
+                    SkyAPI::EthernetTable)[2 + nativeRuntimeProfileState()
+                                                   .system->ethernetLinkSlot];
                 if (ethernetLink < section->addr ||
                     ethernetLink >= section->addr + section->size)
                     ethernetLink = 0;
@@ -291,8 +305,8 @@ namespace ath
                 ethernetLink = findNativeLink(
                     reinterpret_cast<const uint8_t *>(section->addr),
                     section->size, section->addr,
-                    nativeSystem->ethernetLinkPattern, athNativeImports,
-                    nativeImportCount);
+                    nativeRuntimeProfileState().system->ethernetLinkPattern,
+                    athNativeImports, nativeImportCount);
             }
         }
         module->release();
@@ -341,13 +355,14 @@ namespace ath
         auto native = api<const uintptr_t *>(SkyAPI::EthernetTable);
         for (uint32_t type = 0; type < skyClassCount; ++type)
         {
-            const auto &source = skyClasses[type];
+            const auto &source = nativeRuntimeProfileState().classes[type];
             if (source.image >= count ||
                 source.vtable >= images[source.image].payload->size)
                 return false;
             oldViews[type] = images[source.image].address + source.vtable + 16;
             memcpy(nativeViews[type], native,
-                   (skyNativeSlotCount + 2) * sizeof(uintptr_t));
+                   (nativeRuntimeProfileState().slotCount + 2) *
+                       sizeof(uintptr_t));
             nativeViews[type][2] =
                 reinterpret_cast<uintptr_t>(athNativeDestructor);
             nativeViews[type][3] =
@@ -361,7 +376,8 @@ namespace ath
             for (uint32_t i = 0; i < source.count; ++i)
             {
                 const auto &callback = source.callbacks[i];
-                if (callback.nativeSlot >= skyNativeSlotCount ||
+                if (callback.nativeSlot >=
+                        nativeRuntimeProfileState().slotCount ||
                     callback.method >= skyMethodCount)
                     return false;
                 nativeViews[type][callback.nativeSlot + 2] =
@@ -380,7 +396,7 @@ namespace ath
             skyPoolVtable + (2 + 52) * 8 > air.payload->size)
             return false;
         poolAllocationView = air.address + skyPoolTypeView;
-        uint32_t newSize = nativeSystem->poolSize;
+        uint32_t newSize = nativeRuntimeProfileState().system->poolSize;
         for (uint32_t i = 0; i < skyPoolMetaSizeSiteCount; ++i)
         {
             auto offset = skyPoolMetaSizeSites[i];
@@ -449,13 +465,17 @@ namespace ath
         service->setProperty("NativePowerJoins",
                              __atomic_load_n(&powerJoins, __ATOMIC_RELAXED),
                              32);
-        if (nativeSystem)
+        if (nativeRuntimeProfileState().system)
         {
-            service->setProperty("NativeSystemProfile", nativeSystem->name);
+            service->setProperty("NativeSystemProfile",
+                                 nativeRuntimeProfileState().system->name);
             service->setProperty("NativeABIValidated", nativeABIValidated);
-            service->setProperty("NativeEthernetSize",
-                                 nativeSystem->ethernetSize, 32);
-            service->setProperty("NativePoolSize", nativeSystem->poolSize, 32);
+            service->setProperty(
+                "NativeEthernetSize",
+                nativeRuntimeProfileState().system->ethernetSize, 32);
+            service->setProperty("NativePoolSize",
+                                 nativeRuntimeProfileState().system->poolSize,
+                                 32);
         }
     }
 
@@ -762,9 +782,10 @@ namespace ath
         {
             if (size != 184 && size != 192)
                 panic("SimpleATH: unexpected legacy packet pool allocation");
-            auto memory = IOMalloc(nativeSystem->poolSize);
+            auto memory =
+                IOMalloc(nativeRuntimeProfileState().system->poolSize);
             if (memory)
-                bzero(memory, nativeSystem->poolSize);
+                bzero(memory, nativeRuntimeProfileState().system->poolSize);
             return memory;
         }
         using Method = void *(*)(void *, size_t);
@@ -778,7 +799,7 @@ namespace ath
             if (size != 184 && size != 192)
                 panic("SimpleATH: unexpected legacy packet pool deallocation");
             if (memory)
-                IOFree(memory, nativeSystem->poolSize);
+                IOFree(memory, nativeRuntimeProfileState().system->poolSize);
             return;
         }
         using Method = void (*)(void *, void *, size_t);

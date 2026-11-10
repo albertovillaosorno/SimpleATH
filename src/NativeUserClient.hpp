@@ -15,8 +15,9 @@ namespace ath
 {
 
     bool prepareNativeUserClients();
-    IOReturn wrapNativeUserClient(IOReturn, task_t, void *, uint32_t,
-                                  OSDictionary *, IOUserClient **);
+    IOReturn wrapNativeUserClient(IOReturn status, task_t task, void *token,
+                                  uint32_t type, OSDictionary *properties,
+                                  IOUserClient **result);
 
 } // namespace ath
 

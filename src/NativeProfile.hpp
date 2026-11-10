@@ -316,7 +316,17 @@ namespace ath
 
     extern const NativeSystemProfile nativeSystems[];
     extern const uint32_t nativeSystemCount;
-    extern const NativeSystemProfile *nativeSystem;
+
+    // The mutable native profile selection is local to the running kernel
+    // adapter, not an independently writable exported global per field.
+    struct NativeRuntimeProfileState
+    {
+            const NativeSystemProfile *system {nullptr};
+            const SkyClass *classes {nullptr};
+            uint32_t slotCount {0U};
+    };
+
+    NativeRuntimeProfileState &nativeRuntimeProfileState();
 
     inline const NativeSystemProfile *nativeSystemForKernel(uint32_t kernel)
     {
@@ -362,10 +372,8 @@ namespace ath
     extern const uint32_t skyLegacySlotCount;
     extern const SkyEntry skyPacketEntries[];
     extern const uint32_t skyPacketSlotCount;
-    extern uint32_t skyNativeSlotCount;
     extern const SkyMethod skyMethods[];
     extern const uint32_t skyMethodCount;
-    extern const SkyClass *skyClasses;
     extern const uint32_t skyClassCount;
     extern const SkyPatch skyPacketCalls[];
     extern const uint32_t skyPacketCallCount;

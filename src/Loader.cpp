@@ -170,11 +170,11 @@ namespace ath
             {
                 return &payloads[0];
             }
-            if (nativeSystem == nullptr)
+            if (nativeRuntimeProfileState().system == nullptr)
             {
                 return nullptr;
             }
-            switch (nativeSystem->airPortPayloadIndex)
+            switch (nativeRuntimeProfileState().system->airPortPayloadIndex)
             {
                 case 1U:
                     return &payloads[1];
