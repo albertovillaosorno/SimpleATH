@@ -24,41 +24,140 @@ namespace ath
             uint32_t boardVendor;
     };
 
+    namespace detail
+    {
+        constexpr size_t kHardwareIdentityMaxBytes = 2048U;
+        constexpr unsigned kHardwareHexDigits = 8U;
+        constexpr unsigned kHardwareNibbleShift = 4U;
+        constexpr int kHexAlphabetOffset = 10;
+        constexpr uint32_t kBroadcomVendorId = 0x14e4U;
+
+        // The native kernel source uses C++14 without std::span. Use a
+        // checked byte load rather than unchecked caller-span arithmetic.
+        inline bool identityReadChar(const char *data, size_t length,
+                                     size_t index, char &character)
+        {
+            if (data == nullptr || index >= length)
+            {
+                return false;
+            }
+            uintptr_t address = 0U;
+            static_assert(sizeof(address) == sizeof(data),
+                          "native pointer address width must match uintptr_t");
+            __builtin_memcpy(&address, static_cast<const void *>(&data),
+                             sizeof(address));
+            if (index > UINTPTR_MAX - address)
+            {
+                return false;
+            }
+            address += index;
+            const char *location = nullptr;
+            __builtin_memcpy(static_cast<void *>(&location), &address,
+                             sizeof(location));
+            __builtin_memcpy(&character, location, sizeof(character));
+            return true;
+        }
+
+        inline int identityHexDigit(char character)
+        {
+            if (character >= '0' && character <= '9')
+            {
+                return character - '0';
+            }
+            if (character >= 'a' && character <= 'f')
+            {
+                return character - 'a' + kHexAlphabetOffset;
+            }
+            if (character >= 'A' && character <= 'F')
+            {
+                return character - 'A' + kHexAlphabetOffset;
+            }
+            return -1;
+        }
+
+        inline bool identityMatchKey(const char *text, size_t length,
+                                     size_t offset, const char *key,
+                                     size_t keyLength)
+        {
+            if (offset > length || keyLength > length - offset)
+            {
+                return false;
+            }
+            for (size_t index = 0U; index < keyLength; ++index)
+            {
+                char source = 0;
+                char wanted = 0;
+                if (!identityReadChar(text, length, offset + index, source) ||
+                    !identityReadChar(key, keyLength, index, wanted) ||
+                    source != wanted)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        inline bool identityParseHex(const char *text, size_t start,
+                                     uint32_t &value, size_t length)
+        {
+            uint32_t result = 0U;
+            unsigned digits = 0U;
+            for (size_t cursor = start; cursor < length; ++cursor)
+            {
+                char character = 0;
+                if (!identityReadChar(text, length, cursor, character))
+                {
+                    return false;
+                }
+                if (character == '\n' || character == '\r' || character == 0)
+                {
+                    break;
+                }
+                const int digit = identityHexDigit(character);
+                if (digit < 0 || digits >= kHardwareHexDigits)
+                {
+                    return false;
+                }
+                ++digits;
+                result = (result << kHardwareNibbleShift) |
+                         static_cast<uint32_t>(digit);
+            }
+            if (digits == 0U)
+            {
+                return false;
+            }
+            value = result;
+            return true;
+        }
+    } // namespace detail
+
     inline bool hardwareValue(const char *text, size_t length, const char *key,
                               uint32_t &value)
     {
-        for (size_t offset = 0; offset < length; ++offset)
+        if (text == nullptr || key == nullptr ||
+            length > detail::kHardwareIdentityMaxBytes)
         {
-            if (offset && text[offset - 1] != '\n')
-                continue;
-            size_t index = 0;
-            while (key[index] && offset + index < length &&
-                   key[index] == text[offset + index])
-                ++index;
-            if (key[index])
-                continue;
-            auto cursor = offset + index;
-            uint32_t result = 0;
-            unsigned digits = 0;
-            while (cursor < length && text[cursor] != '\n' &&
-                   text[cursor] != '\r' && text[cursor])
+            return false;
+        }
+        const size_t keyLength = __builtin_strlen(key);
+        if (keyLength == 0U || keyLength > length)
+        {
+            return false;
+        }
+        for (size_t offset = 0U; offset <= length - keyLength; ++offset)
+        {
+            char before = 0;
+            if (offset != 0U &&
+                (!detail::identityReadChar(text, length, offset - 1U, before) ||
+                 before != '\n'))
             {
-                const char character = text[cursor++];
-                const int digit = character >= '0' && character <= '9'
-                                      ? character - '0'
-                                  : character >= 'a' && character <= 'f'
-                                      ? character - 'a' + 10
-                                  : character >= 'A' && character <= 'F'
-                                      ? character - 'A' + 10
-                                      : -1;
-                if (digit < 0 || ++digits > 8)
-                    return false;
-                result = (result << 4) | static_cast<uint32_t>(digit);
+                continue;
             }
-            if (!digits)
-                return false;
-            value = result;
-            return true;
+            if (detail::identityMatchKey(text, length, offset, key, keyLength))
+            {
+                return detail::identityParseHex(text, offset + keyLength, value,
+                                                length);
+            }
         }
         return false;
     }
@@ -67,16 +166,18 @@ namespace ath
                                        HardwareIdentity &identity)
     {
         HardwareIdentity result {};
-        if (!text || length > 2048 ||
+        if (text == nullptr || length > detail::kHardwareIdentityMaxBytes ||
             !hardwareValue(text, length, "vendorid: 0x", result.vendor) ||
             !hardwareValue(text, length, "deviceid: 0x", result.device) ||
             !hardwareValue(text, length, "chipnum: 0x", result.chip) ||
             !hardwareValue(text, length, "boardid: 0x", result.board) ||
             !hardwareValue(text, length, "boardvendor: 0x",
                            result.boardVendor) ||
-            result.vendor != 0x14e4 || !result.device || !result.chip ||
-            !result.board)
+            result.vendor != detail::kBroadcomVendorId || result.device == 0U ||
+            result.chip == 0U || result.board == 0U)
+        {
             return false;
+        }
         identity = result;
         return true;
     }
