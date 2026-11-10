@@ -26,6 +26,8 @@ namespace simpleath
             ~NativePciBackend();
             NativePciBackend(const NativePciBackend &) = delete;
             NativePciBackend &operator=(const NativePciBackend &) = delete;
+            NativePciBackend(NativePciBackend &&) = delete;
+            NativePciBackend &operator=(NativePciBackend &&) = delete;
             // Retains both objects. Explicit clear() after session.stop()
             // breaks these references. The power context must outlive that
             // entire configured lifetime.
@@ -41,25 +43,29 @@ namespace simpleath
             bool setBusMasterGated(bool enabled);
 
         private:
-            static bool claim(void *);
-            static void release(void *);
-            static bool inD0(void *);
-            static bool configRead32(void *, uint16_t, uint32_t *);
-            static bool commandWrite16(void *, uint16_t);
-            static bool mapBar0(void *, uint32_t *);
-            static void unmapBar0(void *);
-            static bool readBar0(void *, uint32_t, uint32_t *);
-            static bool readActive(void *, uint32_t, uint32_t *);
-            static bool writeActive(void *, uint32_t, uint32_t);
-            IOService *owner_;
-            IOPCIDevice *pci_;
-            IOMemoryMap *bar_;
-            NativePciPowerGate power_;
-            uint32_t length_;
-            uint8_t powerCapability_;
-            bool configured_;
-            bool claimed_;
-            bool dmaEnabled_;
+            static bool claim(void *context);
+            static void release(void *context);
+            static bool inD0(void *context);
+            static bool configRead32(void *context, uint16_t offset,
+                                     uint32_t *value);
+            static bool commandWrite16(void *context, uint16_t value);
+            static bool mapBar0(void *context, uint32_t *lengthBytes);
+            static void unmapBar0(void *context);
+            static bool readBar0(void *context, uint32_t offset,
+                                 uint32_t *value);
+            static bool readActive(void *context, uint32_t offset,
+                                   uint32_t *value);
+            static bool writeActive(void *context, uint32_t offset,
+                                    uint32_t value);
+            IOService *owner_ {nullptr};
+            IOPCIDevice *pci_ {nullptr};
+            IOMemoryMap *bar_ {nullptr};
+            NativePciPowerGate power_ {nullptr, nullptr};
+            uint32_t length_ {0U};
+            uint8_t powerCapability_ {0U};
+            bool configured_ {false};
+            bool claimed_ {false};
+            bool dmaEnabled_ {false};
     };
 } // namespace simpleath
 #endif
