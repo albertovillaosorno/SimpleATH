@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "hardware/Ar9565KeyCache.hpp"
 #include "hardware/Ar9565MacControl.hpp"
 #include "hardware/Ar9565NvmReader.hpp"
 #include "hardware/Ar9565RtcPower.hpp"
@@ -186,6 +187,25 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             return epoch == self.epoch_ && self.enginesQuiesced_ &&
                    nvmOwner(context);
+        }
+
+        static bool keyCachePermit(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            // Key RAM is mutable only with exclusive PCI ownership and all
+            // descriptor engines and automatic MAC responses quiesced.
+            return canReset(context, epoch) && !self.queuesAdopted_ &&
+                   !self.radioOperational_ && !self.channelAuthorized_;
+        }
+
+        simpleath::KeyCacheBackend keyCacheBackend()
+        {
+            return {&access_,
+                    epoch_,
+                    backend_.activeRegisters().barLengthBytes,
+                    keyCachePermit,
+                    readRegister,
+                    writeRegister};
         }
 
         static bool readRegister(void *context, uint32_t offset,
@@ -476,6 +496,20 @@ class SimpleATH final : public IOService
             setProperty("SimpleATHPermanentMAC", mac);
             mac->release();
             setProperty("SimpleATHNvmOrigin", board->origin, 32);
+            // The Atheros key RAM may contain stale keys from earlier OS or
+            // firmware ownership. Before any protected path is permitted,
+            // clear all 128 slots under the same live PCI epoch and gate.
+            // Neither this stage nor an installed key is evidence of a
+            // verified CCMP replay/PN engine or functional WPA2 data path.
+            stage("CCMPKeyCacheScrub");
+            const auto cacheResult = simpleath::initializeAr9565KeyCache(
+                keyCacheBackend(), keyCache_);
+            setProperty("SimpleATHKeyCacheInitResult",
+                        static_cast<uint32_t>(cacheResult.result), 32);
+            if (cacheResult.result != simpleath::KeyCacheResult::Ok)
+                return abortStart("CCMPKeyCacheScrub",
+                                  static_cast<uint32_t>(cacheResult.result));
+            setProperty("SimpleATHKeyCacheInitialized", true);
             setProperty("SimpleATHBoardAcquired", true);
             // This marks completed hardware acquisition, not network readiness.
             // RF calibration/queue/IO80211 integration must consume this board.
@@ -503,6 +537,24 @@ class SimpleATH final : public IOService
             radioOperational_ = false;
             channelAuthorized_ = false;
             engine_.radioStopped(nowMicros(nullptr) / 1000, true);
+            if (keyCache_.initialized)
+            {
+                bool wiped = false;
+                if (access == simpleath::ProviderAccess::Available &&
+                    quiesceEngines())
+                {
+                    const auto erasure = simpleath::eraseAr9565Keys(
+                        keyCacheBackend(), keyCache_);
+                    setProperty("SimpleATHKeyCacheEraseResult",
+                                static_cast<uint32_t>(erasure.result), 32);
+                    wiped = erasure.result == simpleath::KeyCacheResult::Ok;
+                }
+                setProperty("SimpleATHKeyCacheWipeConfirmed", wiped);
+            }
+            setProperty("SimpleATHKeyCacheResetRequired",
+                        keyCache_.requiresReset);
+            keyCache_ = {};
+            setProperty("SimpleATHKeyCacheInitialized", false);
             board_.invalidate();
             enginesQuiesced_ = false;
             // IRQ delivery and queue DMA stop before BAR/provider revocation.
@@ -614,6 +666,7 @@ class SimpleATH final : public IOService
         simpleath::NativePciBackend backend_;
         simpleath::PciReadOnlySession session_;
         simpleath::NvmBoardLease board_;
+        simpleath::KeyCacheState keyCache_ {};
         simpleath::RtcPowerContext rtc_ {};
         simpleath::Identity identity_ {};
         uint8_t *storage_ {nullptr};

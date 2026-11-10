@@ -14,6 +14,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		00000000000000000000D540 /* Ar9565KeyCache.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D541 /* Ar9565KeyCache.cpp */; };
 		00000000000000000000D530 /* Ar9565Calibration.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D531 /* Ar9565Calibration.cpp */; };
 		00000000000000000000D520 /* Ar9565RfBus.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D521 /* Ar9565RfBus.cpp */; };
 		00000000000000000000D510 /* Ar9565Pll.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D511 /* Ar9565Pll.cpp */; };
@@ -59,6 +60,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		00000000000000000000D541 /* Ar9565KeyCache.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565KeyCache.cpp; sourceTree = "<group>"; };
+		00000000000000000000D542 /* Ar9565KeyCache.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565KeyCache.hpp; sourceTree = "<group>"; };
 		00000000000000000000D531 /* Ar9565Calibration.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Calibration.cpp; sourceTree = "<group>"; };
 		00000000000000000000D532 /* Ar9565Calibration.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Calibration.hpp; sourceTree = "<group>"; };
 		00000000000000000000D521 /* Ar9565RfBus.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565RfBus.cpp; sourceTree = "<group>"; };
@@ -155,6 +158,8 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+				00000000000000000000D541 /* Ar9565KeyCache.cpp */,
+				00000000000000000000D542 /* Ar9565KeyCache.hpp */,
 				00000000000000000000D531 /* Ar9565Calibration.cpp */,
 				00000000000000000000D532 /* Ar9565Calibration.hpp */,
 				00000000000000000000D521 /* Ar9565RfBus.cpp */,
@@ -327,6 +332,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+				00000000000000000000D540 /* Ar9565KeyCache.cpp in Sources */,
 				00000000000000000000D530 /* Ar9565Calibration.cpp in Sources */,
 				00000000000000000000D520 /* Ar9565RfBus.cpp in Sources */,
 				00000000000000000000D510 /* Ar9565Pll.cpp in Sources */,
