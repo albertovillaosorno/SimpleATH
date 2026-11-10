@@ -3,13 +3,24 @@
 #include "wifi/Frames.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
+#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 
 namespace
 {
     using namespace simpleath::ieee80211;
     using namespace simpleath::ieee80211::crypto;
+
+    constexpr size_t kNonceBytes = 32U;
+    constexpr size_t kKeyBytes = 16U;
+    constexpr size_t kRscBytes = 8U;
+    constexpr size_t kPartialBytes = 8U;
+    constexpr size_t kValidRscBytes = 6U;
+    constexpr uint8_t kPartialPattern = 0x55U;
+    constexpr uint8_t kSentinelPattern = 0xa5U;
+    constexpr int kDiagnosticModulo = 251;
+    constexpr unsigned kCallsAfterReplacement = 5U;
 
     enum class RandomCase : uint8_t
     {
@@ -34,7 +45,7 @@ namespace
             {
                 auto &self = *static_cast<Provider *>(context);
                 ++self.calls;
-                if (length != 32)
+                if (length != kNonceBytes)
                 {
                     return false;
                 }
@@ -42,20 +53,21 @@ namespace
                 {
                     // A CSPRNG error may occur after filling part of a buffer.
                     // The adapter must not publish those incomplete bytes.
-                    for (size_t i = 0; i < 8; ++i)
-                    {
-                        out[i] = 0x55;
-                    }
+                    std::array<uint8_t, kPartialBytes> partial {};
+                    partial.fill(kPartialPattern);
+                    __builtin_memcpy(out, partial.data(), partial.size());
                     return false;
                 }
                 if (self.behavior == RandomCase::EmptySuccess)
                 {
                     return true; // Contract-violating provider; no fresh nonce.
                 }
-                for (size_t i = 0; i < length; ++i)
+                std::array<uint8_t, kNonceBytes> generated {};
+                for (size_t index = 0U; index < generated.size(); ++index)
                 {
-                    out[i] = static_cast<uint8_t>(i + 1);
+                    generated.at(index) = static_cast<uint8_t>(index + 1U);
                 }
+                __builtin_memcpy(out, generated.data(), generated.size());
                 if (self.replaceDuringRandom)
                 {
                     // Reentrant hardware teardown/reconfiguration must not
@@ -83,7 +95,7 @@ namespace
             }
 
             static bool pairwise(void *context, const Mac & /*unused*/,
-                                 const uint8_t /*unused*/[16])
+                                 const uint8_t /*unused*/[kKeyBytes])
             {
                 auto &self = *static_cast<Provider *>(context);
                 ++self.pairwiseCalls;
@@ -96,8 +108,8 @@ namespace
             }
 
             static bool group(void *context, uint8_t /*unused*/,
-                              const uint8_t /*unused*/[16],
-                              const uint8_t /*unused*/[8])
+                              const uint8_t /*unused*/[kKeyBytes],
+                              const uint8_t /*unused*/[kRscBytes])
             {
                 auto &self = *static_cast<Provider *>(context);
                 ++self.groupCalls;
@@ -113,6 +125,132 @@ namespace
             {
             }
     };
+
+    int nonceCases(Provider &provider, const Wpa2Crypto &callbacks)
+    {
+        std::array<uint8_t, kNonceBytes> nonce {};
+        nonce.fill(kSentinelPattern);
+        const auto original = nonce;
+        if (callbacks.generateNonce(callbacks.context, nonce.data()) ||
+            provider.calls != 1U || nonce != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        provider.behavior = RandomCase::EmptySuccess;
+        if (callbacks.generateNonce(callbacks.context, nonce.data()) ||
+            provider.calls != 2U || nonce != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        provider.behavior = RandomCase::CompleteSuccess;
+        if (!callbacks.generateNonce(callbacks.context, nonce.data()) ||
+            provider.calls != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        for (size_t index = 0U; index < nonce.size(); ++index)
+        {
+            if (nonce.at(index) != static_cast<uint8_t>(index + 1U))
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+        }
+        nonce.fill(kSentinelPattern);
+        provider.replaceDuringRandom = true;
+        if (callbacks.generateNonce(callbacks.context, nonce.data()) ||
+            !provider.replacementConfigured || provider.calls != 4U ||
+            nonce != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (!callbacks.generateNonce(callbacks.context, nonce.data()) ||
+            provider.calls != kCallsAfterReplacement)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        for (size_t index = 0U; index < nonce.size(); ++index)
+        {
+            if (nonce.at(index) != static_cast<uint8_t>(index + 1U))
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+        }
+        return 0;
+    }
+
+    int keyCases(Provider &provider, const Wpa2Crypto &callbacks)
+    {
+        // Callback callers cannot bypass address, CCMP key index or Key
+        // RSC preflight to program hardware, even after nonce readiness.
+        const Mac invalidAp {{0x01, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac validAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, kKeyBytes> key {};
+        key.at(0U) = 1U;
+        std::array<uint8_t, kRscBytes> validRsc {};
+        for (size_t index = 0U; index < kValidRscBytes; ++index)
+        {
+            validRsc.at(index) = static_cast<uint8_t>(index + 1U);
+        }
+        auto invalidRsc = validRsc;
+        invalidRsc.at(kValidRscBytes) = 1U;
+        if (callbacks.installPairwiseTk(callbacks.context, invalidAp,
+                                        key.data()) ||
+            provider.pairwiseCalls != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (!callbacks.installPairwiseTk(callbacks.context, validAp,
+                                         key.data()) ||
+            provider.pairwiseCalls != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (callbacks.installGroupGtk(callbacks.context, 4U, key.data(),
+                                      validRsc.data()) ||
+            callbacks.installGroupGtk(callbacks.context, 2U, key.data(),
+                                      invalidRsc.data()) ||
+            provider.groupCalls != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (!callbacks.installGroupGtk(callbacks.context, 2U, key.data(),
+                                       validRsc.data()) ||
+            provider.groupCalls != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Reentrant replacement invalidates a success from the old owner;
+        // neither a pairwise nor GTK callback may install stale key state.
+        provider.replacementConfigured = false;
+        provider.replaceDuringPairwise = true;
+        if (callbacks.installPairwiseTk(callbacks.context, validAp,
+                                        key.data()) ||
+            !provider.replacementConfigured || provider.pairwiseCalls != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (!callbacks.installPairwiseTk(callbacks.context, validAp,
+                                         key.data()) ||
+            provider.pairwiseCalls != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        provider.replacementConfigured = false;
+        provider.replaceDuringGroup = true;
+        if (callbacks.installGroupGtk(callbacks.context, 2U, key.data(),
+                                      validRsc.data()) ||
+            !provider.replacementConfigured || provider.groupCalls != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (!callbacks.installGroupGtk(callbacks.context, 2U, key.data(),
+                                       validRsc.data()) ||
+            provider.groupCalls != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
 } // namespace
 
 int main()
@@ -129,112 +267,11 @@ int main()
         return 1;
     }
     const Wpa2Crypto callbacks = adapter.callbacks();
-    uint8_t nonce[32] {};
-    std::memset(nonce, 0xa5, sizeof(nonce));
-    uint8_t original[sizeof(nonce)] {};
-    std::memcpy(original, nonce, sizeof(original));
-    if (callbacks.generateNonce(callbacks.context, nonce) ||
-        provider.calls != 1 || std::memcmp(nonce, original, sizeof(nonce)) != 0)
+    if (const int nonce = nonceCases(provider, callbacks))
     {
-        return 2;
+        return nonce;
     }
-
-    provider.behavior = RandomCase::EmptySuccess;
-    if (callbacks.generateNonce(callbacks.context, nonce) ||
-        provider.calls != 2 || std::memcmp(nonce, original, sizeof(nonce)) != 0)
-    {
-        return 3;
-    }
-
-    provider.behavior = RandomCase::CompleteSuccess;
-    if (!callbacks.generateNonce(callbacks.context, nonce) ||
-        provider.calls != 3)
-    {
-        return 4;
-    }
-    for (size_t i = 0; i < sizeof(nonce); ++i)
-    {
-        if (nonce[i] != static_cast<uint8_t>(i + 1))
-        {
-            return 5;
-        }
-    }
-    std::memset(nonce, 0xa5, sizeof(nonce));
-    provider.replaceDuringRandom = true;
-    if (callbacks.generateNonce(callbacks.context, nonce) ||
-        !provider.replacementConfigured || provider.calls != 4 ||
-        std::memcmp(nonce, original, sizeof(nonce)) != 0)
-    {
-        return 6;
-    }
-    if (!callbacks.generateNonce(callbacks.context, nonce) ||
-        provider.calls != 5)
-    {
-        return 7;
-    }
-    for (size_t i = 0; i < sizeof(nonce); ++i)
-    {
-        if (nonce[i] != static_cast<uint8_t>(i + 1))
-        {
-            return 8;
-        }
-    }
-    // Direct callback callers cannot bypass the supplicant's address,
-    // CCMP key index and reserved Key RSC preflight to program hardware.
-    const Mac invalidAp {{0x01, 0x11, 0x22, 0x33, 0x44, 0x55}};
-    const Mac validAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
-    uint8_t key[16] {};
-    key[0] = 1;
-    uint8_t validRsc[8] {1, 2, 3, 4, 5, 6, 0, 0};
-    uint8_t invalidRsc[8] {1, 2, 3, 4, 5, 6, 1, 0};
-    if (callbacks.installPairwiseTk(callbacks.context, invalidAp, key) ||
-        provider.pairwiseCalls != 0)
-    {
-        return 9;
-    }
-    if (!callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
-        provider.pairwiseCalls != 1)
-    {
-        return 10;
-    }
-    if (callbacks.installGroupGtk(callbacks.context, 4, key, validRsc) ||
-        callbacks.installGroupGtk(callbacks.context, 2, key, invalidRsc) ||
-        provider.groupCalls != 0)
-    {
-        return 11;
-    }
-    if (!callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
-        provider.groupCalls != 1)
-    {
-        return 12;
-    }
-    // An install callback can retire and reconfigure the provider while it
-    // returns success for the OLD hardware owner. Such a stale completion
-    // cannot authorize pairwise or group key installation in the new epoch.
-    provider.replacementConfigured = false;
-    provider.replaceDuringPairwise = true;
-    if (callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
-        !provider.replacementConfigured || provider.pairwiseCalls != 2)
-    {
-        return 13;
-    }
-    if (!callbacks.installPairwiseTk(callbacks.context, validAp, key) ||
-        provider.pairwiseCalls != 3)
-    {
-        return 14;
-    }
-    provider.replacementConfigured = false;
-    provider.replaceDuringGroup = true;
-    if (callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
-        !provider.replacementConfigured || provider.groupCalls != 2)
-    {
-        return 15;
-    }
-    if (!callbacks.installGroupGtk(callbacks.context, 2, key, validRsc) ||
-        provider.groupCalls != 3)
-    {
-        return 16;
-    }
+    const int keys = keyCases(provider, callbacks);
     adapter.clear();
-    return 0;
+    return keys;
 }
