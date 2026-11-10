@@ -3,6 +3,7 @@
 #define SIMPLEATH_TAHOE_NATIVE_WIRELESS_OWNER_HPP
 
 #include "../../wifi/LegacyScanBridge.hpp"
+#include "TahoeJoinSession.hpp"
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOWorkLoop.h>
 #include <stddef.h>
@@ -15,11 +16,12 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV1";
-        constexpr uint32_t kWirelessOwnerAbi = 1;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV2";
+        constexpr uint32_t kWirelessOwnerAbi = 2;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
+        constexpr size_t kWirelessPmkBytes = 32;
 
         enum class WirelessEvent : uint32_t
         {
@@ -35,6 +37,12 @@ namespace simpleath
         {
                 uint64_t epoch;
                 uint64_t associationGeneration;
+                uint64_t joinRequestId;
+                NativeJoinPhase joinPhase;
+                IOReturn joinStatus;
+                bool associatedBeaconObserved;
+                ieee80211::NativeBssSnapshot associatedBss;
+                bool signalMeasured;
                 uint8_t permanentMac[kWirelessMacBytes];
                 uint8_t currentMac[kWirelessMacBytes];
                 uint8_t bssid[kWirelessMacBytes];
@@ -54,14 +62,26 @@ namespace simpleath
 
         struct NativeConnectRequest
         {
+                uint64_t epoch;
+                uint64_t requestId;
                 uint8_t bssid[kWirelessMacBytes];
                 uint8_t ssid[kWirelessSsidBytes];
                 uint8_t ssidLength;
                 uint8_t channel;
-                // Native OS owns WPA2 supplication. Key material arrives only
-                // through the explicit CCMP install operation below.
+                // WCL supplies the PMK; the physical owner exclusively runs
+                // WPA2 M1..M4 and installs keys before opening the data port.
                 bool wpa2Personal;
+                uint8_t pmk[kWirelessPmkBytes];
         };
+
+        inline void clearConnectRequest(NativeConnectRequest &request)
+        {
+            for (volatile uint8_t &byte : request.pmk)
+            {
+                byte = 0;
+            }
+            request.epoch = request.requestId = 0;
+        }
 
         struct NativeCcmpKey
         {
@@ -73,7 +93,7 @@ namespace simpleath
                 bool remove;
         };
 
-        struct WirelessOwnerV1
+        struct WirelessOwnerV2
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;

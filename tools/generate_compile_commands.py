@@ -15,7 +15,10 @@ from typing import TypedDict
 OBJCXX_SUFFIX = ".mm"
 CXX_LANGUAGE = "c++"
 DARWIN_TARGET = "x86_64-apple-macosx14.0"
-TAHOE_CONTROLLER_SOURCE = "src/platform/tahoe/SimpleATHTahoeController.cpp"
+TAHOE_IOCTL_SOURCES = (
+    "src/platform/tahoe/SimpleATHTahoeController.cpp",
+    "src/platform/tahoe/SimpleATHInfraProtocol.cpp",
+)
 
 
 def _kernel_parse_flags(root: Path) -> list[str]:
@@ -92,7 +95,7 @@ def source_commands(root: Path) -> list[CompileCommand]:
                 ),
                 *(
                     ("-D__IO80211_TARGET=10",)
-                    if relative == TAHOE_CONTROLLER_SOURCE
+                    if relative in TAHOE_IOCTL_SOURCES
                     else ()
                 ),
                 "-x",

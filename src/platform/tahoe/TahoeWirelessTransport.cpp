@@ -62,10 +62,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV1 &owner)
+            bool validContract(const WirelessOwnerV2 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV1) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV2) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -105,7 +105,14 @@ namespace simpleath
 
             bool validConnect(const NativeConnectRequest &request)
             {
-                return validMac(&request.bssid[0]) && request.ssidLength != 0 &&
+                uint8_t pmkBits = 0;
+                for (const uint8_t byte : request.pmk)
+                {
+                    pmkBits |= byte;
+                }
+                return request.epoch != 0 && request.requestId != 0 &&
+                       (request.wpa2Personal || pmkBits == 0) &&
+                       validMac(&request.bssid[0]) && request.ssidLength != 0 &&
                        request.ssidLength <= sizeof(request.ssid) &&
                        request.channel != 0 && request.channel <= kMaxChannel2G;
             }
@@ -182,7 +189,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV1 candidate {};
+            WirelessOwnerV2 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -455,15 +462,23 @@ namespace simpleath
             {
                 return status;
             }
-            if (!state.powered || !state.radioAvailable ||
-                state.rfKillBlocked || state.scanning)
+            if (state.epoch != request.epoch || !state.powered ||
+                !state.radioAvailable || state.rfKillBlocked || state.scanning)
             {
                 return kIOReturnNotReady;
             }
             IOLockLock(mailboxLock_);
             receiveAuthorized_ = false;
+            eapolReceiveAuthorized_ = false;
+            receiveHead_ = receiveCount_ = 0;
+            memset(&frames_[0], 0, sizeof(frames_));
             IOLockUnlock(mailboxLock_);
-            return owner_.connect(owner_.context, &request);
+            // The physical provider receives a stable, short-lived copy even
+            // if its gate waits. The PMK must not persist in this transport.
+            NativeConnectRequest stable = request;
+            const IOReturn result = owner_.connect(owner_.context, &stable);
+            clearConnectRequest(stable);
+            return result;
         }
 
         IOReturn TahoeWirelessTransport::disconnect(uint16_t reason)

@@ -1,6 +1,9 @@
 #ifndef SIMPLEATH_TAHOE_INFRA_PROTOCOL_HPP
 #define SIMPLEATH_TAHOE_INFRA_PROTOCOL_HPP
+#include "NativeWirelessOwner.hpp"
 #include "TahoeInterfaceABI.hpp"
+#include "TahoeJoinCodec.hpp"
+#include "TahoeJoinEvents.hpp"
 #include "TahoePacketPath.hpp"
 #include "TahoeScanCodec.hpp"
 #include <IOKit/IOCommandGate.h>
@@ -76,6 +79,13 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
         static void tick(OSObject *, IOTimerEventSource *);
         IOReturn request(unsigned int operation, void *data);
         IOReturn requestGated(unsigned int operation, void *data);
+        IOReturn beginJoin(void *data);
+        IOReturn leaveJoin(bool abort);
+        void pollJoin(const simpleath::tahoe::WirelessSnapshot &state,
+                      bool live);
+        void emitJoin(unsigned int message, IOReturn status, uint16_t reason,
+                      bool up);
+        void retireJoin(IOReturn status, uint16_t reason);
         IOReturn beginScan(void *data);
         void finishScan(bool canceled);
         void poll();
@@ -86,6 +96,9 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
         IOTimerEventSource *timer_ {nullptr};
         simpleath::tahoe::TahoePacketPath packets_;
         simpleath::tahoe::ScanFilter scan_ {};
+        simpleath::tahoe::JoinSession join_;
+        uint64_t joinSerial_ {0};
+        uint64_t joinDeadline_ {0};
         uint64_t scanGeneration_ {0};
         uint64_t scanEpoch_ {0};
         uint64_t lastEpoch_ {0};

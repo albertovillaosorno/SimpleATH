@@ -3,6 +3,7 @@
 #include <IOKit/80211/apple80211_ioctl.h>
 #include <IOKit/80211/apple80211_var.h>
 #include <cstring>
+#include <kern/clock.h>
 #include <libkern/c++/OSString.h>
 
 namespace
@@ -22,6 +23,7 @@ namespace
     constexpr unsigned int kScanResultEvent = 201;
     constexpr unsigned int kScanDoneEvent = 237;
     constexpr unsigned int kDriverAvailableEvent = 55;
+    constexpr unsigned int kJoinTimeoutSeconds = 30;
 
     template <typename T> T *prefix(OSObject *object)
     {
@@ -199,6 +201,7 @@ void SimpleATHInfraProtocol::shutdown()
         (void)controller_->scanCancel(scanGeneration_);
         finishScan(true);
     }
+    retireJoin(kIOReturnAborted, 3);
     packets_.stop();
 }
 
@@ -418,6 +421,7 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
             (void)controller_->scanCancel(scanGeneration_);
             finishScan(true);
         }
+        retireJoin(kIOReturnAborted, 3);
         return controller_->radioPower(false);
     }
     if (operation == kEnablePackets)
@@ -436,9 +440,18 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         packets_.disable();
         return kIOReturnSuccess;
     }
+    // Leave/abort do not carry a payload in the modern WCL contract.
+    if (operation == 0x1270 || operation == 0x12b8)
+    {
+        return leaveJoin(operation == 0x12b8);
+    }
     if (data == nullptr)
     {
         return kIOReturnBadArgument;
+    }
+    if (operation == 0x12d0)
+    {
+        return beginJoin(data);
     }
     if (operation == kSetMac)
     {
@@ -462,11 +475,6 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
             finishScan(true);
         }
         return result;
-    }
-    if (operation == 0x1270 || operation == 0x12b8)
-    {
-        packets_.disable();
-        return controller_->stationLeave(3);
     }
     simpleath::tahoe::WirelessSnapshot state {};
     const auto result = controller_->radioSnapshot(state);
@@ -506,7 +514,7 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     }
     if (operation == 0xed0)
     {
-        if (!state.associated)
+        if (!state.associated || !state.signalMeasured)
         {
             return kIOReturnNotReady;
         }
@@ -519,6 +527,27 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         out->aggregate_rssi = state.rssiDbm;
         return kIOReturnSuccess;
     }
+    if (operation == 0x1060)
+    {
+        // The native WCL BSS envelope is 0x44 metadata plus 0x800 IE bytes.
+        // Its owned snapshot must identify this very association generation.
+        if (!state.associated || state.associationGeneration == 0 ||
+            memcmp(state.bssid, state.associatedBss.bssid.bytes, 6) != 0 ||
+            state.channel != state.associatedBss.channel)
+        {
+            return kIOReturnNotReady;
+        }
+        uint8_t message[simpleath::tahoe::kScanMessageBytes] {};
+        const size_t length = simpleath::tahoe::encodeScanBss(
+            state.associatedBss, message, sizeof(message));
+        if (length == 0)
+        {
+            return kIOReturnNotReady;
+        }
+        memset(data, 0, 0x844);
+        memcpy(data, message, length);
+        return kIOReturnSuccess;
+    }
     // Optional operations are explicitly rejected rather than acknowledging
     // unsupported offloads, VHT/HE, 5/6 GHz or unimplemented native requests.
     // Required association/PMK/AWDL operations remain tracked in the P0 TODO.
@@ -526,9 +555,210 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     return kIOReturnUnsupported;
 }
 
+IOReturn SimpleATHInfraProtocol::beginJoin(void *data)
+{
+    using namespace simpleath::tahoe;
+    if (join_.pending() || scanGeneration_ != 0)
+    {
+        return kIOReturnBusy;
+    }
+    JoinSelection selected {};
+    if (!decodeJoin(static_cast<const uint8_t *>(data), kWclJoinRequestBytes,
+                    selected))
+    {
+        clearJoin(selected);
+        return kIOReturnBadArgument;
+    }
+    WirelessSnapshot state {};
+    IOReturn result = controller_->radioSnapshot(state);
+    if (result != kIOReturnSuccess || state.epoch == 0 || !state.powered ||
+        !state.radioAvailable || state.rfKillBlocked || state.scanning)
+    {
+        clearJoin(selected);
+        return result == kIOReturnSuccess ? kIOReturnNotReady : result;
+    }
+    if (state.joinRequestId > joinSerial_)
+    {
+        joinSerial_ = state.joinRequestId;
+    }
+    if (joinSerial_ == UINT64_MAX)
+    {
+        clearJoin(selected);
+        return kIOReturnNoResources;
+    }
+    if (state.associated || join_.active())
+    {
+        result = leaveJoin(false);
+        if (result != kIOReturnSuccess)
+        {
+            clearJoin(selected);
+            return result;
+        }
+    }
+    NativeConnectRequest request {};
+    request.epoch = state.epoch;
+    request.requestId = ++joinSerial_;
+    memcpy(request.bssid, selected.bssid, sizeof(request.bssid));
+    memcpy(request.ssid, selected.ssid, selected.ssidLength);
+    request.ssidLength = selected.ssidLength;
+    request.channel = selected.channel;
+    request.wpa2Personal = selected.wpa2Personal;
+    memcpy(request.pmk, selected.pmk, sizeof(request.pmk));
+    // There is one driver-owned PMK copy while the provider's gate runs.
+    clearJoin(selected);
+    packets_.disable();
+    result = controller_->stationJoin(request);
+    if (result == kIOReturnSuccess)
+    {
+        if (!join_.begin(request.epoch, request.requestId, request.bssid,
+                         request.wpa2Personal))
+        {
+            (void)controller_->stationLeave(3);
+            result = kIOReturnInternalError;
+        }
+        else
+        {
+            clock_interval_to_deadline(kJoinTimeoutSeconds, kSecondScale,
+                                       &joinDeadline_);
+        }
+    }
+    clearConnectRequest(request);
+    return result;
+}
+
+void SimpleATHInfraProtocol::emitJoin(unsigned int message, IOReturn status,
+                                      uint16_t reason, bool up)
+{
+    uint8_t bytes[simpleath::tahoe::kWclConnectionEventBytes] {};
+    const size_t length = simpleath::tahoe::encodeJoinEvent(
+        message, join_.bssid(), static_cast<int32_t>(status), reason, up, bytes,
+        sizeof(bytes));
+    if (length != 0)
+    {
+        emit(message, bytes, length);
+    }
+}
+
+void SimpleATHInfraProtocol::retireJoin(IOReturn status, uint16_t reason)
+{
+    using namespace simpleath::tahoe;
+    const uint32_t notice = join_.lose();
+    if ((notice & FailureNotice) != 0)
+    {
+        emitJoin(kWclConnectionEvent, status, reason, false);
+    }
+    if ((notice & DisconnectionNotice) != 0 || join_.beaconObserved())
+    {
+        emitJoin(kWclDeauthEvent, status, reason, false);
+        emitJoin(kWclLinkEvent, status, reason, false);
+    }
+    join_.reset();
+    joinDeadline_ = 0;
+}
+
+IOReturn SimpleATHInfraProtocol::leaveJoin(bool abort)
+{
+    packets_.disable();
+    const IOReturn result = controller_->stationLeave(3);
+    if (result != kIOReturnSuccess)
+    {
+        return result;
+    }
+    // An explicit WCL abort has its own completion, rather than announcing
+    // a successful network connection or retaining an old request token.
+    if (abort)
+    {
+        if (join_.beaconObserved())
+        {
+            emitJoin(simpleath::tahoe::kWclLinkEvent, kIOReturnAborted, 3,
+                     false);
+        }
+        join_.reset();
+        joinDeadline_ = 0;
+        emit(simpleath::tahoe::kWclJoinAbortEvent, nullptr, 0);
+    }
+    else
+    {
+        retireJoin(kIOReturnAborted, 3);
+    }
+    return kIOReturnSuccess;
+}
+
+void SimpleATHInfraProtocol::pollJoin(
+    const simpleath::tahoe::WirelessSnapshot &state, bool live)
+{
+    using namespace simpleath::tahoe;
+    if (!join_.active())
+    {
+        return;
+    }
+    if (!live || !state.radioAvailable || !state.powered || state.rfKillBlocked)
+    {
+        retireJoin(kIOReturnOffline, 0);
+        return;
+    }
+    uint64_t now = 0;
+    clock_get_uptime(&now);
+    if (join_.pending() && joinDeadline_ != 0 && now >= joinDeadline_)
+    {
+        (void)controller_->stationLeave(3);
+        retireJoin(kIOReturnTimeout, 0);
+        return;
+    }
+    JoinObservation progress {};
+    progress.epoch = state.epoch;
+    progress.requestId = state.joinRequestId;
+    progress.associationGeneration = state.associationGeneration;
+    memcpy(progress.bssid, state.bssid, sizeof(progress.bssid));
+    progress.phase = state.joinPhase;
+    progress.status = static_cast<int32_t>(state.joinStatus);
+    progress.associated = state.associated;
+    progress.controlledPortOpen = state.controlledPortOpen;
+    progress.beaconObserved = state.associatedBeaconObserved;
+    const uint32_t notices = join_.observe(progress);
+    if ((notices & AssociationNotice) != 0)
+    {
+        emitJoin(kWclAssociationEvent, kIOReturnSuccess, 0, false);
+    }
+    if ((notices & BeaconNotice) != 0)
+    {
+        emitJoin(kWclLinkEvent, kIOReturnSuccess, 0, true);
+        emitJoin(kWclFirstBeaconEvent, kIOReturnSuccess, 0, true);
+    }
+    if ((notices & SupplicantNotice) != 0)
+    {
+        emitJoin(kWclSupplicantEvent, kIOReturnSuccess, 0, true);
+    }
+    if ((notices & ConnectionNotice) != 0)
+    {
+        joinDeadline_ = 0;
+        emitJoin(kWclConnectionEvent, kIOReturnSuccess, 0, true);
+    }
+    if ((notices & (FailureNotice | DisconnectionNotice)) != 0)
+    {
+        const IOReturn failure = state.joinStatus == kIOReturnSuccess
+                                     ? kIOReturnOffline
+                                     : state.joinStatus;
+        // observe() already retired this token, but preserves its BSSID for
+        // the last event. Never allow another association to satisfy it.
+        if ((notices & FailureNotice) != 0)
+        {
+            emitJoin(kWclConnectionEvent, failure, 0, false);
+        }
+        if ((notices & DisconnectionNotice) != 0 || join_.beaconObserved())
+        {
+            emitJoin(kWclDeauthEvent, failure, 0, false);
+            emitJoin(kWclLinkEvent, failure, 0, false);
+        }
+        packets_.disable();
+        join_.reset();
+        joinDeadline_ = 0;
+    }
+}
+
 IOReturn SimpleATHInfraProtocol::beginScan(void *data)
 {
-    if (scanGeneration_ != 0)
+    if (scanGeneration_ != 0 || join_.pending())
     {
         return kIOReturnBusy;
     }
@@ -646,7 +876,10 @@ void SimpleATHInfraProtocol::poll()
         put<uint32_t>(availability, 8, available ? 1U : 0U);
         emit(kDriverAvailableEvent, availability, sizeof(availability));
     }
-    const bool link = available && state.associated && state.controlledPortOpen;
+    pollJoin(state, live);
+    const bool link = available && state.associated &&
+                      state.controlledPortOpen &&
+                      state.associatedBeaconObserved;
     if (link != linked_)
     {
         linked_ = link;
