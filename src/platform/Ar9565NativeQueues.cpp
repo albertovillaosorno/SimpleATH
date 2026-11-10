@@ -27,13 +27,26 @@
 // mac.h:
 // 10025cb48d6443f8c21a841326742562b6394a6df820c1499a5370f059ed9cd9
 #include "Ar9565NativeQueues.hpp"
+#include "../hardware/Ar9003Descriptors.hpp"
+#include "../hardware/Ar9003TxControl.hpp"
+#include "../hardware/Ar9565Core.hpp"
 #include "../hardware/Ar9565MacControl.hpp"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>
+#include <IOKit/IOInterruptEventSource.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOMapper.h>
-#include <libkern/libkern.h>
+#include <IOKit/IOMemoryDescriptor.h>
+#include <IOKit/IOReturn.h>
+#include <IOKit/IOService.h>
+#include <IOKit/IOTypes.h>
+#include <IOKit/IOWorkLoop.h>
+#include <cstddef>
+#include <cstdint>
+#include <kern/task.h>
+#include <libkern/OSTypes.h>
 #include <new>
+#include <string.h>
 
 #ifndef __x86_64__
 #error Native coherent AR9565 queues require the Intel DMA coherency contract
@@ -76,6 +89,38 @@ namespace simpleath
         constexpr uint32_t kReceiveBlock = 0x02000020;
         constexpr uint32_t kDone = 1;
         constexpr uint32_t kRxMore = 0x1000;
+        constexpr uint64_t kPhysical32BitBufferMask = 0x00000000fffff000ULL;
+        constexpr uint64_t kAbove32BitBusAddress =
+            static_cast<uint64_t>(UINT32_MAX) + 1U;
+        constexpr uint32_t kHostBusAddressWidth = 32U;
+        constexpr uint32_t kIovaSegmentProbeCount = 2U;
+        constexpr uint32_t kMinimumQueueBar = 0x9000U;
+        constexpr int kMaximumInterruptCandidates = 32;
+        constexpr uint32_t kAtherosQcuCount = 10U;
+        constexpr uint32_t kFrameReceiveConfigurationMask = 7U;
+        constexpr uint32_t kFrameReceiveConfiguration = 5U;
+        constexpr uint32_t kReceiveBackpressureMask = 0x3f0fU;
+        constexpr uint32_t kReceiveBackpressureValue = 0x101U;
+        constexpr uint32_t kReceiveFifoValue = 0x200U;
+        constexpr uint32_t kDefaultDcuIfs = 15U | (1023U << 10U) | (2U << 20U);
+        constexpr uint32_t kDefaultDcuRetry = 10U | (32U << 8U) | (32U << 14U);
+        constexpr uint32_t kDefaultDcuMisc = 0x1102U;
+        constexpr uint32_t kDefaultQcuMisc = 0x800U;
+        constexpr uint32_t kDefaultImrS1 = 0x00010001U;
+        constexpr size_t kMinimumMpduBytes = 10U;
+        constexpr size_t kMaximumMpduBytes = 2342U;
+        constexpr size_t kTxDescriptorControlWord = 10U;
+        constexpr uint32_t kTxDescriptorIdShift = 16U;
+        constexpr uint32_t kRxStatusDoneWord = 11U;
+        constexpr uint32_t kTxStatusDoneWord = 8U;
+        constexpr uint32_t kTxStatusIdentifierWord = 1U;
+
+        // Coherent buffer zeroing must precede DMA publication or release.
+        void clearPublishedBytes(void *memory, size_t size)
+        {
+            __builtin_memset(memory, 0, size);
+            __sync_synchronize();
+        }
 
         // Persistent coherent storage for descriptors/status and packet slots.
         // Reject DMA bounce storage: hardware and CPU must see the same bytes
@@ -90,106 +135,244 @@ namespace simpleath
                 uint32_t length {0};
                 bool bufferPrepared {false};
                 bool commandPrepared {false};
-
-                IOReturn prepare(IOService *pci, uint32_t bytes)
-                {
-                    mapper = IOMapper::copyMapperForDevice(pci);
-                    if (!mapper)
-                    {
-                        // XNU permits command-generated 32-bit DMA addresses
-                        // without an IOMMU. Do not substitute the global mapper
-                        // when a device mapping is missing on an IOMMU system.
-                        IOMapper::checkForSystemMapper();
-                        if (IOMapper::gSystem ||
-                            pci->getProperty("iommu-parent"))
-                            return kIOReturnNotReady;
-                    }
-                    length = bytes;
-                    buffer = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
-                        kernel_task,
-                        kIODirectionInOut | kIOMemoryPhysicallyContiguous,
-                        bytes, 0x00000000fffff000ULL);
-                    if (!buffer || !buffer->getBytesNoCopy())
-                        return kIOReturnNoMemory;
-                    cpu = static_cast<uint8_t *>(buffer->getBytesNoCopy());
-                    bzero(cpu, bytes);
-                    IOReturn result = buffer->prepare(kIODirectionInOut);
-                    if (result != kIOReturnSuccess)
-                        return result;
-                    bufferPrepared = true;
-                    command = IODMACommand::withSpecification(
-                        IODMACommand::OutputHost32, 32, bytes,
-                        IODMACommand::kMapped, bytes, kBufferStride, mapper);
-                    if (!command)
-                        return kIOReturnNoMemory;
-                    result = command->setMemoryDescriptor(buffer, false);
-                    if (result != kIOReturnSuccess)
-                        return result;
-                    result = command->prepare(0, bytes, true, false);
-                    if (result != kIOReturnSuccess)
-                        return result;
-                    commandPrepared = true;
-                    if (command->getIOMemoryDescriptor() != buffer)
-                        return kIOReturnUnsupported;
-                    UInt64 offset = 0;
-                    UInt32 count = 2;
-                    IODMACommand::Segment32 segments[2] {};
-                    result =
-                        command->gen32IOVMSegments(&offset, segments, &count);
-                    if (result != kIOReturnSuccess)
-                        return result;
-                    if (count != 1 || offset != bytes ||
-                        segments[0].fLength != bytes ||
-                        !segments[0].fIOVMAddr ||
-                        (segments[0].fIOVMAddr & (kBufferStride - 1)) ||
-                        static_cast<uint64_t>(segments[0].fIOVMAddr) + bytes >
-                            0x100000000ULL)
-                        return kIOReturnNoResources;
-                    bus = segments[0].fIOVMAddr;
-                    return kIOReturnSuccess;
-                }
-
-                IOReturn release()
-                {
-                    if (commandPrepared)
-                    {
-                        const IOReturn result = command->complete(true, false);
-                        if (result != kIOReturnSuccess)
-                            return result;
-                        commandPrepared = false;
-                    }
-                    if (command)
-                    {
-                        const IOReturn result =
-                            command->clearMemoryDescriptor(false);
-                        if (result != kIOReturnSuccess)
-                            return result;
-                        command->release();
-                        command = nullptr;
-                    }
-                    if (bufferPrepared)
-                    {
-                        const IOReturn result =
-                            buffer->complete(kIODirectionInOut);
-                        if (result != kIOReturnSuccess)
-                            return result;
-                        bufferPrepared = false;
-                    }
-                    if (buffer)
-                    {
-                        buffer->release();
-                        buffer = nullptr;
-                    }
-                    if (mapper)
-                    {
-                        mapper->release();
-                        mapper = nullptr;
-                    }
-                    cpu = nullptr;
-                    bus = length = 0;
-                    return kIOReturnSuccess;
-                }
         };
+
+        IOReturn prepareCoherentRegion(CoherentRegion &region, IOService *pci,
+                                       uint32_t bytes)
+        {
+            region.mapper = IOMapper::copyMapperForDevice(pci);
+            if (region.mapper == nullptr)
+            {
+                // XNU permits region.command-generated 32-bit DMA addresses
+                // without an IOMMU. Do not substitute the global region.mapper
+                // when a device mapping is missing on an IOMMU system.
+                IOMapper::checkForSystemMapper();
+                if ((IOMapper::gSystem != nullptr) ||
+                    (pci->getProperty("iommu-parent") != nullptr))
+                {
+                    return kIOReturnNotReady;
+                }
+            }
+            region.length = bytes;
+            region.buffer = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(
+                kernel_task,
+                static_cast<IOOptionBits>(kIODirectionInOut) |
+                    static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous),
+                bytes, kPhysical32BitBufferMask);
+            if ((region.buffer == nullptr) ||
+                (region.buffer->getBytesNoCopy() == nullptr))
+            {
+                return kIOReturnNoMemory;
+            }
+            region.cpu =
+                static_cast<uint8_t *>(region.buffer->getBytesNoCopy());
+            clearPublishedBytes(region.cpu, bytes);
+            IOReturn result = region.buffer->prepare(kIODirectionInOut);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            region.bufferPrepared = true;
+            region.command = IODMACommand::withSpecification(
+                IODMACommand::OutputHost32, kHostBusAddressWidth, bytes,
+                IODMACommand::kMapped, bytes, kBufferStride, region.mapper);
+            if (region.command == nullptr)
+            {
+                return kIOReturnNoMemory;
+            }
+            result = region.command->setMemoryDescriptor(region.buffer, false);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            result = region.command->prepare(0, bytes, true, false);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            region.commandPrepared = true;
+            if (region.command->getIOMemoryDescriptor() != region.buffer)
+            {
+                return kIOReturnUnsupported;
+            }
+            UInt64 offset = 0;
+            UInt32 count = kIovaSegmentProbeCount;
+            IODMACommand::Segment32 segments[kIovaSegmentProbeCount] {};
+            result = region.command->gen32IOVMSegments(&offset, &segments[0],
+                                                       &count);
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            if (count != 1 || offset != bytes || segments[0].fLength != bytes ||
+                (segments[0].fIOVMAddr == 0U) ||
+                ((segments[0].fIOVMAddr & (kBufferStride - 1)) != 0U) ||
+                static_cast<uint64_t>(segments[0].fIOVMAddr) + bytes >
+                    kAbove32BitBusAddress)
+            {
+                return kIOReturnNoResources;
+            }
+            region.bus = segments[0].fIOVMAddr;
+            return kIOReturnSuccess;
+        }
+
+        IOReturn releaseCoherentRegion(CoherentRegion &region)
+        {
+            if (region.commandPrepared)
+            {
+                const IOReturn result = region.command->complete(true, false);
+                if (result != kIOReturnSuccess)
+                {
+                    return result;
+                }
+                region.commandPrepared = false;
+            }
+            if (region.command != nullptr)
+            {
+                const IOReturn result =
+                    region.command->clearMemoryDescriptor(false);
+                if (result != kIOReturnSuccess)
+                {
+                    return result;
+                }
+                region.command->release();
+                region.command = nullptr;
+            }
+            if (region.bufferPrepared)
+            {
+                const IOReturn result =
+                    region.buffer->complete(kIODirectionInOut);
+                if (result != kIOReturnSuccess)
+                {
+                    return result;
+                }
+                region.bufferPrepared = false;
+            }
+            if (region.buffer != nullptr)
+            {
+                region.buffer->release();
+                region.buffer = nullptr;
+            }
+            if (region.mapper != nullptr)
+            {
+                region.mapper->release();
+                region.mapper = nullptr;
+            }
+            region.cpu = nullptr;
+            region.bus = region.length = 0;
+            return kIOReturnSuccess;
+        }
+
+    } // namespace
+
+    namespace
+    {
+        template <typename Pointer> uintptr_t pointerBits(Pointer pointer)
+        {
+            static_assert(sizeof(Pointer) == sizeof(uintptr_t),
+                          "native DMA pointers must fit address-sized storage");
+            uintptr_t result = 0;
+            __builtin_memcpy(&result, static_cast<const void *>(&pointer),
+                             sizeof(result));
+            return result;
+        }
+
+        template <typename Pointer> Pointer pointerFromBits(uintptr_t address)
+        {
+            static_assert(sizeof(Pointer) == sizeof(uintptr_t),
+                          "native DMA pointers must fit address-sized storage");
+            Pointer result = nullptr;
+            __builtin_memcpy(static_cast<void *>(&result), &address,
+                             sizeof(result));
+            return result;
+        }
+
+        uint8_t *regionBytesAt(const CoherentRegion &region, size_t offset,
+                               size_t bytes)
+        {
+            if (region.cpu == nullptr || offset > region.length ||
+                bytes > region.length - offset)
+            {
+                return nullptr;
+            }
+            const uintptr_t base = pointerBits(region.cpu);
+            if (offset > UINTPTR_MAX - base)
+            {
+                return nullptr;
+            }
+            return pointerFromBits<uint8_t *>(base + offset);
+        }
+
+        volatile uint32_t *regionWordAt(const CoherentRegion &region,
+                                        size_t recordOffset, size_t index)
+        {
+            if (index > SIZE_MAX / sizeof(uint32_t) ||
+                recordOffset > region.length)
+            {
+                return nullptr;
+            }
+            const size_t byteOffset = index * sizeof(uint32_t);
+            if (byteOffset > region.length - recordOffset)
+            {
+                return nullptr;
+            }
+            uint8_t *const bytes = regionBytesAt(
+                region, recordOffset + byteOffset, sizeof(uint32_t));
+            return bytes == nullptr ? nullptr
+                                    : pointerFromBits<volatile uint32_t *>(
+                                          pointerBits(bytes));
+        }
+
+        template <typename T, size_t N>
+        T &boundedElement(T (&values)[N], size_t index)
+        {
+            for (T &element : values)
+            {
+                if (index == 0U)
+                {
+                    return element;
+                }
+                --index;
+            }
+            __builtin_trap();
+        }
+
+        template <typename Words>
+        bool snapshotStatusWords(const CoherentRegion &region,
+                                 size_t recordOffset, Words &snapshot)
+        {
+            size_t index = 0;
+            for (auto &wordValue : snapshot.word)
+            {
+                const volatile uint32_t *const word =
+                    regionWordAt(region, recordOffset, index++);
+                if (word == nullptr)
+                {
+                    return false;
+                }
+                wordValue = *word;
+            }
+            return true;
+        }
+
+        template <typename Words>
+        bool clearStatusWords(const CoherentRegion &region, size_t recordOffset,
+                              const Words &snapshot)
+        {
+            size_t index = 0;
+            for (const auto &unused : snapshot.word)
+            {
+                static_cast<void>(unused);
+                volatile uint32_t *const word =
+                    regionWordAt(region, recordOffset, index++);
+                if (word == nullptr)
+                {
+                    return false;
+                }
+                *word = 0U;
+            }
+            return true;
+        }
     } // namespace
 
     struct NativeQueueMemory
@@ -202,9 +385,12 @@ namespace simpleath
 
     NativeQueues::~NativeQueues()
     {
-        if (memory_ || owner_ || interrupt_)
+        if ((memory_ != nullptr) || (owner_ != nullptr) ||
+            (interrupt_ != nullptr))
+        {
             IOLog("SimpleATH: DMA resources retained after incomplete queue "
                   "teardown\n");
+        }
     }
 
     IOReturn
@@ -213,17 +399,29 @@ namespace simpleath
                                 const NativeQueueOwner &callbacks,
                                 IOInterruptEventSource::Action interruptAction)
     {
-        if (phase_ != NativeQueuePhase::Empty || memory_ || owner_)
+        if (phase_ != NativeQueuePhase::Empty || (memory_ != nullptr) ||
+            (owner_ != nullptr))
+        {
             return kIOReturnBusy;
-        if (!owner || !pci || !loop || !epoch || !callbacks.context ||
-            !callbacks.current || !callbacks.radioReady ||
-            !callbacks.setBusMaster || !callbacks.read32 ||
-            !callbacks.write32 || !callbacks.delayMicros ||
-            !callbacks.receive || !callbacks.transmitted || !callbacks.fault ||
-            !interruptAction || callbacks.barLengthBytes < 0x9000)
+        }
+        if ((owner == nullptr) || (pci == nullptr) || (loop == nullptr) ||
+            (epoch == 0U) || (callbacks.context == nullptr) ||
+            (callbacks.current == nullptr) ||
+            (callbacks.radioReady == nullptr) ||
+            (callbacks.setBusMaster == nullptr) ||
+            (callbacks.read32 == nullptr) || (callbacks.write32 == nullptr) ||
+            (callbacks.delayMicros == nullptr) ||
+            (callbacks.receive == nullptr) ||
+            (callbacks.transmitted == nullptr) ||
+            (callbacks.fault == nullptr) || (interruptAction == nullptr) ||
+            callbacks.barLengthBytes < kMinimumQueueBar)
+        {
             return kIOReturnBadArgument;
+        }
         if (loop->inGate() || loop->onThread())
+        {
             return kIOReturnNotPermitted;
+        }
         owner_ = owner;
         owner_->retain();
         pci_ = pci;
@@ -233,22 +431,32 @@ namespace simpleath
         callbacks_ = callbacks;
         epoch_ = epoch;
         auto *storage = IOMalloc(sizeof(NativeQueueMemory));
-        if (!storage)
+        if (storage == nullptr)
         {
             releaseClient();
             return kIOReturnNoMemory;
         }
         memory_ = new(storage) NativeQueueMemory {};
-        IOReturn result = memory_->descriptors.prepare(
-            pci, kTxSlots * edma::kTxDescriptorBytes);
+        IOReturn result = prepareCoherentRegion(
+            memory_->descriptors, pci, kTxSlots * edma::kTxDescriptorBytes);
         if (result == kIOReturnSuccess)
-            result = memory_->transmit.prepare(pci, kTxSlots * kBufferStride);
+        {
+            result = prepareCoherentRegion(memory_->transmit, pci,
+                                           kTxSlots * kBufferStride);
+        }
         if (result == kIOReturnSuccess)
-            result = memory_->receive.prepare(pci, kRxSlots * kBufferStride);
+        {
+            result = prepareCoherentRegion(memory_->receive, pci,
+                                           kRxSlots * kBufferStride);
+        }
         if (result == kIOReturnSuccess)
-            result = memory_->completions.prepare(pci, kBufferStride);
+        {
+            result =
+                prepareCoherentRegion(memory_->completions, pci, kBufferStride);
+        }
         int index = -1;
-        for (int candidate = 0; result == kIOReturnSuccess && candidate < 32;
+        for (int candidate = 0; result == kIOReturnSuccess &&
+                                candidate < kMaximumInterruptCandidates;
              ++candidate)
         {
             int type = 0;
@@ -259,13 +467,17 @@ namespace simpleath
             }
         }
         if (result == kIOReturnSuccess && index < 0)
+        {
             result = kIOReturnNoInterrupt;
+        }
         if (result == kIOReturnSuccess)
         {
             interrupt_ = IOInterruptEventSource::interruptEventSource(
                 owner, interruptAction, pci, index);
-            if (!interrupt_)
+            if (interrupt_ == nullptr)
+            {
                 result = kIOReturnNoResources;
+            }
         }
         if (result != kIOReturnSuccess)
         {
@@ -278,7 +490,8 @@ namespace simpleath
 
     bool NativeQueues::gated() const
     {
-        return loop_ && loop_->inGate() && callbacks_.current &&
+        return (loop_ != nullptr) && loop_->inGate() &&
+               (callbacks_.current != nullptr) &&
                callbacks_.current(callbacks_.context, epoch_);
     }
 
@@ -297,10 +510,14 @@ namespace simpleath
     IOReturn NativeQueues::adoptGated(uint64_t currentEpoch)
     {
         if (!gated() || currentEpoch != epoch_ ||
-            phase_ != NativeQueuePhase::Prepared || !interrupt_)
+            phase_ != NativeQueuePhase::Prepared || (interrupt_ == nullptr))
+        {
             return kIOReturnNotReady;
+        }
         if (attached_)
+        {
             return kIOReturnSuccess;
+        }
         const IOReturn result = loop_->addEventSource(interrupt_);
         if (result == kIOReturnSuccess)
         {
@@ -314,20 +531,30 @@ namespace simpleath
     {
         if (!gated() || !attached_ || phase_ != NativeQueuePhase::Prepared ||
             !callbacks_.radioReady(callbacks_.context, epoch_))
+        {
             return kIOReturnNotReady;
+        }
         phase_ = NativeQueuePhase::Running; // Hardware may observe a partial
                                             // publication.
-        uint32_t txConfiguration = 0, rxConfiguration = 0, backpressure = 0;
+        uint32_t txConfiguration = 0;
+        uint32_t rxConfiguration = 0;
+        uint32_t backpressure = 0;
         if (!write(kIer, 0) || !read(kTxConfiguration, txConfiguration) ||
             !read(kRxConfiguration, rxConfiguration) ||
-            !write(kTxConfiguration, (txConfiguration & ~7U) | 5U) ||
-            !write(kRxConfiguration, (rxConfiguration & ~7U) | 5U) ||
+            !write(kTxConfiguration,
+                   (txConfiguration & ~kFrameReceiveConfigurationMask) |
+                       kFrameReceiveConfiguration) ||
+            !write(kRxConfiguration,
+                   (rxConfiguration & ~kFrameReceiveConfigurationMask) |
+                       kFrameReceiveConfiguration) ||
             !read(kRxBackpressure, backpressure) ||
-            !write(kRxBackpressure, (backpressure & ~0x3f0fU) | 0x101U) ||
-            !write(kRxFifo, 0x200) || !write(kReceiveSize, kReceiveBytes) ||
+            !write(kRxBackpressure, (backpressure & ~kReceiveBackpressureMask) |
+                                        kReceiveBackpressureValue) ||
+            !write(kRxFifo, kReceiveFifoValue) ||
+            !write(kReceiveSize, kReceiveBytes) ||
             !write(kStatusStart, memory_->completions.bus) ||
             !write(kStatusEnd, memory_->completions.bus +
-                                   kTxSlots * edma::kTxCompletionBytes) ||
+                                   (kTxSlots * edma::kTxCompletionBytes)) ||
             !write(kTxDisable, 0))
         {
             fault(kIOReturnIOError);
@@ -336,20 +563,20 @@ namespace simpleath
         // One non-aggregating best-effort QCU/DCU. Other queues cannot
         // acquire our descriptor. Values follow ath9k resettxqueue defaults:
         // CWmin=15, CWmax=1023, AIFS=2, station retries=32, frame retries=10.
-        for (uint32_t queue = 0; queue < 10; ++queue)
+        for (uint32_t queue = 0; queue < kAtherosQcuCount; ++queue)
         {
-            if (!write(kDcuMask + queue * 4, queue == 0 ? 1 : 0))
+            if (!write(kDcuMask + (queue * 4), queue == 0 ? 1 : 0))
             {
                 fault(kIOReturnIOError);
                 return kIOReturnIOError;
             }
         }
-        if (!write(kDcuIfs, 15U | (1023U << 10) | (2U << 20)) ||
-            !write(kDcuRetry, 10U | (32U << 8) | (32U << 14)) ||
-            !write(kDcuMisc, 0x1102) || !write(kDcuChannelTime, 0) ||
-            !write(kQcuMisc, 0x800) || !write(kQcuCbr, 0) ||
+        if (!write(kDcuIfs, kDefaultDcuIfs) ||
+            !write(kDcuRetry, kDefaultDcuRetry) ||
+            !write(kDcuMisc, kDefaultDcuMisc) || !write(kDcuChannelTime, 0) ||
+            !write(kQcuMisc, kDefaultQcuMisc) || !write(kQcuCbr, 0) ||
             !write(kQcuReady, 0) || !write(kImrS0, 1) ||
-            !write(kImrS1, 0x00010001) || !write(kImrS2, 1))
+            !write(kImrS1, kDefaultImrS1) || !write(kImrS2, 1))
         {
             fault(kIOReturnIOError);
             return kIOReturnIOError;
@@ -358,7 +585,7 @@ namespace simpleath
         {
             if (!write(slot < kRxSlots / 2 ? kHighReceivePointer
                                            : kLowReceivePointer,
-                       memory_->receive.bus + slot * kBufferStride))
+                       memory_->receive.bus + (slot * kBufferStride)))
             {
                 fault(kIOReturnIOError);
                 return kIOReturnIOError;
@@ -399,34 +626,57 @@ namespace simpleath
     {
         if (!gated() || phase_ != NativeQueuePhase::Running ||
             !callbacks_.radioReady(callbacks_.context, epoch_))
+        {
             return kIOReturnNotReady;
+        }
         if (txPending_ || nextDescriptorId_ == 0)
+        {
             return kIOReturnNoResources;
-        if (!frame || bytes < 10 || bytes > 2342 || !token)
+        }
+        if ((frame == nullptr) || bytes < kMinimumMpduBytes ||
+            bytes > kMaximumMpduBytes || (token == 0U))
+        {
             return kIOReturnBadArgument;
+        }
         edma::TxDescriptor descriptor {};
         edma::TxPointerBlock pointers {};
         pointers.segmentCount = 1;
         pointers.queue = 0;
-        pointers.segment[0] = {memory_->transmit.bus + txSlot_ * kBufferStride,
-                               static_cast<uint16_t>(bytes)};
+        pointers.segment[0] = {
+            memory_->transmit.bus + (txSlot_ * kBufferStride),
+            static_cast<uint16_t>(bytes),
+        };
         if (edma::encodeTxPointers(pointers, descriptor) !=
                 edma::DescriptorError::Ok ||
             edma::encodeTxControls(control, policy, descriptor) !=
                 edma::TxControlError::Ok)
+        {
             return kIOReturnBadArgument;
+        }
         const uint16_t id = nextDescriptorId_;
-        descriptor.word[10] |= static_cast<uint32_t>(id) << 16;
-        memcpy(memory_->transmit.cpu + txSlot_ * kBufferStride, frame, bytes);
-        memcpy(memory_->descriptors.cpu + txSlot_ * edma::kTxDescriptorBytes,
-               &descriptor, sizeof(descriptor));
+        descriptor.word[kTxDescriptorControlWord] |= static_cast<uint32_t>(id)
+                                                     << kTxDescriptorIdShift;
+        uint8_t *const transmit =
+            regionBytesAt(memory_->transmit,
+                          static_cast<size_t>(txSlot_) * kBufferStride, bytes);
+        uint8_t *const descriptorBytes = regionBytesAt(
+            memory_->descriptors,
+            static_cast<size_t>(txSlot_) * edma::kTxDescriptorBytes,
+            sizeof(descriptor));
+        if (transmit == nullptr || descriptorBytes == nullptr)
+        {
+            fault(kIOReturnIOError);
+            return kIOReturnIOError;
+        }
+        memcpy(transmit, frame, bytes);
+        memcpy(descriptorBytes, &descriptor, sizeof(descriptor));
         __sync_synchronize();
         txPending_ = true;
         pendingDescriptorId_ = id;
         txToken_ = token;
         nextDescriptorId_ = static_cast<uint16_t>(nextDescriptorId_ + 1U);
         if (!write(kTxPointer, memory_->descriptors.bus +
-                                   txSlot_ * edma::kTxDescriptorBytes) ||
+                                   (txSlot_ * edma::kTxDescriptorBytes)) ||
             !write(kTxEnable, 1))
         {
             fault(kIOReturnIOError);
@@ -435,53 +685,90 @@ namespace simpleath
         return kIOReturnSuccess;
     }
 
+    NativeQueues::ReceiveStep NativeQueues::processRxSlot(uint32_t queue)
+    {
+        const uint32_t slot =
+            (queue * (kRxSlots / 2U)) + boundedElement(rxHead_, queue);
+        const size_t recordOffset = static_cast<size_t>(slot) * kBufferStride;
+        const uint8_t *const buffer =
+            regionBytesAt(memory_->receive, recordOffset, kBufferStride);
+        const volatile uint32_t *const done =
+            regionWordAt(memory_->receive, recordOffset, kRxStatusDoneWord);
+        if (buffer == nullptr || done == nullptr)
+        {
+            fault(kIOReturnIOError);
+            return ReceiveStep::Stopped;
+        }
+        if ((*done & kDone) == 0U)
+        {
+            return ReceiveStep::QueueEmpty;
+        }
+        __sync_synchronize();
+        edma::RxStatusWords raw {};
+        if (!snapshotStatusWords(memory_->receive, recordOffset, raw))
+        {
+            fault(kIOReturnIOError);
+            return ReceiveStep::Stopped;
+        }
+        const bool more = (raw.word[2] & kRxMore) != 0;
+        const bool drop = boundedElement(droppedChain_, queue) || more;
+        boundedElement(droppedChain_, queue) = more;
+        edma::RxStatus status {};
+        if (!drop &&
+            edma::decodeRxStatus(raw, status) == edma::DescriptorError::Ok &&
+            status.frameValid && status.frameLength <= kReceiveBytes)
+        {
+            const uint8_t *const frame = regionBytesAt(
+                memory_->receive, recordOffset + edma::kRxStatusBytes,
+                status.frameLength);
+            if (frame == nullptr)
+            {
+                fault(kIOReturnIOError);
+                return ReceiveStep::Stopped;
+            }
+            callbacks_.receive(callbacks_.context, frame, status.frameLength,
+                               status);
+        }
+        if (!gated() || phase_ != NativeQueuePhase::Running)
+        {
+            return ReceiveStep::Stopped;
+        }
+        if (!clearStatusWords(memory_->receive, recordOffset, raw))
+        {
+            fault(kIOReturnIOError);
+            return ReceiveStep::Stopped;
+        }
+        __sync_synchronize();
+        if (!write(queue == 0 ? kHighReceivePointer : kLowReceivePointer,
+                   memory_->receive.bus + (slot * kBufferStride)))
+        {
+            fault(kIOReturnIOError);
+            return ReceiveStep::Stopped;
+        }
+        uint8_t &head = boundedElement(rxHead_, queue);
+        head = static_cast<uint8_t>((head + 1U) % (kRxSlots / 2U));
+        return ReceiveStep::Processed;
+    }
+
     void NativeQueues::receiveCompleted()
     {
-        // Process each hardware FIFO in publication order. Scanning buffers
-        // by address can reorder wrapped completions and misidentify a split
-        // frame's tail as an independent MPDU.
-        for (uint32_t queue = 0; queue < 2; ++queue)
+        // Preserve each hardware FIFO's completion order; never scan RX
+        // buffers by their addresses or treat a split-frame tail as an MPDU.
+        for (uint32_t queue = 0; queue < 2U; ++queue)
         {
-            for (uint32_t budget = 0;
-                 budget < kRxSlots / 2 && phase_ == NativeQueuePhase::Running;
+            for (uint32_t budget = 0U;
+                 budget < kRxSlots / 2U && phase_ == NativeQueuePhase::Running;
                  ++budget)
             {
-                const uint32_t slot = queue * (kRxSlots / 2) + rxHead_[queue];
-                auto *buffer = memory_->receive.cpu + slot * kBufferStride;
-                auto *words = reinterpret_cast<volatile uint32_t *>(buffer);
-                if (!(words[11] & kDone))
+                const ReceiveStep step = processRxSlot(queue);
+                if (step == ReceiveStep::QueueEmpty)
+                {
                     break;
-                __sync_synchronize();
-                edma::RxStatusWords raw {};
-                for (size_t i = 0; i < edma::kRxStatusWordCount; ++i)
-                    raw.word[i] = words[i];
-                const bool more = (raw.word[2] & kRxMore) != 0;
-                const bool drop = droppedChain_[queue] || more;
-                droppedChain_[queue] = more;
-                edma::RxStatus status {};
-                if (!drop &&
-                    edma::decodeRxStatus(raw, status) ==
-                        edma::DescriptorError::Ok &&
-                    status.frameValid && status.frameLength <= kReceiveBytes)
-                {
-                    callbacks_.receive(callbacks_.context,
-                                       buffer + edma::kRxStatusBytes,
-                                       status.frameLength, status);
                 }
-                if (!gated() || phase_ != NativeQueuePhase::Running)
-                    return;
-                for (size_t i = 0; i < edma::kRxStatusWordCount; ++i)
-                    words[i] = 0;
-                __sync_synchronize();
-                if (!write(queue == 0 ? kHighReceivePointer
-                                      : kLowReceivePointer,
-                           memory_->receive.bus + slot * kBufferStride))
+                if (step == ReceiveStep::Stopped)
                 {
-                    fault(kIOReturnIOError);
                     return;
                 }
-                rxHead_[queue] = static_cast<uint8_t>((rxHead_[queue] + 1U) %
-                                                      (kRxSlots / 2));
             }
         }
     }
@@ -490,18 +777,30 @@ namespace simpleath
     {
         for (uint32_t budget = 0; budget < kTxSlots; ++budget)
         {
-            auto *words = reinterpret_cast<volatile uint32_t *>(
-                memory_->completions.cpu +
-                completionHead_ * edma::kTxCompletionBytes);
-            if (!(words[8] & kDone))
+            const size_t recordOffset =
+                static_cast<size_t>(completionHead_) * edma::kTxCompletionBytes;
+            const volatile uint32_t *const done = regionWordAt(
+                memory_->completions, recordOffset, kTxStatusDoneWord);
+            if (done == nullptr)
+            {
+                fault(kIOReturnIOError);
                 return;
+            }
+            if ((*done & kDone) == 0U)
+            {
+                return;
+            }
             __sync_synchronize();
             edma::TxCompletionWords raw {};
-            for (size_t i = 0; i < edma::kTxCompletionWordCount; ++i)
-                raw.word[i] = words[i];
+            if (!snapshotStatusWords(memory_->completions, recordOffset, raw))
+            {
+                fault(kIOReturnIOError);
+                return;
+            }
             edma::TxCompletion status {};
             if (!txPending_ ||
-                static_cast<uint16_t>(raw.word[1] >> 16) !=
+                static_cast<uint16_t>(raw.word[kTxStatusIdentifierWord] >>
+                                      kTxDescriptorIdShift) !=
                     pendingDescriptorId_ ||
                 edma::decodeTxCompletion(raw, status) !=
                     edma::DescriptorError::Ok ||
@@ -510,8 +809,11 @@ namespace simpleath
                 fault(kIOReturnIOError);
                 return;
             }
-            for (size_t i = 0; i < edma::kTxCompletionWordCount; ++i)
-                words[i] = 0;
+            if (!clearStatusWords(memory_->completions, recordOffset, raw))
+            {
+                fault(kIOReturnIOError);
+                return;
+            }
             __sync_synchronize();
             completionHead_ =
                 static_cast<uint16_t>((completionHead_ + 1U) % kTxSlots);
@@ -522,15 +824,21 @@ namespace simpleath
             txSlot_ = static_cast<uint16_t>((txSlot_ + 1U) % kTxSlots);
             callbacks_.transmitted(callbacks_.context, token, status);
             if (!gated() || phase_ != NativeQueuePhase::Running)
+            {
                 return;
+            }
         }
     }
 
     void NativeQueues::serviceInterruptGated()
     {
         if (!gated() || phase_ != NativeQueuePhase::Running)
+        {
             return;
-        uint32_t async = 0, sync = 0, isr = 0;
+        }
+        uint32_t async = 0;
+        uint32_t sync = 0;
+        uint32_t isr = 0;
         if (!read(kAsyncCause, async) || !read(kSyncCause, sync))
         {
             fault(kIOReturnIOError);
@@ -541,20 +849,21 @@ namespace simpleath
             fault(kIOReturnIOError);
             return;
         }
-        if (sync & kFatalSync)
+        if ((sync & kFatalSync) != 0U)
         {
             write(kSyncCause, sync & kFatalSync);
             fault(kIOReturnIOError);
             return;
         }
-        if (async & kMacInterrupt)
+        if ((async & kMacInterrupt) != 0U)
         {
             if (!read(kIsr, isr))
             {
                 fault(kIOReturnIOError);
                 return;
             }
-            uint32_t s0 = 0, s1 = 0;
+            uint32_t s0 = 0;
+            uint32_t s1 = 0;
             if (!read(kIsrS0, s0) || !read(kIsrS1, s1) || !write(kIsrS0, s0) ||
                 !write(kIsrS1, s1) || !write(kIsr, isr))
             {
@@ -563,26 +872,36 @@ namespace simpleath
             }
             transmitCompleted();
             if (phase_ == NativeQueuePhase::Running)
+            {
                 receiveCompleted();
+            }
         }
         if (gated() && phase_ == NativeQueuePhase::Running && !write(kIer, 1))
+        {
             fault(kIOReturnIOError);
+        }
     }
 
     void NativeQueues::fault(IOReturn result)
     {
-        if (interrupt_)
+        if (interrupt_ != nullptr)
+        {
             interrupt_->disable();
+        }
         phase_ = NativeQueuePhase::Quarantined;
         callbacks_.fault(callbacks_.context, result);
     }
 
     bool NativeQueues::stopGated(bool available)
     {
-        if (!loop_ || !loop_->inGate())
+        if ((loop_ == nullptr) || !loop_->inGate())
+        {
             return false;
-        if (interrupt_)
+        }
+        if (interrupt_ != nullptr)
+        {
             interrupt_->disable();
+        }
         if (attached_)
         {
             loop_->removeEventSource(interrupt_);
@@ -590,7 +909,9 @@ namespace simpleath
         }
         if (phase_ == NativeQueuePhase::Empty ||
             phase_ == NativeQueuePhase::Prepared)
+        {
             return true;
+        }
         bool isolated = false;
         if (available && gated())
         {
@@ -603,9 +924,12 @@ namespace simpleath
             masked = write(kSyncEnable, 0) && masked;
             const bool masterOff =
                 callbacks_.setBusMaster(callbacks_.context, false);
-            const RegisterBus bus {callbacks_.context, callbacks_.read32,
-                                   callbacks_.write32,
-                                   callbacks_.barLengthBytes};
+            const RegisterBus bus {
+                callbacks_.context,
+                callbacks_.read32,
+                callbacks_.write32,
+                callbacks_.barLengthBytes,
+            };
             const bool stopped =
                 quiesceAr9565Mac(bus, callbacks_.delayMicros) ==
                 MacStopResult::Ok;
@@ -619,25 +943,35 @@ namespace simpleath
 
     IOReturn NativeQueues::releaseClient()
     {
-        if (loop_ && (loop_->inGate() || loop_->onThread()))
+        if ((loop_ != nullptr) && (loop_->inGate() || loop_->onThread()))
+        {
             return kIOReturnNotPermitted;
+        }
         if (attached_ || phase_ == NativeQueuePhase::Running ||
             phase_ == NativeQueuePhase::Quarantined)
+        {
             return kIOReturnBusy;
-        if (interrupt_)
+        }
+        if (interrupt_ != nullptr)
         {
             interrupt_->release();
             interrupt_ = nullptr;
         }
-        if (memory_)
+        if (memory_ != nullptr)
         {
-            IOReturn result = memory_->completions.release();
+            IOReturn result = releaseCoherentRegion(memory_->completions);
             if (result == kIOReturnSuccess)
-                result = memory_->receive.release();
+            {
+                result = releaseCoherentRegion(memory_->receive);
+            }
             if (result == kIOReturnSuccess)
-                result = memory_->transmit.release();
+            {
+                result = releaseCoherentRegion(memory_->transmit);
+            }
             if (result == kIOReturnSuccess)
-                result = memory_->descriptors.release();
+            {
+                result = releaseCoherentRegion(memory_->descriptors);
+            }
             if (result != kIOReturnSuccess)
             {
                 phase_ = NativeQueuePhase::Quarantined;
@@ -653,19 +987,19 @@ namespace simpleath
         pendingDescriptorId_ = txSlot_ = completionHead_ = 0;
         droppedChain_[0] = droppedChain_[1] = false;
         phase_ = NativeQueuePhase::Empty;
-        if (pci_)
+        if (pci_ != nullptr)
         {
             pci_->release();
             pci_ = nullptr;
         }
-        if (loop_)
+        if (loop_ != nullptr)
         {
             loop_->release();
             loop_ = nullptr;
         }
-        if (owner_)
+        if (owner_ != nullptr)
         {
-            auto *owner = owner_;
+            const auto *owner = owner_;
             owner_ = nullptr;
             owner->release();
         }

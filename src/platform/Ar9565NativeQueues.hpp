@@ -45,6 +45,8 @@ namespace simpleath
             ~NativeQueues();
             NativeQueues(const NativeQueues &) = delete;
             NativeQueues &operator=(const NativeQueues &) = delete;
+            NativeQueues(NativeQueues &&) = delete;
+            NativeQueues &operator=(NativeQueues &&) = delete;
             // May block: caller retains its operation and invokes this outside
             // the work loop/gate. Serializes client calls with its lifecycle
             // lock.
@@ -85,6 +87,13 @@ namespace simpleath
             bool read(uint32_t offset, uint32_t &value) const;
             bool write(uint32_t offset, uint32_t value) const;
             void fault(IOReturn result);
+            enum class ReceiveStep : uint8_t
+            {
+                Processed,
+                QueueEmpty,
+                Stopped,
+            };
+            ReceiveStep processRxSlot(uint32_t queue);
             void receiveCompleted();
             void transmitCompleted();
             IOService *owner_ {nullptr};
