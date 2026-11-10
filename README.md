@@ -101,21 +101,29 @@ Supporting design references include [AR9565 bring-up](docs/design/AR9565-BRINGU
 [native IO80211 research](docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md)
 and [recovery status](docs/design/STATUS-AND-RECOVERY.md).
 
-Bluetooth may be a separate chipset on the Dell; **AirDrop also depends
-on Bluetooth and macOS Continuity compatibility**. Neither Bluetooth
-nor AirDrop can be guaranteed solely by writing an AR9565 Wi-Fi kext.
-Both remain goals of the owner-controlled final experimental cycle.
+The target QCA9565/Dell Wireless 1707 is a **combined Wi-Fi and Bluetooth
+4.0 chip**, not an assumed separate Bluetooth chipset. Qualcomm documents
+the combined silicon, and Dell lists both functions for the Inspiron 5567:
+[Qualcomm QCA9565](https://www.qualcomm.com/networking-infrastructure/products/qca9565),
+[Dell DW1707/QCA9565 driver](https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=g66t8).
+
+The functions still have separate host transports and software ownership:
+PCIe WLAN, and USB Bluetooth HCI with its firmware/transport integration.
+A working WLAN path does not by itself implement Bluetooth. Likewise,
+AirDrop requires BLE discovery and Apple's peer-to-peer Wi-Fi/AWDL path,
+not only association with an access point:
+[Apple AirDrop security](https://support.apple.com/en-ie/guide/security-pdf/sec2261183f4/web).
+Implement and integrate those required paths; shared silicon is neither
+proof of automatic support nor evidence that support is impossible.
+Bluetooth/coexistence and AirDrop remain required project goals, with
+observed notebook results recorded in the owner-controlled final test cycle.
 
 ## Build for macOS testing
 
-From the repository root on an Intel Mac with Xcode and the pinned SDK:
-
-```sh
-python3 tools/bootstrap_sdk.py
-xcodebuild -project src/platform/SimpleATH.xcodeproj -target SimpleATH \
-  -configuration Release SYMROOT="$PWD/build/Products" \
-  OBJROOT="$PWD/build/Objects" CODE_SIGNING_ALLOWED=NO build
-```
+Kernel artifacts are compiled through the owner-authorized `build-v*` tag
+workflow after successful CI for that exact commit. The workflow uses the
+pinned SDK and Intel macOS toolchain. Local commands must not bypass the CI
+gate or substitute for an authorized build tag.
 
 The unsigned bundle is `build/Products/Release/SimpleATH.kext`. It now runs
 PCI claim/map, physical silicon inspection, MAC quiescence, RTC bootstrap and

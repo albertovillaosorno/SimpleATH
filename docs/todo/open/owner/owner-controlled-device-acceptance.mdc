@@ -57,7 +57,8 @@ unobserved result or a promise that static review proves first-run success.
 - [ ] Observe 2.4 GHz scanning, actual WPA2 association, DHCP/DNS/TCP traffic,
       reconnect after sleep, legal transmit-power constraints and no kernel
       panic during the owner-authorized runs; record limits and failures.
-- [ ] Identify and verify Bluetooth hardware and coexistence separately.
+- [ ] Verify the QCA9565 combo chip's Bluetooth USB HCI/firmware integration
+      and Wi-Fi/Bluetooth coexistence; record the actual USB identity.
 - [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible Apple devices.
 - [ ] Owner posts actual results here; agents coordinate code fixes in their chat
       and commit directly to main, iterating only with new owner permission.
@@ -78,4 +79,14 @@ wait for indefinite hardening to finish before authorized testing.
 
 - Actual notebook evidence is supplied by the owner during the authorized loop.
 - After authorization: owner-run device diagnostics and observed behavior.
-- AirDrop/Bluetooth depend on distinct hardware and Continuity compatibility.
+- QCA9565/DW1707 combines Wi-Fi and Bluetooth 4.0; it does not imply a
+  separate Bluetooth chipset. Qualcomm documents the combo chip and Dell
+  G66T8 lists both functions and Inspiron 5567 support:
+  https://www.qualcomm.com/networking-infrastructure/products/qca9565
+  https://www.dell.com/support/home/en-us/drivers/driversdetails?driverid=g66t8
+- Separate PCIe WLAN and USB Bluetooth HCI/firmware paths must be integrated.
+  Do not infer a notebook's USB VID/PID solely from its WLAN PCI ID.
+- AirDrop requires BLE plus Apple's peer-to-peer Wi-Fi/AWDL path; ordinary
+  access-point connectivity does not implement that protocol. Neither a
+  hardware impossibility nor successful AirDrop has been established:
+  https://support.apple.com/en-ie/guide/security-pdf/sec2261183f4/web

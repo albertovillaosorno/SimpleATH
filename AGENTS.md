@@ -60,9 +60,14 @@ honestly rather than marking an unavailable native interface complete.
 Hardware deployment and testing require explicit owner authorization. The owner will physically test the
 Dell and share diagnostics in THIS ChatGPT conversation. Agents use
 their existing coordination chat to discuss source fixes; source
-changes will continue until the owner is satisfied. Bluetooth and
-AirDrop have separate hardware/Continuity dependencies and cannot
-be guaranteed from AR9565 source analysis alone.
+changes will continue until the owner is satisfied. The target QCA9565/DW1707
+is a combined Wi-Fi/Bluetooth 4.0 chip (Qualcomm product documentation and
+Dell G66T8 support the Inspiron 5567). Do not describe Bluetooth as an
+assumed separate chipset. WLAN PCIe and Bluetooth USB HCI/firmware still
+require their respective integrations, and AirDrop requires BLE plus Apple's
+peer-to-peer Wi-Fi/AWDL path. Implement those paths as required goals;
+ordinary WLAN connectivity or shared silicon does not establish their
+completion. See the linked primary evidence in README.md.
 
 ## Collaboration: direct main only, absolutely no PRs
 
