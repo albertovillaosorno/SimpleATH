@@ -186,6 +186,14 @@ namespace
     bool osOwnedWpa2SelectsExactObservedBssid()
     {
         using namespace simpleath::ieee80211;
+        constexpr size_t kAuthenticationResponseBytes = 30U;
+        constexpr uint8_t kAuthenticationResponseControl = 0xb0U;
+        constexpr uint8_t kTestChannel = 6U;
+        constexpr int8_t kLateResponseRssi = -20;
+        constexpr int8_t kStrongerRssi = -21;
+        constexpr uint64_t kLateResponseMs = 203U;
+        constexpr uint64_t kFreshBeaconMs = 204U;
+        constexpr uint64_t kStoppedMs = 205U;
         constexpr uint8_t rsnIe[22] {
             48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
             0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
@@ -289,13 +297,43 @@ namespace
         {
             return false;
         }
-        native.radioStopped(202, true);
-        if (native.osSupplicantOwnsWpa2() ||
-            native.stationState() != StationState::Inactive)
+        // A native leave during authentication must NOT construct a
+        // disassociation for a link which has never associated. The owner
+        // first drains any pending physical management TX, then cancels only
+        // the selected candidate. A late AP response is no longer applicable.
+        if (native.cancelPendingJoin() != EngineResult::Ok ||
+            native.cancelPendingJoin() != EngineResult::InvalidState ||
+            native.osSupplicantOwnsWpa2() ||
+            native.stationState() != StationState::Inactive ||
+            native.startScan(true, true) != EngineResult::Ok)
         {
             return false;
         }
-        return true;
+        uint8_t staleAuth[kAuthenticationResponseBytes] {};
+        staleAuth[0] = kAuthenticationResponseControl;
+        if (native.acceptRx(&staleAuth[0], sizeof(staleAuth), verified,
+                            {kLateResponseRssi, kLateResponseMs}, nullptr, 0,
+                            action) != EngineResult::NoAction ||
+            action.kind != ActionKind::None ||
+            native.stationState() != StationState::Scanning)
+        {
+            return false;
+        }
+        if (native.acceptRx(&advertisement[0], sizeof(advertisement), verified,
+                            {kStrongerRssi, kFreshBeaconMs}, nullptr, 0,
+                            action) != EngineResult::Ok ||
+            native.chooseNetworkForOsSupplicant(station, stronger, &ssid[0],
+                                                sizeof(ssid), kTestChannel,
+                                                true) != EngineResult::Ok ||
+            native.stationState() != StationState::CandidateSelected ||
+            native.cancelPendingJoin() != EngineResult::Ok ||
+            native.startScan(true, true) != EngineResult::Ok)
+        {
+            return false;
+        }
+        native.radioStopped(kStoppedMs, true);
+        return !native.osSupplicantOwnsWpa2() &&
+               native.stationState() == StationState::Inactive;
     }
 
     bool preferCompatibleAssociationRates()

@@ -564,6 +564,25 @@ namespace simpleath
             return EngineResult::Ok;
         }
 
+        EngineResult WifiEngine::cancelPendingJoin()
+        {
+            const StationState state = station_.state();
+            if (!selected_ ||
+                (state != StationState::CandidateSelected &&
+                 state != StationState::AuthenticationFramePrepared &&
+                 state != StationState::Authenticated &&
+                 state != StationState::AssociationFramePrepared))
+            {
+                return EngineResult::InvalidState;
+            }
+            // Do not invalidate the physical channel or retained, verified
+            // scan results. A later scan request explicitly clears the cache.
+            // A delayed AP response after cancellation cannot match the
+            // station state because the candidate and security owner are gone.
+            abandonCandidate();
+            return EngineResult::Ok;
+        }
+
         void WifiEngine::abandonCandidate()
         {
             // AP rejection can occur on a still-running radio. Forget only

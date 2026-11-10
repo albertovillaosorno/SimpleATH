@@ -16,6 +16,7 @@
 #include "wifi/DataPath.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
+#include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
 #include "wifi/crypto/Ccmp.hpp"
 #include <IOKit/IOCommandGate.h>
@@ -470,6 +471,34 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<SimpleATH *>(object);
             const uint16_t reason = *static_cast<const uint16_t *>(argument);
             const auto link = self.engine_.linkStatus();
+            const auto station = self.engine_.stationState();
+            if (station ==
+                    simpleath::ieee80211::StationState::CandidateSelected ||
+                station == simpleath::ieee80211::StationState::
+                               AuthenticationFramePrepared ||
+                station == simpleath::ieee80211::StationState::Authenticated ||
+                station == simpleath::ieee80211::StationState::
+                               AssociationFramePrepared)
+            {
+                // A leave before association has no 802.11 disassociation
+                // peer to address. Wait for an already submitted management
+                // frame to retire, then forget the provisional station; its
+                // late AP reply must not revive a cancelled connection.
+                if (self.queues_.phase() ==
+                        simpleath::NativeQueuePhase::Running &&
+                    !self.queues_.hasTransmitSpace())
+                {
+                    return kIOReturnBusy;
+                }
+                if (self.engine_.cancelPendingJoin() !=
+                    simpleath::ieee80211::EngineResult::Ok)
+                {
+                    return kIOReturnNotReady;
+                }
+                self.controlledPortAuthorized_ = false;
+                self.notifyWirelessChange(false);
+                return kIOReturnSuccess;
+            }
             if (link.state != simpleath::ieee80211::LinkState::Associated ||
                 link.pmfNegotiated || !self.canSubmitTransmit())
             {

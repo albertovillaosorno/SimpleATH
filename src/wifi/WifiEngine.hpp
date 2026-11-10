@@ -183,6 +183,12 @@ namespace simpleath
                     const Mac &station, const Mac &bssid, const uint8_t *ssid,
                     size_t ssidLength, uint8_t requestedChannel,
                     bool wpa2Personal);
+                // An OS-initiated leave before an authenticated association
+                // must retire its candidate without emitting a disassociation
+                // frame or pretending RF stopped. The native caller must first
+                // ensure any queued authentication/association TX is drained.
+                // A fully associated link requires the normal leave path.
+                EngineResult cancelPendingJoin();
 
                 bool osSupplicantOwnsWpa2() const
                 {
