@@ -60,6 +60,9 @@ namespace
             bool failControl {};
             bool failDeliver {};
             bool revokeOnDelivery {};
+            bool revokeOnStateRead {};
+            bool revokeOnVersionRead {};
+            bool revokeOnFirmwareDelay {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -80,12 +83,20 @@ namespace
         if (command.request == kReadStateRequest && bytes == 1U)
         {
             *buffer = fake.state;
+            if (fake.revokeOnStateRead)
+            {
+                fake.valid = false;
+            }
             return true;
         }
         if (command.request == kReadVersionRequest &&
             bytes == fake.version.size())
         {
             std::memcpy(buffer, fake.version.data(), bytes);
+            if (fake.revokeOnVersionRead)
+            {
+                fake.valid = false;
+            }
             return true;
         }
         return false;
@@ -147,8 +158,13 @@ namespace
         return false;
     }
 
-    void delay(void * /* context */, uint32_t /* micros */)
+    void delay(void *context, uint32_t /* micros */)
     {
+        auto &fake = *static_cast<UsbFake *>(context);
+        if (fake.revokeOnFirmwareDelay)
+        {
+            fake.valid = false;
+        }
     }
 
     Ath3kIo usbIo(UsbFake &fake)
@@ -280,6 +296,46 @@ namespace
         result = bootstrapAth3kUsb(identity, usbIo(fake));
         return result.result == Ath3kBootResult::IdentityLost &&
                fake.firmwareCalls == 0U;
+    }
+
+    bool testFirmwareOwnershipBoundary()
+    {
+        const Ath3kUsbIdentity identity {
+            kAtherosUsbVendor,
+            kAtherosUsbProduct,
+            1U,
+            0U,
+        };
+        UsbFake fake = newFake();
+        fake.revokeOnStateRead = true;
+        auto result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::ReadState ||
+            fake.firmwareCalls != 0U || fake.vendorWrites != 0U)
+        {
+            return false;
+        }
+
+        fake = newFake();
+        fake.revokeOnVersionRead = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::ReadVersion ||
+            fake.firmwareCalls != 0U || fake.vendorWrites != 0U)
+        {
+            return false;
+        }
+
+        // An owner revoked during a timed firmware gap must not receive
+        // even the first bulk packet after the already-submitted header.
+        fake = newFake();
+        fake.revokeOnFirmwareDelay = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        return result.result == Ath3kBootResult::IdentityLost &&
+               result.phase == Ath3kBootPhase::LoadPatch &&
+               result.requiresUsbReset &&
+               result.firmwareBytesTransferred == kFirmwareHeaderBytes &&
+               fake.vendorWrites == 1U && fake.bulkWrites == 0U;
     }
 
     bool writeCommand(void *context, const uint8_t *packet, size_t bytes)
@@ -1111,6 +1167,11 @@ int main()
     if (!testFirmware())
     {
         return 1;
+    }
+    if (!testFirmwareOwnershipBoundary())
+    {
+        constexpr int kFirmwareOwnershipFailure = 10;
+        return kFirmwareOwnershipFailure;
     }
     if (!testHci())
     {

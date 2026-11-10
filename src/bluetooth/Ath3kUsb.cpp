@@ -112,6 +112,12 @@ namespace simpleath
                    authorized(io);
         }
 
+        Ath3kBootResult readFailureStatus(const Ath3kIo &io)
+        {
+            return authorized(io) ? Ath3kBootResult::UsbTransferFailed
+                                  : Ath3kBootResult::IdentityLost;
+        }
+
         using FirmwareName = UsbBytes<char, kFirmwareNameLength>;
 
         void appendHex32(FirmwareName &name, size_t &cursor, uint32_t value)
@@ -220,6 +226,13 @@ namespace simpleath
                     return false;
                 }
                 io.delayMicros(io.context, kInterChunkDelayMicros);
+                // The delay callback may complete a USB detach or power
+                // transition. Recheck the owner before issuing bulk I/O.
+                if (!authorized(io))
+                {
+                    progress.result = Ath3kBootResult::IdentityLost;
+                    return false;
+                }
                 const size_t remaining = image.size - cursor;
                 const size_t chunk =
                     remaining < kBulkChunkBytes ? remaining : kBulkChunkBytes;
@@ -353,14 +366,14 @@ namespace simpleath
         uint8_t state = 0;
         if (!readState(io, state))
         {
-            progress.result = Ath3kBootResult::UsbTransferFailed;
+            progress.result = readFailureStatus(io);
             return progress;
         }
         progress.phase = Ath3kBootPhase::ReadVersion;
         UsbBytes<uint8_t, kVersionSize> version {};
         if (!readVersion(io, version))
         {
-            progress.result = Ath3kBootResult::UsbTransferFailed;
+            progress.result = readFailureStatus(io);
             return progress;
         }
         const FirmwareVersion boardVersion {
