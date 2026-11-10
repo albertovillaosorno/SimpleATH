@@ -120,6 +120,27 @@ proof of automatic support nor evidence that support is impossible.
 Bluetooth/coexistence and AirDrop remain required project goals, with
 observed notebook results recorded in the owner-controlled final test cycle.
 
+## Runtime diagnostics and crash symbols
+
+The authorized build workflow selects the optimized Release configuration with separately
+preserved `SimpleATH.kext.dSYM` symbols. The authorized build workflow requires
+the kernel and dSYM UUID/architecture to match and archives both after the
+mandatory validation gate. Runtime diagnostics use the same compiled driver:
+
+- `simpleathdbg=1` or `-simpleathdbg` enables detailed startup state logs.
+- `simpleathdbg=0` forces normal logging, including essential failures.
+- With no override, a valid OpenCore `DBG` or `NPT` identifier exposed through
+  its `opencore-version` NVRAM property selects detailed logging. Release,
+  hidden, missing or malformed metadata selects normal logging.
+
+This reads exported boot metadata without mounting EFI or opening OpenCore's
+`config.plist`. It detects OpenCore's build type, not its `Misc/Debug/Target`
+logging bitmask. Selection never changes driver features, RF authorization,
+compiler optimizations or readiness. `SimpleATHDiagnosticsDetailed` and
+`SimpleATHDiagnosticsSource` report the decision in the driver's registry.
+Source: [OpenCore build identifiers](https://github.com/acidanthera/OpenCorePkg/blob/master/Include/Acidanthera/Library/OcMainLib.h)
+and [OpenCore exported NVRAM configuration](https://github.com/acidanthera/OpenCorePkg/blob/master/Docs/Configuration.tex).
+
 ## Manual macOS debugging
 
 Open `tools/debug/SimpleATH-debug.command` in Finder, or run it in Terminal:

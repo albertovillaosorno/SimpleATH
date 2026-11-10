@@ -201,3 +201,34 @@ A current native Tahoe reference, AirportMtkWlan at commit
 controller/InfraProtocol/WCL architecture. It was consulted as API research;
 its GPLv2 implementation and headers were not copied into the driver.
 https://github.com/Arxusion/AirportMtkWlan/tree/37aa87eecf9fd2246c0f4ef9879416afa396a105
+
+## Native work queue and CoreCapture integration — 2026-11-10
+
+`SimpleATHTahoeController` now overrides `createWorkQueue` and `getWorkQueue`
+with the native `IO80211WorkQueue::workQueue()` factory. Static inspection of
+the exact 25G332 IO80211Family shows the superclass implementations return
+false and null, while `createWorkLoop` and `getWorkLoop` delegate to those
+virtual slots. The native queue must therefore precede CoreCapture/WCL startup.
+
+The ordinary target now includes `TahoeCapture.cpp`: native factories create
+three CoreCapture pipes, a CCLogStream, a CCDataStream, a CCFaultReporter and
+the IO80211/CommonFaultReporter wrapper. The callbacks no longer return null
+throughout a successful controller lifetime. Pipe outputs remain optional:
+25G332 `IO80211Controller::getDriverTextLog()` calls `getLogPipes` with only
+the first output supplied. Factory-returned objects retain their real native
+OSObject prefix/metaclass; no private CC object is allocated by guessed size.
+Partial setup unwinds consumers before streams and pipes, and normal teardown
+keeps capture/queue resources alive until native superclass stop completes.
+
+The independently declared factory labels and option offsets were checked
+against the KDK's IO80211Family UUID
+`4C2B4969-2B92-3646-9512-C1769BE0F9A4` and selected corecapture SHA-256
+`8c9900f9a82de85191cfd26db882cdef0a4aeef2e99744d2922c2720cc529651`. The
+buffer sizes consumed by native option readers are 0x350 (pipe) and 0x358
+(stream). `com.apple.driver.corecapture` 1.0 is a direct bundle dependency.
+No Apple executable or headers are copied into the repository.
+
+These are source/ABI observations and real startup calls, not native runtime
+validation or completion of the missing InfraProtocol registration, WCL
+request/event dispatcher, Skywalk packet ownership and radio activation.
+Those requirements remain open. No kext build, load or physical test ran.

@@ -3,6 +3,7 @@
 #ifndef SIMPLEATH_TAHOE_CONTROLLER_HPP
 #define SIMPLEATH_TAHOE_CONTROLLER_HPP
 
+#include "TahoeCapture.hpp"
 #include "TahoeControllerABI.hpp"
 #include "TahoeWirelessTransport.hpp"
 
@@ -46,6 +47,10 @@ class SimpleATHTahoeController final : public IO80211Controller
         void free() override;
 
     public:
+        bool createWorkQueue() override;
+        IO80211WorkQueue *getWorkQueue() const override;
+        bool getLogPipes(CCPipe **logs, CCPipe **data,
+                         CCPipe **snapshots) override;
         bool isCommandProhibited(int command) override;
         IOReturn getHardwareAddress(IOEthernetAddress *out) override;
         IOReturn getDriverVersion(IO80211SkywalkInterface * /*unused*/,
@@ -90,6 +95,8 @@ class SimpleATHTahoeController final : public IO80211Controller
 
     private:
         simpleath::tahoe::TahoeWirelessTransport transport_;
+        simpleath::tahoe::TahoeCapture capture_;
+        IO80211WorkQueue *workQueue_ {nullptr};
         bool started_ {false};
 };
 #endif

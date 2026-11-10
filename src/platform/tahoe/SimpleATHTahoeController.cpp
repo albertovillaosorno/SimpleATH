@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "SimpleATHTahoeController.hpp"
+#include "diagnostics/NativeDiagnostics.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeControllerABI.hpp"
 #include "wifi/LegacyScanBridge.hpp"
 #include <IOKit/80211/apple80211_var.h>
+#include <IOKit/IOLib.h>
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/network/IOEthernetController.h>
@@ -80,18 +82,48 @@ bool SimpleATHTahoeController::start(IOService *provider)
     {
         return false;
     }
+    const auto diagnostics = simpleath::readNativeDiagnostics();
+    simpleath::publishNativeDiagnostics(this, diagnostics);
     // Require an actual PCI epoch, radio owner and callback contract before
     // allowing the native superclass to publish any interface state.
     if (transport_.bind(provider) != kIOReturnSuccess)
     {
+        setProperty("SimpleATHNativeFailureStage", "ProviderBind");
+        return false;
+    }
+    // Native createWorkQueue/getWorkQueue base implementations are false/null
+    // in 25G332. Supply the actual IO80211 queue before CoreCapture or WCL
+    // starts: an ordinary IOWorkLoop is not a compatible replacement.
+    if (!createWorkQueue())
+    {
+        setProperty("SimpleATHNativeFailureStage", "WorkQueue");
+        transport_.unbind();
+        return false;
+    }
+    if (!capture_.start(this, workQueue_))
+    {
+        setProperty("SimpleATHNativeFailureStage", "CoreCapture");
+        transport_.unbind();
+        capture_.stop();
         return false;
     }
     if (!IO80211Controller::start(provider))
     {
+        setProperty("SimpleATHNativeFailureStage", "IO80211Start");
+        // The superclass may have constructed WCL event sources before a
+        // later stage failed. Retire those while logging/queue remain valid.
+        IO80211Controller::stop(provider);
         transport_.unbind();
+        capture_.stop();
         return false;
     }
     started_ = true;
+    removeProperty("SimpleATHNativeFailureStage");
+    if (diagnostics.detailed)
+    {
+        IOLog("SimpleATH debug: native IO80211 queue, capture and fault "
+              "reporter started\n");
+    }
     return true;
 }
 
@@ -103,12 +135,39 @@ void SimpleATHTahoeController::stop(IOService *provider)
         IO80211Controller::stop(provider);
     }
     transport_.unbind();
+    capture_.stop();
 }
 
 void SimpleATHTahoeController::free()
 {
     transport_.unbind();
+    capture_.stop();
+    if (workQueue_ != nullptr)
+    {
+        workQueue_->release();
+        workQueue_ = nullptr;
+    }
     IO80211Controller::free();
+}
+
+bool SimpleATHTahoeController::createWorkQueue()
+{
+    if (workQueue_ == nullptr)
+    {
+        workQueue_ = IO80211WorkQueue::workQueue();
+    }
+    return workQueue_ != nullptr;
+}
+
+IO80211WorkQueue *SimpleATHTahoeController::getWorkQueue() const
+{
+    return workQueue_;
+}
+
+bool SimpleATHTahoeController::getLogPipes(CCPipe **logs, CCPipe **data,
+                                           CCPipe **snapshots)
+{
+    return capture_.pipes(logs, data, snapshots);
 }
 
 bool SimpleATHTahoeController::isCommandProhibited(int command)
@@ -271,12 +330,12 @@ int32_t SimpleATHTahoeController::handleCardSpecific(
 
 CCLogStream *SimpleATHTahoeController::getLogger() const
 {
-    return nullptr;
+    return capture_.logger();
 }
 
 CommonFaultReporter *SimpleATHTahoeController::getFaultReporterFromDriver()
 {
-    return nullptr;
+    return capture_.faultReporter();
 }
 
 IOReturn

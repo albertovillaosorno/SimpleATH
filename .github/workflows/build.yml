@@ -66,10 +66,17 @@ jobs:
           tail -n 18 build-xcode.log
 
       - name: Verify actual build bundle
+        shell: bash
         run: |
           test -s build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
           file build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH
           plutil -p build/Products/Release/SimpleATH.kext/Contents/Info.plist
+          test -d build/Products/Release/SimpleATH.kext.dSYM
+          xcrun dwarfdump --uuid build/Products/Release/SimpleATH.kext/Contents/MacOS/SimpleATH | awk '$1 == "UUID:" {print $2, $3}' > kernel-uuid.txt
+          xcrun dwarfdump --uuid build/Products/Release/SimpleATH.kext.dSYM | awk '$1 == "UUID:" {print $2, $3}' > symbols-uuid.txt
+          test -s kernel-uuid.txt
+          test -s symbols-uuid.txt
+          diff -u kernel-uuid.txt symbols-uuid.txt
 
       - name: Preserve kernel build artifacts and failure logs
         if: always()
@@ -78,6 +85,9 @@ jobs:
           name: SimpleATH-Intel-${{ github.ref_name }}
           path: |
             build/Products/Release/SimpleATH.kext/**
+            build/Products/Release/SimpleATH.kext.dSYM/**
+            kernel-uuid.txt
+            symbols-uuid.txt
             build-xcode.log
           if-no-files-found: warn
           retention-days: 1

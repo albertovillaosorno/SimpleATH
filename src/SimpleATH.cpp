@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "diagnostics/NativeDiagnostics.hpp"
 #include "hardware/Ar9003Descriptors.hpp"
 #include "hardware/Ar9003TxControl.hpp"
 #include "hardware/Ar9565Calibration.hpp"
@@ -148,6 +149,8 @@ class SimpleATH final : public IOService
                 IOMalloc(simpleath::kAr9565EepromScratchBytes));
             if (!storage_ || !scratch_)
                 return failStart(provider, "NVMStorage", kIOReturnNoMemory);
+            diagnostics_ = simpleath::readNativeDiagnostics();
+            simpleath::publishNativeDiagnostics(this, diagnostics_);
             setProperty("SimpleATHMode", "NativeAR9565");
             setProperty("SimpleATHDriverReady", false);
             PMinit();
@@ -1892,6 +1895,13 @@ class SimpleATH final : public IOService
         {
             setProperty("SimpleATHStartupStage", name);
             IOLog("SimpleATH: %s\n", name);
+            if (diagnostics_.detailed)
+            {
+                IOLog("SimpleATH debug: epoch=%llu powered=%u quiesced=%u "
+                      "DMA=%u radio=%u channel=%u\n",
+                      epoch_, powered_, enginesQuiesced_, queuesAdopted_,
+                      radioOperational_, channelAuthorized_);
+            }
         }
 
         IOReturn error(const char *name, uint32_t detail)
@@ -2255,6 +2265,7 @@ class SimpleATH final : public IOService
             started_ = false;
         }
 
+        simpleath::DiagnosticSelection diagnostics_ {};
         RegisterAccess access_ {nullptr};
         IOLock *lifecycle_ {nullptr};
         // Independent of the PCI gate to permit synchronous unsubscribe

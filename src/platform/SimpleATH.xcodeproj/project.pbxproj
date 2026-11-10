@@ -14,6 +14,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        00000000000000000000D720 /* TahoeCapture.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D721 /* TahoeCapture.cpp */; };
 		00000000000000000000D700 /* SimpleATHTahoeController.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D702 /* SimpleATHTahoeController.cpp */; };
 		00000000000000000000D701 /* TahoeWirelessTransport.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D704 /* TahoeWirelessTransport.cpp */; };
 		00000000000000000000D610 /* Ath3kUsb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D620 /* Ath3kUsb.cpp */; };
@@ -77,6 +78,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        00000000000000000000D721 /* TahoeCapture.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/TahoeCapture.cpp; sourceTree = "<group>"; };
+        00000000000000000000D722 /* TahoeCapture.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/tahoe/TahoeCapture.hpp; sourceTree = "<group>"; };
 		00000000000000000000D702 /* SimpleATHTahoeController.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/SimpleATHTahoeController.cpp; sourceTree = "<group>"; };
 		00000000000000000000D703 /* SimpleATHTahoeController.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/tahoe/SimpleATHTahoeController.hpp; sourceTree = "<group>"; };
 		00000000000000000000D704 /* TahoeWirelessTransport.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/tahoe/TahoeWirelessTransport.cpp; sourceTree = "<group>"; };
@@ -214,6 +217,8 @@
 				000000000000000000000064 /* SimpleATH.cpp */,
 				00000000000000000000D702 /* SimpleATHTahoeController.cpp */,
 				00000000000000000000D703 /* SimpleATHTahoeController.hpp */,
+                00000000000000000000D721 /* TahoeCapture.cpp */,
+                00000000000000000000D722 /* TahoeCapture.hpp */,
 				00000000000000000000D704 /* TahoeWirelessTransport.cpp */,
 				00000000000000000000D705 /* TahoeWirelessTransport.hpp */,
 				00000000000000000000D706 /* NativeWirelessOwner.hpp */,
@@ -424,6 +429,7 @@
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
 				00000000000000000000D700 /* SimpleATHTahoeController.cpp in Sources */,
+                00000000000000000000D720 /* TahoeCapture.cpp in Sources */,
 				00000000000000000000D701 /* TahoeWirelessTransport.cpp in Sources */,
 				00000000000000000000D610 /* Ath3kUsb.cpp in Sources */,
 				00000000000000000000D611 /* UsbHci.cpp in Sources */,

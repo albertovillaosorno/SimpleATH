@@ -42,6 +42,7 @@ class IO80211WorkQueue : public IOWorkLoop
         } gMetaClass;
         friend class IO80211WorkQueue::MetaClass;
         const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        static IO80211WorkQueue *workQueue();
         IO80211WorkQueue(const IO80211WorkQueue &) = delete;
         IO80211WorkQueue &operator=(const IO80211WorkQueue &) = delete;
         IO80211WorkQueue(IO80211WorkQueue &&) = delete;

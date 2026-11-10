@@ -505,6 +505,8 @@
 	</dict>
 	<key>OSBundleLibraries</key>
 	<dict>
+		<key>com.apple.driver.corecapture</key>
+		<string>1.0</string>
 		<key>com.apple.iokit.IO80211Family</key>
 		<string>1200.13.1</string>
 		<key>com.apple.iokit.IOUSBHostFamily</key>
