@@ -4,6 +4,7 @@
 #define SIMPLEATH_AWDL_ACTION_HPP
 
 #include "Frames.hpp"
+#include "bluetooth/UsbBytes.hpp"
 #include <cstddef>
 #include <cstdint>
 
@@ -115,6 +116,61 @@ namespace simpleath
         // Alias rejection preserves both the caller's input and output.
         Result makeAwdlAction(const AwdlActionTx &request, uint8_t *output,
                               size_t capacity, size_t &written);
+
+        // A compact, copied MIF snapshot. Only slots whose peer actually
+        // advertises the 2.4 GHz AWDL social channel 6 are exposed; this
+        // is evidence of peer intent, NOT a radio/channel TX grant.
+        struct AwdlNeighbor
+        {
+                Mac source {};
+                Mac syncMaster {};
+                Mac electionMaster {};
+                uint8_t version {};
+                uint8_t deviceClass {};
+                uint16_t awPeriodTu {};
+                uint16_t txDownCounterTu {};
+                uint16_t nextAwSequence {};
+                uint16_t channelSixSlots {};
+                uint32_t masterMetric {};
+                uint32_t masterCounter {};
+                uint32_t ownMetric {};
+                uint32_t ownCounter {};
+                uint64_t lastHeardMs {};
+        };
+
+        // At most 16 peers; no allocation, OS side effects, hardware access
+        // or autonomous timers. The owner must supply a monotonic clock and
+        // FCS-verified RX buffers from the current radio epoch, call clear()
+        // on reset/suspend, and independently authorize every real TX window.
+        // Only structurally complete MIFs with nonzero Version, Sync,
+        // Election-v2 and Channel Sequence TLVs establish peer eligibility.
+        // PSFs never create peers. Valid IPv6 data may refresh existing ones.
+        class AwdlNeighbors
+        {
+            public:
+                static constexpr size_t kCapacity = 16U;
+                static constexpr uint64_t kExpiryMs = 5000U;
+
+                Result observeMif(uint64_t nowMs, const uint8_t *frame,
+                                  size_t bytes);
+                Result observeIpv6(uint64_t nowMs, const uint8_t *frame,
+                                   size_t bytes);
+                bool find(const Mac &source, uint64_t nowMs,
+                          AwdlNeighbor &out) const;
+                void expire(uint64_t nowMs);
+                void clear();
+
+            private:
+                struct Entry
+                {
+                        AwdlNeighbor neighbor {};
+                        bool occupied {};
+                };
+
+                UsbBytes<Entry, kCapacity> entries_ {};
+                uint64_t lastClockMs_ {};
+                bool clockInitialized_ {};
+        };
 
         // Checks 802.11 action subtype, Apple AWDL BSSID/OUI and version,
         // then validates the entire bounded little-endian TLV stream before

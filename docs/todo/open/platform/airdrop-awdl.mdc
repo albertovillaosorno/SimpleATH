@@ -131,3 +131,37 @@ This only produces the outer MPDU framing. The required scheduler still has
 to construct semantically correct election, availability and service TLVs,
 and independently obtain native AWDL host, timing, peer, channel and RF TX
 authorization. This does not grant actual peer discovery or AirDrop readiness.
+
+## Source progress — 2026-11-10: bounded AWDL peer eligibility state
+
+The normal production target's `AwdlAction.{hpp,cpp}` now provides a fixed
+16-neighbor, allocation-free `AwdlNeighbors` table. An observed MIF must
+carry exactly one well-formed nonzero Version (21), Synchronization (4),
+Channel Sequence (18) and Election-v2 (24) TLV; duplicate or incomplete
+required elements do not create a peer. Unknown TLVs remain opaque. The
+parser copies source/master addresses, election metrics/counters, the
+synchronization sequence and 16-slot channel-6 mask. It recognizes simple,
+legacy and operating-class channel encodings, without mistaking advertised
+5 GHz slots for AR9565-supported 2.4 GHz availability. A peer with no
+advertised channel-6 slot has a zero mask and no inferred TX permission.
+
+Only a valid MIF can create/update an entry. A syntactically valid IPv6
+AWDL data MPDU may refresh an existing live neighbor but not create one.
+Entries expire at the exact five-second lifetime boundary, when the
+owner explicitly expires them, or on an epoch/reset `clear()`. Clock
+rollback is refused without extending a session. Malformed input leaves
+eligible peers untouched. The owner must pass FCS-verified RX and a
+monotonic clock; there is no implicit driver/RF callback, election or TX.
+The existing AWDL fixture now exercises copied TLV fields, no-social-slot
+peers, duplicate/missing/invalid required TLVs, PSF rejection, 16-entry
+capacity, time rollback, expiry and IPv6 refresh. Focused C++14/C++17
+ASan+UBSan and direct strict Clang-Tidy passed.
+
+This is a software neighbor-state building block, not operational AWDL:
+no real native RX delivery, radio channel-tune/window scheduler, Apple
+`awdl0` service, BLE-to-AWDL handoff, mDNS or AirDrop peer transfer is
+connected yet. The P0 TODO remains open.
+
+Source for the advertised peer eligibility and five-second timeout:
+https://github.com/t4t5/owly/blob/main/docs/SPEC.md (AWDL-17).
+This independent community protocol draft is not an Apple ABI contract.

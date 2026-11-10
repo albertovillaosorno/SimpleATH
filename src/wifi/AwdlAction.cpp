@@ -506,5 +506,367 @@ namespace simpleath
             };
             return Result::Ok;
         }
+
+        namespace
+        {
+            constexpr uint8_t kTlvSync = 4U;
+            constexpr uint8_t kTlvChannel = 18U;
+            constexpr uint8_t kTlvVersion = 21U;
+            constexpr uint8_t kTlvElectionV2 = 24U;
+            constexpr size_t kVersionBytes = 2U;
+            constexpr size_t kSyncMinBytes = 31U;
+            constexpr size_t kSyncDownCounter = 1U;
+            constexpr size_t kSyncPeriod = 5U;
+            constexpr size_t kSyncMaster = 21U;
+            constexpr size_t kSyncAwSequence = 29U;
+            constexpr size_t kElectionBytes = 40U;
+            constexpr size_t kElectionMaster = 0U;
+            constexpr size_t kElectionCounter = 12U;
+            constexpr size_t kElectionMasterMetric = 20U;
+            constexpr size_t kElectionOwnMetric = 24U;
+            constexpr size_t kElectionOwnCounter = 36U;
+            constexpr size_t kElectionReserved = 28U;
+            constexpr size_t kElectionReservedBytes = 8U;
+            constexpr size_t kChannelPrefix = 6U;
+            constexpr size_t kChannelPadding = 3U;
+            constexpr size_t kChannelCount = 16U;
+            constexpr uint8_t kChannelSimple = 0U;
+            constexpr uint8_t kChannelLegacy = 1U;
+            constexpr uint8_t kChannelOpClass = 3U;
+            constexpr uint8_t kChannelSix = 6U;
+            constexpr uint8_t kChannelSlotCount = 15U;
+            constexpr uint8_t kChannelStepCount = 3U;
+            constexpr uint16_t kAwdlPeriodTu = 16U;
+            constexpr uint16_t kChannelFill = 0xffffU;
+
+            bool validAt(uint64_t nowMs, uint64_t lastHeardMs)
+            {
+                return nowMs >= lastHeardMs &&
+                       nowMs - lastHeardMs < AwdlNeighbors::kExpiryMs;
+            }
+
+            bool allZeros(const uint8_t *bytes, size_t length)
+            {
+                for (size_t offset = 0U; offset < length; ++offset)
+                {
+                    if (*usbByteOffset(bytes, offset) != 0U)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            }
+
+            bool decodeChannelSixSlots(const AwdlTlv &tlv, uint16_t &slotMask)
+            {
+                slotMask = 0U;
+                if (tlv.length < kChannelPrefix + kChannelPadding)
+                {
+                    return false;
+                }
+                const uint8_t *const data = tlv.data;
+                const uint8_t encoding = *usbByteOffset(data, 1U);
+                if (encoding != kChannelSimple && encoding != kChannelLegacy &&
+                    encoding != kChannelOpClass)
+                {
+                    return false;
+                }
+                const size_t slotWidth = encoding == kChannelSimple ? 1U : 2U;
+                const size_t slotsBytes = kChannelCount * slotWidth;
+                const size_t expected =
+                    kChannelPrefix + slotsBytes + kChannelPadding;
+                if (tlv.length != expected ||
+                    *usbByteOffset(data, 0U) != kChannelSlotCount ||
+                    *usbByteOffset(data, 2U) != 0U ||
+                    *usbByteOffset(data, 3U) != kChannelStepCount ||
+                    readLittle16(usbByteOffset(data, 4U)) != kChannelFill ||
+                    !allZeros(usbByteOffset(data, kChannelPrefix + slotsBytes),
+                              kChannelPadding))
+                {
+                    return false;
+                }
+                for (size_t slot = 0U; slot < kChannelCount; ++slot)
+                {
+                    const size_t entry = kChannelPrefix + (slot * slotWidth);
+                    const size_t channelOffset =
+                        entry + (encoding == kChannelLegacy ? 1U : 0U);
+                    if (*usbByteOffset(data, channelOffset) == kChannelSix)
+                    {
+                        slotMask |= static_cast<uint16_t>(1U << slot);
+                    }
+                }
+                return true;
+            }
+
+            bool decodeVersion(const AwdlTlv &tlv, AwdlNeighbor &out)
+            {
+                if (tlv.length != kVersionBytes ||
+                    *usbByteOffset(tlv.data, 0U) == 0U ||
+                    *usbByteOffset(tlv.data, 1U) == 0U)
+                {
+                    return false;
+                }
+                out.version = *usbByteOffset(tlv.data, 0U);
+                out.deviceClass = *usbByteOffset(tlv.data, 1U);
+                return true;
+            }
+
+            bool decodeSync(const AwdlTlv &tlv, AwdlNeighbor &out)
+            {
+                if (tlv.length < kSyncMinBytes ||
+                    readLittle16(usbByteOffset(tlv.data, kSyncPeriod)) !=
+                        kAwdlPeriodTu)
+                {
+                    return false;
+                }
+                out.txDownCounterTu =
+                    readLittle16(usbByteOffset(tlv.data, kSyncDownCounter));
+                out.awPeriodTu = kAwdlPeriodTu;
+                out.nextAwSequence =
+                    readLittle16(usbByteOffset(tlv.data, kSyncAwSequence));
+                __builtin_memcpy(&out.syncMaster.bytes,
+                                 usbByteOffset(tlv.data, kSyncMaster),
+                                 kMacAddressBytes);
+                return true;
+            }
+
+            bool decodeElection(const AwdlTlv &tlv, AwdlNeighbor &out)
+            {
+                if (tlv.length != kElectionBytes ||
+                    !allZeros(usbByteOffset(tlv.data, kElectionReserved),
+                              kElectionReservedBytes))
+                {
+                    return false;
+                }
+                __builtin_memcpy(&out.electionMaster.bytes,
+                                 usbByteOffset(tlv.data, kElectionMaster),
+                                 kMacAddressBytes);
+                out.masterCounter =
+                    readLittle32(usbByteOffset(tlv.data, kElectionCounter));
+                out.masterMetric = readLittle32(
+                    usbByteOffset(tlv.data, kElectionMasterMetric));
+                out.ownMetric =
+                    readLittle32(usbByteOffset(tlv.data, kElectionOwnMetric));
+                out.ownCounter =
+                    readLittle32(usbByteOffset(tlv.data, kElectionOwnCounter));
+                return true;
+            }
+
+            constexpr uint8_t kSeenVersion = 0x01U;
+            constexpr uint8_t kSeenSync = 0x02U;
+            constexpr uint8_t kSeenChannel = 0x04U;
+            constexpr uint8_t kSeenElection = 0x08U;
+            constexpr uint8_t kSeenAll = 0x0fU;
+
+            bool absorbNeighborTlv(const AwdlTlv &tlv, AwdlNeighbor &neighbor,
+                                   uint8_t &seen)
+            {
+                uint8_t bit = 0U;
+                bool valid = true;
+                switch (tlv.type)
+                {
+                    case kTlvVersion:
+                        bit = kSeenVersion;
+                        valid = decodeVersion(tlv, neighbor);
+                        break;
+                    case kTlvSync:
+                        bit = kSeenSync;
+                        valid = decodeSync(tlv, neighbor);
+                        break;
+                    case kTlvChannel:
+                        bit = kSeenChannel;
+                        valid = decodeChannelSixSlots(tlv,
+                                                      neighbor.channelSixSlots);
+                        break;
+                    case kTlvElectionV2:
+                        bit = kSeenElection;
+                        valid = decodeElection(tlv, neighbor);
+                        break;
+                    default:
+                        return true; // Unknown TLVs must be skipped by length.
+                }
+                if (!valid || (seen & bit) != 0U)
+                {
+                    return false;
+                }
+                seen |= bit;
+                return true;
+            }
+
+            Result decodeNeighborMif(const uint8_t *frame, size_t bytes,
+                                     AwdlNeighbor &out)
+            {
+                AwdlAction action {};
+                const Result result = parseAwdlAction(frame, bytes, action);
+                if (result != Result::Ok)
+                {
+                    return result;
+                }
+                if (action.subtype != kMasterIndicationSubtype)
+                {
+                    return Result::UnsupportedFrame;
+                }
+                AwdlNeighbor candidate {};
+                candidate.source = action.header.source;
+                uint8_t seen = 0U;
+                AwdlTlvs tlvs(usbByteOffset(frame, action.tlvOffset),
+                              bytes - action.tlvOffset);
+                AwdlTlv tlv {};
+                for (;;)
+                {
+                    const AwdlTlvStatus status = tlvs.next(tlv);
+                    if (status == AwdlTlvStatus::End)
+                    {
+                        break;
+                    }
+                    if (status != AwdlTlvStatus::Element)
+                    {
+                        return Result::InvalidElement;
+                    }
+                    if (!absorbNeighborTlv(tlv, candidate, seen))
+                    {
+                        return Result::InvalidElement;
+                    }
+                }
+                if (seen != kSeenAll ||
+                    !validStationMac(candidate.syncMaster) ||
+                    !validStationMac(candidate.electionMaster))
+                {
+                    return Result::InvalidElement;
+                }
+                out = candidate;
+                return Result::Ok;
+            }
+        } // namespace
+
+        Result AwdlNeighbors::observeMif(uint64_t nowMs, const uint8_t *frame,
+                                         size_t bytes)
+        {
+            if (overlaps(this, sizeof(*this), frame, bytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (clockInitialized_ && nowMs < lastClockMs_)
+            {
+                return Result::InvalidFrame;
+            }
+            AwdlNeighbor candidate {};
+            const Result result = decodeNeighborMif(frame, bytes, candidate);
+            if (result != Result::Ok)
+            {
+                return result;
+            }
+            candidate.lastHeardMs = nowMs;
+            expire(nowMs);
+            Entry *freeEntry = nullptr;
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                Entry &entry = entries_.at(index);
+                if (entry.occupied &&
+                    sameMac(entry.neighbor.source, candidate.source))
+                {
+                    entry.neighbor = candidate;
+                    return Result::Ok;
+                }
+                if (!entry.occupied && freeEntry == nullptr)
+                {
+                    freeEntry = &entry;
+                }
+            }
+            if (freeEntry == nullptr)
+            {
+                return Result::BufferTooSmall;
+            }
+            freeEntry->neighbor = candidate;
+            freeEntry->occupied = true;
+            return Result::Ok;
+        }
+
+        Result AwdlNeighbors::observeIpv6(uint64_t nowMs, const uint8_t *frame,
+                                          size_t bytes)
+        {
+            if (overlaps(this, sizeof(*this), frame, bytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (clockInitialized_ && nowMs < lastClockMs_)
+            {
+                return Result::InvalidFrame;
+            }
+            AwdlIpv6Data data {};
+            const Result result = parseAwdlIpv6Data(frame, bytes, data);
+            if (result != Result::Ok)
+            {
+                return result;
+            }
+            expire(nowMs);
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                Entry &entry = entries_.at(index);
+                if (entry.occupied &&
+                    sameMac(entry.neighbor.source, data.header.source) &&
+                    validAt(nowMs, entry.neighbor.lastHeardMs))
+                {
+                    entry.neighbor.lastHeardMs = nowMs;
+                    return Result::Ok;
+                }
+            }
+            return Result::UnsupportedFrame;
+        }
+
+        bool AwdlNeighbors::find(const Mac &source, uint64_t nowMs,
+                                 AwdlNeighbor &out) const
+        {
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&source, sizeof(source), &out, sizeof(out)))
+            {
+                return false;
+            }
+            out = {};
+            if (clockInitialized_ && nowMs < lastClockMs_)
+            {
+                return false;
+            }
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                const Entry &entry = entries_.at(index);
+                if (entry.occupied && sameMac(entry.neighbor.source, source) &&
+                    validAt(nowMs, entry.neighbor.lastHeardMs))
+                {
+                    out = entry.neighbor;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void AwdlNeighbors::expire(uint64_t nowMs)
+        {
+            if (clockInitialized_ && nowMs < lastClockMs_)
+            {
+                return;
+            }
+            clockInitialized_ = true;
+            lastClockMs_ = nowMs;
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                Entry &entry = entries_.at(index);
+                if (entry.occupied &&
+                    !validAt(nowMs, entry.neighbor.lastHeardMs))
+                {
+                    entry = {};
+                }
+            }
+        }
+
+        void AwdlNeighbors::clear()
+        {
+            for (size_t index = 0U; index < kCapacity; ++index)
+            {
+                entries_.at(index) = {};
+            }
+            clockInitialized_ = false;
+            lastClockMs_ = 0U;
+        }
     } // namespace ieee80211
 } // namespace simpleath

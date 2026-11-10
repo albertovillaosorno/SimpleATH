@@ -754,6 +754,375 @@ namespace
                tx.tlvBytes == originalTlvSize;
     }
 
+    constexpr size_t kNeighborFrameCapacity = 256U;
+    constexpr size_t kNeighborTlvCapacity = 128U;
+    constexpr size_t kNeighborSyncBytes = 31U;
+    constexpr size_t kNeighborChannelBytes = 25U;
+    constexpr size_t kNeighborElectionBytes = 40U;
+    constexpr size_t kNeighborIpv6Bytes = 40U;
+    constexpr size_t kNeighborDataBytes = 80U;
+    constexpr size_t kNeighborMacLast = 5U;
+    constexpr size_t kNeighborSyncPeriodOffset = 5U;
+    constexpr size_t kNeighborSyncNextSeqLow = 29U;
+    constexpr size_t kNeighborSyncNextSeqHigh = 30U;
+    constexpr uint8_t kNeighborSeqLow = 0x34U;
+    constexpr uint8_t kNeighborSeqHigh = 0x12U;
+    constexpr uint16_t kNeighborNextAwSeq = 0x1234U;
+    constexpr size_t kNeighborElectionMasterMetricOffset = 20U;
+    constexpr size_t kNeighborElectionOwnMetricOffset = 24U;
+    constexpr size_t kNeighborElectionOwnCounterOffset = 36U;
+    constexpr size_t kNeighborElectionReservedOffset = 28U;
+    constexpr size_t kNeighborSlotTen = 10U;
+    constexpr size_t kNeighborSlotCount = 16U;
+    constexpr size_t kNeighborTlvHeader = 3U;
+    constexpr size_t kNeighborChannelOffset = 6U;
+    constexpr size_t kNeighborSyncMacOffset = 21U;
+    constexpr size_t kNeighborElectionMacOffset = 0U;
+    constexpr size_t kNeighborSlotMask = (1U << 0U) | (1U << kNeighborSlotTen);
+    constexpr uint64_t kNeighborFirstSeenMs = 1000U;
+    constexpr uint64_t kNeighborJustAliveMs =
+        kNeighborFirstSeenMs + AwdlNeighbors::kExpiryMs - 1U;
+    constexpr uint64_t kNeighborExpiredMs =
+        kNeighborFirstSeenMs + AwdlNeighbors::kExpiryMs;
+    constexpr uint8_t kNeighborSourceLast = 0x55U;
+    constexpr Mac kNeighborBaseSource {
+        {
+            0x02U,
+            0x11U,
+            0x22U,
+            0x33U,
+            0x44U,
+            kNeighborSourceLast,
+        },
+    };
+    constexpr uint8_t kNeighborVersion = 0x10U;
+    constexpr uint8_t kNeighborClassMac = 1U;
+    constexpr uint8_t kNeighborSocialChannel = 6U;
+    constexpr uint8_t kNeighborOtherChannel = 149U;
+    constexpr uint8_t kNeighborElectionMetric = 60U;
+    constexpr uint8_t kNeighborElectionOwnMetric = 61U;
+    constexpr uint8_t kNeighborElectionCounter = 7U;
+    constexpr uint8_t kNeighborTlvVersion = 21U;
+    constexpr uint8_t kNeighborTlvSync = 4U;
+    constexpr uint8_t kNeighborTlvChannel = 18U;
+    constexpr uint8_t kNeighborTlvElection = 24U;
+    constexpr uint8_t kNeighborTlvUnknown = 250U;
+    constexpr uint8_t kNeighborChannelStep = 3U;
+    constexpr uint8_t kNeighborChannelSlotsMinusOne = 15U;
+    constexpr uint8_t kNeighborIpv6Version = 0x60U;
+    constexpr uint8_t kNeighborMif = 3U;
+    constexpr uint8_t kNeighborPsf = 0U;
+    using NeighborBytes = std::array<uint8_t, kNeighborFrameCapacity>;
+    using NeighborTlvs = std::array<uint8_t, kNeighborTlvCapacity>;
+
+    struct NeighborFixture
+    {
+            NeighborBytes frame {};
+            size_t length {};
+            size_t syncOffset {};
+            size_t channelOffset {};
+            size_t electionOffset {};
+            size_t versionOffset {};
+            size_t unknownOffset {};
+            Mac source {};
+    };
+
+    template <size_t N>
+    void appendNeighborTlv(NeighborTlvs &bytes, size_t &used, uint8_t type,
+                           const std::array<uint8_t, N> &value,
+                           size_t &valueOffset)
+    {
+        const size_t start = used;
+        bytes.at(start) = type;
+        bytes.at(start + 1U) = static_cast<uint8_t>(value.size());
+        bytes.at(start + 2U) = 0U;
+        used += kNeighborTlvHeader;
+        valueOffset = used;
+        for (size_t index = 0U; index < value.size(); ++index)
+        {
+            bytes.at(used + index) = value.at(index);
+        }
+        used += value.size();
+    }
+
+    NeighborFixture makeNeighborFixture(uint8_t lastOctet)
+    {
+        NeighborFixture result {};
+        result.source = kNeighborBaseSource;
+        result.source.bytes[kNeighborMacLast] = lastOctet;
+        NeighborTlvs tlvs {};
+        size_t used = 0U;
+        std::array<uint8_t, kNeighborSyncBytes> sync {};
+        sync.at(1U) = kNeighborChannelStep;
+        sync.at(kNeighborSyncPeriodOffset) = kNeighborSlotCount;
+        std::memcpy(&sync.at(kNeighborSyncMacOffset), &result.source.bytes,
+                    kMacAddressBytes);
+        sync.at(kNeighborSyncNextSeqLow) = kNeighborSeqLow;
+        sync.at(kNeighborSyncNextSeqHigh) = kNeighborSeqHigh;
+        appendNeighborTlv(tlvs, used, kNeighborTlvSync, sync,
+                          result.syncOffset);
+
+        std::array<uint8_t, kNeighborChannelBytes> channels {};
+        channels.at(0U) = kNeighborChannelSlotsMinusOne;
+        channels.at(3U) = kNeighborChannelStep;
+        channels.at(4U) = kBroadcast;
+        channels.at(kNeighborSyncPeriodOffset) = kBroadcast;
+        for (size_t index = 0U; index < kNeighborSlotCount; ++index)
+        {
+            channels.at(kNeighborChannelOffset + index) =
+                index == 0U || index == kNeighborSlotTen
+                    ? kNeighborSocialChannel
+                    : kNeighborOtherChannel;
+        }
+        appendNeighborTlv(tlvs, used, kNeighborTlvChannel, channels,
+                          result.channelOffset);
+
+        std::array<uint8_t, kNeighborElectionBytes> election {};
+        std::memcpy(&election.at(kNeighborElectionMacOffset),
+                    &result.source.bytes, kMacAddressBytes);
+        election.at(kNeighborElectionMasterMetricOffset) =
+            kNeighborElectionMetric;
+        election.at(kNeighborElectionOwnMetricOffset) =
+            kNeighborElectionOwnMetric;
+        election.at(kNeighborElectionOwnCounterOffset) =
+            kNeighborElectionCounter;
+        appendNeighborTlv(tlvs, used, kNeighborTlvElection, election,
+                          result.electionOffset);
+
+        const std::array<uint8_t, 2U> version {
+            kNeighborVersion,
+            kNeighborClassMac,
+        };
+        appendNeighborTlv(tlvs, used, kNeighborTlvVersion, version,
+                          result.versionOffset);
+        const std::array<uint8_t, 2U> unknown {0xaaU, 0xbbU};
+        appendNeighborTlv(tlvs, used, kNeighborTlvUnknown, unknown,
+                          result.unknownOffset);
+        const Mac multicast {{0xffU, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU}};
+        const AwdlActionTx request {
+            result.source, multicast, 0U, kNeighborMif, 0U, 0U,
+            tlvs.data(),   used,
+        };
+        if (makeAwdlAction(request, result.frame.data(), result.frame.size(),
+                           result.length) != Result::Ok)
+        {
+            result.length = 0U;
+        }
+        result.syncOffset += kPayloadStart;
+        result.channelOffset += kPayloadStart;
+        result.electionOffset += kPayloadStart;
+        result.versionOffset += kPayloadStart;
+        result.unknownOffset += kPayloadStart;
+        return result;
+    }
+
+    bool neighborElectionAndExpiry()
+    {
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        if (fixture.length == 0U)
+        {
+            return false;
+        }
+        AwdlNeighbors peers {};
+        AwdlNeighbor neighbor {};
+        if (peers.find(fixture.source, kNeighborFirstSeenMs, neighbor) ||
+            peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborJustAliveMs, neighbor) ||
+            neighbor.version != kNeighborVersion ||
+            neighbor.deviceClass != kNeighborClassMac ||
+            neighbor.awPeriodTu != kNeighborSlotCount ||
+            neighbor.nextAwSequence != kNeighborNextAwSeq ||
+            neighbor.txDownCounterTu != kNeighborChannelStep ||
+            neighbor.channelSixSlots != kNeighborSlotMask ||
+            neighbor.masterMetric != kNeighborElectionMetric ||
+            neighbor.ownMetric != kNeighborElectionOwnMetric ||
+            neighbor.ownCounter != kNeighborElectionCounter ||
+            !sameMac(neighbor.syncMaster, fixture.source) ||
+            !sameMac(neighbor.electionMaster, fixture.source) ||
+            neighbor.lastHeardMs != kNeighborFirstSeenMs)
+        {
+            return false;
+        }
+        if (peers.find(fixture.source, kNeighborExpiredMs, neighbor))
+        {
+            return false;
+        }
+        peers.expire(kNeighborExpiredMs);
+        if (peers.find(fixture.source, kNeighborFirstSeenMs, neighbor))
+        {
+            return false;
+        }
+        if (peers.observeMif(kNeighborExpiredMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        peers.clear();
+        return !peers.find(fixture.source, kNeighborExpiredMs, neighbor);
+    }
+
+    bool rejectIncompleteNeighbor()
+    {
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        AwdlNeighbor neighbor {};
+        fixture.frame.at(kSubtypeOffset) = kNeighborPsf;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.versionOffset) = 0U;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.channelOffset + 3U) = 0U;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.electionOffset +
+                         kNeighborElectionReservedOffset) = 1U;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.syncOffset + kNeighborSyncPeriodOffset) = 0U;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.unknownOffset - kNeighborTlvHeader) =
+            kNeighborTlvVersion;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement ||
+            peers.find(fixture.source, kNeighborFirstSeenMs, neighbor))
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.versionOffset - kNeighborTlvHeader) =
+            kNeighborTlvUnknown;
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidElement)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        fixture.frame.at(fixture.channelOffset + kNeighborChannelOffset) =
+            kNeighborOtherChannel;
+        fixture.frame.at(fixture.channelOffset + kNeighborChannelOffset +
+                         kNeighborSlotTen) = kNeighborOtherChannel;
+        return peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                                fixture.length) == Result::Ok &&
+               peers.find(fixture.source, kNeighborFirstSeenMs, neighbor) &&
+               neighbor.channelSixSlots == 0U;
+    }
+
+    bool boundedNeighborRetention()
+    {
+        AwdlNeighbors peers {};
+        NeighborFixture fixture {};
+        constexpr uint8_t kFirstPeerSuffix = 0x50U;
+        for (size_t index = 0U; index < AwdlNeighbors::kCapacity; ++index)
+        {
+            fixture = makeNeighborFixture(
+                static_cast<uint8_t>(kFirstPeerSuffix + index));
+            if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                                 fixture.length) != Result::Ok)
+            {
+                return false;
+            }
+        }
+        fixture = makeNeighborFixture(
+            static_cast<uint8_t>(kFirstPeerSuffix + AwdlNeighbors::kCapacity));
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::BufferTooSmall)
+        {
+            return false;
+        }
+        peers.expire(kNeighborExpiredMs);
+        if (peers.observeMif(kNeighborExpiredMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        AwdlNeighbor neighbor {};
+        if (!peers.find(fixture.source, kNeighborExpiredMs, neighbor))
+        {
+            return false;
+        }
+        // Earlier clocks cannot extend an existing peer or evict its slot.
+        return peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                                fixture.length) == Result::InvalidFrame &&
+               peers.find(fixture.source, kNeighborExpiredMs, neighbor);
+    }
+
+    bool neighborIpv6Refresh()
+    {
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        std::array<uint8_t, kNeighborIpv6Bytes> ipv6 {};
+        ipv6.at(0U) = kNeighborIpv6Version;
+        const Mac destination {{0x33U, 0x33U, 0U, 0U, 0U, 1U}};
+        const AwdlIpv6Tx tx {
+            fixture.source, destination, 0U,          0U,
+            false,          ipv6.data(), ipv6.size(),
+        };
+        std::array<uint8_t, kNeighborDataBytes> output {};
+        size_t written = 0U;
+        if (makeAwdlIpv6Data(tx, output.data(), output.size(), written) !=
+                Result::Ok ||
+            written != output.size())
+        {
+            return false;
+        }
+        const uint64_t refreshedMs = kNeighborJustAliveMs;
+        AwdlNeighbor neighbor {};
+        if (peers.observeIpv6(refreshedMs, output.data(), written) !=
+                Result::Ok ||
+            peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::InvalidFrame ||
+            !peers.find(fixture.source, kNeighborExpiredMs, neighbor) ||
+            neighbor.lastHeardMs != refreshedMs)
+        {
+            return false;
+        }
+        peers.clear();
+        if (peers.observeIpv6(refreshedMs, output.data(), written) !=
+            Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        fixture = makeNeighborFixture(kNeighborSourceLast);
+        if (peers.observeMif(refreshedMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        const uint64_t expiredAfterRefresh =
+            refreshedMs + AwdlNeighbors::kExpiryMs;
+        return peers.observeIpv6(expiredAfterRefresh, output.data(), written) ==
+                   Result::UnsupportedFrame &&
+               !peers.find(fixture.source, expiredAfterRefresh, neighbor);
+    }
+
 } // namespace
 
 int main()
@@ -792,6 +1161,26 @@ int main()
     {
         constexpr int kActionTxFailure = 8;
         return kActionTxFailure;
+    }
+    if (!neighborElectionAndExpiry())
+    {
+        constexpr int kNeighborFailure = 9;
+        return kNeighborFailure;
+    }
+    if (!rejectIncompleteNeighbor())
+    {
+        constexpr int kIncompleteNeighborFailure = 10;
+        return kIncompleteNeighborFailure;
+    }
+    if (!boundedNeighborRetention())
+    {
+        constexpr int kNeighborCapacityFailure = 11;
+        return kNeighborCapacityFailure;
+    }
+    if (!neighborIpv6Refresh())
+    {
+        constexpr int kNeighborRefreshFailure = 12;
+        return kNeighborRefreshFailure;
     }
     return 0;
 }
