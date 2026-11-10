@@ -1,5 +1,6 @@
 #include "SimpleATHInfraProtocol.hpp"
 #include "SimpleATHTahoeController.hpp"
+#include "TahoeCapabilities.hpp"
 #include <IOKit/80211/apple80211_ioctl.h>
 #include <IOKit/80211/apple80211_var.h>
 #include <cstring>
@@ -15,6 +16,8 @@ namespace
                                "ZN17IO80211Controller11postMessageEP23IO80211Sk"
                                "ywalkInterfacejPvmb");
     constexpr unsigned int kSetMac = 0xea0;
+    constexpr unsigned int kGetPowerSave = 0x0eb0;
+    constexpr unsigned int kGetNss = 0x0fe0;
     constexpr unsigned int kEnable = 1;
     constexpr unsigned int kDisable = 2;
     constexpr unsigned int kEnablePackets = 3;
@@ -448,6 +451,30 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     if (data == nullptr)
     {
         return kIOReturnBadArgument;
+    }
+    // The native WCL getter slots use fixed old-SDK envelopes. These
+    // immutable hardware/feature facts are valid before channel tuning and
+    // even with the radio off; they never assert association or RF readiness.
+    if (operation == kGetPowerSave)
+    {
+        static_assert(APPLE80211_VERSION == 1U &&
+                          APPLE80211_POWERSAVE_MODE_DISABLED == 0U,
+                      "native status version and power-save value");
+        static_assert(sizeof(apple80211_powersave_data) ==
+                          sizeof(simpleath::tahoe::NativePowerSaveStatus),
+                      "25G332 power-save data ABI");
+        const auto status = simpleath::tahoe::ar9565PowerSaveStatus();
+        memcpy(data, &status, sizeof(status));
+        return kIOReturnSuccess;
+    }
+    if (operation == kGetNss)
+    {
+        static_assert(sizeof(apple80211_nss_data) ==
+                          sizeof(simpleath::tahoe::NativeNssStatus),
+                      "25G332 NSS data ABI");
+        const auto status = simpleath::tahoe::ar9565NssStatus();
+        memcpy(data, &status, sizeof(status));
+        return kIOReturnSuccess;
     }
     if (operation == 0x12d0)
     {

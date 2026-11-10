@@ -11,6 +11,7 @@ namespace simpleath
     {
         constexpr size_t kNativeCapabilityBytes = 21U;
         constexpr size_t kNativeCapabilityEnvelopeBytes = 0x1cU;
+        constexpr size_t kNativeStationStatusBytes = 8U;
 
         // WCLDeviceConfiguration::setCardCapbilities copies 0x1c bytes. The
         // compatibility SDK's legacy 11-byte bitmap is not this native ABI.
@@ -26,6 +27,47 @@ namespace simpleath
                       "25G332 capability envelope");
         static_assert(offsetof(NativeCapabilities, capabilities) == 4U,
                       "25G332 capability bitmap offset");
+
+        // Exact compatibility-SDK envelopes for GET POWERSAVE (0x0eb0)
+        // and NSS (0x0fe0). The modern Tahoe slots consume these same
+        // fixed-sized fields; the native source asserts both SDK layouts.
+        // A disabled power-save mode describes actual unimplemented chipset
+        // sleep scheduling, NOT the independently controlled radio power.
+        struct NativePowerSaveStatus
+        {
+                uint32_t version;
+                uint32_t powersaveLevel;
+        };
+
+        struct NativeNssStatus
+        {
+                uint32_t version;
+                uint8_t streams;
+                uint8_t reserved[3];
+        };
+
+        static_assert(sizeof(NativePowerSaveStatus) ==
+                          kNativeStationStatusBytes,
+                      "native power-save status size");
+        static_assert(sizeof(NativeNssStatus) == kNativeStationStatusBytes,
+                      "native NSS status size");
+        static_assert(offsetof(NativeNssStatus, streams) == 4U,
+                      "native NSS field offset");
+
+        inline NativePowerSaveStatus ar9565PowerSaveStatus()
+        {
+            // APPLE80211_POWERSAVE_MODE_DISABLED == 0. The current driver
+            // does not implement AP TIM/DTIM listen/sleep transitions.
+            return {1U, 0U};
+        }
+
+        inline NativeNssStatus ar9565NssStatus()
+        {
+            // AR9565 PCI 168c:0036 has one transmit and one receive chain;
+            // neither a powered-down radio nor an unassociated station is a
+            // second spatial stream.
+            return {1U, 1U, {0U, 0U, 0U}};
+        }
 
         inline NativeCapabilities ar9565Capabilities()
         {

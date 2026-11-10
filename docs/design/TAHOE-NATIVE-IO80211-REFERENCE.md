@@ -352,3 +352,36 @@ lifecycle/wire fixtures passed C++14/C++17 ASan/UBSan. These focused checks do
 not establish global lint success, native linking, packet registration or
 physical traffic. Required RF/country/coexistence orchestration, complete
 native packet/CCMP operation, Bluetooth host and AirDrop/AWDL remain open.
+
+## Native single-chain and power-save query wiring — 2026-11-10
+
+`SimpleATHInfraProtocol::requestGated` now implements the Tahoe WCL
+`getNSS` (slot `0x0fe0`) and `getPOWERSAVE` (slot `0x0eb0`) handlers instead
+of falling through to Unsupported. The responses are based on fixed hardware
+and software facts: AR9565/PCI `168c:0036` supports **one** spatial stream,
+and SimpleATH does **not yet** implement 802.11 beacon/TIM/DTIM radio doze,
+so its power-save level is explicitly Disabled. They are independent of
+association and remain queryable before radio startup; neither is a positive
+radio-power, active link, country authorization or transmit-ready assertion.
+
+The source uses full zero-initialized eight-byte envelopes, including the
+three padding bytes after the NSS octet. Static assertions compare these
+layouts to the retained MacKernelSDK `apple80211_nss_data` and
+`apple80211_powersave_data` definitions and verify
+`APPLE80211_VERSION`/Disabled constants. Public AirportItlwm getters were
+consulted as API examples, not copied into this implementation; their pinned
+revisions and exact source hashes are recorded in `.references/ledger.jsonl`.
+The existing independently inspected Tahoe slot ordering remains the source
+for the two virtual selectors. Exact device/runtime behavior on the loaded
+25G332 family is still unverified; local SDK layout assertions are not ABI
+linkage or a kext build.
+
+`tests/test_tahoe_capabilities.cpp` now exercises both new envelopes, exact
+wire offsets, their declared lengths, zeroed NSS reserved bytes and trailing
+canaries, in addition to the existing 28-byte card capability inventory.
+Focused C++14 and C++17 ASan/UBSan host fixtures, native MacKernelSDK C++14
+syntax and strict test-unit Tidy passed. The larger preexisting
+`SimpleATHInfraProtocol.cpp` Tidy backlog remains unresolved, and full
+CI/kernel operation is not established. The actual RF/channel calibration,
+real 802.11 power save, supported regulatory channels and AWDL/Bluetooth
+coexistence remain separate P0 implementation work.
