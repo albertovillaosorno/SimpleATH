@@ -40,6 +40,21 @@ namespace
         0xfbU, 0x39U, 0xa5U, 0x8cU, 0xd7U, 0xf2U, 0xa1U, 0xedU, 0x08U,
     };
 
+    // Independently generated OpenSSL 3.5 AES-CCM GTK Key ID 1 RX vector.
+    // BSSID/TA 02:11:22:33:44:55; FromDS group destination ff:ff:ff:ff:ff:ff;
+    // nonce = 00:02:11:22:33:44:55:00:00:00:00:00:01, AAD = masked
+    // FC 08:42 + destination, transmitter, source, sequence, MIC length 8.
+    // The CTR ciphertext is unchanged from the pairwise nonce, but the CCM
+    // MIC differs because the group destination and FromDS AAD are distinct.
+    constexpr std::array<uint8_t, 59U> kGtkWire {
+        0x08U, 0x42U, 0x00U, 0x00U, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU,
+        0x02U, 0x11U, 0x22U, 0x33U, 0x44U, 0x55U, 0x02U, 0x33U, 0x44U, 0x55U,
+        0x66U, 0x77U, 0x00U, 0x00U, 0x01U, 0x00U, 0x00U, 0x60U, 0x00U, 0x00U,
+        0x00U, 0x00U, 0x61U, 0xd6U, 0xd3U, 0x3dU, 0x81U, 0xdfU, 0x62U, 0x96U,
+        0x66U, 0x08U, 0x65U, 0x56U, 0x6eU, 0xe5U, 0x95U, 0xf7U, 0xc6U, 0xd1U,
+        0xfbU, 0x3bU, 0x1dU, 0xc5U, 0x47U, 0x1eU, 0x46U, 0xc0U, 0x3cU,
+    };
+
     bool fresh(CcmpSession &session, uint8_t keyId = 0U, uint64_t lastTx = 0U,
                uint64_t rxFloor = 0U)
     {
@@ -84,6 +99,70 @@ namespace
         return rx.unprotect(kEpoch, wire.data(), written, plain.data(),
                             plain.size(),
                             recovered) == CcmpResult::ReplayDetected
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
+    int testGtkGroupReceiveVector()
+    {
+        CcmpSession group {};
+        CcmpSession pairwise {};
+        if (!fresh(group, 1U) || !fresh(pairwise))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        std::array<uint8_t, kCcmpMaximumMpduBytes> output {};
+        output.fill(0xa5U);
+        const auto untouched = output;
+        size_t written = 777U;
+        // The pairwise Key ID must not decrypt a group GTK frame.
+        if (pairwise.unprotect(kEpoch, kGtkWire.data(), kGtkWire.size(),
+                               output.data(), output.size(),
+                               written) != CcmpResult::InvalidFrame ||
+            pairwise.receiveFloor() != 0U || output != untouched ||
+            written != 777U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto altered = kGtkWire;
+        altered.back() ^= 1U;
+        if (group.unprotect(kEpoch, altered.data(), altered.size(),
+                            output.data(), output.size(),
+                            written) != CcmpResult::MicMismatch ||
+            group.receiveFloor() != 0U || output != untouched ||
+            written != 777U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        if (group.unprotect(kEpoch + 1U, kGtkWire.data(), kGtkWire.size(),
+                            output.data(), output.size(),
+                            written) != CcmpResult::WrongEpoch ||
+            group.receiveFloor() != 0U || output != untouched ||
+            written != 777U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto expected = kPlain;
+        expected.at(1U) = 0x02U;
+        for (size_t index = 4U; index < 10U; ++index)
+        {
+            expected.at(index) = 0xffU;
+        }
+        if (group.unprotect(kEpoch, kGtkWire.data(), kGtkWire.size(),
+                            output.data(), output.size(),
+                            written) != CcmpResult::Ok ||
+            written != expected.size() || group.receiveFloor() != 1U ||
+            std::memcmp(output.data(), expected.data(), expected.size()) != 0)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        const auto committed = output;
+        const size_t committedLength = written;
+        return group.unprotect(kEpoch, kGtkWire.data(), kGtkWire.size(),
+                               output.data(), output.size(),
+                               written) == CcmpResult::ReplayDetected &&
+                       written == committedLength && output == committed &&
+                       group.receiveFloor() == 1U
                    ? 0
                    : (__LINE__ % kDiagnosticModulo) + 1;
     }
@@ -443,6 +522,10 @@ namespace
 int main()
 {
     if (const int result = testIndependentVector())
+    {
+        return result;
+    }
+    if (const int result = testGtkGroupReceiveVector())
     {
         return result;
     }
