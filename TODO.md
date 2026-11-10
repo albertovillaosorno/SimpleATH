@@ -40,6 +40,21 @@ Owner directive, 2026-11-09. This is the project's highest-priority order:
    diagnose, implement fixes and repeat the CI/build/test loop. Hardening has
    no completion deadline and must never become an indefinite testing hold.
 
+**Owner test criterion: exercise the complete implementation together.**
+Finish all required Wi-Fi, Bluetooth and AirDrop source paths and connect them
+before the first notebook test. Do not polish one component indefinitely while
+the rest is absent. The goal is to expose interactions across the whole driver,
+then debug real failures from the owner's logs. A failed launch or crash in an
+authorized test is a failure to diagnose and fix, not grounds for replacing
+required behavior with a disabled path. First-run perfection is not a prerequisite;
+complete source implementation and successful CI are. Never manufacture success.
+
+**Work allocation:** the integration agent prioritizes missing runtime behavior
+and end-to-end wiring. Other active agents handle Clang-Tidy/validator findings
+in coordinated files, preserving every rule and the mandatory CI build gate.
+Focused checks may support development; repeated global lint passes must not
+consume the implementation phase.
+
 Source completeness is an implementation milestone, not proof of physical
 Wi-Fi success. Readiness must reflect actual completed operations; never
 replace missing functionality with labels or fabricated success flags.

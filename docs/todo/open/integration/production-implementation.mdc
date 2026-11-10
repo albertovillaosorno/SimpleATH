@@ -22,6 +22,19 @@ production driver, 100%, before starting the zero-failure lint milestone.
 This is the highest-priority umbrella TODO and takes precedence over
 lint-only cleanup, speculative hardening and conflicting older hold language.
 
+The owner wants the first notebook run to exercise the entire implementation,
+including cross-component complexity. Do not make a partial subsystem perfect
+while leaving required paths absent. Failed launch, crash or runtime failure
+in an owner-authorized test is evidence for the next fix, not a prerequisite
+that must be eliminated through indefinite source-only polishing. Implement
+the full intended behavior, then validate to zero failures, pass CI and iterate
+on actual notebook logs. Never equate this tolerance of test failures with
+permission to fabricate readiness or leave known implementations missing.
+
+The integration agent prioritizes runtime implementation and wiring; other
+coordinating agents resolve Clang-Tidy and validator findings without weakening
+checks or imposing a serial lint-only hold on the missing source work.
+
 ## Required implementation
 
 - [ ] Native PCI ownership/power, mapped registers and complete lifecycle.

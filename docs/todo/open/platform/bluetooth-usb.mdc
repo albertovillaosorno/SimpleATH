@@ -48,3 +48,18 @@ Linux's independent Bluetooth USB/firmware implementations are useful source
 references, not macOS implementations or evidence of the notebook's USB ID:
 https://github.com/torvalds/linux/blob/v6.12/drivers/bluetooth/ath3k.c
 https://github.com/torvalds/linux/blob/v6.12/drivers/bluetooth/btusb.c
+
+## Local source references
+
+The retained `src/linux/` reference tree already contains `ath3k.c`,
+`btusb_main.c`, `btusb_qcom.c/.h`, `btqca.c/.h`, HCI headers, HCI event/core
+handlers and LE advertising/EIR handling. Do not duplicate or replace these
+files merely to reacquire them. Atheros USB bootstrap and the generic HCI
+transport must both be integrated; PCI WLAN startup does not perform them.
+
+Missing BLE security references `net/bluetooth/smp.c`, `ecdh_helper.c` and
+`ecdh_helper.h` were downloaded from Linux v6.12, resolved to commit
+`adc218676eef25575469234709c2d87185ca223a`. Their exact hashes, upstream URLs, licensing
+and reference-only scope are recorded in `src/linux/linux-port-ledger.jsonl`.
+The local reference tree remains intentionally excluded from Git. These Linux
+files are research input, not linked macOS code or a completed Bluetooth path.

@@ -54,6 +54,22 @@ logs here, and agents use them to implement real fixes. Continuous hardening
 must never become an indefinite testing hold. CI remains the mandatory gate
 before every kernel build.
 
+**Owner acceptance criterion: implement the whole system before testing it.**
+The first testable driver must contain every required source path, connected
+end to end, with the expectation that the complete workflow works. Do not
+perfect one isolated component while leaving the rest unimplemented: a partial
+driver cannot exercise the interactions and complexity the owner wants to test.
+A failed launch, a kernel crash or a broken workflow during owner-authorized
+testing is actionable debugging evidence, not a reason to defer implementation
+or wait for indefinite hardening. Collect the logs, fix the actual failure and
+repeat. This accepts first-run uncertainty; it does not authorize deliberate
+faults, invented readiness or describing missing functionality as complete.
+
+Agents should divide the work accordingly: the integration agent implements
+and connects the runtime paths; collaborating agents resolve relevant
+Clang-Tidy and other validator findings without interrupting implementation
+or weakening checks. The integrated source must still pass CI before a build.
+
 Before notebook testing, all required AR9565 source must be complete,
 integrated on main and reviewed, with no known missing implementation or
 passive-only substitute, and validation must reach zero failures. Continuous
