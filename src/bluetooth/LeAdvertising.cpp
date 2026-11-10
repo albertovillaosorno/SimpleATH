@@ -184,8 +184,15 @@ namespace simpleath
                 state.phase = LeAdvertisingPhase::Advertising;
                 return LeAdvertisingResult::Ok;
             }
-            return sent ? LeAdvertisingResult::Ok
-                        : fault(state, LeAdvertisingResult::TransportFailed);
+            if (!sent)
+            {
+                return fault(state, LeAdvertisingResult::TransportFailed);
+            }
+            // USB control OUT may dispatch its controller response inline.
+            // A nested rejection must not be overwritten with a false Ok.
+            return state.phase == LeAdvertisingPhase::Faulted
+                       ? LeAdvertisingResult::Faulted
+                       : LeAdvertisingResult::Ok;
         }
 
         LeAdvertisingResult acceptCommandEvent(LeAdvertisingState &state,
@@ -284,6 +291,10 @@ namespace simpleath
         {
             return fault(state, LeAdvertisingResult::TransportFailed);
         }
+        if (state.phase == LeAdvertisingPhase::Faulted)
+        {
+            return LeAdvertisingResult::Faulted;
+        }
         if (!authorized(state, transport, host, owner))
         {
             return fault(state, LeAdvertisingResult::OwnershipLost);
@@ -321,6 +332,16 @@ namespace simpleath
         if (!sendEnable(transport, host, false))
         {
             return fault(state, LeAdvertisingResult::TransportFailed);
+        }
+        if (state.phase == LeAdvertisingPhase::Faulted)
+        {
+            return LeAdvertisingResult::Faulted;
+        }
+        // A synchronous disable completion legitimately revokes the epoch
+        // and returns the producer to Idle before control OUT unwinds.
+        if (state.phase == LeAdvertisingPhase::Idle)
+        {
+            return LeAdvertisingResult::Ok;
         }
         if (!authorized(state, transport, host, owner))
         {

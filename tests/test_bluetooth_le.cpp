@@ -38,6 +38,18 @@ namespace
     constexpr uint8_t kIntervalLsb = 0xa0U;
     constexpr uint8_t kWindowLsb = 0x50U;
 
+    enum class InlineReply : uint8_t
+    {
+        None,
+        Complete,
+        Rejected,
+    };
+
+    constexpr size_t kInlineResponseBytes = 6U;
+    constexpr uint8_t kInlineStatusCode = 0x0fU;
+    constexpr uint8_t kInlineCompleteCode = 0x0eU;
+    constexpr uint8_t kInlineRejectedStatus = 0x0cU;
+
     struct Fake
     {
             std::array<std::array<uint8_t, kUsbHciMaxCommandBytes>,
@@ -54,6 +66,9 @@ namespace
             bool valid {true};
             bool failCommand {};
             const LeScanPhase *pendingPhase {};
+            InlineReply inlineReply {InlineReply::None};
+            void *inlineContext {};
+            bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
             bool allowActiveScan {true};
@@ -119,7 +134,32 @@ namespace
         }
         fake.commandSizes.at(fake.commandCount) = bytes;
         ++fake.commandCount;
-        return true;
+        const InlineReply reply = fake.inlineReply;
+        fake.inlineReply = InlineReply::None;
+        if (reply == InlineReply::None)
+        {
+            return true;
+        }
+        if (fake.inlineEvent == nullptr)
+        {
+            return false;
+        }
+        std::array<uint8_t, kInlineResponseBytes> response {};
+        response.at(0U) = reply == InlineReply::Rejected ? kInlineStatusCode
+                                                         : kInlineCompleteCode;
+        response.at(1U) = 0x04U;
+        response.at(2U) =
+            reply == InlineReply::Rejected ? kInlineRejectedStatus : 0x01U;
+        response.at(3U) =
+            reply == InlineReply::Rejected ? 0x01U : *usbByteOffset(packet, 0U);
+        response.at(4U) = reply == InlineReply::Rejected
+                              ? *usbByteOffset(packet, 0U)
+                              : *usbByteOffset(packet, 1U);
+        response.at(kInlineResponseBytes - 1U) =
+            reply == InlineReply::Rejected ? *usbByteOffset(packet, 1U) : 0U;
+        // Controller responses may be dispatched before USB OUT returns.
+        return fake.inlineEvent(fake.inlineContext, response.data(),
+                                response.size());
     }
 
     bool aclOut(void *context, uint8_t endpoint, const uint8_t *packet,
@@ -225,6 +265,23 @@ namespace
             LeDiscoveryState scan_ {};
 
         public:
+            static bool deliverInline(void *context, const uint8_t *event,
+                                      size_t bytes)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                if (receiveUsbHciEvent(fixture.transport_,
+                                       hostFor(fixture.fake_), event,
+                                       bytes) != UsbHciStatus::Ok)
+                {
+                    return false;
+                }
+                const LeDiscoveryResult result = acceptLeHciEvent(
+                    fixture.scan_, fixture.transport_, hostFor(fixture.fake_),
+                    ownerFor(fixture.fake_), event, bytes);
+                return result == LeDiscoveryResult::Ok ||
+                       result == LeDiscoveryResult::ControllerRejected;
+            }
+
             Fake &fake()
             {
                 return fake_;
@@ -248,6 +305,8 @@ namespace
             bool attach()
             {
                 fake_.pendingPhase = &scan_.phase;
+                fake_.inlineContext = this;
+                fake_.inlineEvent = deliverInline;
                 const UsbHciEndpoints endpoints {0x81U, 0x82U, 0x02U};
                 return attachUsbHci(transport_, endpoints, hostFor(fake_)) ==
                        UsbHciStatus::Ok;
@@ -544,6 +603,65 @@ namespace
         return 0;
     }
 
+    int inlineControllerResponses()
+    {
+        Fixture rejectedBegin {};
+        rejectedBegin.fake().inlineReply = InlineReply::Rejected;
+        if (!rejectedBegin.attach() ||
+            rejectedBegin.begin() != LeDiscoveryResult::Faulted ||
+            rejectedBegin.phase() != LeScanPhase::Faulted ||
+            rejectedBegin.fake().commandCount != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture acceptedBegin {};
+        acceptedBegin.fake().inlineReply = InlineReply::Complete;
+        if (!acceptedBegin.attach() ||
+            acceptedBegin.begin() != LeDiscoveryResult::Ok ||
+            acceptedBegin.phase() != LeScanPhase::AwaitEnable ||
+            acceptedBegin.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture rejectedEnable {};
+        if (!rejectedEnable.attach() ||
+            rejectedEnable.begin() != LeDiscoveryResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        rejectedEnable.fake().inlineReply = InlineReply::Rejected;
+        if (rejectedEnable.completeParameters() != LeDiscoveryResult::Faulted ||
+            rejectedEnable.phase() != LeScanPhase::Faulted ||
+            rejectedEnable.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture rejectedDisable {};
+        if (!rejectedDisable.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        rejectedDisable.fake().inlineReply = InlineReply::Rejected;
+        if (rejectedDisable.stop() != LeDiscoveryResult::Faulted ||
+            rejectedDisable.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture completedDisable {};
+        if (!completedDisable.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        completedDisable.fake().inlineReply = InlineReply::Complete;
+        if (completedDisable.stop() != LeDiscoveryResult::Ok ||
+            completedDisable.phase() != LeScanPhase::Idle ||
+            completedDisable.epoch() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int malformedAndOwnership()
     {
         Fixture invalid {};
@@ -749,6 +867,10 @@ int main()
     if (const int statuses = commandStatusLifecycle())
     {
         return statuses;
+    }
+    if (const int inlineResult = inlineControllerResponses())
+    {
+        return inlineResult;
     }
     if (const int errors = malformedAndOwnership())
     {

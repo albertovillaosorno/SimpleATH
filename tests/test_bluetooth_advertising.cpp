@@ -24,6 +24,7 @@ namespace
     constexpr uint8_t kDataBytes = 32U;
     constexpr uint8_t kEnableBytes = 1U;
     constexpr uint8_t kAllChannels = 0x07U;
+    constexpr size_t kStatusOpcodeHighOffset = 5U;
     constexpr size_t kChannelMapCommandOffset = 16U;
     constexpr size_t kMaxAdvertLength = 31U;
     constexpr size_t kTruncatedCommandBytes = 5U;
@@ -55,6 +56,13 @@ namespace
         0x0eU, 0x06U, 0x01U, 0x01U, 0x10U, 0x00U, 0x11U, 0x22U,
     };
 
+    enum class InlineReply : uint8_t
+    {
+        None,
+        Complete,
+        Rejected,
+    };
+
     struct Fake
     {
             std::array<std::array<uint8_t, kUsbHciMaxCommandBytes>,
@@ -68,6 +76,9 @@ namespace
             bool revokeOnAuthorization {};
             bool failCommand {};
             const LeAdvertisingPhase *pendingPhase {};
+            InlineReply inlineReply {InlineReply::None};
+            void *inlineContext {};
+            bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -132,7 +143,32 @@ namespace
         }
         fake.commandSizes.at(fake.commandCount) = bytes;
         ++fake.commandCount;
-        return true;
+        const InlineReply reply = fake.inlineReply;
+        fake.inlineReply = InlineReply::None;
+        if (reply == InlineReply::None)
+        {
+            return true;
+        }
+        if (fake.inlineEvent == nullptr)
+        {
+            return false;
+        }
+        auto response = reply == InlineReply::Rejected ? kEnableStatusRejected
+                                                       : kParametersComplete;
+        if (reply == InlineReply::Rejected)
+        {
+            response.at(4U) = *usbByteOffset(data, 0U);
+            response.at(kStatusOpcodeHighOffset) = *usbByteOffset(data, 1U);
+        }
+        else
+        {
+            response.at(3U) = *usbByteOffset(data, 0U);
+            response.at(4U) = *usbByteOffset(data, 1U);
+        }
+        // Inject a real controller event while the USB control OUT callback
+        // is on the stack, as a synchronous HCI host is allowed to do.
+        return fake.inlineEvent(fake.inlineContext, response.data(),
+                                response.size());
     }
 
     bool acl(void * /*context*/, uint8_t /*endpoint*/,
@@ -156,6 +192,22 @@ namespace
             LeAdvertisingState advertising_ {};
 
         public:
+            static bool deliverInline(void *context, const uint8_t *event,
+                                      size_t bytes)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                if (receiveUsbHciEvent(fixture.transport_, fixture.host(),
+                                       event, bytes) != UsbHciStatus::Ok)
+                {
+                    return false;
+                }
+                const LeAdvertisingResult result = acceptLeAdvertisingEvent(
+                    fixture.advertising_, fixture.transport_, fixture.host(),
+                    fixture.owner(), event, bytes);
+                return result == LeAdvertisingResult::Ok ||
+                       result == LeAdvertisingResult::ControllerRejected;
+            }
+
             Fake &fake()
             {
                 return fake_;
@@ -189,6 +241,8 @@ namespace
             bool attach()
             {
                 fake_.pendingPhase = &advertising_.phase;
+                fake_.inlineContext = this;
+                fake_.inlineEvent = deliverInline;
                 const UsbHciEndpoints endpoints {0x81U, 0x82U, 0x02U};
                 return attachUsbHci(transport_, endpoints, host()) ==
                        UsbHciStatus::Ok;
@@ -432,6 +486,66 @@ namespace
         return 0;
     }
 
+    int inlineControllerResponses()
+    {
+        Fixture rejectedBegin {};
+        rejectedBegin.fake().inlineReply = InlineReply::Rejected;
+        if (!rejectedBegin.attach() ||
+            rejectedBegin.begin() != LeAdvertisingResult::Faulted ||
+            rejectedBegin.phase() != LeAdvertisingPhase::Faulted ||
+            rejectedBegin.fake().commandCount != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture acceptedBegin {};
+        acceptedBegin.fake().inlineReply = InlineReply::Complete;
+        if (!acceptedBegin.attach() ||
+            acceptedBegin.begin() != LeAdvertisingResult::Ok ||
+            acceptedBegin.phase() != LeAdvertisingPhase::AwaitData ||
+            acceptedBegin.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture rejectedAdvance {};
+        if (!rejectedAdvance.attach() ||
+            rejectedAdvance.begin() != LeAdvertisingResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        rejectedAdvance.fake().inlineReply = InlineReply::Rejected;
+        if (rejectedAdvance.completeParameters() !=
+                LeAdvertisingResult::Faulted ||
+            rejectedAdvance.phase() != LeAdvertisingPhase::Faulted ||
+            rejectedAdvance.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture rejectedDisable {};
+        if (!rejectedDisable.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        rejectedDisable.fake().inlineReply = InlineReply::Rejected;
+        if (rejectedDisable.stop() != LeAdvertisingResult::Faulted ||
+            rejectedDisable.phase() != LeAdvertisingPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture completedDisable {};
+        if (!completedDisable.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        completedDisable.fake().inlineReply = InlineReply::Complete;
+        if (completedDisable.stop() != LeAdvertisingResult::Ok ||
+            completedDisable.phase() != LeAdvertisingPhase::Idle ||
+            completedDisable.epoch() != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int errorsAndOwnership()
     {
         Fixture failed {};
@@ -508,6 +622,10 @@ int main()
     if (const int rejected = validation())
     {
         return rejected;
+    }
+    if (const int inlineResult = inlineControllerResponses())
+    {
+        return inlineResult;
     }
     return errorsAndOwnership();
 }

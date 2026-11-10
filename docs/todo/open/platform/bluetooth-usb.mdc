@@ -160,6 +160,16 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   34 pre-existing strict Clang-Tidy failures, zero skipped checks and zero
   source-snapshot errors**. The latest LE-only source changes have focused
   positive checks, not an independently completed full-tree validator.
+- The LE advertising and scanning state machines now handle HCI controller
+  responses dispatched *inside* the USB control-OUT callback. Reentrant
+  Command Status rejection cannot leave the outer begin, enable or disable
+  operation reporting `Ok` after its nested producer has faulted. A valid
+  inline disable completion can clear the session epoch without causing a
+  spurious `OwnershipLost` result. The C++14/C++17 offline fixtures dispatch
+  these synthetic controller responses through `receiveUsbHciEvent` and
+  the same LE event handlers, including rejection, successful setup and
+  synchronous disable. Scoped sanitizer, formatting and strict Clang-Tidy
+  checks passed; this is not an actual USB/Bluetooth host integration.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE

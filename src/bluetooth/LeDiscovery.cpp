@@ -109,7 +109,11 @@ namespace simpleath
                 {
                     return fault(state, LeDiscoveryResult::TransportFailed);
                 }
-                return LeDiscoveryResult::Ok;
+                // The controller callback can synchronously dispatch a
+                // rejection for the enable while this completion unwinds.
+                return state.phase == LeScanPhase::Faulted
+                           ? LeDiscoveryResult::Faulted
+                           : LeDiscoveryResult::Ok;
             }
             if (state.phase == LeScanPhase::AwaitDisable)
             {
@@ -123,7 +127,9 @@ namespace simpleath
                 {
                     return fault(state, LeDiscoveryResult::TransportFailed);
                 }
-                return LeDiscoveryResult::Ok;
+                return state.phase == LeScanPhase::Faulted
+                           ? LeDiscoveryResult::Faulted
+                           : LeDiscoveryResult::Ok;
             }
             state.phase = LeScanPhase::Scanning;
             return LeDiscoveryResult::Ok;
@@ -343,6 +349,10 @@ namespace simpleath
             {
                 return fault(state, LeDiscoveryResult::TransportFailed);
             }
+            if (state.phase == LeScanPhase::Faulted)
+            {
+                return LeDiscoveryResult::Faulted;
+            }
             if (!authorized(state, transport, host, owner))
             {
                 return fault(state, LeDiscoveryResult::OwnershipLost);
@@ -431,6 +441,15 @@ namespace simpleath
         if (sendEnable(transport, host, false) != LeDiscoveryResult::Ok)
         {
             return fault(state, LeDiscoveryResult::TransportFailed);
+        }
+        if (state.phase == LeScanPhase::Faulted)
+        {
+            return LeDiscoveryResult::Faulted;
+        }
+        // Inline disable completion can legitimately clear the epoch.
+        if (state.phase == LeScanPhase::Idle)
+        {
+            return LeDiscoveryResult::Ok;
         }
         if (!authorized(state, transport, host, owner))
         {
