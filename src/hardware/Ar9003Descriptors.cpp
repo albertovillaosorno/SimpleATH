@@ -85,17 +85,47 @@ namespace simpleath
         static constexpr uint32_t kRxAggregationFirst = 0x20000000U;
         static constexpr uint32_t kRxKeyMiss = 0x80000000U;
 
+        // A short fixed-index descriptor access remains bounded by the
+        // physical C-array extent, without changing its binary DMA layout.
+        template <typename T, size_t N>
+        static T &boundedElement(T (&items)[N], size_t index)
+        {
+            for (T &element : items)
+            {
+                if (index == 0)
+                {
+                    return element;
+                }
+                --index;
+            }
+            __builtin_trap(); // Unreachable after segment-count checks.
+        }
+
+        static uintptr_t pointerAddress(const void *pointer)
+        {
+            static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                          "platform pointer and address widths must agree");
+            uintptr_t result = 0;
+            __builtin_memcpy(&result, static_cast<const void *>(&pointer),
+                             sizeof(pointer));
+            return result;
+        }
+
         // Reject caller-forged overlapping input/output storage before
         // any write; raw status can belong to a DMA-visible ring.
         static bool overlapsStorage(const void *const first, size_t firstBytes,
                                     const void *const second,
                                     size_t secondBytes)
         {
-            const auto left = reinterpret_cast<uintptr_t>(first);
-            const auto right = reinterpret_cast<uintptr_t>(second);
-            return firstBytes != 0 && secondBytes != 0 &&
-                   (left >= right ? left - right < secondBytes
-                                  : right - left < firstBytes);
+            if (first == nullptr || second == nullptr || firstBytes == 0 ||
+                secondBytes == 0)
+            {
+                return false;
+            }
+            const uintptr_t left = pointerAddress(first);
+            const uintptr_t right = pointerAddress(second);
+            return left >= right ? left - right < secondBytes
+                                 : right - left < firstBytes;
         }
 
         static constexpr uint8_t kCck1Mb = 0x1bU;
@@ -154,11 +184,12 @@ namespace simpleath
                 descriptor.word[kTxInfoIndex] + descriptor.word[kLinkIndex];
             for (size_t slot = 0; slot < kSegmentCount; ++slot)
             {
-                sum +=
-                    descriptor
-                        .word[kSegmentAddressIndex + (slot * kSegmentStride)];
-                sum += descriptor
-                           .word[kSegmentLengthIndex + (slot * kSegmentStride)];
+                sum += boundedElement(descriptor.word,
+                                      kSegmentAddressIndex +
+                                          (slot * kSegmentStride));
+                sum += boundedElement(descriptor.word,
+                                      kSegmentLengthIndex +
+                                          (slot * kSegmentStride));
             }
             const uint32_t folded =
                 (sum & kLowHalfMask) + (sum >> kLengthShift);
@@ -185,12 +216,12 @@ namespace simpleath
             bool foundGap = false;
             for (size_t index = 0; index < kSegmentCount; ++index)
             {
-                const uint32_t address =
-                    descriptor
-                        .word[kSegmentAddressIndex + (index * kSegmentStride)];
-                const uint32_t encoded =
-                    descriptor
-                        .word[kSegmentLengthIndex + (index * kSegmentStride)];
+                const uint32_t address = boundedElement(
+                    descriptor.word,
+                    kSegmentAddressIndex + (index * kSegmentStride));
+                const uint32_t encoded = boundedElement(
+                    descriptor.word,
+                    kSegmentLengthIndex + (index * kSegmentStride));
                 if (address == 0 && encoded == 0)
                 {
                     foundGap = true;
@@ -242,7 +273,7 @@ namespace simpleath
 
             for (uint8_t index = 0; index < input.segmentCount; ++index)
             {
-                const Segment &segment = input.segment[index];
+                const Segment &segment = boundedElement(input.segment, index);
                 if (segment.busAddress == 0 ||
                     segment.busAddress > kMaxBusAddress)
                 {
@@ -256,9 +287,11 @@ namespace simpleath
                 {
                     return DescriptorError::InvalidAddress;
                 }
-                staged.word[kSegmentAddressIndex + (index * kSegmentStride)] =
+                boundedElement(staged.word, kSegmentAddressIndex +
+                                                (index * kSegmentStride)) =
                     static_cast<uint32_t>(segment.busAddress);
-                staged.word[kSegmentLengthIndex + (index * kSegmentStride)] =
+                boundedElement(staged.word,
+                               kSegmentLengthIndex + (index * kSegmentStride)) =
                     static_cast<uint32_t>(segment.length) << kLengthShift;
             }
             staged.word[kChecksumIndex] = txPointerChecksum(staged);

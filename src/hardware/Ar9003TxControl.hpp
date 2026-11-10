@@ -155,7 +155,7 @@ namespace simpleath
         // rejected. Incoherent done statuses asserting both XmitOK and a
         // terminal failure are rejected without retaining a false success.
         // The owner must confirm hardware has stopped DMA before ring recycle.
-        DescriptorError decodeTxCompletion(const TxCompletionWords &status,
+        DescriptorError decodeTxCompletion(const TxCompletionWords &raw,
                                            TxCompletion &out);
 
     } // namespace edma

@@ -27,14 +27,47 @@ namespace simpleath
                 }
             }
 
+            // The caller bounds every index; walking the fixed array keeps
+            // the access independent of unchecked C-array subscripts.
+            template <typename T, size_t N>
+            T &boundedElement(T (&items)[N], size_t index)
+            {
+                for (T &element : items)
+                {
+                    if (index == 0)
+                    {
+                        return element;
+                    }
+                    --index;
+                }
+                // This branch is unreachable after caller capacity checks.
+                __builtin_trap();
+            }
+
+            // uintptr_t is defined as an address-sized integer on this
+            // platform. Copying its representation avoids aliasing assumptions
+            // and preserves the pointer comparison's original semantics.
+            uintptr_t pointerAddress(const void *pointer)
+            {
+                static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                              "platform address width must match a pointer");
+                uintptr_t address = 0;
+                __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                                 sizeof(pointer));
+                return address;
+            }
+
             bool overlapsStorage(const void *a, size_t aBytes, const void *b,
                                  size_t bBytes)
             {
-                const auto first = reinterpret_cast<uintptr_t>(a);
-                const auto second = reinterpret_cast<uintptr_t>(b);
-                return aBytes != 0 && bBytes != 0 &&
-                       (first >= second ? first - second < bBytes
-                                        : second - first < aBytes);
+                if (a == nullptr || b == nullptr || aBytes == 0 || bBytes == 0)
+                {
+                    return false;
+                }
+                const uintptr_t first = pointerAddress(a);
+                const uintptr_t second = pointerAddress(b);
+                return first >= second ? first - second < bBytes
+                                       : second - first < aBytes;
             }
 
             bool accepted(const Bss &bss)
@@ -210,11 +243,11 @@ namespace simpleath
                     ++rejected;
                     continue;
                 }
-                completed_[count++] = copyBss(bss);
+                boundedElement(completed_, count++) = copyBss(bss);
             }
             for (size_t i = count; i < ScanCache::kCapacity; ++i)
             {
-                completed_[i] = {};
+                boundedElement(completed_, i) = {};
             }
             state_.resultCount = count;
             state_.rejectedEntries = rejected;
@@ -289,7 +322,7 @@ namespace simpleath
             {
                 return ScanBridgeResult::NoResult;
             }
-            out = completed_[state_.nextResult++];
+            out = boundedElement(completed_, state_.nextResult++);
             if (state_.returnedResults < UINT32_MAX)
             {
                 ++state_.returnedResults;

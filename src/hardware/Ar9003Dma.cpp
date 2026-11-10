@@ -10,16 +10,46 @@ namespace simpleath
         static constexpr uint64_t kDeviceMaxAddress = 0xffffffffULL;
         static constexpr uint32_t kGenerationMax = 0xffffffffU;
 
+        // Ring capacity is fixed; validate indices without unchecked C-array
+        // indexing. This slow path deals only with small metadata slot tables.
+        template <typename T, size_t N>
+        static T &boundedElement(T (&items)[N], size_t index)
+        {
+            for (T &element : items)
+            {
+                if (index == 0)
+                {
+                    return element;
+                }
+                --index;
+            }
+            __builtin_trap(); // All callers validate against ring capacity.
+        }
+
+        static uintptr_t pointerAddress(const void *pointer)
+        {
+            static_assert(sizeof(uintptr_t) == sizeof(pointer),
+                          "DMA host pointer and address widths must agree");
+            uintptr_t address = 0;
+            __builtin_memcpy(&address, static_cast<const void *>(&pointer),
+                             sizeof(pointer));
+            return address;
+        }
+
         // Do not let a caller-owned output token overwrite live ring metadata.
         // Compare address distances to avoid pointer-end overflow.
         static bool overlapsStorage(const void *first, size_t firstBytes,
                                     const void *second, size_t secondBytes)
         {
-            const auto left = reinterpret_cast<uintptr_t>(first);
-            const auto right = reinterpret_cast<uintptr_t>(second);
-            return firstBytes != 0 && secondBytes != 0 &&
-                   (left >= right ? left - right < secondBytes
-                                  : right - left < firstBytes);
+            if (first == nullptr || second == nullptr || firstBytes == 0 ||
+                secondBytes == 0)
+            {
+                return false;
+            }
+            const uintptr_t left = pointerAddress(first);
+            const uintptr_t right = pointerAddress(second);
+            return left >= right ? left - right < secondBytes
+                                 : right - left < firstBytes;
         }
 
         Error validateMapping(const Mapping &mapping, size_t requiredBytes)
@@ -65,8 +95,7 @@ namespace simpleath
             // An IOMMU flag does not make a CPU pointer span valid. Reject
             // mappings whose full retained host allocation wraps uintptr_t,
             // before any future caller can add offsets to that pointer.
-            const auto hostStart =
-                reinterpret_cast<uintptr_t>(mapping.cpuAddress);
+            const auto hostStart = pointerAddress(mapping.cpuAddress);
             if (mapping.length - 1U > UINTPTR_MAX - hostStart)
             {
                 return Error::AddressOverflow;
@@ -107,8 +136,7 @@ namespace simpleath
             }
             if (mapping.direction != direction ||
                 (mapping.deviceBusAddress & (alignment - 1U)) != 0 ||
-                (reinterpret_cast<uintptr_t>(mapping.cpuAddress) &
-                 (alignment - 1U)) != 0)
+                (pointerAddress(mapping.cpuAddress) & (alignment - 1U)) != 0)
             {
                 return Error::InvalidAlignment;
             }
@@ -131,9 +159,7 @@ namespace simpleath
                                 Direction::FromDevice);
         }
 
-        TxRing::TxRing()
-        {
-        }
+        TxRing::TxRing() = default;
 
         Error TxRing::initialize(size_t numberOfSlots)
         {
@@ -179,7 +205,7 @@ namespace simpleath
             }
             for (size_t i = 0; i < capacity_; ++i)
             {
-                RingSlot &slot = slots_[i];
+                RingSlot &slot = boundedElement(slots_, i);
                 if (slot.state != SlotState::Free)
                 {
                     continue;
@@ -203,7 +229,7 @@ namespace simpleath
             {
                 return Error::InvalidSlot;
             }
-            RingSlot &slot = slots_[token.index];
+            RingSlot &slot = boundedElement(slots_, token.index);
             if (!matches(token) || slot.state != SlotState::Reserved)
             {
                 return Error::UnexpectedState;
@@ -226,7 +252,7 @@ namespace simpleath
             {
                 return Error::InvalidSlot;
             }
-            RingSlot &slot = slots_[token.index];
+            RingSlot &slot = boundedElement(slots_, token.index);
             if (!matches(token) || slot.state != SlotState::ReadyForHardware)
             {
                 return Error::UnexpectedState;
@@ -247,7 +273,7 @@ namespace simpleath
             {
                 return Error::InvalidSlot;
             }
-            RingSlot &slot = slots_[token.index];
+            RingSlot &slot = boundedElement(slots_, token.index);
             if (!matches(token) || slot.state != SlotState::OwnedByHardware)
             {
                 return Error::UnexpectedState;
@@ -262,8 +288,7 @@ namespace simpleath
             {
                 return Error::InvalidSlot;
             }
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-            RingSlot &slot = slots_[token.index];
+            RingSlot &slot = boundedElement(slots_, token.index);
             if (!matches(token) || slot.state != SlotState::OwnedByHardware ||
                 !quiesced)
             {
@@ -279,7 +304,7 @@ namespace simpleath
             {
                 return Error::InvalidSlot;
             }
-            RingSlot &slot = slots_[token.index];
+            RingSlot &slot = boundedElement(slots_, token.index);
             if (!matches(token) || active_ == 0 ||
                 (slot.state != SlotState::Completed &&
                  slot.state != SlotState::Reserved &&
@@ -320,19 +345,17 @@ namespace simpleath
             {
                 return false;
             }
-            const RingSlot &slot = slots_[token.index];
+            const RingSlot &slot = boundedElement(slots_, token.index);
             return slot.generation == token.generation &&
                    slot.cookie == token.cookie;
         }
 
         const RingSlot *TxRing::slot(size_t index) const
         {
-            return index < capacity_ ? &slots_[index] : nullptr;
+            return index < capacity_ ? &boundedElement(slots_, index) : nullptr;
         }
 
-        RxRing::RxRing()
-        {
-        }
+        RxRing::RxRing() = default;
 
         Error RxRing::initialize(size_t numberOfSlots)
         {
@@ -528,14 +551,13 @@ namespace simpleath
 
         RingSlot &RxRing::mutableSlot(size_t index)
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-            return slots_[index]; // Only used after index < capacity_.
+            return boundedElement(slots_,
+                                  index); // Only used after index < capacity_.
         }
 
         const RingSlot *RxRing::slot(size_t index) const
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-            return index < capacity_ ? &slots_[index] : nullptr;
+            return index < capacity_ ? &boundedElement(slots_, index) : nullptr;
         }
 
     } // namespace dma
