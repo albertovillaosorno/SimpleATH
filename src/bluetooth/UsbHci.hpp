@@ -111,6 +111,9 @@ namespace simpleath
             uint16_t pendingOpcode {};
             uint8_t credits {1U};
             bool pending {};
+            // LE procedure setup commands may report successful Status
+            // before their final Command Complete. Reject duplicate Status.
+            bool preliminaryStatusSeen {};
     };
 
     struct UsbHciState

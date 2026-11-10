@@ -18,6 +18,11 @@ namespace simpleath
         constexpr size_t kHciCommandHeaderBytes = 3U;
         constexpr uint16_t kHciReadBufferSize = 0x1005U;
         constexpr uint16_t kHciLeReadBufferSize = 0x2002U;
+        constexpr uint16_t kHciLeSetAdvertisingParameters = 0x2006U;
+        constexpr uint16_t kHciLeSetAdvertisingData = 0x2008U;
+        constexpr uint16_t kHciLeSetAdvertisingEnable = 0x200aU;
+        constexpr uint16_t kHciLeSetScanParameters = 0x200bU;
+        constexpr uint16_t kHciLeSetScanEnable = 0x200cU;
         constexpr uint16_t kHciReset = 0x0c03U;
         constexpr uint8_t kHciCommandComplete = 0x0eU;
         constexpr uint8_t kHciCommandStatus = 0x0fU;
@@ -324,6 +329,17 @@ namespace simpleath
             return UsbHciStatus::Ok;
         }
 
+        bool leProcedureNeedsComplete(uint16_t opcode)
+        {
+            // The LE discovery/advertising producers require controller
+            // Command Complete, not merely a preliminary successful Status.
+            return opcode == kHciLeSetAdvertisingParameters ||
+                   opcode == kHciLeSetAdvertisingData ||
+                   opcode == kHciLeSetAdvertisingEnable ||
+                   opcode == kHciLeSetScanParameters ||
+                   opcode == kHciLeSetScanEnable;
+        }
+
         // A command response belongs to this exclusive HCI host. Do not
         // accept a mismatched or unsolicited response as a source of credits.
         // Num_HCI_Command_Packets is an absolute window, not an increment.
@@ -355,13 +371,24 @@ namespace simpleath
                  (opcode == kHciLeReadBufferSize &&
                   state.leAclWindow.readBufferPending));
             if ((!commands.pending && !awaitingSpecialComplete) ||
-                (commands.pending && opcode != commands.pendingOpcode))
+                (commands.pending && opcode != commands.pendingOpcode) ||
+                (status && commands.preliminaryStatusSeen))
             {
                 return UsbHciStatus::MalformedPacket;
             }
             commands.credits = *usbByteOffset(
                 packet, complete ? kCommandCreditOffset : kStatusCreditOffset);
+            if (status && *usbByteOffset(packet, 2U) == 0U &&
+                leProcedureNeedsComplete(opcode))
+            {
+                // Keep the exclusive pending opcode until its final CC;
+                // a Status credit is not permission to overtake this LE
+                // procedure or accept a duplicate preliminary response.
+                commands.preliminaryStatusSeen = true;
+                return UsbHciStatus::Ok;
+            }
             commands.pending = false;
+            commands.preliminaryStatusSeen = false;
             commands.pendingOpcode = 0U;
             return UsbHciStatus::Ok;
         }
@@ -730,6 +757,7 @@ namespace simpleath
         // synchronous Command Complete/Status and re-enter the HCI owner.
         --commands.credits;
         commands.pending = true;
+        commands.preliminaryStatusSeen = false;
         commands.pendingOpcode = opcode;
         // Record the outstanding request before the USB callback; a host
         // adapter may synchronously deliver the command-complete event.

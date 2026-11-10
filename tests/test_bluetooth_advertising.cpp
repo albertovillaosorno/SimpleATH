@@ -205,24 +205,36 @@ namespace
 
             LeAdvertisingResult accept(const uint8_t *data, size_t bytes)
             {
-                // The native event owner must account controller command
-                // completion BEFORE handing a callback to this producer.
-                constexpr size_t kCompleteBytes = 6U;
-                constexpr size_t kOpcodeLow = 3U;
-                constexpr size_t kOpcodeHigh = 4U;
+                // Account BOTH preliminary Status and final Complete in the
+                // same USB stream before dispatching to the LE producer.
+                constexpr size_t kResponseBytes = 6U;
+                constexpr size_t kCompleteOpcode = 3U;
+                constexpr size_t kStatusOpcode = 4U;
                 constexpr unsigned kOpcodeShift = 8U;
                 constexpr uint8_t kCompleteCode = 0x0eU;
-                if (data != nullptr && bytes == kCompleteBytes &&
-                    *usbByteOffset(data, 0U) == kCompleteCode &&
-                    transport_.commandWindow.pending &&
-                    (static_cast<uint32_t>(*usbByteOffset(data, kOpcodeLow)) |
-                     (static_cast<uint32_t>(*usbByteOffset(data, kOpcodeHigh))
-                      << kOpcodeShift)) ==
-                        transport_.commandWindow.pendingOpcode &&
-                    receiveUsbHciEvent(transport_, host(), data, bytes) !=
-                        UsbHciStatus::Ok)
+                constexpr uint8_t kStatusCode = 0x0fU;
+                if (data != nullptr && bytes == kResponseBytes)
                 {
-                    return LeAdvertisingResult::TransportFailed;
+                    const uint8_t code = *usbByteOffset(data, 0U);
+                    if (code == kCompleteCode || code == kStatusCode)
+                    {
+                        const size_t offset = code == kCompleteCode
+                                                  ? kCompleteOpcode
+                                                  : kStatusOpcode;
+                        const auto opcode = static_cast<uint16_t>(
+                            static_cast<uint32_t>(
+                                *usbByteOffset(data, offset)) |
+                            (static_cast<uint32_t>(
+                                 *usbByteOffset(data, offset + 1U))
+                             << kOpcodeShift));
+                        if (transport_.commandWindow.pending &&
+                            opcode == transport_.commandWindow.pendingOpcode &&
+                            receiveUsbHciEvent(transport_, host(), data,
+                                               bytes) != UsbHciStatus::Ok)
+                        {
+                            return LeAdvertisingResult::TransportFailed;
+                        }
+                    }
                 }
                 return acceptLeAdvertisingEvent(advertising_, transport_,
                                                 host(), owner(), data, bytes);

@@ -921,6 +921,95 @@ namespace
                state.faulted;
     }
 
+    bool testLePreliminaryCommandStatus()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> kLeProcedureOpcodes {
+            0x06U, 0x08U, 0x0aU, 0x0bU, 0x0cU,
+        };
+        constexpr uint8_t kLeOpcodeGroup = 0x20U;
+        constexpr uint8_t kRejectedControllerStatus = 0x0cU;
+        constexpr std::array<uint8_t, 3U> kOtherCommand {
+            0x14U,
+            0x0cU,
+            0x00U,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        // Advertising and scan command procedures both await a final CC.
+        // A preliminary successful Status must not free the pending opcode
+        // or permit a different HCI command to overtake it.
+        for (const uint8_t opcode : kLeProcedureOpcodes)
+        {
+            const std::array<uint8_t, 3U> command {opcode, kLeOpcodeGroup, 0U};
+            const std::array<uint8_t, 6U> status {
+                0x0fU, 4U, 0U, 1U, opcode, kLeOpcodeGroup,
+            };
+            const std::array<uint8_t, 6U> complete {
+                0x0eU, 4U, 1U, opcode, kLeOpcodeGroup, 0U,
+            };
+            if (sendUsbHciCommand(state, host(fake), command.data(),
+                                  command.size()) != UsbHciStatus::Ok ||
+                receiveUsbHciEvent(state, host(fake), status.data(),
+                                   status.size()) != UsbHciStatus::Ok ||
+                !state.commandWindow.pending ||
+                !state.commandWindow.preliminaryStatusSeen ||
+                state.commandWindow.credits != 1U ||
+                sendUsbHciCommand(state, host(fake), kOtherCommand.data(),
+                                  kOtherCommand.size()) !=
+                    UsbHciStatus::NoCommandCredits ||
+                receiveUsbHciEvent(state, host(fake), complete.data(),
+                                   complete.size()) != UsbHciStatus::Ok ||
+                state.commandWindow.pending ||
+                state.commandWindow.preliminaryStatusSeen ||
+                state.commandWindow.credits != 1U)
+            {
+                return false;
+            }
+        }
+        // Repeated successful Status must not repeatedly grant credits.
+        const std::array<uint8_t, 3U> command {
+            kLeProcedureOpcodes.front(),
+            kLeOpcodeGroup,
+            0U,
+        };
+        const std::array<uint8_t, 6U> status {
+            0x0fU, 4U, 0U, 1U, kLeProcedureOpcodes.front(), kLeOpcodeGroup,
+        };
+        if (sendUsbHciCommand(state, host(fake), command.data(),
+                              command.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), status.data(),
+                               status.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), status.data(),
+                               status.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        // An explicit controller rejection is terminal, not preliminary.
+        auto rejected = status;
+        rejected.at(2U) = kRejectedControllerStatus;
+        return attachUsbHci(state, kEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               sendUsbHciCommand(state, host(fake), command.data(),
+                                 command.size()) == UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), rejected.data(),
+                                  rejected.size()) == UsbHciStatus::Ok &&
+               !state.commandWindow.pending &&
+               !state.commandWindow.preliminaryStatusSeen &&
+               state.commandWindow.credits == 1U;
+    }
+
     constexpr std::array<uint8_t, 3U> kLeReadSize {
         0x02U,
         0x20U,
@@ -1404,6 +1493,11 @@ int main()
     {
         constexpr int kCommandCreditTestFailure = 6;
         return kCommandCreditTestFailure;
+    }
+    if (!testLePreliminaryCommandStatus())
+    {
+        constexpr int kLePreliminaryStatusFailure = 13;
+        return kLePreliminaryStatusFailure;
     }
     if (!testDedicatedLeCredits())
     {
