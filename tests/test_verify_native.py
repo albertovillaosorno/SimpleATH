@@ -34,7 +34,7 @@ ASSEMBLY = ".globl _athSkyForward0\n"
 EXPECTED_CALLS = 12
 EXPECT_FORWARD0 = 'extern "C" void athSkyForward0();'
 EXPECT_CALLBACK1 = 'extern "C" void athSkyCallback1();'
-EXPECT_FORWARD_PTR = "reinterpret_cast<uintptr_t>(athSkyForward1)"
+EXPECT_FORWARD_PTR = "bitPattern<uintptr_t>(&athSkyForward1)"
 EXPECTED_ABI_GUARDS = 52
 SYNTHETIC_PAYLOAD_SIZE = 64
 EXPECTED_RECONSTRUCTED_PAYLOAD = b"\x00ab\x00cd\x00"
@@ -421,7 +421,13 @@ class NativeForwardingProbeTests(TestCase):
                 == EXPECTED_CALLS
             )
             assert (root / "Forwarding.S").read_text() == (
-                ".section __TEXT,__text\n" + ASSEMBLY
+                ".section __TEXT,__text\n"
+                + ASSEMBLY
+                + "\n.globl _athProbeClobberReturns\n"
+                + "_athProbeClobberReturns:\n"
+                + "xorq %rax, %rax\n"
+                + "xorq %rdx, %rdx\n"
+                + "retq\n"
             )
             assert (root / "ForwardingValidation.cpp").read_text() == (
                 probe.render_fixture(2)

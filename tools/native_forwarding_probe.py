@@ -24,8 +24,14 @@ HOST_SOURCE_FILE = Path(__file__).with_name("forwarding_validation_host.cpp")
 MAX_FORWARDERS = 2048
 MAX_ASSEMBLY_BYTES = 4 * 1024 * 1024
 DECLARATIONS = "// ATH_DECLARATIONS_PLACEHOLDER"
-FORWARDERS = "ATH_FORWARDERS_PLACEHOLDER"
-CALLBACKS = "ATH_CALLBACKS_PLACEHOLDER"
+FORWARDERS = (
+    "    const std::vector<uintptr_t> forwarders {0};"
+    " // ATH_FORWARDERS_PLACEHOLDER"
+)
+CALLBACKS = (
+    "    const std::vector<uintptr_t> callbacks {0};"
+    "  // ATH_CALLBACKS_PLACEHOLDER"
+)
 
 
 def render_fixture(method_count: int) -> str:
@@ -56,15 +62,23 @@ def render_fixture(method_count: int) -> str:
             f'extern "C" void athSkyForward{index}();',
             f'extern "C" void athSkyCallback{index}();',
         ))
-        old_entries.append(f"reinterpret_cast<uintptr_t>(athSkyForward{index})")
-        new_entries.append(
-            f"reinterpret_cast<uintptr_t>(athSkyCallback{index})"
-        )
+        old_entries.append(f"bitPattern<uintptr_t>(&athSkyForward{index})")
+        new_entries.append(f"bitPattern<uintptr_t>(&athSkyCallback{index})")
     return (
         source
         .replace(DECLARATIONS, "\n".join(declarations))
-        .replace(FORWARDERS, ",".join(old_entries))
-        .replace(CALLBACKS, ",".join(new_entries))
+        .replace(
+            FORWARDERS,
+            "    const std::vector<uintptr_t> forwarders {"
+            + ",".join(old_entries)
+            + "};",
+        )
+        .replace(
+            CALLBACKS,
+            "    const std::vector<uintptr_t> callbacks {"
+            + ",".join(new_entries)
+            + "};",
+        )
     )
 
 
@@ -119,7 +133,14 @@ def run_probe(
     host = folder / "ForwardingValidation.cpp"
     executable = folder / "forwarding"
     _ = assembly.write_text(
-        ".section __TEXT,__text\n" + forwarders, encoding="utf-8"
+        ".section __TEXT,__text\n"
+        + forwarders
+        + "\n.globl _athProbeClobberReturns\n"
+        + "_athProbeClobberReturns:\n"
+        + "xorq %rax, %rax\n"
+        + "xorq %rdx, %rdx\n"
+        + "retq\n",
+        encoding="utf-8",
     )
     _ = host.write_text(source, encoding="utf-8")
     _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
