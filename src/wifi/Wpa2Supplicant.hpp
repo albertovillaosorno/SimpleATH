@@ -47,6 +47,7 @@ namespace simpleath
             Failed,
             ProcessingMessage1,
             ProcessingMessage3,
+            ProcessingGroupMessage1,
         };
 
         // Callbacks run synchronously under the station's serialized workloop.
@@ -130,6 +131,15 @@ namespace simpleath
                 Wpa2Result onMessage3(const uint8_t *eapol, size_t length,
                                       uint8_t *outMessage4, size_t capacity,
                                       size_t &written);
+                // After the four-way handshake, authenticate a protected
+                // Group Key Handshake message 1 and install its GTK. The
+                // resulting Group2 EAPOL frame MUST be sent through a real
+                // CCMP-protected data path with an installed pairwise TK;
+                // never transmit it in cleartext. Failed output submission
+                // requires the owner to reset and revoke keys.
+                Wpa2Result onGroupMessage1(const uint8_t *eapol, size_t length,
+                                           uint8_t *outGroup2, size_t capacity,
+                                           size_t &written);
                 // The owner calls reset before its crypto and PCI contexts are
                 // released.
                 void reset();
@@ -168,6 +178,7 @@ namespace simpleath
                 size_t expectedRsnIeLength_;
                 uint8_t eapolVersion_;
                 bool keyInstallAttempted_;
+                uint64_t lastGroupReplayCounter_;
                 // Reset/begin revoke callbacks from an earlier handshake even
                 // when a provider reenters reset()+begin() before returning.
                 uint64_t sessionEpoch_;

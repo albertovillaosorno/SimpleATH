@@ -196,7 +196,8 @@ namespace simpleath
             Wpa2Result parseM3KeyData(const uint8_t *plaintext, size_t length,
                                       const uint8_t *expectedRsnIe,
                                       size_t expectedRsnIeLength,
-                                      uint8_t &keyId, uint8_t gtk[16])
+                                      uint8_t &keyId, uint8_t gtk[16],
+                                      bool requireRsn)
             {
                 bool foundGtk = false;
                 bool foundRsn = false;
@@ -234,7 +235,8 @@ namespace simpleath
                     {
                         // M3 must reproduce the associated BSS's RSNE; do not
                         // install keys for a changed suite/AKM/PMF policy.
-                        if (foundRsn || size + 2U != expectedRsnIeLength ||
+                        if (!requireRsn || foundRsn ||
+                            size + 2U != expectedRsnIeLength ||
                             expectedRsnIe[0] != tag ||
                             expectedRsnIe[1] != size ||
                             !constantTimeEqual(element, expectedRsnIe + 2U,
@@ -265,7 +267,7 @@ namespace simpleath
                     }
                     offset += size;
                 }
-                if (!foundRsn)
+                if (requireRsn && !foundRsn)
                 {
                     return Wpa2Result::RsnMismatch;
                 }
@@ -278,7 +280,8 @@ namespace simpleath
             : state_(Wpa2State::Inactive), crypto_ {}, replay_ {}, station_ {},
               ap_ {}, pmk_ {}, ptk_ {}, snonce_ {}, expectedRsnIe_ {},
               expectedRsnIeLength_(0), eapolVersion_(0),
-              keyInstallAttempted_(false), sessionEpoch_(0)
+              keyInstallAttempted_(false), lastGroupReplayCounter_(0),
+              sessionEpoch_(0)
         {
         }
 
@@ -308,6 +311,7 @@ namespace simpleath
             // Mark failed and revoke stored secrets BEFORE an untrusted
             // rollback callback. A reentrant reset/begin owns fresh state.
             keyInstallAttempted_ = false;
+            lastGroupReplayCounter_ = 0;
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
@@ -329,6 +333,7 @@ namespace simpleath
             // Clear state BEFORE rollback, which itself may call reset/begin.
             ++sessionEpoch_;
             keyInstallAttempted_ = false;
+            lastGroupReplayCounter_ = 0;
             secureClear(pmk_, sizeof(pmk_));
             secureClear(ptk_, sizeof(ptk_));
             secureClear(snonce_, sizeof(snonce_));
@@ -402,6 +407,7 @@ namespace simpleath
             copyBytes(pmk_, pmk, sizeof(pmk_));
             copyBytes(expectedRsnIe_, expectedRsnIe, expectedRsnIeLength);
             expectedRsnIeLength_ = expectedRsnIeLength;
+            lastGroupReplayCounter_ = 0;
             ++sessionEpoch_;
             state_ = Wpa2State::AwaitingMessage1;
             return Wpa2Result::Ok;
@@ -719,7 +725,7 @@ namespace simpleath
             uint8_t keyId = 0;
             const Wpa2Result keyData =
                 parseM3KeyData(decrypted, decryptedLength, expectedRsnIe_,
-                               expectedRsnIeLength_, keyId, gtk);
+                               expectedRsnIeLength_, keyId, gtk, true);
             secureClear(decrypted, sizeof(decrypted));
             if (keyData != Wpa2Result::Ok)
             {
@@ -798,9 +804,198 @@ namespace simpleath
             secureClear(response, sizeof(response));
             written = kMessage4Length;
             secureClear(pmk_, sizeof(pmk_));
-            secureClear(ptk_, sizeof(ptk_));
+            // The initial PTK temporal key is installed in hardware. Keep
+            // only KCK/KEK for later authenticated GTK updates; neither
+            // retained TK nor SNonce/PMK is needed after M4.
+            secureClear(ptk_ + 32U, sizeof(ptk_) - 32U);
             secureClear(snonce_, sizeof(snonce_));
+            lastGroupReplayCounter_ = replay_.lastReplayCounter();
             state_ = Wpa2State::HardwareKeysInstalled;
+            return Wpa2Result::Ok;
+        }
+
+        Wpa2Result Wpa2Supplicant::onGroupMessage1(const uint8_t *eapol,
+                                                   size_t length,
+                                                   uint8_t *outGroup2,
+                                                   size_t capacity,
+                                                   size_t &written)
+        {
+            if (!handshakeIoDisjoint(this, sizeof(*this), crypto_.context,
+                                     eapol, length, outGroup2, capacity,
+                                     written))
+            {
+                return Wpa2Result::InvalidArgument;
+            }
+            written = 0;
+            if (state_ != Wpa2State::HardwareKeysInstalled)
+            {
+                return Wpa2Result::InvalidState;
+            }
+            if (outGroup2 == nullptr || capacity < kMessage4Length)
+            {
+                return Wpa2Result::BufferTooSmall;
+            }
+            KeyFrame preflight {};
+            if (parseEapolKey(eapol, length, preflight) != EapolResult::Ok ||
+                preflight.eapolLength != length)
+            {
+                return Wpa2Result::MalformedEapol;
+            }
+            if (preflight.eapolLength > kMaximumEapolHandshakeBytes)
+            {
+                return Wpa2Result::WrongMessage;
+            }
+            ScopedSecret<kMaximumEapolHandshakeBytes> authenticated {};
+            copyBytes(authenticated.bytes, eapol, length);
+            KeyFrame key {};
+            if (parseEapolKey(authenticated.bytes, length, key) !=
+                EapolResult::Ok)
+            {
+                return Wpa2Result::MalformedEapol;
+            }
+            if (key.message != KeyMessage::Group1 || key.keyLength != 16 ||
+                key.keyDataLength < 24 ||
+                key.keyDataLength > kMaximumGtkPlaintext)
+            {
+                return Wpa2Result::WrongMessage;
+            }
+            // A Group1 reply must never reinstall a GTK for an old PN/replay
+            // epoch. The M3 floor is retained when the four-way completes.
+            if (key.replayCounter <= lastGroupReplayCounter_)
+            {
+                return Wpa2Result::InvalidReplayCounter;
+            }
+            if (key.keyRsc[6] != 0 || key.keyRsc[7] != 0)
+            {
+                return Wpa2Result::InvalidKeySequenceCounter;
+            }
+            uint8_t receivedMic[16] {};
+            copyBytes(receivedMic, key.mic, sizeof(receivedMic));
+            for (size_t index = 0; index < sizeof(receivedMic); ++index)
+            {
+                authenticated.bytes[kEapolHeaderBytes + 77U + index] = 0;
+            }
+            ScopedSecret<kMaximumEapolHandshakeBytes> micInput {};
+            copyBytes(micInput.bytes, authenticated.bytes, length);
+            ScopedSecret<32> keyMaterial {};
+            copyBytes(keyMaterial.bytes, ptk_, sizeof(keyMaterial.bytes));
+            const uint64_t epoch = sessionEpoch_;
+            state_ = Wpa2State::ProcessingGroupMessage1;
+            uint8_t expectedMic[16] {};
+            const bool micCalculated =
+                crypto_.micSha1(crypto_.context, keyMaterial.bytes,
+                                authenticated.bytes, length, expectedMic);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(expectedMic, sizeof(expectedMic));
+                return Wpa2Result::InvalidState;
+            }
+            const bool micInputIntact =
+                constantTimeEqual(authenticated.bytes, micInput.bytes,
+                                  length) &&
+                constantTimeEqual(keyMaterial.bytes, ptk_, 32);
+            const bool micMatches = constantTimeEqual(receivedMic, expectedMic,
+                                                      sizeof(receivedMic));
+            secureClear(receivedMic, sizeof(receivedMic));
+            secureClear(expectedMic, sizeof(expectedMic));
+            if (!micCalculated || !micInputIntact)
+            {
+                return fail(Wpa2Result::MicCalculationFailure);
+            }
+            if (!micMatches)
+            {
+                // Invalid MIC does not allow an unauthenticated peer to
+                // revoke otherwise installed keys. Retain the same replay
+                // floor and await a newly authenticated group message.
+                state_ = Wpa2State::HardwareKeysInstalled;
+                return Wpa2Result::MicMismatch;
+            }
+            ScopedSecret<kMaximumGtkPlaintext> plaintext {};
+            size_t plaintextBytes = 0;
+            const bool unwrapped = crypto_.unwrapGtk(
+                crypto_.context, keyMaterial.bytes + 16U, key.keyData,
+                key.keyDataLength, plaintext.bytes, sizeof(plaintext.bytes),
+                &plaintextBytes);
+            if (sessionEpoch_ != epoch)
+            {
+                return Wpa2Result::InvalidState;
+            }
+            if (!unwrapped || plaintextBytes == 0 ||
+                plaintextBytes > sizeof(plaintext.bytes) ||
+                !constantTimeEqual(authenticated.bytes, micInput.bytes,
+                                   length) ||
+                !constantTimeEqual(keyMaterial.bytes, ptk_, 32))
+            {
+                return fail(Wpa2Result::GtkUnwrapFailure);
+            }
+            ScopedSecret<16> gtk {};
+            uint8_t keyId = 0;
+            const Wpa2Result parsed =
+                parseM3KeyData(plaintext.bytes, plaintextBytes, expectedRsnIe_,
+                               expectedRsnIeLength_, keyId, gtk.bytes, false);
+            if (parsed != Wpa2Result::Ok)
+            {
+                return fail(parsed);
+            }
+            uint8_t response[kMessage4Length] {};
+            // Group2: descriptor V2, MIC and Secure, no pairwise/ACK bit.
+            populateEapolKey(response, sizeof(response), eapolVersion_, 0x0302U,
+                             key.replayCounter, nullptr);
+            ScopedSecret<kMessage4Length> responseSnapshot {};
+            copyBytes(responseSnapshot.bytes, response, sizeof(response));
+            uint8_t responseMic[16] {};
+            const bool replySigned =
+                crypto_.micSha1(crypto_.context, keyMaterial.bytes, response,
+                                sizeof(response), responseMic);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(responseMic, sizeof(responseMic));
+                secureClear(response, sizeof(response));
+                return Wpa2Result::InvalidState;
+            }
+            if (!replySigned || !nonzero(responseMic, sizeof(responseMic)) ||
+                !constantTimeEqual(response, responseSnapshot.bytes,
+                                   sizeof(response)) ||
+                !constantTimeEqual(keyMaterial.bytes, ptk_, 32))
+            {
+                secureClear(responseMic, sizeof(responseMic));
+                secureClear(response, sizeof(response));
+                return fail(Wpa2Result::MicCalculationFailure);
+            }
+            copyBytes(response + kEapolHeaderBytes + 77U, responseMic,
+                      sizeof(responseMic));
+            secureClear(responseMic, sizeof(responseMic));
+            // The hardware callback is untrusted even when its inputs are
+            // declared const. Keep the authenticated GTK/RSC immutable across
+            // the keycache install attempt, including a partial-write failure.
+            ScopedSecret<16> gtkSnapshot {};
+            ScopedSecret<8> rscSnapshot {};
+            copyBytes(gtkSnapshot.bytes, gtk.bytes, sizeof(gtk.bytes));
+            copyBytes(rscSnapshot.bytes, key.keyRsc, sizeof(rscSnapshot.bytes));
+            const bool installed = crypto_.installGroupGtk(
+                crypto_.context, keyId, gtk.bytes, rscSnapshot.bytes);
+            if (sessionEpoch_ != epoch)
+            {
+                secureClear(response, sizeof(response));
+                return Wpa2Result::InvalidState;
+            }
+            if (!installed ||
+                !constantTimeEqual(gtk.bytes, gtkSnapshot.bytes,
+                                   sizeof(gtk.bytes)) ||
+                !constantTimeEqual(rscSnapshot.bytes, key.keyRsc,
+                                   sizeof(rscSnapshot.bytes)) ||
+                !constantTimeEqual(keyMaterial.bytes, ptk_, 32))
+            {
+                secureClear(response, sizeof(response));
+                return fail(Wpa2Result::HardwareKeyInstallFailure);
+            }
+            // Commit only after authenticated GTK install. A failing native
+            // CCMP Group2 submission must revoke the session via reset().
+            lastGroupReplayCounter_ = key.replayCounter;
+            state_ = Wpa2State::HardwareKeysInstalled;
+            copyBytes(outGroup2, response, sizeof(response));
+            written = sizeof(response);
+            secureClear(response, sizeof(response));
             return Wpa2Result::Ok;
         }
 

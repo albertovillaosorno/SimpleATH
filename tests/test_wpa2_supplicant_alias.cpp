@@ -123,6 +123,10 @@ namespace
             bool revokeOnUnwrap = false;
             bool revokeOnPairwise = false;
             bool revokeOnGroup = false;
+            bool groupOnlyKeyData = false;
+            bool malformedGroupKde = false;
+            bool mutateGroupInstallGtk = false;
+            bool mutateGroupInstallRsc = false;
             unsigned nonceCalls = 0;
             unsigned ptkCalls = 0;
             unsigned micCalls = 0;
@@ -216,6 +220,23 @@ namespace
         {
             return false;
         }
+        if (state.groupOnlyKeyData)
+        {
+            const uint8_t groupKde[24] {
+                0xdd, 22,   0,    0x0f, 0xac, 1,    1,    0,
+                0xb0, 0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7,
+                0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf,
+            };
+            std::memcpy(out, groupKde, sizeof(groupKde));
+            if (state.malformedGroupKde)
+            {
+                out[3] = 0x11;
+            }
+            out[24] = 0xdd;
+            std::memset(out + 25, 0, 7);
+            *written = 32;
+            return true;
+        }
         std::memcpy(out, kRsnIe, sizeof(kRsnIe));
         if (state.alteredRsn)
         {
@@ -269,6 +290,14 @@ namespace
         state.installedKeyId = keyId;
         std::memcpy(state.installedGtk, gtk, sizeof(state.installedGtk));
         std::memcpy(state.installedRsc, rsc, sizeof(state.installedRsc));
+        if (state.groupCalls > 1 && state.mutateGroupInstallGtk)
+        {
+            const_cast<uint8_t *>(gtk)[0] ^= 1U;
+        }
+        if (state.groupCalls > 1 && state.mutateGroupInstallRsc)
+        {
+            const_cast<uint8_t *>(rsc)[0] ^= 1U;
+        }
         return state.groupSuccess;
     }
 
@@ -310,6 +339,238 @@ namespace
         {
             frame[index] = static_cast<uint8_t>(index);
         }
+    }
+
+    // Authenticator Group1 is sent *after* M4 under pairwise CCMP. The
+    // supplicant gets the EAPOL plaintext only after independent CCMP MIC/PN
+    // verification; this synthetic fixture tests the inner MIC/GTK only.
+    void makeGroup1(uint8_t (&frame)[139])
+    {
+        std::memset(frame, 0, sizeof(frame));
+        frame[0] = 2;
+        frame[1] = 3;
+        frame[3] = 135; // 95-byte descriptor plus 40-byte wrapped KDE.
+        frame[4] = 2;
+        frame[5] = 0x13;
+        frame[6] = 0x82; // Group1: ACK, MIC, Secure, encrypted key data.
+        frame[8] = 16;
+        frame[16] = 3;    // Greater than authenticated M3 replay counter 2.
+        frame[65] = 0x77; // Group receive RSC (little-endian CCMP PN).
+        frame[70] = 1;
+        for (size_t i = 81; i < 97; ++i)
+        {
+            frame[i] = 0x55;
+        }
+        frame[98] = 40;
+        for (size_t i = 99; i < sizeof(frame); ++i)
+        {
+            frame[i] = static_cast<uint8_t>(i);
+        }
+    }
+
+    enum class GroupScenario : uint8_t
+    {
+        Success,
+        MicMismatch,
+        OldReplay,
+        InvalidRsc,
+        MalformedKde,
+        InstallFailure,
+        MutatedGtk,
+        MutatedRsc,
+        RevokedDuringMic,
+        RevokedDuringInstall,
+        MutatedMicImage,
+        MutatedMicKey,
+        ZeroResponseMic,
+    };
+
+    bool exerciseGroupRekey(GroupScenario scenario)
+    {
+        HandshakeCallbacks state {};
+        Wpa2Supplicant supplicant;
+        state.owner = &supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        uint8_t m1[99] {};
+        uint8_t m2[121] {};
+        uint8_t m3[155] {};
+        uint8_t m4[99] {};
+        makeM1(m1);
+        makeM3(m3);
+        size_t written = 0;
+        if (supplicant.begin(handshakeCrypto(state), kStation, kAp, pmk, kRsnIe,
+                             sizeof(kRsnIe)) != Wpa2Result::Ok ||
+            supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written) !=
+                Wpa2Result::Ok ||
+            supplicant.onMessage3(m3, sizeof(m3), m4, sizeof(m4), written) !=
+                Wpa2Result::Ok ||
+            !supplicant.keysInstalled() || state.groupCalls != 1)
+        {
+            return false;
+        }
+        state.groupOnlyKeyData = true;
+        uint8_t group1[139] {};
+        makeGroup1(group1);
+        uint8_t group2[99] {};
+        std::memset(group2, 0xa5, sizeof(group2));
+        written = 11;
+        // Errors in the public alias/capacity boundary must leave the
+        // installed session and the previous GTK intact.
+        if (supplicant.onGroupMessage1(group1, sizeof(group1), group2,
+                                       sizeof(group2) - 1,
+                                       written) != Wpa2Result::BufferTooSmall ||
+            written != 0 || group2[0] != 0xa5 || state.groupCalls != 1 ||
+            !supplicant.keysInstalled())
+        {
+            return false;
+        }
+        written = 11;
+        switch (scenario)
+        {
+            case GroupScenario::MicMismatch:
+                group1[81] ^= 1U;
+                break;
+            case GroupScenario::OldReplay:
+                group1[16] = 2;
+                break;
+            case GroupScenario::InvalidRsc:
+                group1[71] = 1;
+                break;
+            case GroupScenario::MalformedKde:
+                state.malformedGroupKde = true;
+                break;
+            case GroupScenario::InstallFailure:
+                state.groupSuccess = false;
+                break;
+            case GroupScenario::MutatedGtk:
+                state.mutateGroupInstallGtk = true;
+                break;
+            case GroupScenario::MutatedRsc:
+                state.mutateGroupInstallRsc = true;
+                break;
+            case GroupScenario::RevokedDuringMic:
+                state.revokeMicCall = 4;
+                break;
+            case GroupScenario::RevokedDuringInstall:
+                state.revokeOnGroup = true;
+                break;
+            case GroupScenario::MutatedMicImage:
+                state.mutateMicInputOnCall = 4;
+                state.mutateMicInputOffset = 65;
+                break;
+            case GroupScenario::MutatedMicKey:
+                state.mutateMicKeyOnCall = 4;
+                break;
+            case GroupScenario::ZeroResponseMic:
+                state.zeroMicCall = 5;
+                break;
+            case GroupScenario::Success:
+                break;
+        }
+        const Wpa2Result result = supplicant.onGroupMessage1(
+            group1, sizeof(group1), group2, sizeof(group2), written);
+        if (scenario == GroupScenario::Success)
+        {
+            KeyFrame parsed {};
+            const uint8_t expectedRsc[8] {0x77, 0, 0, 0, 0, 1, 0, 0};
+            if (result != Wpa2Result::Ok || written != sizeof(group2) ||
+                parseEapolKey(group2, written, parsed) != EapolResult::Ok ||
+                parsed.message != KeyMessage::Group2 ||
+                parsed.replayCounter != 3 || !supplicant.keysInstalled() ||
+                state.groupCalls != 2 || state.pairwiseCalls != 1 ||
+                state.observedKck != 1 || state.observedKek != 17 ||
+                state.installedKeyId != 1 ||
+                std::memcmp(state.installedRsc, expectedRsc, 8) != 0)
+            {
+                return false;
+            }
+            for (size_t i = 0; i < 16; ++i)
+            {
+                if (state.installedGtk[i] != i + 0xb0)
+                {
+                    return false;
+                }
+            }
+            written = 11;
+            if (supplicant.onGroupMessage1(group1, sizeof(group1), group2,
+                                           sizeof(group2), written) !=
+                    Wpa2Result::InvalidReplayCounter ||
+                written != 0 || state.groupCalls != 2 ||
+                !supplicant.keysInstalled())
+            {
+                return false;
+            }
+            group1[16] = 4;
+            if (supplicant.onGroupMessage1(group1, sizeof(group1), group2,
+                                           sizeof(group2),
+                                           written) != Wpa2Result::Ok ||
+                state.groupCalls != 3 || written != sizeof(group2))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            Wpa2Result expected = Wpa2Result::HardwareKeyInstallFailure;
+            if (scenario == GroupScenario::MicMismatch)
+            {
+                expected = Wpa2Result::MicMismatch;
+            }
+            else if (scenario == GroupScenario::OldReplay)
+            {
+                expected = Wpa2Result::InvalidReplayCounter;
+            }
+            else if (scenario == GroupScenario::InvalidRsc)
+            {
+                expected = Wpa2Result::InvalidKeySequenceCounter;
+            }
+            else if (scenario == GroupScenario::MalformedKde)
+            {
+                expected = Wpa2Result::GtkMissingOrMalformed;
+            }
+            else if (scenario == GroupScenario::RevokedDuringMic ||
+                     scenario == GroupScenario::RevokedDuringInstall)
+            {
+                expected = Wpa2Result::InvalidState;
+            }
+            else if (scenario == GroupScenario::MutatedMicImage ||
+                     scenario == GroupScenario::MutatedMicKey ||
+                     scenario == GroupScenario::ZeroResponseMic)
+            {
+                expected = Wpa2Result::MicCalculationFailure;
+            }
+            const bool retained = scenario == GroupScenario::MicMismatch ||
+                                  scenario == GroupScenario::OldReplay ||
+                                  scenario == GroupScenario::InvalidRsc;
+            const bool revoked =
+                scenario == GroupScenario::RevokedDuringMic ||
+                scenario == GroupScenario::RevokedDuringInstall;
+            if (result != expected || written != 0 || group2[0] != 0xa5 ||
+                state.rollbackCalls != ((retained) ? 0U : 1U) ||
+                supplicant.state() != (retained
+                                           ? Wpa2State::HardwareKeysInstalled
+                                       : revoked ? Wpa2State::Inactive
+                                                 : Wpa2State::Failed))
+            {
+                return false;
+            }
+            // A bad MIC is untrusted data, not an authenticated teardown.
+            // The same replay counter remains eligible for a valid retry.
+            if (scenario == GroupScenario::MicMismatch)
+            {
+                group1[81] ^= 1U;
+                if (supplicant.onGroupMessage1(group1, sizeof(group1), group2,
+                                               sizeof(group2),
+                                               written) != Wpa2Result::Ok ||
+                    state.groupCalls != 2)
+                {
+                    return false;
+                }
+            }
+        }
+        supplicant.reset();
+        return state.rollbackCalls == 1;
     }
 
     bool waitingForKeys(Station &owner, const Mac &station, const Mac &ap)
@@ -1281,6 +1542,15 @@ namespace
 
 int main()
 {
+    for (unsigned value = static_cast<unsigned>(GroupScenario::Success);
+         value <= static_cast<unsigned>(GroupScenario::ZeroResponseMic);
+         ++value)
+    {
+        if (!exerciseGroupRekey(static_cast<GroupScenario>(value)))
+        {
+            return 60 + static_cast<int>(value);
+        }
+    }
     if (!rejectZeroMicCallback(1) || !rejectZeroMicCallback(3))
     {
         return 48;

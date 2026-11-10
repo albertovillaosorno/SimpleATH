@@ -73,8 +73,24 @@ WifiEngine, DMA descriptors, native keycache or Tahoe, and is **not** evidence
 of an authorized protected network data port. Group rekey, owner-driven PN
 persistence across resets and source integration remain incomplete.
 
+The portable `Wpa2Supplicant` now retains only KCK/KEK after M4 and handles
+post-install Group Key Handshake message 1 through an explicit API. It checks
+EAPOL length, descriptor type, MIC, monotonic group replay counter, CCMP Key
+RSC, wrapped GTK KDE and callback mutation/reentrancy. It signs Group2 with
+KCK and attempts the GTK/RSC installation before returning the response.
+Offline synthetic C++14/C++17 sanitizer regressions cover successful rekeys,
+replay, corrupted MIC, bad KDE/RSC, partial install failure, tampering and
+revocation. These callbacks are fake; no hardware key operation is proven.
+
+**Group rekey is still not end-to-end integrated.** `WifiEngine` and
+`DataPath` must accept Group1 only after independently verified pairwise
+CCMP RX, and must encrypt Group2 under the pairwise TK with a maintained TX
+PN. The current pre-install M2/M4 serializer must never emit Group2 in the
+clear. Finish that guarded transport plus keycache owner/epoch coordination
+before claiming that the group handshake works on real network traffic.
+
 Connect the existing guarded AR9565 keycache programming/removal with the
-source-only CCMP packet engine under a single native epoch, then implement
+source-only CCMP packet engine under a single native epoch, then complete
 group-key rekey, retry/timeouts and owner reset/rollback. Never reuse a TK
 with a reset transmit PN, including sleep/reset/handover and failed M4. Bind
 message processing to the same immutable EAPOL snapshot, BSS RSNE and connection
