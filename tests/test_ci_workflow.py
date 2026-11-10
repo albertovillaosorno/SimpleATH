@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Alberto Villa Osorno.
-"""Guard explicit-tag GitHub Actions entrypoints and validation-before-build."""
+"""Guard owner-tagged builds and advisory versus strict CI validation."""
 
 from pathlib import Path
 import re
@@ -20,6 +20,20 @@ REQUIRED_VALIDATOR = "python3 -B tools/validate.py --no-cache"
 REUSABLE_CI = "uses: ./.github/workflows/ci.yml"
 VALIDATE_JOB = "  validate:"
 LOG_UPLOAD_CONDITION = "if: always()"
+ADVISORY_INPUT = "advisory: true"
+ADVISORY_CONTINUE = "continue-on-error: ${{ inputs.advisory == true }}"
+STRICT_STANDALONE_DEFAULT = "default: false"
+SOURCE_OUTCOME = "steps.source_validation.outcome"
+VALIDATION_RESULT = "needs.validate.result"
+VALIDATION_CHECK_OUTCOME = "needs.validate.outputs.validation_outcome"
+ADVISORY_WARNING = "::warning title=Advisory CI validation::"
+CANCEL_GUARD = "!cancelled()"
+STRICT_SUCCESS_GATE = "needs.validate.result == 'success'"
+CI_ADVISORY_WARNING_GUARD = "inputs.advisory &&"
+CI_ADVISORY_WARNING = "::warning title=Source validation failed::"
+JOB_STATUS_TEST = '[ "$VALIDATION_RESULT" != success ]'
+CHECK_STATUS_TEST = '[ "$VALIDATION_CHECK_OUTCOME" != success ]'
+CONTINUING_WARNING = "Continuing authorized build"
 PUBLIC_RUNNER_GUARD = "github.event.repository.private == false"
 FORBIDDEN_EVENTS = ("pull_request:", "workflow_dispatch:", "schedule:")
 CI_REQUIREMENTS = (
@@ -40,8 +54,8 @@ CI_FORBIDDEN = (
 )
 BUILD_REQUIREMENTS = (
     "needs: validate",
-    "needs.validate.result == 'success'",
     "startsWith(github.ref, 'refs/tags/build-v')",
+    CANCEL_GUARD,
     "runs-on: macos-26-intel",
     "xcodebuild",
     "CODE_SIGNING_ALLOWED=NO",
@@ -51,7 +65,7 @@ BUILD_REQUIREMENTS = (
 
 
 class TagGatedCI(unittest.TestCase):
-    """Prevent accidental builds on ordinary pushes or failed validation."""
+    """Prevent unauthorized builds and silent failed validation."""
 
     @staticmethod
     def test_only_explicit_ci_and_release_tags_trigger_workflows() -> None:
@@ -83,21 +97,39 @@ class TagGatedCI(unittest.TestCase):
         for required in CI_REQUIREMENTS:
             assert required in ci
         assert PUBLIC_RUNNER_GUARD in ci
+        # A standalone CI tag fails on strict validator errors, while a
+        # reusable owner-tagged build requests advisory status explicitly.
+        assert ADVISORY_CONTINUE in ci
+        assert STRICT_STANDALONE_DEFAULT in ci
+        assert SOURCE_OUTCOME in ci
+        assert LOG_UPLOAD_CONDITION in ci
+        assert CI_ADVISORY_WARNING_GUARD in ci
+        assert CI_ADVISORY_WARNING in ci
         for forbidden in CI_FORBIDDEN:
             assert forbidden not in ci
 
     @staticmethod
-    def test_build_requires_completed_reusable_validation_job() -> None:
-        """A failed, canceled or skipped validator blocks Xcode builds."""
+    def test_build_reports_advisory_validation_without_blocking_xcode() -> None:
+        """Keep validation visible, but honor authorized build-v tags."""
         build = BUILD.read_text(encoding="utf-8")
         jobs = build.split("\njobs:\n", maxsplit=1)[1]
         validation, kernel_build = jobs.split("\n  build:\n", maxsplit=1)
         assert VALIDATE_JOB in validation
         assert REUSABLE_CI in validation
+        assert ADVISORY_INPUT in validation
         assert PUBLIC_RUNNER_GUARD in validation
         assert PUBLIC_RUNNER_GUARD in kernel_build
         for required in BUILD_REQUIREMENTS:
             assert required in kernel_build
+        # CI failure, skip or unavailable macOS prerequisites must yield a
+        # warning, not an unauthorized bypass of an owner build tag.
+        assert STRICT_SUCCESS_GATE not in kernel_build
+        assert VALIDATION_RESULT in kernel_build
+        assert VALIDATION_CHECK_OUTCOME in kernel_build
+        assert ADVISORY_WARNING in kernel_build
+        assert JOB_STATUS_TEST in kernel_build
+        assert CHECK_STATUS_TEST in kernel_build
+        assert CONTINUING_WARNING in kernel_build
         assert (
             LOG_UPLOAD_CONDITION
             in kernel_build.split(
