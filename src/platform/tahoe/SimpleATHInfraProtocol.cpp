@@ -1,8 +1,7 @@
 #include "SimpleATHInfraProtocol.hpp"
 #include "SimpleATHTahoeController.hpp"
+#include "TahoeApple80211Values.hpp"
 #include "TahoeCapabilities.hpp"
-#include <IOKit/80211/apple80211_ioctl.h>
-#include <IOKit/80211/apple80211_var.h>
 #include <kern/clock.h>
 #include <libkern/c++/OSString.h>
 #include <string.h>
@@ -390,8 +389,8 @@ int SimpleATHInfraProtocol::getAssocState()
     return controller_ != nullptr &&
                    controller_->radioSnapshot(state) == kIOReturnSuccess &&
                    state.associated
-               ? APPLE80211_S_RUN
-               : APPLE80211_S_INIT;
+               ? simpleath::tahoe::kApple80211StateRun
+               : simpleath::tahoe::kApple80211StateInit;
 }
 
 IO80211LinkState SimpleATHInfraProtocol::linkState()
@@ -457,10 +456,10 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     // even with the radio off; they never assert association or RF readiness.
     if (operation == kGetPowerSave)
     {
-        static_assert(APPLE80211_VERSION == 1U &&
-                          APPLE80211_POWERSAVE_MODE_DISABLED == 0U,
+        static_assert(simpleath::tahoe::kApple80211Version == 1U &&
+                          simpleath::tahoe::kApple80211PowerSaveDisabled == 0U,
                       "native status version and power-save value");
-        static_assert(sizeof(apple80211_powersave_data) ==
+        static_assert(sizeof(simpleath::tahoe::NativeApple80211PowerSave) ==
                           sizeof(simpleath::tahoe::NativePowerSaveStatus),
                       "25G332 power-save data ABI");
         const auto status = simpleath::tahoe::ar9565PowerSaveStatus();
@@ -469,7 +468,7 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     }
     if (operation == kGetNss)
     {
-        static_assert(sizeof(apple80211_nss_data) ==
+        static_assert(sizeof(simpleath::tahoe::NativeApple80211Nss) ==
                           sizeof(simpleath::tahoe::NativeNssStatus),
                       "25G332 NSS data ABI");
         const auto status = simpleath::tahoe::ar9565NssStatus();
@@ -524,19 +523,22 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         {
             return kIOReturnNotReady;
         }
-        auto *out = static_cast<apple80211_channel_data *>(data);
+        auto *out =
+            static_cast<simpleath::tahoe::NativeApple80211Channel *>(data);
         *out = {};
-        out->version = APPLE80211_VERSION;
-        out->channel.version = APPLE80211_VERSION;
+        out->version = simpleath::tahoe::kApple80211Version;
+        out->channel.version = simpleath::tahoe::kApple80211Version;
         out->channel.channel = state.channel;
-        out->channel.flags = APPLE80211_C_FLAG_2GHZ | APPLE80211_C_FLAG_20MHZ;
+        out->channel.flags = simpleath::tahoe::kApple80211Channel2Ghz |
+                             simpleath::tahoe::kApple80211Channel20Mhz;
         return kIOReturnSuccess;
     }
     if (operation == 0xec8)
     {
-        auto *out = static_cast<apple80211_opmode_data *>(data);
-        out->version = APPLE80211_VERSION;
-        out->op_mode = APPLE80211_M_STA;
+        auto *out =
+            static_cast<simpleath::tahoe::NativeApple80211StationMode *>(data);
+        out->version = simpleath::tahoe::kApple80211Version;
+        out->mode = simpleath::tahoe::kApple80211StationMode;
         return kIOReturnSuccess;
     }
     if (operation == 0xed0)
@@ -545,13 +547,13 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         {
             return kIOReturnNotReady;
         }
-        auto *out = static_cast<apple80211_rssi_data *>(data);
+        auto *out = static_cast<simpleath::tahoe::NativeApple80211Rssi *>(data);
         *out = {};
-        out->version = APPLE80211_VERSION;
-        out->num_radios = 1;
-        out->rssi_unit = APPLE80211_UNIT_DBM;
-        out->rssi[0] = state.rssiDbm;
-        out->aggregate_rssi = state.rssiDbm;
+        out->version = simpleath::tahoe::kApple80211Version;
+        out->numRadios = 1;
+        out->unit = simpleath::tahoe::kApple80211RssiDbm;
+        out->radio[0] = state.rssiDbm;
+        out->aggregate = state.rssiDbm;
         return kIOReturnSuccess;
     }
     if (operation == 0x1060)

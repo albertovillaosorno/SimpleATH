@@ -1,11 +1,11 @@
 #include "SimpleATHTahoeController.hpp"
 #include "SimpleATHInfraProtocol.hpp"
+#include "TahoeApple80211Values.hpp"
 #include "TahoeCapabilities.hpp"
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeControllerABI.hpp"
 #include "wifi/LegacyScanBridge.hpp"
-#include <IOKit/80211/apple80211_var.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
@@ -15,10 +15,8 @@
 #include <stdint.h>
 #include <string.h>
 
-// The modern Tahoe IO80211Controller superclass comes from the exact KDK
-// binary, not the older MacKernelSDK's legacy controller declaration. These
-// source-level value layouts are only accepted when their version matches.
-#include <IOKit/80211/apple80211_ioctl.h>
+// Modern IO80211 superclass declarations are local and ABI-scoped; the
+// selected fixed request value layouts do not require private SDK headers.
 
 // Preserve IOKit metaclass symbols and constructor semantics while ensuring
 // its static registration cannot propagate exceptions during kext loading.
@@ -59,8 +57,9 @@ OSDefineDefaultStructors(SimpleATHTahoeController, IO80211Controller)
         {
             return kIOReturnBadArgument;
         }
-        auto *out = static_cast<apple80211_version_data *>(buffer);
-        if (out->version != APPLE80211_VERSION)
+        auto *out =
+            static_cast<simpleath::tahoe::NativeApple80211Version *>(buffer);
+        if (out->version != simpleath::tahoe::kApple80211Version)
         {
             return kIOReturnUnsupported;
         }
@@ -71,7 +70,7 @@ OSDefineDefaultStructors(SimpleATHTahoeController, IO80211Controller)
         }
         memset(&out->string[0], 0, sizeof(out->string));
         memcpy(&out->string[0], string, size);
-        out->string_len = static_cast<uint16_t>(size);
+        out->stringLength = static_cast<uint16_t>(size);
         return kIOReturnSuccess;
     }
 }
@@ -306,8 +305,8 @@ SimpleATHTahoeController::getPOWER(IO80211SkywalkInterface * /*unused*/,
     {
         return kIOReturnBadArgument;
     }
-    auto *out = static_cast<apple80211_power_data *>(buffer);
-    if (out->version != APPLE80211_VERSION)
+    auto *out = static_cast<simpleath::tahoe::NativeApple80211Power *>(buffer);
+    if (out->version != simpleath::tahoe::kApple80211Version)
     {
         return kIOReturnUnsupported;
     }
@@ -317,15 +316,15 @@ SimpleATHTahoeController::getPOWER(IO80211SkywalkInterface * /*unused*/,
     {
         return result;
     }
-    out->num_radios = 1;
-    for (auto &radio : out->power_state)
+    out->numRadios = 1;
+    for (auto &radio : out->powerState)
     {
-        radio = APPLE80211_POWER_OFF;
+        radio = simpleath::tahoe::kApple80211PowerOff;
     }
-    out->power_state[0] =
+    out->powerState[0] =
         state.radioAvailable && state.powered && !state.rfKillBlocked
-            ? APPLE80211_POWER_ON
-            : APPLE80211_POWER_OFF;
+            ? simpleath::tahoe::kApple80211PowerOn
+            : simpleath::tahoe::kApple80211PowerOff;
     return kIOReturnSuccess;
 }
 
@@ -337,17 +336,20 @@ SimpleATHTahoeController::setPOWER(IO80211SkywalkInterface * /*unused*/,
     {
         return kIOReturnBadArgument;
     }
-    const auto *request = static_cast<const apple80211_power_data *>(buffer);
-    if (request->version != APPLE80211_VERSION || request->num_radios != 1)
+    const auto *request =
+        static_cast<const simpleath::tahoe::NativeApple80211Power *>(buffer);
+    if (request->version != simpleath::tahoe::kApple80211Version ||
+        request->numRadios != 1)
     {
         return kIOReturnUnsupported;
     }
-    if (request->power_state[0] != APPLE80211_POWER_ON &&
-        request->power_state[0] != APPLE80211_POWER_OFF)
+    if (request->powerState[0] != simpleath::tahoe::kApple80211PowerOn &&
+        request->powerState[0] != simpleath::tahoe::kApple80211PowerOff)
     {
         return kIOReturnUnsupported;
     }
-    return transport_.setPower(request->power_state[0] == APPLE80211_POWER_ON);
+    return transport_.setPower(request->powerState[0] ==
+                               simpleath::tahoe::kApple80211PowerOn);
 }
 
 IOReturn
@@ -358,8 +360,9 @@ SimpleATHTahoeController::getCountryCode(IO80211SkywalkInterface * /*unused*/,
     {
         return kIOReturnBadArgument;
     }
-    auto *out = static_cast<apple80211_country_code_data *>(buffer);
-    if (out->version != APPLE80211_VERSION)
+    auto *out =
+        static_cast<simpleath::tahoe::NativeApple80211Country *>(buffer);
+    if (out->version != simpleath::tahoe::kApple80211Version)
     {
         return kIOReturnUnsupported;
     }
@@ -373,10 +376,11 @@ SimpleATHTahoeController::getCountryCode(IO80211SkywalkInterface * /*unused*/,
     {
         return kIOReturnNotReady;
     }
-    memset(&out->cc[0], 0, sizeof(out->cc));
-    memcpy(&out->cc[0], &state.country[0],
-           sizeof(state.country) < sizeof(out->cc) ? sizeof(state.country)
-                                                   : sizeof(out->cc));
+    memset(&out->countryCode[0], 0, sizeof(out->countryCode));
+    memcpy(&out->countryCode[0], &state.country[0],
+           sizeof(state.country) < sizeof(out->countryCode)
+               ? sizeof(state.country)
+               : sizeof(out->countryCode));
     return kIOReturnSuccess;
 }
 
