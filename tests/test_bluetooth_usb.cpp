@@ -1444,6 +1444,189 @@ namespace
                attachUsbHci(state, kEndpoints, host(fake)) ==
                    UsbHciStatus::OwnershipLost;
     }
+
+    enum class EpochRaceEvent : uint8_t
+    {
+        None,
+        Command,
+        Acl,
+        Deliver,
+    };
+
+    struct EpochRace
+    {
+            UsbHciState state {};
+            uint64_t epoch {kEpoch};
+            EpochRaceEvent trigger {EpochRaceEvent::None};
+            bool reattach {true};
+            bool failCallback {};
+            bool successorAttached {};
+    };
+
+    bool racePermit(void *context, uint64_t epoch)
+    {
+        const auto &race = *static_cast<EpochRace *>(context);
+        return race.epoch == epoch;
+    }
+
+    UsbHciHostCallbacks raceHost(EpochRace &race);
+
+    void replaceRaceSession(EpochRace &race)
+    {
+        detachUsbHci(race.state);
+        ++race.epoch;
+        if (race.reattach)
+        {
+            constexpr UsbHciEndpoints endpoints {
+                kEventInEndpoint,
+                kAclInEndpoint,
+                kBulkOutEndpoint,
+            };
+            race.successorAttached =
+                attachUsbHci(race.state, endpoints, raceHost(race)) ==
+                UsbHciStatus::Ok;
+        }
+    }
+
+    bool raceCommand(void *context, const uint8_t *command, size_t bytes)
+    {
+        auto &race = *static_cast<EpochRace *>(context);
+        if (command == nullptr || bytes == 0U)
+        {
+            return false;
+        }
+        if (race.trigger == EpochRaceEvent::Command)
+        {
+            replaceRaceSession(race);
+        }
+        return !race.failCallback;
+    }
+
+    bool raceAcl(void *context, uint8_t endpoint, const uint8_t *packet,
+                 size_t bytes, size_t *transferred)
+    {
+        auto &race = *static_cast<EpochRace *>(context);
+        if (packet == nullptr || endpoint != kBulkOutEndpoint ||
+            transferred == nullptr || bytes == 0U)
+        {
+            return false;
+        }
+        *transferred = bytes;
+        if (race.trigger == EpochRaceEvent::Acl)
+        {
+            replaceRaceSession(race);
+        }
+        return !race.failCallback;
+    }
+
+    bool raceDeliver(void *context, UsbHciPacketKind /*kind*/,
+                     const uint8_t *packet, size_t bytes)
+    {
+        auto &race = *static_cast<EpochRace *>(context);
+        if (packet == nullptr || bytes == 0U)
+        {
+            return false;
+        }
+        if (race.trigger == EpochRaceEvent::Deliver)
+        {
+            replaceRaceSession(race);
+        }
+        return !race.failCallback;
+    }
+
+    UsbHciHostCallbacks raceHost(EpochRace &race)
+    {
+        return {
+            &race, race.epoch, racePermit, raceCommand, raceAcl, raceDeliver,
+        };
+    }
+
+    bool checkStaleEpochCallback(EpochRaceEvent trigger, bool reattach,
+                                 bool failCallback)
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> acl {
+            2U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        constexpr std::array<uint8_t, 3U> vendorEvent {0xffU, 1U, 0U};
+        EpochRace race {};
+        if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
+            UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        if (trigger == EpochRaceEvent::Acl &&
+            (sendUsbHciCommand(race.state, raceHost(race),
+                               kReadBufferSize.data(),
+                               kReadBufferSize.size()) != UsbHciStatus::Ok ||
+             receiveUsbHciEvent(
+                 race.state, raceHost(race), kBufferSizeResponse.data(),
+                 kBufferSizeResponse.size()) != UsbHciStatus::Ok ||
+             receiveUsbHciEvent(race.state, raceHost(race),
+                                kClassicConnected.data(),
+                                kClassicConnected.size()) != UsbHciStatus::Ok))
+        {
+            return false;
+        }
+        race.trigger = trigger;
+        race.reattach = reattach;
+        race.failCallback = failCallback;
+        UsbHciStatus result = UsbHciStatus::Faulted;
+        switch (trigger)
+        {
+            case EpochRaceEvent::Command:
+                result = sendUsbHciCommand(race.state, raceHost(race),
+                                           kReadBufferSize.data(),
+                                           kReadBufferSize.size());
+                break;
+            case EpochRaceEvent::Acl:
+                result = sendUsbHciAcl(race.state, raceHost(race), acl.data(),
+                                       acl.size());
+                break;
+            case EpochRaceEvent::Deliver:
+                result =
+                    receiveUsbHciEvent(race.state, raceHost(race),
+                                       vendorEvent.data(), vendorEvent.size());
+                break;
+            case EpochRaceEvent::None:
+                return false;
+        }
+        return result == UsbHciStatus::OwnershipLost &&
+               race.state.attached == reattach &&
+               race.successorAttached == reattach && !race.state.faulted &&
+               (!reattach || (race.state.epoch == race.epoch &&
+                              !race.state.commandWindow.pending &&
+                              race.state.commandWindow.credits == 1U));
+    }
+
+    bool testStaleHciEpochCallbacks()
+    {
+        constexpr std::array<EpochRaceEvent, 3U> triggers {
+            EpochRaceEvent::Command,
+            EpochRaceEvent::Acl,
+            EpochRaceEvent::Deliver,
+        };
+        for (const EpochRaceEvent trigger : triggers)
+        {
+            for (const bool reattach : {false, true})
+            {
+                for (const bool failCallback : {false, true})
+                {
+                    if (!checkStaleEpochCallback(trigger, reattach,
+                                                 failCallback))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
 } // namespace
 
 int main()
@@ -1456,6 +1639,11 @@ int main()
     {
         constexpr int kFirmwareOwnershipFailure = 10;
         return kFirmwareOwnershipFailure;
+    }
+    if (!testStaleHciEpochCallbacks())
+    {
+        constexpr int kStaleEpochFailure = 14;
+        return kStaleEpochFailure;
     }
     if (!testHciAttachOwnership())
     {

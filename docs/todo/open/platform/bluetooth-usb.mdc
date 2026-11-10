@@ -188,3 +188,15 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   Both modified translation units passed direct strict Clang-Tidy/format;
   C++14 and C++17 host runs passed ASan+UBSan. This changes only portable HCI
   consumer behavior, not the missing native Bluetooth host or AirDrop linkage.
+
+- The USB HCI transport now checks its attached physical owner epoch after
+  every borrowed command-OUT, ACL-OUT and completed packet-delivery callback.
+  A callback that synchronously detaches and attaches a replacement session
+  reports `OwnershipLost` without modifying the new session's fault, packet
+  credit or command accounting; deliberate detach alone remains detached.
+  The synthetic `testStaleHciEpochCallbacks` covers all three callback types,
+  both callback results and both detach/rebind outcomes (12 cases). The
+  regression exits 14 with unmodified transport source, while the corrected
+  C++14/C++17 ASan+UBSan host fixtures and direct strict Clang-Tidy and
+  formatting checks pass. This does not establish native Bluetooth host
+  registration, a real USB re-enumeration or device readiness.

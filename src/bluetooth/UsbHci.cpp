@@ -90,6 +90,14 @@ namespace simpleath
             return UsbHciStatus::Ok;
         }
 
+        // A transport callback may synchronously complete an owner teardown
+        // and attach a fresh USB instance before its old stack frame returns.
+        // Do not fault or reset the successor while unwinding stale work.
+        bool replacedSession(const UsbHciState &state, uint64_t epoch)
+        {
+            return !state.attached || state.epoch != epoch;
+        }
+
         uint16_t little16(const uint8_t *bytes, size_t offset)
         {
             const uint32_t lo = *usbByteOffset(bytes, offset);
@@ -577,8 +585,14 @@ namespace simpleath
                     return UsbHciStatus::MalformedPacket;
                 }
             }
-            if (!host.deliver(host.context, kind, stream.packet.data(),
-                              stream.used))
+            const uint64_t deliveryEpoch = state.epoch;
+            const bool delivered = host.deliver(
+                host.context, kind, stream.packet.data(), stream.used);
+            if (replacedSession(state, deliveryEpoch))
+            {
+                return UsbHciStatus::OwnershipLost;
+            }
+            if (!delivered)
             {
                 state.faulted = true;
                 return UsbHciStatus::CallbackFailed;
@@ -779,7 +793,13 @@ namespace simpleath
             state.leAclWindow = {};
             state.aclWindow.resetPending = true;
         }
-        if (!host.commandControlOut(host.context, command, bytes))
+        const uint64_t commandEpoch = state.epoch;
+        const bool sent = host.commandControlOut(host.context, command, bytes);
+        if (replacedSession(state, commandEpoch))
+        {
+            return UsbHciStatus::OwnershipLost;
+        }
+        if (!sent)
         {
             state.faulted = true;
             return UsbHciStatus::TransferFailed;
@@ -844,9 +864,15 @@ namespace simpleath
         ++entry->outstanding;
         --pool.availableCredits;
         size_t transferred = 0U;
-        if (!host.aclBulkOut(host.context, state.endpoints.aclBulkOut, packet,
-                             bytes, &transferred) ||
-            transferred != bytes)
+        const uint64_t aclEpoch = state.epoch;
+        const bool sent =
+            host.aclBulkOut(host.context, state.endpoints.aclBulkOut, packet,
+                            bytes, &transferred);
+        if (replacedSession(state, aclEpoch))
+        {
+            return UsbHciStatus::OwnershipLost;
+        }
+        if (!sent || transferred != bytes)
         {
             state.faulted = true;
             return UsbHciStatus::TransferFailed;
