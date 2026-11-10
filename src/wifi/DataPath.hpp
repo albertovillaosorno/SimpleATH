@@ -10,6 +10,10 @@ namespace simpleath
 {
     namespace ieee80211
     {
+        namespace crypto
+        {
+            class CcmpSession;
+        }
 
         enum class DataPathResult : uint8_t
         {
@@ -32,6 +36,7 @@ namespace simpleath
             MalformedFrame,
             UnsupportedFrame,
             InvalidSecurityState,
+            EncryptionFailed,
         };
 
         enum class LinkSecurity : uint8_t
@@ -81,6 +86,22 @@ namespace simpleath
                                         size_t ethernetBytes, uint16_t sequence,
                                         uint8_t *out, size_t capacity,
                                         SerializedData &result);
+
+        // Serialize an associated WPA2 Ethernet-II MSDU and encrypt it with
+        // the installed pairwise CCMP key/PN epoch before exposing any output.
+        // Accepts ordinary non-EAPOL data or an exact MIC-authenticated
+        // supplicant Group2 EAPOL reply; NEVER permits M2/M4 to be encrypted
+        // through this path or Group2 to be sent through prepareStationTx.
+        // The native key owner must bind CCMP to this association, use a
+        // fresh same-epoch TK/PN state, and gate TX on real RF/TPC authority.
+        // scratch is caller-owned disjoint MPDU storage, cleared after use.
+        // Failed encryption leaves output, result and old TX PN untouched.
+        DataPathResult prepareProtectedStationTx(
+            const LinkContext &link, const uint8_t *ethernet,
+            size_t ethernetBytes, uint16_t sequence,
+            crypto::CcmpSession &pairwise, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, uint8_t *out, size_t capacity,
+            SerializedData &result);
 
         // Gate a decoded 802.11 MSDU before it is ever delivered into a native
         // network interface. The caller must have checked the EDMA RX status,

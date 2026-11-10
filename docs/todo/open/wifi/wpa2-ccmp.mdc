@@ -68,10 +68,13 @@ and QoS ciphertext/MIC vectors, QoS out-of-order TIDs, tampering/replay,
 masked mutable QoS controls and long-payload round trips. The
 software AES lookup-table implementation is **not timing-audited** and must
 not be enabled on an exposed shared kernel without cryptographic side-channel
-review or a constant-time native/hardware alternative. It is not connected to
-WifiEngine, DMA descriptors, native keycache or Tahoe, and is **not** evidence
-of an authorized protected network data port. Group rekey, owner-driven PN
-persistence across resets and source integration remain incomplete.
+review or a constant-time native/hardware alternative. The portable data path
+now has an explicit CCMP-protected transmit API for ordinary WPA2 Ethernet-II
+traffic and supplicant-authenticated Group2; the existing cleartext serializer
+still refuses Group2. It is **not** wired into WifiEngine, DMA descriptors,
+native keycache or Tahoe, and is **not** evidence of an authorized protected
+network data port. Inbound Group1, owner-driven PN persistence across resets
+and native source integration remain incomplete.
 
 The portable `Wpa2Supplicant` now retains only KCK/KEK after M4 and handles
 post-install Group Key Handshake message 1 through an explicit API. It checks
@@ -83,11 +86,14 @@ replay, corrupted MIC, bad KDE/RSC, partial install failure, tampering and
 revocation. These callbacks are fake; no hardware key operation is proven.
 
 **Group rekey is still not end-to-end integrated.** `WifiEngine` and
-`DataPath` must accept Group1 only after independently verified pairwise
-CCMP RX, and must encrypt Group2 under the pairwise TK with a maintained TX
-PN. The current pre-install M2/M4 serializer must never emit Group2 in the
-clear. Finish that guarded transport plus keycache owner/epoch coordination
-before claiming that the group handshake works on real network traffic.
+`DataPath`'s RX admission must accept Group1 only after independently verified
+pairwise CCMP RX. `prepareProtectedStationTx` can encrypt the exact Group2
+EAPOL reply under a matching pairwise CCMP session and owner epoch, using a
+caller-owned disjoint and erased plaintext scratch buffer, but it does not
+authenticate the supplicant's EAPOL MIC or bind to a physical native keycache.
+The existing M2/M4 serializer must never emit Group2 in the clear. Wire the
+supplicant, the authenticated Group1 RX path, live CCMP TX/PN ownership, and
+keycache owner/epoch coordination before claiming real network rekeying.
 
 Connect the existing guarded AR9565 keycache programming/removal with the
 source-only CCMP packet engine under a single native epoch, then complete
@@ -129,6 +135,14 @@ nonce/output overlap, group RSC/PN propagation, timeout and failed key rollback.
 Use synthetic keys only; passing vectors is not cryptographic certification.
 
 ## Evidence
+
+- 2026-11-10: portable protected WPA2 data and Group2 framing calls the real
+  `crypto::CcmpSession::protect` with link/key-epoch checks, bounded disjoint
+  caller scratch storage and erased plaintext. Standalone C++14/C++17
+  ASan+UBSan fixtures cover CCMP encryption/decryption, Group2 replay,
+  stale-epoch/key rejection and no plaintext fallback; no physical keycache
+  or native data-port execution is claimed. `tools/validate.py --tests`
+  reports 534 passed, 36 remaining strict Clang-Tidy failures and zero skips.
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.

@@ -5,6 +5,7 @@ src/wifi/WifiEngine.cpp
 src/wifi/Station.cpp
 src/wifi/LinkMonitor.cpp
 src/wifi/DataPath.cpp
+src/wifi/crypto/Ccmp.cpp
 src/wifi/DataFrames.cpp
 src/wifi/Eapol.cpp
 src/wifi/Wpa2Supplicant.cpp

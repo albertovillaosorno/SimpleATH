@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "DataPath.hpp"
 #include "Eapol.hpp"
+#include "crypto/Ccmp.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/Frames.hpp"
 #include <cstddef>
@@ -13,6 +14,7 @@ namespace simpleath
         namespace
         {
             constexpr uint16_t kEtherTypeEapol = 0x888eU;
+            constexpr uint16_t kGroup2KeyInformation = 0x0302U;
             constexpr uint16_t kEtherTypeAarp = 0x80f3U;
             constexpr uint16_t kEtherTypeIpx = 0x8137U;
             constexpr size_t kEthernetHeaderBytes = 14U;
@@ -109,11 +111,11 @@ namespace simpleath
             }
         } // namespace
 
-        DataPathResult prepareStationTx(const LinkContext &link,
-                                        const uint8_t *ethernet,
-                                        size_t ethernetBytes, uint16_t sequence,
-                                        uint8_t *out, size_t capacity,
-                                        SerializedData &result)
+        static DataPathResult
+        prepareStationTxFrame(const LinkContext &link, const uint8_t *ethernet,
+                              size_t ethernetBytes, uint16_t sequence,
+                              uint8_t *out, size_t capacity,
+                              SerializedData &result, bool protectedWpa2)
         {
             // Fail without modifying output or result on any validation
             // failure.
@@ -144,6 +146,11 @@ namespace simpleath
             // The link's keycache claim belongs to its selected security
             // mode. A forged Open association with stale WPA2 keys must not
             // authorize unprotected transmission through this public API.
+            if (protectedWpa2 && (link.security != LinkSecurity::Wpa2Ccmp ||
+                                  !link.pairwiseAndGroupKeysInstalled))
+            {
+                return DataPathResult::InvalidSecurityState;
+            }
             if (link.security == LinkSecurity::Open &&
                 link.pairwiseAndGroupKeysInstalled)
             {
@@ -202,8 +209,12 @@ namespace simpleath
                 if (parseEapolKey(ethernet + kEthernetHeaderBytes, eapolBytes,
                                   key) != EapolResult::Ok ||
                     key.eapolLength != eapolBytes ||
-                    (key.message != KeyMessage::Pairwise2 &&
-                     key.message != KeyMessage::Pairwise4))
+                    (protectedWpa2
+                         ? (key.message != KeyMessage::Group2 ||
+                            key.keyInformation != kGroup2KeyInformation ||
+                            key.keyLength != 0U || key.keyDataLength != 0U)
+                         : (key.message != KeyMessage::Pairwise2 &&
+                            key.message != KeyMessage::Pairwise4)))
                 {
                     return DataPathResult::InvalidEthernetFrame;
                 }
@@ -230,7 +241,10 @@ namespace simpleath
                 // The secure-data TX path needs CCMP PN/IV/MIC and keycache
                 // descriptor integration. Returning plaintext with Protected=1
                 // would be unsafe.
-                return DataPathResult::NeedsCcmpEncryption;
+                if (!protectedWpa2)
+                {
+                    return DataPathResult::NeedsCcmpEncryption;
+                }
             }
             if (link.security != LinkSecurity::Wpa2Ccmp &&
                 link.security != LinkSecurity::Open)
@@ -303,8 +317,91 @@ namespace simpleath
             staged.onAirLengthIncludingFcs = written + kFcsBytes;
             staged.sequence = sequence & kSequenceMask;
             staged.etherType = etherType;
-            staged.needsCcmp = false;
+            staged.needsCcmp = protectedWpa2;
             staged.isEapol = isEapol;
+            result = staged;
+            return DataPathResult::Ok;
+        }
+
+        DataPathResult prepareStationTx(const LinkContext &link,
+                                        const uint8_t *ethernet,
+                                        size_t ethernetBytes, uint16_t sequence,
+                                        uint8_t *out, size_t capacity,
+                                        SerializedData &result)
+        {
+            return prepareStationTxFrame(link, ethernet, ethernetBytes,
+                                         sequence, out, capacity, result,
+                                         false);
+        }
+
+        DataPathResult prepareProtectedStationTx(
+            const LinkContext &link, const uint8_t *ethernet,
+            size_t ethernetBytes, uint16_t sequence,
+            crypto::CcmpSession &pairwise, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, uint8_t *out, size_t capacity,
+            SerializedData &result)
+        {
+            if (ethernet == nullptr || scratch == nullptr || out == nullptr)
+            {
+                return DataPathResult::NullBuffer;
+            }
+            if (overlaps(out, capacity, ethernet, ethernetBytes) ||
+                overlaps(out, capacity, scratch, scratchCapacity) ||
+                overlaps(out, capacity, &link, sizeof(link)) ||
+                overlaps(out, capacity, &result, sizeof(result)) ||
+                overlaps(scratch, scratchCapacity, &pairwise,
+                         sizeof(pairwise)) ||
+                overlaps(out, capacity, &pairwise, sizeof(pairwise)) ||
+                overlaps(&result, sizeof(result), &pairwise,
+                         sizeof(pairwise)) ||
+                overlaps(&result, sizeof(result), scratch, scratchCapacity) ||
+                overlaps(&result, sizeof(result), ethernet, ethernetBytes) ||
+                overlaps(&result, sizeof(result), &link, sizeof(link)))
+            {
+                return DataPathResult::OverlappingBuffers;
+            }
+            if (!pairwise.installed())
+            {
+                return DataPathResult::MissingKeys;
+            }
+            SerializedData staged {};
+            const auto prepared =
+                prepareStationTxFrame(link, ethernet, ethernetBytes, sequence,
+                                      scratch, scratchCapacity, staged, true);
+            if (prepared != DataPathResult::Ok)
+            {
+                return prepared;
+            }
+            constexpr size_t kCcmpOverheadBytes = 16U;
+            if (staged.frameBytes >
+                kMaximumMpduBytes - kFcsBytes - kCcmpOverheadBytes)
+            {
+                volatile uint8_t *const clear = scratch;
+                for (size_t i = 0; i < staged.frameBytes; ++i)
+                {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    clear[i] = 0;
+                }
+                return DataPathResult::FrameTooLong;
+            }
+            size_t written = 0;
+            const auto encrypted = pairwise.protect(
+                epoch, scratch, staged.frameBytes, out, capacity, written);
+            volatile uint8_t *const clear = scratch;
+            for (size_t i = 0; i < staged.frameBytes; ++i)
+            {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                clear[i] = 0;
+            }
+            if (encrypted != crypto::CcmpResult::Ok)
+            {
+                return encrypted == crypto::CcmpResult::BufferTooSmall
+                           ? DataPathResult::BufferTooSmall
+                           : DataPathResult::EncryptionFailed;
+            }
+            staged.frameBytes = written;
+            staged.onAirLengthIncludingFcs = written + kFcsBytes;
+            staged.needsCcmp = false;
             result = staged;
             return DataPathResult::Ok;
         }

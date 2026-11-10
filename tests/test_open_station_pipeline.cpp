@@ -3,12 +3,14 @@
 // Portable synthetic open-BSS association; NO native Wi-Fi, RF, PCI or OS I/O.
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
+#include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
+#include "wifi/crypto/Ccmp.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
 #include <cstdint>
 #include <cstring>
@@ -641,6 +643,167 @@ namespace
                    DataPathResult::Ok &&
                result.payload == frame + 32;
     }
+
+    // Synthetic wire-format literals and fixed-size packet buffers are
+    // intentional in this regression fixture; production uses the checked
+    // parser/serializer and bound CCMP key owner.
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+    bool protectedWpa2Transmit()
+    {
+        // The MIC here is synthetic; only Wpa2Supplicant may authenticate
+        // and supply a Group2 reply to the native owner in production.
+        constexpr uint64_t kEpoch = 1234U;
+        constexpr size_t kEthernetHeader = 14U;
+        constexpr size_t kGroup2Bytes = 99U;
+        constexpr size_t kPlainMpduBytes = 32U + kGroup2Bytes;
+        constexpr size_t kEncryptedMpduBytes = kPlainMpduBytes + 16U;
+        const uint8_t tk[16] {0x11U, 0x22U, 0x33U, 0x44U};
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+        uint8_t ethernet[kEthernetHeader + kGroup2Bytes] {};
+        std::memcpy(ethernet, kAp, 6U);
+        std::memcpy(ethernet + 6U, kStation, 6U);
+        ethernet[12U] = 0x88U;
+        ethernet[13U] = 0x8eU;
+        uint8_t *const eapol = ethernet + kEthernetHeader;
+        eapol[0U] = 2U; // EAPOL v2 / EAPOL-Key, 95-byte body.
+        eapol[1U] = 3U;
+        eapol[3U] = 95U;
+        eapol[4U] = 2U; // RSN descriptor type.
+        eapol[5U] = 3U;
+        eapol[6U] = 2U; // Group2: MIC + Secure; no ACK/Pairwise.
+        eapol[16U] = 9U;
+        eapol[81U] = 0x5aU;
+        KeyFrame parsed {};
+        if (parseEapolKey(eapol, kGroup2Bytes, parsed) != EapolResult::Ok ||
+            parsed.message != KeyMessage::Group2)
+        {
+            return false;
+        }
+        crypto::CcmpSession tx {};
+        crypto::CcmpSession rx {};
+        if (tx.install(tk, kStation, 0U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok ||
+            rx.install(tk, kStation, 0U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok)
+        {
+            return false;
+        }
+        uint8_t scratch[256] {};
+        uint8_t protectedFrame[256] {};
+        std::memset(protectedFrame, 0xa5, sizeof(protectedFrame));
+        SerializedData result {};
+        result.frameBytes = 777U;
+        // Public cleartext serializer must never hand out Group2.
+        if (prepareStationTx(link, ethernet, sizeof(ethernet), 3U,
+                             protectedFrame, sizeof(protectedFrame),
+                             result) != DataPathResult::InvalidEthernetFrame ||
+            protectedFrame[0U] != 0xa5U || result.frameBytes != 777U)
+        {
+            return false;
+        }
+        if (prepareProtectedStationTx(link, ethernet, sizeof(ethernet), 3U, tx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      protectedFrame, sizeof(protectedFrame),
+                                      result) != DataPathResult::Ok ||
+            result.frameBytes != kEncryptedMpduBytes ||
+            result.onAirLengthIncludingFcs != kEncryptedMpduBytes + 4U ||
+            result.needsCcmp || !result.isEapol ||
+            result.etherType != 0x888eU || protectedFrame[1U] != 0x41U ||
+            protectedFrame[24U] != 1U || tx.lastTransmittedPn() != 1U)
+        {
+            return false;
+        }
+        for (const uint8_t byte : scratch)
+        {
+            if (byte != 0U)
+            {
+                return false;
+            }
+        }
+        uint8_t recovered[256] {};
+        size_t restoredBytes = 0U;
+        if (rx.unprotect(kEpoch, protectedFrame, result.frameBytes, recovered,
+                         sizeof(recovered),
+                         restoredBytes) != crypto::CcmpResult::Ok ||
+            restoredBytes != kPlainMpduBytes ||
+            std::memcmp(recovered + 32U, eapol, kGroup2Bytes) != 0 ||
+            std::memcmp(recovered + 4U, kAp, 6U) != 0 ||
+            std::memcmp(recovered + 10U, kStation, 6U) != 0 ||
+            rx.unprotect(kEpoch, protectedFrame, result.frameBytes, recovered,
+                         sizeof(recovered),
+                         restoredBytes) != crypto::CcmpResult::ReplayDetected)
+        {
+            return false;
+        }
+        // No key consumption, output mutation, or leaked scratch plaintext
+        // on invalid group-rekey replies or a stale protection epoch.
+        const uint64_t committedPn = tx.lastTransmittedPn();
+        const size_t committedBytes = result.frameBytes;
+        eapol[8U] = 16U; // A forged Group2 with a nonzero key length.
+        if (prepareProtectedStationTx(
+                link, ethernet, sizeof(ethernet), 3U, tx, kEpoch, scratch,
+                sizeof(scratch), protectedFrame, sizeof(protectedFrame),
+                result) != DataPathResult::InvalidEthernetFrame ||
+            tx.lastTransmittedPn() != committedPn)
+        {
+            return false;
+        }
+        eapol[8U] = 0U;
+        eapol[6U] = 0x0aU; // M4, not a protected group response.
+        if (prepareProtectedStationTx(
+                link, ethernet, sizeof(ethernet), 3U, tx, kEpoch, scratch,
+                sizeof(scratch), protectedFrame, sizeof(protectedFrame),
+                result) != DataPathResult::InvalidEthernetFrame ||
+            result.frameBytes != committedBytes ||
+            tx.lastTransmittedPn() != committedPn)
+        {
+            return false;
+        }
+        eapol[6U] = 2U;
+        if (prepareProtectedStationTx(
+                link, ethernet, sizeof(ethernet), 3U, tx, kEpoch + 1U, scratch,
+                sizeof(scratch), protectedFrame, sizeof(protectedFrame),
+                result) != DataPathResult::EncryptionFailed ||
+            result.frameBytes != committedBytes ||
+            tx.lastTransmittedPn() != committedPn)
+        {
+            return false;
+        }
+        for (const uint8_t byte : scratch)
+        {
+            if (byte != 0U)
+            {
+                return false;
+            }
+        }
+        // Normal WPA2 data must also be encrypted, never returned as an
+        // unprotected MPDU or transmitted with a fabricated security flag.
+        uint8_t data[19] {};
+        std::memcpy(data, kAp, 6U);
+        std::memcpy(data + 6U, kStation, 6U);
+        data[12U] = 0x08U;
+        data[13U] = 0U;
+        data[14U] = 0x45U;
+        data[15U] = 0x67U;
+        return prepareStationTx(link, data, sizeof(data), 4U, protectedFrame,
+                                sizeof(protectedFrame), result) ==
+                   DataPathResult::NeedsCcmpEncryption &&
+               prepareProtectedStationTx(link, data, sizeof(data), 4U, tx,
+                                         kEpoch, scratch, sizeof(scratch),
+                                         protectedFrame, sizeof(protectedFrame),
+                                         result) == DataPathResult::Ok &&
+               result.frameBytes == 32U + 5U + 16U &&
+               tx.lastTransmittedPn() == 2U;
+    }
+
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
 
     bool rejectUnboundWpa2Eapol()
     {
@@ -1454,6 +1617,10 @@ int main()
     if (!rejectForeignWpa2Authenticator())
     {
         return 21;
+    }
+    if (!protectedWpa2Transmit())
+    {
+        return 57;
     }
     if (!rejectUnboundWpa2Eapol())
     {
