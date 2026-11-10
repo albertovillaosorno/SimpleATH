@@ -382,13 +382,25 @@ namespace simpleath
             CoherentRegion completions;
     };
 
+    // The storage comes from IOMalloc; placement-new must never trigger a
+    // second allocation or throw while constructing DMA lifetime records.
+    static_assert(sizeof(std::nothrow_t) != 0U &&
+                      noexcept(::operator new(sizeof(NativeQueueMemory),
+                                              static_cast<void *>(nullptr))),
+                  "native DMA placement construction must be noexcept");
+    static_assert(noexcept(NativeQueueMemory {}),
+                  "native DMA state initialization must be noexcept");
+
     NativeQueues::~NativeQueues()
     {
-        if ((memory_ != nullptr) || (owner_ != nullptr) ||
-            (interrupt_ != nullptr))
+        // Do not free hardware-owned queue storage here. Keep incomplete
+        // teardown visible on the retained registry owner.
+        if (((memory_ != nullptr) || (owner_ != nullptr) ||
+             (interrupt_ != nullptr)) &&
+            owner_ != nullptr && !owner_->isInactive())
         {
-            IOLog("SimpleATH: DMA resources retained after incomplete queue "
-                  "teardown\n");
+            owner_->setProperty("SimpleATHNativeQueuesTeardownIncomplete",
+                                true);
         }
     }
 
@@ -435,7 +447,10 @@ namespace simpleath
             releaseClient();
             return kIOReturnNoMemory;
         }
-        memory_ = new(storage) NativeQueueMemory {};
+        // The IOKit allocation owns the memory; placement-new only starts
+        // the embedded region objects' lifetimes in that owned storage.
+        memory_ = static_cast<NativeQueueMemory *>(storage);
+        (void)new(storage) NativeQueueMemory {};
         IOReturn result = prepareCoherentRegion(
             memory_->descriptors, pci, kTxSlots * edma::kTxDescriptorBytes);
         if (result == kIOReturnSuccess)

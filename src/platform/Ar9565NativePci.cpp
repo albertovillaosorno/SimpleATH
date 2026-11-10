@@ -12,7 +12,6 @@
 #ifndef __x86_64__
 #error The native PCI backend requires the Intel ABI
 #endif
-#include <IOKit/IOLib.h>
 #include <libkern/OSByteOrder.h>
 
 namespace simpleath
@@ -80,10 +79,12 @@ namespace simpleath
         // Explicit session.stop(), followed by clear(), is required under the
         // owner's lifecycle serialization. Never infer D0 or close an active
         // provider implicitly during object destruction in an unknown context.
-        if (configured_ || claimed_ || (bar_ != nullptr))
+        // Provider state cannot be safely restored from a destructor.
+        // Preserve incomplete teardown on the still-live registry owner.
+        if ((configured_ || claimed_ || (bar_ != nullptr)) &&
+            owner_ != nullptr && !owner_->isInactive())
         {
-            IOLog("SimpleATH: uncleared native PCI backend retained; teardown "
-                  "incomplete\n");
+            owner_->setProperty("SimpleATHNativePciTeardownIncomplete", true);
         }
     }
 

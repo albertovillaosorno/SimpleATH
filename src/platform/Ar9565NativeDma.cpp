@@ -1,7 +1,6 @@
 #include "Ar9565NativeDma.hpp"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODMACommand.h>
-#include <IOKit/IOLib.h>
 #include <IOKit/IOMapper.h>
 #include <IOKit/IOMemoryDescriptor.h>
 #include <IOKit/IOReturn.h>
@@ -76,12 +75,15 @@ namespace simpleath
         // invalid teardown deliberately retain every resource rather than free
         // a possible DMA target or invoke blocking VM operations under the
         // gate.
-        if ((provider_ != nullptr) || (loop_ != nullptr) ||
-            (mapper_ != nullptr) || (buffer_ != nullptr) ||
-            (command_ != nullptr))
+        // Retain unsafe DMA resources rather than release live targets;
+        // expose incomplete teardown on the still-live registry provider.
+        if (((provider_ != nullptr) || (loop_ != nullptr) ||
+             (mapper_ != nullptr) || (buffer_ != nullptr) ||
+             (command_ != nullptr)) &&
+            provider_ != nullptr && !provider_->isInactive())
         {
-            IOLog("SimpleATH: unreleased DMA buffer retained; teardown "
-                  "incomplete\n");
+            provider_->setProperty("SimpleATHNativeDmaTeardownIncomplete",
+                                   true);
         }
     }
 
