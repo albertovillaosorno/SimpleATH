@@ -116,16 +116,74 @@ namespace ath
 
     namespace detail
     {
+        // Kernel-import, link-pattern and Mach-O tables are immutable but
+        // externally counted. Access each requested element only after an
+        // address-range check; do not perform unchecked pointer arithmetic
+        // against a caller-supplied span.
+        template <typename T>
+        inline bool readAt(const T *base, size_t index, T &value)
+        {
+            if (base == nullptr || index > UINTPTR_MAX / sizeof(T))
+            {
+                return false;
+            }
+            uintptr_t address = 0;
+            static_assert(sizeof(address) == sizeof(const T *),
+                          "native pointer width must match kernel addresses");
+            __builtin_memcpy(&address, static_cast<const void *>(&base),
+                             sizeof(address));
+            const size_t offset = index * sizeof(T);
+            if (offset > UINTPTR_MAX - address)
+            {
+                return false;
+            }
+            address += offset;
+            const T *item = nullptr;
+            __builtin_memcpy(static_cast<void *>(&item), &address,
+                             sizeof(address));
+            __builtin_memcpy(&value, item, sizeof(value));
+            return true;
+        }
+
+        inline bool copyBytesAt(const uint8_t *base, size_t offset,
+                                void *destination, size_t length)
+        {
+            if (base == nullptr || destination == nullptr)
+            {
+                return false;
+            }
+            uintptr_t address = 0;
+            static_assert(sizeof(address) == sizeof(const uint8_t *),
+                          "native byte pointer must fit uintptr_t");
+            __builtin_memcpy(&address, static_cast<const void *>(&base),
+                             sizeof(address));
+            if (offset > UINTPTR_MAX - address ||
+                length > UINTPTR_MAX - address - offset)
+            {
+                return false;
+            }
+            address += offset;
+            const void *first = nullptr;
+            __builtin_memcpy(static_cast<void *>(&first), &address,
+                             sizeof(address));
+            __builtin_memcpy(destination, first, length);
+            return true;
+        }
+
         inline bool rel32TargetMatches(const uint8_t *bytes,
                                        uintptr_t nextAddress,
                                        uintptr_t expectedTarget)
         {
-            const uint32_t displacement =
-                static_cast<uint32_t>(bytes[0]) |
-                static_cast<uint32_t>(bytes[1]) << 8U |
-                static_cast<uint32_t>(bytes[2]) << 16U |
-                static_cast<uint32_t>(bytes[3]) << 24U;
-            // Decode signed rel32 without relying on out-of-range signed casts.
+            uint8_t rel[sizeof(int32_t)] {};
+            if (!copyBytesAt(bytes, 0, &rel[0], sizeof(rel)))
+            {
+                return false;
+            }
+            const uint32_t displacement = static_cast<uint32_t>(rel[0]) |
+                                          static_cast<uint32_t>(rel[1]) << 8U |
+                                          static_cast<uint32_t>(rel[2]) << 16U |
+                                          static_cast<uint32_t>(rel[3]) << 24U;
+            // Decode signed rel32 without out-of-range signed casts.
             const int64_t delta =
                 displacement > INT32_MAX
                     ? static_cast<int64_t>(displacement) -
@@ -140,6 +198,55 @@ namespace ath
             const auto forward = static_cast<uintptr_t>(delta);
             return forward <= UINTPTR_MAX - nextAddress &&
                    nextAddress + forward == expectedTarget;
+        }
+
+        struct LinkCandidate
+        {
+                const uint8_t *text;
+                uintptr_t address;
+                size_t offset;
+        };
+
+        enum class ReferenceMatch : uint8_t
+        {
+            Invalid,
+            Mismatch,
+            Matched,
+        };
+
+        inline ReferenceMatch verifyReferences(const LinkCandidate &candidate,
+                                               const NativeLinkPattern &pattern,
+                                               const uintptr_t *imports,
+                                               size_t importCount)
+        {
+            for (uint32_t i = 0; i < pattern.referenceCount; ++i)
+            {
+                NativeCodeReference reference {};
+                if (!readAt(pattern.references, i, reference) ||
+                    reference.target >= importCount ||
+                    reference.offset > pattern.size ||
+                    pattern.size - reference.offset < sizeof(int32_t))
+                {
+                    return ReferenceMatch::Invalid;
+                }
+                const size_t displacementOffset =
+                    candidate.offset + static_cast<size_t>(reference.offset);
+                const uintptr_t next =
+                    candidate.address + displacementOffset + sizeof(int32_t);
+                uint8_t rel[sizeof(int32_t)] {};
+                uintptr_t expected = 0;
+                if (!copyBytesAt(candidate.text, displacementOffset, &rel[0],
+                                 sizeof(rel)) ||
+                    !readAt(imports, reference.target, expected))
+                {
+                    return ReferenceMatch::Invalid;
+                }
+                if (!rel32TargetMatches(&rel[0], next, expected))
+                {
+                    return ReferenceMatch::Mismatch;
+                }
+            }
+            return ReferenceMatch::Matched;
         }
     } // namespace detail
 
@@ -163,8 +270,16 @@ namespace ath
             bool matches = true;
             for (size_t i = 0; i < pattern.size; ++i)
             {
-                if ((text[offset + i] & pattern.mask[i]) !=
-                    (pattern.bytes[i] & pattern.mask[i]))
+                uint8_t candidate = 0;
+                uint8_t mask = 0;
+                uint8_t expected = 0;
+                if (!detail::readAt(text, offset + i, candidate) ||
+                    !detail::readAt(pattern.mask, i, mask) ||
+                    !detail::readAt(pattern.bytes, i, expected))
+                {
+                    return 0;
+                }
+                if ((candidate & mask) != (expected & mask))
                 {
                     matches = false;
                     break;
@@ -174,28 +289,20 @@ namespace ath
             {
                 continue;
             }
-            for (uint32_t i = 0; i < pattern.referenceCount; ++i)
+            const auto referenceResult = detail::verifyReferences(
+                detail::LinkCandidate {text, address, offset}, pattern, imports,
+                importCount);
+            if (referenceResult == detail::ReferenceMatch::Invalid)
             {
-                const auto &reference = pattern.references[i];
-                if (reference.target >= importCount ||
-                    reference.offset > pattern.size ||
-                    pattern.size - reference.offset < sizeof(int32_t))
-                {
-                    return 0;
-                }
-                const uintptr_t next =
-                    address + offset + reference.offset + sizeof(int32_t);
-                if (!detail::rel32TargetMatches(
-                        text + offset + reference.offset, next,
-                        imports[reference.target]))
-                {
-                    matches = false;
-                    break;
-                }
+                return 0;
+            }
+            if (referenceResult == detail::ReferenceMatch::Mismatch)
+            {
+                continue;
             }
             if (matches)
             {
-                // A valid match at virtual address zero must still count.
+                // A valid match at virtual address zero still counts.
                 if (found)
                 {
                     return 0;
@@ -215,9 +322,29 @@ namespace ath
     {
         for (uint32_t i = 0; i < nativeSystemCount; ++i)
         {
-            if (nativeSystems[i].kernel == kernel)
+            NativeSystemProfile candidate {};
+            if (!detail::readAt(&nativeSystems[0], i, candidate))
             {
-                return &nativeSystems[i];
+                return nullptr;
+            }
+            if (candidate.kernel == kernel)
+            {
+                uintptr_t base = 0;
+                const NativeSystemProfile *const start = &nativeSystems[0];
+                __builtin_memcpy(&base, static_cast<const void *>(&start),
+                                 sizeof(base));
+                // i is a 32-bit table index; the product fits size_t on
+                // the required x86_64 target, but base addition must not wrap.
+                if (static_cast<size_t>(i) * sizeof(candidate) >
+                    UINTPTR_MAX - base)
+                {
+                    return nullptr;
+                }
+                const uintptr_t at =
+                    base + (static_cast<size_t>(i) * sizeof(candidate));
+                const NativeSystemProfile *result = nullptr;
+                __builtin_memcpy(static_cast<void *>(&result), &at, sizeof(at));
+                return result;
             }
         }
         return nullptr;
