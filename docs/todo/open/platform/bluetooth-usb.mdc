@@ -305,3 +305,23 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   running native macOS Bluetooth host, successful physical controller reset,
   Wi-Fi/Bluetooth RF coexistence, pairing, or AirDrop readiness. The P0
   acceptance checklist above remains open until those implementations exist.
+
+- **Physical USB admission and LE scan procedure ownership (2026-11-10):**
+  DCO `453226d` rechecks the exact AR3012 USB boot identity and owner epoch
+  before and after firmware pipe acquisition, retains that verified identity
+  for bootstrap, and revalidates the live HCI identity and endpoint topology
+  after acquiring HCI pipes. It rejects a revoked or changed USB provider
+  before publishing transport state; the native MacKernelSDK C++14 strict
+  syntax check, direct Clang-Tidy, formatting, and ten C++14/C++17 Bluetooth
+  ASan+UBSan fixture runs passed. DCO `24026e7` rechecks the LE scanner's
+  Idle phase after an external permission callback: a nested passive or
+  active scan cannot be overwritten or issued a second HCI command. DCO
+  `fe66641` additionally rechecks physical USB-HCI attachment, fault and
+  owner epoch after that callback; detachment now returns OwnershipLost
+  before scan mutation or active RF policy. Both new synthetic callback
+  regressions fail against pre-fix source and pass in C++14/C++17 under
+  ASan+UBSan; source/test direct strict Clang-Tidy and formatting pass.
+  These checks do **not** prove USB re-enumeration, macOS Bluetooth host
+  registration, controller pairing, legal coexistence or AirDrop. This P0
+  record remains open, and there is no current completed full-repository
+  validation report for these commits.
