@@ -514,7 +514,16 @@ namespace simpleath
             {
                 return kIOReturnBadArgument;
             }
-            return owner_.installKey(owner_.context, &key);
+            // The caller's key storage is borrowed. Snapshot before a gate
+            // transition that may block or synchronously call out, and scrub
+            // the private secret immediately after the provider consumes it.
+            NativeCcmpKey stable = key;
+            const IOReturn result = owner_.installKey(owner_.context, &stable);
+            for (volatile uint8_t &byte : stable.material)
+            {
+                byte = 0;
+            }
+            return result;
         }
 
         IOReturn TahoeWirelessTransport::authorizePort(bool open)
@@ -739,8 +748,13 @@ namespace simpleath
         {
             // A caller may not write a returned length into this object's
             // bookkeeping or use its internal receive storage as output.
-            if (overlapsObject(&length, sizeof(length), this, sizeof(*this)))
+            if (overlapsObject(&length, sizeof(length), this, sizeof(*this)) ||
+                (bytes != nullptr &&
+                 overlapsObject(bytes, capacity, &length, sizeof(length))))
             {
+                // A caller must not alias the returned packet bytes with
+                // its length output: zeroing or publishing length would
+                // otherwise destroy the packet, possibly before the copy.
                 return kIOReturnBadArgument;
             }
             length = 0;
