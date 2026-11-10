@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
+#include "hardware/Ar9003TxControl.hpp"
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565KeyCache.hpp"
 #include "hardware/Ar9565MacControl.hpp"
@@ -12,19 +13,24 @@
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/Frames.hpp"
+#include "wifi/LinkMonitor.hpp"
 #include "wifi/WifiEngine.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOLocks.h>
+#include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/pwr_mgt/IOPM.h>
+#include <cstddef>
+#include <cstdint>
 #include <kern/clock.h>
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
+#include <string.h>
 
 class SimpleATH;
 
@@ -38,6 +44,24 @@ namespace
     bool gSimpleATHEnabled = true;
     constexpr size_t kNvmStorageBytes = 4096;
     constexpr size_t kNativeEthernetCapacity = 1518;
+    constexpr size_t kNativeTxMpduCapacity = 1600;
+    constexpr size_t kMinimumEthernetBytes = 14;
+    constexpr size_t kMinimumMpduBytes = 24;
+    constexpr size_t kMaximumMpduBytes = 2342;
+    constexpr size_t kFcsBytes = 4;
+    constexpr uint8_t kNoKeyCacheSlot = 0xff;
+    constexpr uint16_t kSequenceMask = 0x0fffU;
+    constexpr size_t kSequenceControlOffset = 22;
+    constexpr uint8_t kSequenceFragmentBits = 4;
+    constexpr uint8_t kByteBits = 8;
+    constexpr uint64_t kMicrosPerMillisecond = 1000;
+
+    struct NativeTransmitRequest
+    {
+            const uint8_t *bytes;
+            size_t length;
+    };
+
     constexpr unsigned int kRfPropertyWidthBits = 32;
     constexpr uint32_t kRfKillInputRegister = 0x404c;
     // IOService copies this table when registering the power driver.
@@ -351,12 +375,124 @@ class SimpleATH final : public IOService
             return kIOReturnNotReady;
         }
 
-        static IOReturn ownerTransmitEthernet(void *, const uint8_t *bytes,
+        // Submit only engine-authored 802.11 frames. The RF owner must first
+        // publish independently verified channel/rate/TPC authorization; no
+        // EEPROM interpolation, software station state, or mailbox flag can
+        // manufacture permission to transmit. This runs inside the PCI gate.
+        IOReturn submitPreparedTransmit(const uint8_t *frame, size_t bytes)
+        {
+            if (frame == nullptr || bytes < kMinimumMpduBytes ||
+                bytes > kMaximumMpduBytes || !powered_ || stopping_ ||
+                !radioOperational_ || !channelAuthorized_ ||
+                !rfKillKnownUnblocked_ || board_.view(epoch_) == nullptr ||
+                queues_.epoch() != epoch_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                !txSafety_.siliconIdentified ||
+                !txSafety_.boardCalibrationValidated ||
+                !txSafety_.channelRegulatoryAuthorized ||
+                !txSafety_.transmitPowerLimitsValidated ||
+                !txSafety_.rfKillUnblocked || !txSafety_.radioAwake ||
+                !txSafety_.dmaMappingValid)
+            {
+                return kIOReturnNotReady;
+            }
+            if (!queues_.hasTransmitSpace() || nextTransmitToken_ == 0 ||
+                nextTransmitToken_ == UINT64_MAX)
+            {
+                return kIOReturnNoResources;
+            }
+            simpleath::edma::TxControlRequest control {};
+            control.onAirFrameLength = static_cast<uint16_t>(bytes + kFcsBytes);
+            control.packetType = simpleath::edma::TxPacketType::Normal;
+            control.crypto = simpleath::edma::TxCrypto::Clear;
+            control.keyCacheIndex = kNoKeyCacheSlot;
+            control.rate[0] = txRate_;
+            const IOReturn result = queues_.transmitGated(
+                frame, bytes, nextTransmitToken_, control, txSafety_);
+            if (result == kIOReturnSuccess)
+            {
+                ++nextTransmitToken_;
+            }
+            return result;
+        }
+
+        static IOReturn ownerTransmitEthernetAction(OSObject *object,
+                                                    void *argument,
+                                                    void * /*unused*/,
+                                                    void * /*unused*/,
+                                                    void * /*unused*/)
+        {
+            auto *self = OSDynamicCast(SimpleATH, object);
+            if (self == nullptr || argument == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &packet =
+                *static_cast<NativeTransmitRequest *>(argument);
+            const auto link = self->engine_.linkStatus();
+            // Queue ownership, station association, port authorization and
+            // RF/TPC permissions must all refer to this same physical epoch.
+            // A valid EEPROM alone NEVER confers a regulatory or TX-power
+            // permission. The RF owner must install verified rate/TPC limits
+            // before this packet may reach a DMA descriptor.
+            if (!self->powered_ || self->stopping_ ||
+                !self->controlledPortAuthorized_ ||
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                !link.networkInterfaceReady)
+            {
+                return kIOReturnNotReady;
+            }
+            simpleath::ieee80211::InputTrust trust {};
+            trust.radioReady = true;
+            trust.channelAuthorized = true;
+            simpleath::ieee80211::EngineAction action {};
+            const auto prepared = self->engine_.encodeOutgoingEthernet(
+                packet.bytes, packet.length, self->txSequence_, trust,
+                &self->ethernetTx_[0], sizeof(self->ethernetTx_), action);
+            if (prepared ==
+                simpleath::ieee80211::EngineResult::CryptoUnavailable)
+            {
+                // A WPA2 data packet needs authentic CCMP PN/MIC handling;
+                // never substitute an unencrypted MPDU for the OS payload.
+                return kIOReturnUnsupported;
+            }
+            if (prepared != simpleath::ieee80211::EngineResult::Ok ||
+                (action.kind !=
+                     simpleath::ieee80211::ActionKind::TransmitData &&
+                 action.kind !=
+                     simpleath::ieee80211::ActionKind::TransmitEapol) ||
+                action.bytes < kMinimumMpduBytes ||
+                action.bytes > sizeof(self->ethernetTx_) - kFcsBytes)
+            {
+                return kIOReturnBadArgument;
+            }
+            const IOReturn result = self->submitPreparedTransmit(
+                &self->ethernetTx_[0], action.bytes);
+            if (result == kIOReturnSuccess)
+            {
+                self->txSequence_ = static_cast<uint16_t>(
+                    (self->txSequence_ + 1U) & kSequenceMask);
+            }
+            return result;
+        }
+
+        static IOReturn ownerTransmitEthernet(void *context,
+                                              const uint8_t *bytes,
                                               size_t length)
         {
-            if (!bytes || length == 0)
+            if (context == nullptr || bytes == nullptr ||
+                length < kMinimumEthernetBytes ||
+                length > kNativeEthernetCapacity)
+            {
                 return kIOReturnBadArgument;
-            return kIOReturnNotReady;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            NativeTransmitRequest request {bytes, length};
+            return self.gate_->runAction(ownerTransmitEthernetAction, &request);
         }
 
         static IOReturn ownerSubscribe(
@@ -614,6 +750,58 @@ class SimpleATH final : public IOService
             ++self.receivedFrames_;
             self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
                              64);
+            // Authentication/association and the WPA2 M2/M4 replies are
+            // already serialized by WifiEngine. They need the same verified
+            // RF/rate/power authorization as Ethernet data, but do not need
+            // the controlled port to be open before association/handshake.
+            if (result == simpleath::ieee80211::EngineResult::Ok &&
+                (action.kind ==
+                     simpleath::ieee80211::ActionKind::TransmitAssociation ||
+                 action.kind ==
+                     simpleath::ieee80211::ActionKind::TransmitEapol) &&
+                action.bytes >= kMinimumMpduBytes &&
+                action.bytes <= sizeof(self.managementReply_))
+            {
+                const IOReturn submitted = self.submitPreparedTransmit(
+                    &self.managementReply_[0], action.bytes);
+                self.setProperty("SimpleATHManagementTransmitResult",
+                                 static_cast<uint32_t>(submitted),
+                                 kRfPropertyWidthBits);
+                if (submitted != kIOReturnSuccess)
+                {
+                    // The engine has advanced to a prepared station or
+                    // handshake state. A failed delivery must not leave that
+                    // state logically connected without an on-air response.
+                    self.controlledPortAuthorized_ = false;
+                    self.engine_.radioStopped(
+                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                    self.notifyWirelessChange(false);
+                }
+                else if (action.kind ==
+                         simpleath::ieee80211::ActionKind::TransmitAssociation)
+                {
+                    // The station's association request owns the management
+                    // sequence; subsequent open-data TX must not restart at
+                    // zero and reuse it. WPA2 data remains CCMP-gated.
+                    struct SequenceBytes
+                    {
+                            uint8_t low;
+                            uint8_t high;
+                    } sequence {};
+
+                    __builtin_memcpy(
+                        &sequence,
+                        &self.managementReply_[kSequenceControlOffset],
+                        sizeof(sequence));
+                    const auto sequenceField = static_cast<uint16_t>(
+                        (static_cast<uint32_t>(sequence.high) << kByteBits) |
+                        static_cast<uint32_t>(sequence.low));
+                    self.txSequence_ = static_cast<uint16_t>(
+                        ((sequenceField >> kSequenceFragmentBits) + 1U) &
+                        kSequenceMask);
+                }
+                return;
+            }
             // The engine accepts a data MSDU only after association,
             // address/security checks and duplicate suppression. The native
             // owner additionally requires its physical radio and controlled
@@ -671,6 +859,22 @@ class SimpleATH final : public IOService
                              self.transmitCompletions_, 64);
             self.setProperty("SimpleATHLastTransmitSucceeded",
                              status.frameTransmitOk);
+            // The EDMA owner already freed its TX slot before this callback.
+            // The native OS may retry a failed frame; availability is not a
+            // packet-success notification. Never cross into its work loop.
+            if (self.observerLock_ != nullptr)
+            {
+                IOLockLock(self.observerLock_);
+                if (self.wirelessObserver_ != nullptr &&
+                    self.wirelessNotify_ != nullptr && self.epoch_ != 0)
+                {
+                    self.wirelessNotify_(
+                        self.wirelessObserver_,
+                        simpleath::tahoe::WirelessEvent::TransmitAvailable,
+                        self.epoch_);
+                }
+                IOLockUnlock(self.observerLock_);
+            }
         }
 
         static void queueFault(void *context, IOReturn result)
@@ -681,7 +885,8 @@ class SimpleATH final : public IOService
             self.queues_.stopGated(!self.pci_->isInactive());
             self.queuesAdopted_ = false;
             self.radioOperational_ = false;
-            self.engine_.radioStopped(nowMicros(nullptr) / 1000, false);
+            self.engine_.radioStopped(
+                nowMicros(nullptr) / kMicrosPerMillisecond, false);
             self.notifyWirelessChange(false);
             self.error("DMAInterrupt", static_cast<uint32_t>(result));
         }
@@ -991,6 +1196,12 @@ class SimpleATH final : public IOService
             // final termination revokes the provider callback contract.
             notifyWirelessChange(stopping_);
             controlledPortAuthorized_ = false;
+            // Revoke any old RF/TPC permission before stopping the queue, so
+            // suspend/reset cannot reuse a former channel's transmit policy.
+            txSafety_ = {};
+            txRate_ = {};
+            txSequence_ = 0;
+            memset(&ethernetTx_[0], 0, sizeof(ethernetTx_));
             if (queuesAdopted_)
             {
                 queues_.stopGated(access ==
@@ -1132,6 +1343,13 @@ class SimpleATH final : public IOService
         simpleath::ieee80211::WifiEngine engine_;
         uint8_t managementReply_[4096] {};
         uint8_t ethernetRx_[kNativeEthernetCapacity] {};
+        uint8_t ethernetTx_[kNativeTxMpduCapacity] {};
+        // Acquired only from independently validated native RF/TPC setup.
+        // Source-only EEPROM power candidates must never populate these.
+        simpleath::edma::TxSafetyPolicy txSafety_ {};
+        simpleath::edma::TxRate txRate_ {};
+        uint16_t txSequence_ {0};
+        uint64_t nextTransmitToken_ {1};
         uint64_t receivedFrames_ {0};
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};
