@@ -7,17 +7,29 @@
 //
 
 #include "Payload.hpp"
+#include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 namespace ath
 {
     namespace
     {
+        // FNV-1a constants are part of the embedded payload checksum ABI.
+        constexpr uint64_t kFnvOffset = 14695981039346656037ULL;
+        constexpr uint64_t kFnvPrime = 1099511628211ULL;
+        constexpr size_t kDeltaRecordHeaderBytes = 2U * sizeof(uint32_t);
+        constexpr size_t kStubBytes = 16U;
+        constexpr uint8_t kExternalImportImage = 255U;
+        constexpr uint8_t kCompatibilityImportImage = 254U;
+        constexpr uint8_t kRelativeRelocationWidth = 4U;
+        constexpr uint8_t kAbsoluteRelocationWidth = 8U;
+
         bool overlapsStorage(const void *first, size_t firstLength,
                              const void *second, size_t secondLength)
         {
             if ((first == nullptr) || (second == nullptr) ||
-                (firstLength == 0u) || (secondLength == 0u))
+                (firstLength == 0U) || (secondLength == 0U))
             {
                 return false;
             }
@@ -32,10 +44,10 @@ namespace ath
 
     uint64_t payloadChecksum(const uint8_t *bytes, size_t length)
     {
-        uint64_t value = 14695981039346656037ULL;
+        uint64_t value = kFnvOffset;
         for (size_t i = 0; i < length; ++i)
         {
-            value = (value ^ bytes[i]) * 1099511628211ULL;
+            value = (value ^ bytes[i]) * kFnvPrime;
         }
         return value;
     }
@@ -48,12 +60,12 @@ namespace ath
             return false;
         }
         const auto &p = *image.payload;
-        if ((p.bytes == nullptr) || (p.size == 0u) || p.size > p.bytesSize ||
+        if ((p.bytes == nullptr) || (p.size == 0U) || p.size > p.bytesSize ||
             p.size > p.mappedSize || p.stubOffset < p.size ||
             p.stubOffset > p.mappedSize ||
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize ||
-            ((p.deltaSize != 0u) && (p.delta == nullptr)))
+            ((p.deltaSize != 0U) && (p.delta == nullptr)))
         {
             return false;
         }
@@ -73,16 +85,16 @@ namespace ath
         uint32_t end = 0;
         while (position < p.deltaSize)
         {
-            if (p.deltaSize - position < 8)
+            if (p.deltaSize - position < kDeltaRecordHeaderBytes)
             {
                 return false;
             }
-            uint32_t offset;
-            uint32_t length;
+            uint32_t offset = 0;
+            uint32_t length = 0;
             memcpy(&offset, p.delta + position, 4);
             memcpy(&length, p.delta + position + 4, 4);
-            position += 8;
-            if ((length == 0u) || offset < end || offset > p.size ||
+            position += kDeltaRecordHeaderBytes;
+            if ((length == 0U) || offset < end || offset > p.size ||
                 length > p.size - offset || length > p.deltaSize - position)
             {
                 return false;
@@ -95,11 +107,11 @@ namespace ath
         position = 0;
         while (position < p.deltaSize)
         {
-            uint32_t offset;
-            uint32_t length;
+            uint32_t offset = 0;
+            uint32_t length = 0;
             memcpy(&offset, p.delta + position, 4);
             memcpy(&length, p.delta + position + 4, 4);
-            position += 8;
+            position += kDeltaRecordHeaderBytes;
             memcpy(image.memory + offset, p.delta + position, length);
             position += length;
         }
@@ -110,7 +122,7 @@ namespace ath
     uintptr_t findSymbol(const LinkedImage &image, const char *name)
     {
         if ((image.payload == nullptr) || (name == nullptr) ||
-            ((image.payload->symbolCount != 0u) &&
+            ((image.payload->symbolCount != 0U) &&
              (image.payload->symbols == nullptr)) ||
             image.address > UINTPTR_MAX - image.payload->size)
         {
@@ -120,13 +132,13 @@ namespace ath
         size_t end = image.payload->symbolCount;
         while (begin < end)
         {
-            auto middle = begin + ((end - begin) / 2);
+            const auto middle = begin + ((end - begin) / 2);
             const auto &entry = image.payload->symbols[middle];
             if (entry.name == nullptr)
             {
                 return 0;
             }
-            int order = strcmp(name, entry.name);
+            const int order = strcmp(name, entry.name);
             if (order == 0)
             {
                 return entry.offset < image.payload->size
@@ -155,8 +167,9 @@ namespace ath
         const auto &p = *image.payload;
         // allocateStub is also callable outside restore/relocate. A forged
         // overlapping stub offset must never overwrite live executable bytes.
-        if (image.stubUsed > p.stubSize || p.stubSize - image.stubUsed < 16 ||
-            p.stubOffset < p.size || p.stubOffset > p.mappedSize ||
+        if (image.stubUsed > p.stubSize ||
+            p.stubSize - image.stubUsed < kStubBytes || p.stubOffset < p.size ||
+            p.stubOffset > p.mappedSize ||
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize)
         {
@@ -167,29 +180,30 @@ namespace ath
         // Direct callers do not pass through relocateImage's alias checks.
         // Stub bytes must not corrupt owned descriptors, source templates or
         // immutable tables consulted by later relocations and restores.
-        if (overlapsStorage(stub, 16, image.payload, sizeof(*image.payload)) ||
-            overlapsStorage(stub, 16, &image, sizeof(image)) ||
-            overlapsStorage(stub, 16, p.bytes, p.size) ||
-            overlapsStorage(stub, 16, p.delta, p.deltaSize) ||
-            overlapsStorage(stub, 16, p.relocations,
+        if (overlapsStorage(stub, kStubBytes, image.payload,
+                            sizeof(*image.payload)) ||
+            overlapsStorage(stub, kStubBytes, &image, sizeof(image)) ||
+            overlapsStorage(stub, kStubBytes, p.bytes, p.size) ||
+            overlapsStorage(stub, kStubBytes, p.delta, p.deltaSize) ||
+            overlapsStorage(stub, kStubBytes, p.relocations,
                             static_cast<size_t>(p.relocationCount) *
                                 sizeof(Relocation)) ||
-            overlapsStorage(stub, 16, p.symbolValues,
+            overlapsStorage(stub, kStubBytes, p.symbolValues,
                             static_cast<size_t>(p.symbolValueCount) *
                                 sizeof(uint32_t)) ||
-            overlapsStorage(stub, 16, p.symbols,
+            overlapsStorage(stub, kStubBytes, p.symbols,
                             static_cast<size_t>(p.symbolCount) *
                                 sizeof(Symbol)) ||
-            overlapsStorage(stub, 16, p.routes,
+            overlapsStorage(stub, kStubBytes, p.routes,
                             static_cast<size_t>(p.routeCount) *
                                 sizeof(RoutePrefix)))
         {
             return 0;
         }
         const uint8_t jump[] = {0xFF, 0x25, 0, 0, 0, 0};
-        memcpy(stub, jump, sizeof(jump));
+        memcpy(stub, &jump[0], sizeof(jump));
         memcpy(stub + sizeof(jump), &target, sizeof(target));
-        image.stubUsed += 16;
+        image.stubUsed += kStubBytes;
         return image.address + offset;
     }
 
@@ -199,9 +213,9 @@ namespace ath
                        size_t compatibilityCount)
     {
         if ((image.payload == nullptr) || (image.memory == nullptr) ||
-            !image.editable || ((imageCount != 0u) && (images == nullptr)) ||
-            ((importCount != 0u) && (imports == nullptr)) ||
-            ((compatibilityCount != 0u) && (compatibility == nullptr)))
+            !image.editable || ((imageCount != 0U) && (images == nullptr)) ||
+            ((importCount != 0U) && (imports == nullptr)) ||
+            ((compatibilityCount != 0U) && (compatibility == nullptr)))
         {
             return false;
         }
@@ -210,8 +224,8 @@ namespace ath
             p.stubOffset > p.mappedSize ||
             p.stubSize > p.mappedSize - p.stubOffset ||
             image.address > UINTPTR_MAX - p.mappedSize ||
-            ((p.relocationCount != 0u) && (p.relocations == nullptr)) ||
-            ((p.symbolValueCount != 0u) && (p.symbolValues == nullptr)) ||
+            ((p.relocationCount != 0U) && (p.relocations == nullptr)) ||
+            ((p.symbolValueCount != 0U) && (p.symbolValues == nullptr)) ||
             payloadChecksum(image.memory, p.size) != p.checksum)
         {
             return false;
@@ -246,24 +260,25 @@ namespace ath
         for (uint32_t i = 0; i < p.relocationCount; ++i)
         {
             const auto &r = p.relocations[i];
-            if ((r.width != 4 && r.width != 8) || r.offset > p.size ||
-                r.width > p.size - r.offset)
+            if ((r.width != kRelativeRelocationWidth &&
+                 r.width != kAbsoluteRelocationWidth) ||
+                r.offset > p.size || r.width > p.size - r.offset)
             {
                 return false;
             }
-            uintptr_t target;
-            if (r.image == 255)
+            uintptr_t target = 0;
+            if (r.image == kExternalImportImage)
             {
-                if (r.target >= importCount || (imports[r.target] == 0u))
+                if (r.target >= importCount || (imports[r.target] == 0U))
                 {
                     return false;
                 }
                 target = imports[r.target];
             }
-            else if (r.image == 254)
+            else if (r.image == kCompatibilityImportImage)
             {
                 if (r.target >= compatibilityCount ||
-                    (compatibility[r.target] == 0u))
+                    (compatibility[r.target] == 0U))
                 {
                     return false;
                 }
@@ -302,18 +317,20 @@ namespace ath
                 }
                 target += magnitude;
             }
-            if (r.width == 8)
+            if (r.width == kAbsoluteRelocationWidth)
             {
-                memcpy(image.memory + r.offset, &target, 8);
+                memcpy(image.memory + r.offset, &target,
+                       kAbsoluteRelocationWidth);
             }
             else
             {
-                auto pc = image.address + r.offset + 4;
-                int64_t delta = static_cast<int64_t>(target - pc);
+                const auto pc =
+                    image.address + r.offset + kRelativeRelocationWidth;
+                auto delta = static_cast<int64_t>(target - pc);
                 if (delta < INT32_MIN || delta > INT32_MAX)
                 {
                     target = allocateStub(image, target);
-                    if (target == 0u)
+                    if (target == 0U)
                     {
                         return false;
                     }
@@ -323,25 +340,26 @@ namespace ath
                         return false;
                     }
                 }
-                int32_t value = static_cast<int32_t>(delta);
-                memcpy(image.memory + r.offset, &value, 4);
+                const auto value = static_cast<int32_t>(delta);
+                memcpy(image.memory + r.offset, &value,
+                       kRelativeRelocationWidth);
             }
         }
         for (uint32_t i = 0; i < p.symbolValueCount; ++i)
         {
             auto offset = p.symbolValues[i];
-            if (offset > p.size || 8 > p.size - offset)
+            if (offset > p.size || kAbsoluteRelocationWidth > p.size - offset)
             {
                 return false;
             }
-            uint64_t value;
-            memcpy(&value, image.memory + offset, 8);
+            uint64_t value = 0;
+            memcpy(&value, image.memory + offset, kAbsoluteRelocationWidth);
             if (value >= p.size)
             {
                 return false;
             }
             value += image.address;
-            memcpy(image.memory + offset, &value, 8);
+            memcpy(image.memory + offset, &value, kAbsoluteRelocationWidth);
         }
         return true;
     }
