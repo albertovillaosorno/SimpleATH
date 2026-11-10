@@ -86,6 +86,14 @@ namespace simpleath
             {
                 return UsbHciStatus::OwnershipLost;
             }
+            // The owner may revoke its lease and attach a successor *inside*
+            // the permit callback. Its stale true result is not permission
+            // to send/ingest packets through a replacement session.
+            if (!state.attached || state.epoch != host.ownerEpoch ||
+                state.faulted)
+            {
+                return UsbHciStatus::OwnershipLost;
+            }
             return UsbHciStatus::Ok;
         }
 
@@ -738,8 +746,13 @@ namespace simpleath
         {
             return UsbHciStatus::Faulted;
         }
-        if (!host.permit(host.context, host.ownerEpoch))
+        if (!host.permit(host.context, host.ownerEpoch) || state.attached ||
+            state.epoch != 0U || !host.permit(host.context, host.ownerEpoch) ||
+            state.attached || state.epoch != 0U)
         {
+            // One grant may be stale if the callback detached or attached
+            // another owner inline. Confirm the still-live lease, and never
+            // overwrite a successor's attached transport state.
             return UsbHciStatus::OwnershipLost;
         }
         state = {};

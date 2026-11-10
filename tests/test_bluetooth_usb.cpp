@@ -1549,6 +1549,7 @@ namespace
         Command,
         Acl,
         Deliver,
+        Permit,
     };
 
     struct EpochRace
@@ -1559,15 +1560,27 @@ namespace
             bool reattach {true};
             bool failCallback {};
             bool successorAttached {};
+            bool permitReplaced {};
+            size_t commandCalls {};
     };
+
+    UsbHciHostCallbacks raceHost(EpochRace &race);
+    void replaceRaceSession(EpochRace &race);
 
     bool racePermit(void *context, uint64_t epoch)
     {
-        const auto &race = *static_cast<EpochRace *>(context);
-        return race.epoch == epoch;
+        auto &race = *static_cast<EpochRace *>(context);
+        const bool granted = race.epoch == epoch;
+        if (granted && race.trigger == EpochRaceEvent::Permit &&
+            !race.permitReplaced)
+        {
+            // The old lease was valid at check time, but the owner is
+            // replaced before the caller may consume this stale approval.
+            race.permitReplaced = true;
+            replaceRaceSession(race);
+        }
+        return granted;
     }
-
-    UsbHciHostCallbacks raceHost(EpochRace &race);
 
     void replaceRaceSession(EpochRace &race)
     {
@@ -1593,6 +1606,7 @@ namespace
         {
             return false;
         }
+        ++race.commandCalls;
         if (race.trigger == EpochRaceEvent::Command)
         {
             replaceRaceSession(race);
@@ -1691,6 +1705,7 @@ namespace
                                        vendorEvent.data(), vendorEvent.size());
                 break;
             case EpochRaceEvent::None:
+            case EpochRaceEvent::Permit:
                 return false;
         }
         return result == UsbHciStatus::OwnershipLost &&
@@ -1699,6 +1714,57 @@ namespace
                (!reattach || (race.state.epoch == race.epoch &&
                               !race.state.commandWindow.pending &&
                               race.state.commandWindow.credits == 1U));
+    }
+
+    bool testReentrantPermitCannotAuthorizeStaleOwner()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        for (const bool reattach : {false, true})
+        {
+            EpochRace race {};
+            if (attachUsbHci(race.state, endpoints, raceHost(race)) !=
+                UsbHciStatus::Ok)
+            {
+                return false;
+            }
+            const UsbHciHostCallbacks stale = raceHost(race);
+            race.reattach = reattach;
+            race.trigger = EpochRaceEvent::Permit;
+            if (sendUsbHciCommand(race.state, stale, kReadBufferSize.data(),
+                                  kReadBufferSize.size()) !=
+                    UsbHciStatus::OwnershipLost ||
+                !race.permitReplaced || race.commandCalls != 0U ||
+                race.successorAttached != reattach ||
+                race.state.attached != reattach || race.state.faulted ||
+                (reattach && (race.state.epoch != race.epoch ||
+                              race.state.commandWindow.pending ||
+                              race.state.commandWindow.credits != 1U)))
+            {
+                return false;
+            }
+        }
+        // An initial attach also uses a lease grant. Do not revive an old
+        // epoch after an inline detach or overwrite a reattached successor.
+        for (const bool reattach : {false, true})
+        {
+            EpochRace race {};
+            race.trigger = EpochRaceEvent::Permit;
+            race.reattach = reattach;
+            const UsbHciHostCallbacks stale = raceHost(race);
+            if (attachUsbHci(race.state, endpoints, stale) !=
+                    UsbHciStatus::OwnershipLost ||
+                !race.permitReplaced || race.successorAttached != reattach ||
+                race.state.attached != reattach || race.state.faulted ||
+                (reattach && race.state.epoch != race.epoch))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool testNestedHciDeliveryCannotOverwriteBorrowedPacket()
@@ -1866,6 +1932,11 @@ int main()
     {
         constexpr int kFirmwareOwnershipFailure = 10;
         return kFirmwareOwnershipFailure;
+    }
+    if (!testReentrantPermitCannotAuthorizeStaleOwner())
+    {
+        constexpr int kReentrantPermitFailure = 25;
+        return kReentrantPermitFailure;
     }
     if (!testNestedHciDeliveryCannotOverwriteBorrowedPacket())
     {
