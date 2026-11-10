@@ -815,6 +815,9 @@ class SimpleATH final : public IOService
             associatedBeaconObserved_ = false;
             associatedSignalMeasured_ = false;
             associatedRssiDbm_ = 0;
+            deferredManagementBytes_ = 0;
+            deferredManagementEpoch_ = 0;
+            deferredJoinRequestId_ = 0;
             controlledPortAuthorized_ = false;
         }
 
@@ -844,6 +847,9 @@ class SimpleATH final : public IOService
             self.associatedBeaconObserved_ = false;
             self.associatedSignalMeasured_ = false;
             self.associatedRssiDbm_ = 0;
+            self.deferredManagementBytes_ = 0;
+            self.deferredManagementEpoch_ = 0;
+            self.deferredJoinRequestId_ = 0;
             self.controlledPortAuthorized_ = false;
             __builtin_memcpy(&self.joinBssid_[0], &request.bssid[0],
                              sizeof(self.joinBssid_));
@@ -1688,22 +1694,55 @@ class SimpleATH final : public IOService
             };
         }
 
-        // WPA2 callbacks use the same exclusive PCI epoch as NVM and EDMA.
-        // HCI/IO80211 callers may never install a key into a moving DMA ring.
-        // A future safe queue-pause/association handshake must quiesce DMA
-        // before these hardware callbacks can succeed.
+        // Dynamic CCMP installation is admitted only within a native queue
+        // lease that physically disabled MAC/DMA and bus mastering in this
+        // exact owner epoch. Boot-time key-cache writes retain the stricter
+        // all-engines-quiesced permit above.
+        static bool liveKeyCachePermit(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && nvmOwner(context) &&
+                   self.board_.view(epoch) != nullptr &&
+                   self.radioOperational_ && self.channelAuthorized_ &&
+                   self.liveRfKillUnblocked() &&
+                   self.queues_.epoch() == epoch &&
+                   self.queues_.keyUpdateIsolatedGated() &&
+                   self.keyCache_.initialized &&
+                   // Erasure temporarily marks requiresReset until all slots
+                   // have actually been scrubbed. A write lease must still
+                   // permit that rollback; preflight rejects new installs.
+                   self.keyCache_.ownerContext == &self.access_ &&
+                   self.keyCache_.ownerEpoch == epoch;
+        }
+
+        simpleath::KeyCacheBackend liveKeyCacheBackend()
+        {
+            return {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                liveKeyCachePermit,
+                readRegister,
+                writeRegister,
+            };
+        }
+
         static bool nativeKeyInstallPermit(void *context)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
-            return self.keyCache_.initialized &&
-                   !self.keyCache_.requiresReset &&
-                   self.keyCache_.ownerContext == &self.access_ &&
-                   self.keyCache_.ownerEpoch == self.epoch_ &&
-                   self.queues_.phase() !=
-                       simpleath::NativeQueuePhase::Running &&
-                   self.queues_.phase() !=
-                       simpleath::NativeQueuePhase::Quarantined &&
-                   keyCachePermit(context, self.epoch_);
+            if (self.keyCache_.requiresReset)
+            {
+                return false;
+            }
+            if (self.queues_.phase() == simpleath::NativeQueuePhase::Running)
+            {
+                if (!self.canSubmitTransmit() ||
+                    self.queues_.beginKeyUpdateGated() != kIOReturnSuccess)
+                {
+                    return false;
+                }
+            }
+            return liveKeyCachePermit(context, self.epoch_);
         }
 
         static bool nativeNonce(void *context, uint8_t *data, size_t bytes)
@@ -1753,7 +1792,7 @@ class SimpleATH final : public IOService
                 return false;
             }
             const auto result = simpleath::installAr9565PairwiseKey(
-                self.keyCacheBackend(), self.keyCache_, ap, key);
+                self.liveKeyCacheBackend(), self.keyCache_, ap, key);
             if (result.result != simpleath::KeyCacheResult::Ok)
             {
                 self.controlledPortAuthorized_ = false;
@@ -1778,7 +1817,7 @@ class SimpleATH final : public IOService
                 return false;
             }
             const auto result = simpleath::installAr9565GroupKey(
-                self.keyCacheBackend(), self.keyCache_, keyId, key, keyRsc);
+                self.liveKeyCacheBackend(), self.keyCache_, keyId, key, keyRsc);
             if (result.result != simpleath::KeyCacheResult::Ok)
             {
                 self.controlledPortAuthorized_ = false;
@@ -1806,11 +1845,19 @@ class SimpleATH final : public IOService
             {
                 return;
             }
+            const bool leaseAcquiredHere =
+                self.queues_.phase() == simpleath::NativeQueuePhase::Running;
             if (nativeKeyInstallPermit(context) &&
-                simpleath::eraseAr9565Keys(self.keyCacheBackend(),
+                simpleath::eraseAr9565Keys(self.liveKeyCacheBackend(),
                                            self.keyCache_)
                         .result == simpleath::KeyCacheResult::Ok)
             {
+                // An explicit OS disconnect/key reset can run outside RX.
+                // Do not strand its queue lease after verified key erasure.
+                if (leaseAcquiredHere)
+                {
+                    (void)self.queues_.endKeyUpdateGated();
+                }
                 return;
             }
             // Unsafe or uncertain erasure cannot be treated as clean. Force
@@ -1819,6 +1866,10 @@ class SimpleATH final : public IOService
             self.radioOperational_ = false;
             self.channelAuthorized_ = false;
             self.txSafety_ = {};
+            if (leaseAcquiredHere && self.queues_.keyUpdateIsolatedGated())
+            {
+                (void)self.queues_.endKeyUpdateGated();
+            }
         }
 
         static bool rfBoardPermit(void *context, uint64_t epoch)
@@ -2275,6 +2326,39 @@ class SimpleATH final : public IOService
                 self.managementReply_, sizeof(self.managementReply_), action);
             self.setProperty("SimpleATHLastReceiveResult",
                              static_cast<uint32_t>(result), 32);
+            const bool hardwareKeyUpdate =
+                self.queues_.keyUpdateIsolatedGated();
+            if (hardwareKeyUpdate)
+            {
+                // The durable management buffer is not borrowed DMA. M4
+                // cannot be handed to TX until the queue has actually
+                // restarted after the current RX callback unwinds.
+                if (result == simpleath::ieee80211::EngineResult::Ok &&
+                    action.kind ==
+                        simpleath::ieee80211::ActionKind::TransmitEapol &&
+                    action.bytes >= kMinimumMpduBytes &&
+                    action.bytes <= sizeof(self.managementReply_))
+                {
+                    self.deferredManagementBytes_ = action.bytes;
+                    self.deferredManagementEpoch_ = self.epoch_;
+                    self.deferredJoinRequestId_ = self.joinRequestId_;
+                }
+                const IOReturn leaseEnd = self.queues_.endKeyUpdateGated();
+                if (leaseEnd != kIOReturnSuccess)
+                {
+                    self.failNativeJoin(leaseEnd);
+                    self.engine_.radioStopped(
+                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                    self.notifyWirelessChange(false);
+                    return;
+                }
+                if (self.deferredManagementBytes_ != 0)
+                {
+                    // Transmit is performed by queueKeyUpdateResumed only
+                    // after same-epoch physical DMA and MAC restart.
+                    return;
+                }
+            }
             const auto acceptedLink = self.engine_.linkStatus();
             if (self.joinEpoch_ == self.epoch_ && self.joinRequestId_ != 0 &&
                 self.joinStatus_ == kIOReturnSuccess &&
@@ -2303,6 +2387,18 @@ class SimpleATH final : public IOService
                                                   : 0;
                     if (firstBeacon)
                     {
+                        // WCL owns no separate supplicant on an OPEN BSS.
+                        // Physically authorize the data port only after
+                        // genuine same-epoch AP beacon evidence and all the
+                        // strict RF/channel/queue/TPC guards above pass.
+                        // WPA2 remains closed until verified CCMP data RX/TX.
+                        bool requestOpen = true;
+                        if (self.engine_.stationState() ==
+                            simpleath::ieee80211::StationState::AssociatedOpen)
+                        {
+                            (void)ownerAuthorizePortAction(
+                                &self, &requestOpen, nullptr, nullptr, nullptr);
+                        }
                         self.notifyWirelessChange(false);
                     }
                 }
@@ -2311,6 +2407,13 @@ class SimpleATH final : public IOService
                 result ==
                     simpleath::ieee80211::EngineResult::AccessPointRejected)
             {
+                if (self.queues_.phase() ==
+                    simpleath::NativeQueuePhase::Quarantined)
+                {
+                    self.radioOperational_ = false;
+                    self.channelAuthorized_ = false;
+                    self.txSafety_ = {};
+                }
                 self.failNativeJoin(kIOReturnNotReady);
                 self.engine_.radioStopped(
                     nowMicros(nullptr) / kMicrosPerMillisecond, false);
@@ -2497,6 +2600,45 @@ class SimpleATH final : public IOService
             self.error("DMAInterrupt", static_cast<uint32_t>(result));
         }
 
+        static void queueKeyUpdateResumed(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            const size_t bytes = self.deferredManagementBytes_;
+            if (bytes == 0)
+            {
+                return;
+            }
+            const bool stillOwned =
+                epoch != 0 && epoch == self.epoch_ &&
+                epoch == self.deferredManagementEpoch_ &&
+                self.joinEpoch_ == epoch && self.deferredJoinRequestId_ != 0 &&
+                self.joinRequestId_ == self.deferredJoinRequestId_ &&
+                self.joinStatus_ == kIOReturnSuccess &&
+                self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
+                self.queues_.epoch() == epoch &&
+                self.engine_.stationState() ==
+                    simpleath::ieee80211::StationState::HardwareKeysInstalled &&
+                self.keyCache_.pairwiseInstalled &&
+                !self.keyCache_.requiresReset;
+            self.deferredManagementBytes_ = 0;
+            self.deferredManagementEpoch_ = 0;
+            self.deferredJoinRequestId_ = 0;
+            const IOReturn result = stillOwned && self.canSubmitTransmit()
+                                        ? self.submitPreparedTransmit(
+                                              &self.managementReply_[0], bytes)
+                                        : kIOReturnNotReady;
+            self.setProperty("SimpleATHManagementTransmitResult",
+                             static_cast<uint32_t>(result),
+                             kRfPropertyWidthBits);
+            if (result != kIOReturnSuccess)
+            {
+                self.failNativeJoin(result);
+                self.engine_.radioStopped(
+                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                self.notifyWirelessChange(false);
+            }
+        }
+
         static void queueInterrupt(OSObject *owner, IOInterruptEventSource *,
                                    int)
         {
@@ -2529,7 +2671,8 @@ class SimpleATH final : public IOService
                     queueReceived,
                     queueTransmitted,
                     queueFault,
-                    session_.status().barLengthBytes};
+                    session_.status().barLengthBytes,
+                    queueKeyUpdateResumed};
                 result = queues_.prepareClient(this, pci_, loop_, preparedEpoch,
                                                callbacks, queueInterrupt);
                 if (result == kIOReturnSuccess)
@@ -3042,6 +3185,9 @@ class SimpleATH final : public IOService
         uint8_t verifiedReceiveChannel_ {0};
         bool scanTimerAttached_ {false};
         uint8_t managementReply_[4096] {};
+        size_t deferredManagementBytes_ {0};
+        uint64_t deferredManagementEpoch_ {0};
+        uint64_t deferredJoinRequestId_ {0};
         uint8_t ethernetRx_[kNativeEthernetCapacity] {};
         uint8_t ethernetTx_[kNativeTxMpduCapacity] {};
         uint8_t protectedScratch_[kNativeTxMpduCapacity] {};
