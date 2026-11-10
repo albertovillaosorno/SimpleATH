@@ -544,6 +544,72 @@ namespace simpleath
             return EngineResult::Ok;
         }
 
+        EngineResult WifiEngine::chooseNetworkForDriverSupplicant(
+            const Mac &station, const Mac &bssid, const uint8_t *ssid,
+            size_t ssidLength, uint8_t requestedChannel,
+            const uint8_t pmk[kWpa2PmkBytes])
+        {
+            if (selected_ || station_.state() != StationState::Scanning ||
+                (scanConfigured_ && !scanComplete_))
+            {
+                return EngineResult::InvalidState;
+            }
+            if (!channelAuthorized_ || requestedChannel < 1U ||
+                requestedChannel > kMaximum2GhzChannel)
+            {
+                return EngineResult::CountryNotAuthorized;
+            }
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid) || ssid == nullptr || ssidLength == 0 ||
+                ssidLength > kMaxSsidBytes ||
+                overlaps(ssid, ssidLength, this, sizeof(*this)) ||
+                overlaps(&station, sizeof(station), this, sizeof(*this)) ||
+                overlaps(&bssid, sizeof(bssid), this, sizeof(*this)) ||
+                overlaps(pmk, kWpa2PmkBytes, this, sizeof(*this)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            if (!keysConfigured_ || pmk == nullptr)
+            {
+                return EngineResult::CryptoUnavailable;
+            }
+            Bss candidate {};
+            if (!cache_.matchingBssid(bssid, ssid,
+                                      ScanSelection {
+                                          ssidLength,
+                                          requestedChannel,
+                                          false,
+                                          true,
+                                      },
+                                      candidate))
+            {
+                return EngineResult::NoMatchingBss;
+            }
+            if (candidate.beacon.channel != requestedChannel ||
+                candidate.beacon.rsn.security != Security::Wpa2Personal)
+            {
+                return EngineResult::UnsupportedSecurity;
+            }
+            const Wpa2Crypto callbacks = crypto_.callbacks();
+            if (callbacks.context == nullptr ||
+                supplicant_.begin(
+                    callbacks, station, bssid, pmk, &candidate.beacon.rsnIe[0],
+                    candidate.beacon.rsnIeLength) != Wpa2Result::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            if (station_.select(station, candidate) != StationResult::Ok)
+            {
+                supplicant_.reset();
+                return EngineResult::InvalidInput;
+            }
+            selected_ = true;
+            osSupplicantOwned_ = false;
+            resetDataSequences();
+            stationAddress_ = station;
+            return EngineResult::Ok;
+        }
+
         EngineResult WifiEngine::chooseNetworkForOsSupplicant(
             const Mac &station, const Mac &bssid, const uint8_t *ssid,
             size_t ssidLength, uint8_t requestedChannel, bool wpa2Personal)

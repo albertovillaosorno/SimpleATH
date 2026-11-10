@@ -11,8 +11,11 @@
 #include "wifi/Wpa2Supplicant.hpp"
 #include "wifi/crypto/Ccmp.hpp"
 #include "wifi/crypto/Wpa2CryptoAdapter.hpp"
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 
 namespace
 {
@@ -1573,6 +1576,100 @@ namespace
                engine.stationState() == StationState::CandidateSelected;
     }
 
+    bool selectExactDriverOwnedWpa2Bssid()
+    {
+        constexpr size_t kBeaconBytes = 49U;
+        constexpr size_t kPrivacyOffset = 34U;
+        constexpr uint8_t kWpa2InfrastructureCapabilities = 0x11U;
+        constexpr size_t kSourceLastByte = 15U;
+        constexpr size_t kBssidLastByte = 21U;
+        constexpr uint8_t kSecondApLastByte = 0x56U;
+        constexpr uint8_t kTestChannel = 6U;
+        constexpr int8_t kWeakerRssi = -75;
+        constexpr int8_t kStrongerRssi = -25;
+        constexpr int8_t kUnconfiguredRssi = -50;
+        constexpr uint64_t kFirstObservationMs = 1000U;
+        constexpr uint64_t kSecondObservationMs = 1001U;
+        constexpr uint64_t kThirdObservationMs = 1002U;
+        constexpr size_t kTestTxCapacity = 256U;
+        constexpr size_t kDestinationOffset = 4U;
+        constexpr std::array<uint8_t, 22> rsnIe {
+            {
+                48,   20,   1, 0, 0, 0x0f, 0xac, 4,    1, 0, 0,
+                0x0f, 0xac, 4, 1, 0, 0,    0x0f, 0xac, 2, 0, 0,
+            },
+        };
+        std::array<uint8_t, kBeaconBytes + rsnIe.size()> weaker {};
+        beacon(weaker.data());
+        weaker.at(kPrivacyOffset) = kWpa2InfrastructureCapabilities;
+        std::copy(rsnIe.begin(), rsnIe.end(),
+                  std::next(weaker.begin(), kBeaconBytes));
+        auto stronger = weaker;
+        stronger.at(kSourceLastByte) = kSecondApLastByte;
+        stronger.at(kBssidLastByte) = kSecondApLastByte;
+        const Mac own {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac requested {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const Mac unknown {{0x02, 0x11, 0x22, 0x33, 0x44, 0x57}};
+        const std::array<uint8_t, 4> ssid {{'T', 'e', 's', 't'}};
+        std::array<uint8_t, kWpa2PmkBytes> pmk {{1}};
+        std::array<uint8_t, kWpa2PmkBytes> emptyPmk {};
+        const InputTrust verifiedRx {true, true, true, false};
+        std::array<uint8_t, kTestTxCapacity> tx {};
+        EngineAction action {};
+        uint32_t context = 1;
+        const crypto::KeyHardware hw {
+            &context, fakeRandom, fakePairwise, fakeGroup, fakeRemove,
+        };
+        WifiEngine engine;
+        if (!engine.configureKeys(hw) ||
+            engine.startScan(true, true) != EngineResult::Ok ||
+            engine.acceptRx(weaker.data(), weaker.size(), verifiedRx,
+                            {kWeakerRssi, kFirstObservationMs}, tx.data(),
+                            tx.size(), action) != EngineResult::Ok ||
+            engine.acceptRx(stronger.data(), stronger.size(), verifiedRx,
+                            {kStrongerRssi, kSecondObservationMs}, tx.data(),
+                            tx.size(), action) != EngineResult::Ok ||
+            engine.scan().size() != 2)
+        {
+            return false;
+        }
+        // Exact OS-requested BSSID must win over a stronger AP with the same
+        // SSID; bad inputs must not consume the valid WPA2 candidate.
+        if (engine.chooseNetworkForDriverSupplicant(
+                own, unknown, ssid.data(), ssid.size(), kTestChannel,
+                pmk.data()) != EngineResult::NoMatchingBss ||
+            engine.chooseNetworkForDriverSupplicant(
+                requested, requested, ssid.data(), ssid.size(), kTestChannel,
+                pmk.data()) != EngineResult::InvalidInput ||
+            engine.chooseNetworkForDriverSupplicant(
+                own, requested, ssid.data(), ssid.size(), kTestChannel,
+                emptyPmk.data()) != EngineResult::CryptoFailure ||
+            engine.stationState() != StationState::Scanning ||
+            engine.chooseNetworkForDriverSupplicant(
+                own, requested, ssid.data(), ssid.size(), kTestChannel,
+                pmk.data()) != EngineResult::Ok ||
+            engine.osSupplicantOwnsWpa2() ||
+            engine.stationState() != StationState::CandidateSelected ||
+            engine.requestAuthentication(3, tx.data(), tx.size(), action) !=
+                EngineResult::Ok ||
+            action.kind != ActionKind::TransmitAuthentication ||
+            std::memcmp(&tx.at(kDestinationOffset), &requested.bytes[0],
+                        sizeof(requested.bytes)) != 0)
+        {
+            return false;
+        }
+        WifiEngine unconfigured;
+        return unconfigured.startScan(true, true) == EngineResult::Ok &&
+               unconfigured.acceptRx(weaker.data(), weaker.size(), verifiedRx,
+                                     {kUnconfiguredRssi, kThirdObservationMs},
+                                     tx.data(), tx.size(),
+                                     action) == EngineResult::Ok &&
+               unconfigured.chooseNetworkForDriverSupplicant(
+                   own, requested, ssid.data(), ssid.size(), kTestChannel,
+                   pmk.data()) == EngineResult::CryptoUnavailable &&
+               unconfigured.stationState() == StationState::Scanning;
+    }
+
     bool rejectStationManagementTxAlias()
     {
         uint8_t advertisement[49] {};
@@ -1967,6 +2064,10 @@ int main()
     if (!rejectDisjointAssociationRates())
     {
         return 32;
+    }
+    if (!selectExactDriverOwnedWpa2Bssid())
+    {
+        return 68;
     }
     if (!rejectEngineSelfBssidBeforeCrypto())
     {

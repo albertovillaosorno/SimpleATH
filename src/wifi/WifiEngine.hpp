@@ -173,6 +173,17 @@ namespace simpleath
                                            uint8_t requestedChannel,
                                            bool allowOpen, bool allowWpa2,
                                            const uint8_t pmk[kWpa2PmkBytes]);
+                // The OS supplied an independently authorized 32-byte PMK
+                // for one exact, RX-observed BSSID. Unlike the OS-owned key
+                // path, the portable supplicant owns M1-M4, GTK and key
+                // installation through a configured real native backend.
+                // A successful selection never authorizes radio TX or the
+                // controlled data port by itself. The PMK is copied into
+                // private supplicant state, not retained by reference.
+                EngineResult chooseNetworkForDriverSupplicant(
+                    const Mac &station, const Mac &bssid, const uint8_t *ssid,
+                    size_t ssidLength, uint8_t requestedChannel,
+                    const uint8_t pmk[kWpa2PmkBytes]);
                 // Native macOS owns PSK derivation/EAPOL/CCMP on this path.
                 // Select only the exact observed BSSID and security type;
                 // never start the portable supplicant or accept a PMK here.
