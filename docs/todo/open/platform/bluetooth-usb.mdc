@@ -92,6 +92,12 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   ASan+UBSan, focused strict Clang-Tidy and formatting passed. The latest
   complete repository check had 534 passes, 36 existing strict Clang-Tidy
   failures and zero skips; these are source-only results, not USB operation.
+- Commit `3437aed` validates USB epoch ownership immediately after each
+  borrowed firmware resource lookup, before parsing the patch trailer or
+  submitting transfers. It reports `IdentityLost` when a resource callback
+  succeeds or fails while revoking ownership. Synthetic C++14/C++17 ASan+UBSan,
+  direct strict Clang-Tidy and formatting checks passed; no native firmware
+  distribution or USB execution is implied.
 - Remaining required source: bind the actually running macOS Bluetooth host
   and USB interface to a single authorized owner of command/event traffic,
   wire advertising and discovery to that host and the genuine AirDrop BLE
