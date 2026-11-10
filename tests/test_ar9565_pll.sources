@@ -1,2 +1,3 @@
 src/hardware/Ar9565Pll.cpp
 src/hardware/Ar9565Core.cpp
+src/hardware/Ar9565InitCatalog.cpp

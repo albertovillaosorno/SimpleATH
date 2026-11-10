@@ -260,9 +260,26 @@ namespace
         return r.result == RfChannelResult::WriteFailed && m.writes == 3 &&
                r.requiresReset;
     }
+
+    bool testReceiveOnly()
+    {
+        Mock m {};
+        const auto io = backend(m);
+        auto rx = kApproved;
+        rx.use = RadioInitialization::ReceiveOnly;
+        rx.localCountryRulesAvailable = false;
+        rx.txPowerLimitsVerified = false;
+        const auto result = tuneAr9565Channel(
+            request(kCh6, RfReferenceClock::Crystal25Mhz), rx, io);
+        return result.result == RfChannelResult::Ok &&
+               result.completedWrites == kExpectedWrites &&
+               !result.requiresReset;
+    }
 } // namespace
 
 int main()
 {
-    return testValid() && testRejected() && testFailures() ? 0 : 1;
+    return testValid() && testRejected() && testFailures() && testReceiveOnly()
+               ? 0
+               : 1;
 }

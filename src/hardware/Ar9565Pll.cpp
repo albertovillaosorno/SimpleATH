@@ -87,11 +87,7 @@ namespace simpleath
 
         bool authorized(const CalibrationAndRegulatory &a)
         {
-            return a.eepromContentsVerified &&
-                   a.boardAntennaConfigurationVerified &&
-                   a.localCountryRulesAvailable && a.channelPermitted &&
-                   a.txPowerLimitsVerified && a.radioKillUnblocked &&
-                   a.coexistenceConfigurationVerified;
+            return radioInitializationAuthorized(a);
         }
 
         bool fits(uint32_t length, uint32_t offset)

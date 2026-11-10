@@ -335,9 +335,25 @@ namespace
         return progress.result == RfPllResult::WriteFailed &&
                mock.writeCount == kAllWrites - 1 && progress.requiresReset;
     }
+
+    bool testReceiveOnly()
+    {
+        Mock mock {};
+        const auto io = backend(mock);
+        auto rx = kTrusted;
+        rx.use = RadioInitialization::ReceiveOnly;
+        rx.localCountryRulesAvailable = false;
+        rx.txPowerLimitsVerified = false;
+        const auto result = initializeAr9565Pll(request(), rx, io);
+        return result.result == RfPllResult::Ok &&
+               result.completedWrites == kAllWrites && !result.requiresReset;
+    }
 } // namespace
 
 int main()
 {
-    return testSequence() && testRejections() && testFailures() ? 0 : 1;
+    return testSequence() && testRejections() && testFailures() &&
+                   testReceiveOnly()
+               ? 0
+               : 1;
 }

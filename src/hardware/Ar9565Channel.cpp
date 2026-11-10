@@ -23,11 +23,7 @@ namespace simpleath
 
         bool authorized(const CalibrationAndRegulatory &r)
         {
-            return r.eepromContentsVerified &&
-                   r.boardAntennaConfigurationVerified &&
-                   r.localCountryRulesAvailable && r.channelPermitted &&
-                   r.txPowerLimitsVerified && r.radioKillUnblocked &&
-                   r.coexistenceConfigurationVerified;
+            return radioInitializationAuthorized(r);
         }
 
         bool supportsRevision(Revision revision)
