@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 CHILD_FAILURE = 7
 EXPECTED_SKIP = "skipped"
 EXPECTED_FAIL = "fail"
+RUFF_CHECK_TOOL = "ruff-check"
 COMPILER_ERROR_MARKER = ": error:"
 SHARED_DIGEST = b"shared"
 EXPECTED_TIMEOUT = "timed out"
@@ -1786,6 +1787,80 @@ class DefaultCliOptions(unittest.TestCase):
         assert options.json_output
         assert options.files == ()
         assert not options.no_cache
+        assert not options.stdout_only
+
+    @staticmethod
+    def test_stdout_only_always_disables_on_disk_cache() -> None:
+        """CI's log-only mode must not reuse persistent validator state."""
+        with mock.patch.object(sys, "argv", ["validate.py", "--stdout-only"]):
+            options = validator.parse_options()
+        assert options.stdout_only
+        assert options.no_cache
+        assert options.tests
+        assert options.tidy
+        assert options.json_output
+
+    @staticmethod
+    def test_stdout_only_emits_failures_without_files() -> None:
+        """Preserve actionable JSON and failures without repository writes."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = _root(directory)
+            source = root / "src/driver.py"
+            _ = source.write_text("pass", encoding="utf-8")
+            output = io.StringIO()
+
+            def fake_check(
+                _: object, file: Path, tool: str
+            ) -> validator.Finding:
+                return _sample_finding(
+                    file.relative_to(root).as_posix(),
+                    tool,
+                    EXPECTED_FAIL
+                    if tool == RUFF_CHECK_TOOL
+                    else validator.STATUS_OK,
+                )
+
+            with (
+                mock.patch.object(validator, "ROOT", root),
+                mock.patch.object(
+                    validator, "source_files", return_value=[source]
+                ),
+                mock.patch.object(validator.LintRun, "check", fake_check),
+                mock.patch.object(
+                    validator,
+                    "run_tests",
+                    return_value=[
+                        _sample_finding(
+                            "tests/synthetic.py", "python-test", "pass"
+                        )
+                    ],
+                ),
+                mock.patch.object(validator, "_tool_versions", return_value={}),
+                mock.patch.object(
+                    validator,
+                    "read_cache",
+                    side_effect=AssertionError("read cache"),
+                ),
+                mock.patch.object(
+                    validator,
+                    "_save",
+                    side_effect=AssertionError("write cache"),
+                ),
+                mock.patch.object(
+                    validator, "_locked_run", side_effect=AssertionError("lock")
+                ),
+                mock.patch.object(
+                    sys, "argv", ["validate.py", "--stdout-only"]
+                ),
+                redirect_stdout(output),
+            ):
+                assert validator.main() == 1
+            report = json.loads(output.getvalue())
+            assert report["summary"]["fail"] == 1
+            assert report["summary"]["cached"] == 0
+            assert report["results"][0]["tool"] == RUFF_CHECK_TOOL
+            assert not (root / ".cache/validate").exists()
+            assert not (root / validator.RUN_LOCK_FILE).exists()
 
     @staticmethod
     def test_linux_flag_is_rejected_on_every_host() -> None:
@@ -1913,6 +1988,7 @@ class DefaultCliOptions(unittest.TestCase):
         assert options.tests
         assert options.json_output
         assert options.no_cache
+        assert not options.stdout_only
 
 
 class LinuxReferenceExclusion(unittest.TestCase):

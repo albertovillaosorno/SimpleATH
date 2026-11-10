@@ -329,9 +329,17 @@ The GitHub Actions workflows are **tag-only** and do not run on ordinary
   but do not block the separately authorized x86_64 Xcode kext build.
   Native compilation and artifact verification still fail on real errors.
 
-The CI uses the newest compatible GitHub Actions major versions, current
-Homebrew LLVM/Ruff/BasedPyright and Python 3.15. It refreshes the Clang-Tidy
-compilation database for the hosted checkout and uses the project's pinned
+The CI uses compatible GitHub Actions versions and `uv` with pinned
+precompiled macOS Intel wheels for Clang-Format, Clang-Tidy, Ruff,
+BasedPyright and Node.
+It never invokes Homebrew, and it uses Python 3.15. For authorized build tags,
+Xcode compilation and advisory validation run independently in parallel;
+validation cannot delay the kernel build. Findings and failure counts appear
+in the GitHub Actions job log as JSON, including missing tool checks. CI calls
+`tools/validate.py --no-cache --stdout-only`: no `report.json`, lint cache,
+completion state or validation artifact is written by that mode. Ordinary
+local validator runs retain their existing on-disk report/cache behavior.
+The CI refreshes checkout-local Clang-Tidy commands and uses the pinned
 MacKernelSDK compatibility headers. That SDK is not a verified exact Tahoe
 KDK, and a successful static check cannot establish native ABI correctness.
 The strict validator does not support `--linux` or treat missing Apple

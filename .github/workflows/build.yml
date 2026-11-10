@@ -22,10 +22,10 @@ jobs:
       advisory: true
 
   build:
-    name: Build authorized x86_64 kext (CI advisory)
-    needs: validate
-    # A failed/missing macOS CI environment must not block an authorized
-    # build. !cancelled() prevents a manually canceled run from proceeding.
+    name: Build authorized x86_64 kext (independent of advisory CI)
+    # Run alongside advisory validation. Never wait for lint tools or risk
+    # blocking the owner-authorized Xcode build on a CI dependency upgrade.
+    # !cancelled() still prevents a canceled workflow from proceeding.
     if: >-
       !cancelled() &&
       github.event.repository.private == false &&
@@ -33,21 +33,6 @@ jobs:
     runs-on: macos-26-intel
     timeout-minutes: 40
     steps:
-      - name: Warn when pre-build validation did not succeed
-        env:
-          VALIDATION_RESULT: ${{ needs.validate.result }}
-          VALIDATION_CHECK_OUTCOME: ${{ needs.validate.outputs.validation_outcome }}
-        shell: bash
-        run: |
-          if [ "$VALIDATION_RESULT" != success ] || [ "$VALIDATION_CHECK_OUTCOME" != success ]; then
-            echo "::warning title=Advisory CI validation::CI job: $VALIDATION_RESULT; strict checks: $VALIDATION_CHECK_OUTCOME. Continuing authorized build; inspect the validation report if available."
-            {
-              echo '### Advisory macOS validation'
-              echo "CI job: **$VALIDATION_RESULT**; strict checks: **$VALIDATION_CHECK_OUTCOME**."
-              echo 'The owner authorized build continuation despite incomplete or failed CI.'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
       - name: Enforce authorized numeric date-time tag
         shell: bash
         env:

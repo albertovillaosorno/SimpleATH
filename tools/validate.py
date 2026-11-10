@@ -161,6 +161,7 @@ class Options:
     tests: bool = True
     json_output: bool = True
     no_cache: bool = False
+    stdout_only: bool = False
 
 
 CONFIGS = {
@@ -1118,6 +1119,11 @@ def parse_options() -> Options:
         default=defaults.json_output,
     )
     _ = parser.add_argument("--no-cache", action="store_true")
+    _ = parser.add_argument(
+        "--stdout-only",
+        action="store_true",
+        help="Print full findings without writing report, cache or run state",
+    )
     namespace = parser.parse_args()
     values: dict[str, object] = vars(namespace)
     files = values.get("files")
@@ -1126,7 +1132,8 @@ def parse_options() -> Options:
         values.get("tidy") is True,
         values.get("tests") is True,
         values.get("json_output") is True,
-        values.get("no_cache") is True,
+        values.get("no_cache") is True or values.get("stdout_only") is True,
+        values.get("stdout_only") is True,
     )
 
 
@@ -1504,6 +1511,10 @@ def main() -> int:
     """
     options = parse_options()
     try:
+        if options.stdout_only:
+            # CI is ephemeral: do not open the repository lock, read cached
+            # reports or write any local validation output or completion file.
+            return _validate(options)
         # Serialize the entire read/validate/write operation. Otherwise
         # parallel agents can overwrite a newer full report or lose cache
         # entries by reading and saving the same cache independently.
@@ -1528,7 +1539,12 @@ def _validate(options: Options) -> int:
     # Include the requested tools even if a missing prerequisite prevents a
     # tool from executing. An omitted clang-tidy key must never imply success.
     versions = _tool_versions(ROOT)
-    lint = LintRun(ROOT, options, read_cache(ROOT), versions=versions)
+    lint = LintRun(
+        ROOT,
+        options,
+        {} if options.stdout_only else read_cache(ROOT),
+        versions=versions,
+    )
     results = [
         lint.check(file, tool)
         for file in sources
@@ -1559,14 +1575,15 @@ def _validate(options: Options) -> int:
     # Lint may have read a newer revision than its earlier cache key.
     # Never persist results from a mixed-source scan, even when its report
     # correctly fails with source-snapshot drift. Preserve prior good cache.
-    if stable:
+    if stable and not options.stdout_only:
         _save(
             ROOT / ".cache/validate/cache.json",
             {"schema": CACHE_VERSION, "entries": lint.entries},
         )
     report_text = json.dumps(report, indent=2) + "\n"
-    _save(ROOT / ".cache/validate/report.json", report)
-    if stable:
+    if not options.stdout_only:
+        _save(ROOT / ".cache/validate/report.json", report)
+    if stable and not options.stdout_only:
         _save(
             ROOT / COMPLETION_FILE,
             {

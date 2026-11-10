@@ -45,11 +45,20 @@ jobs:
         with:
           python-version: '3.15'
 
-      - name: Install current Clang and Python lint tools
+      - name: Set up precompiled uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
+
+      # Intel macOS wheels are available for every pinned tool. Never invoke
+      # Homebrew or build source dependencies on this unsupported architecture.
+      - name: Install precompiled source-validation tools with uv
         run: |
-          brew update
-          brew install llvm ruff basedpyright
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          uv pip install --system --python python3 --no-cache \
+            --only-binary :all: \
+            clang-format==22.1.8 clang-tidy==22.1.8 \
+            ruff==0.17.4 basedpyright==1.40.2 \
+            nodejs-wheel-binaries==24.19.0
 
       - name: Verify Intel Tahoe toolchain
         run: |
@@ -75,9 +84,10 @@ jobs:
         continue-on-error: ${{ inputs.advisory == true }}
         env:
           CPATH: ${{ github.workspace }}/.references/MacKernelSDK/Headers
+          RUFF_NO_CACHE: '1'
         run: |
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
-          python3 -B tools/validate.py --no-cache
+          python3 -B tools/validate.py --no-cache --stdout-only
 
       - name: Warn about advisory source validation failure
         if: ${{ always() && inputs.advisory && steps.source_validation.outcome == 'failure' }}
@@ -86,15 +96,6 @@ jobs:
           echo '::warning title=Source validation failed::The checked-in validator reported errors; this is advisory for authorized builds only.'
           {
             echo '### Advisory validation findings'
-            echo 'Source validation failed. Review the uploaded report.json.'
+            echo 'Source validation failed; inspect the JSON findings in the job log.'
             echo 'Standalone ci tags remain strict and fail on the same findings.'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Preserve failed or successful validation evidence
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: SimpleATH-macOS-validation-${{ github.run_id }}
-          path: .cache/validate/report.json
-          if-no-files-found: warn
-          retention-days: 1

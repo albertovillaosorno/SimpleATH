@@ -16,7 +16,7 @@ CI_TRIGGER_PATTERN = (
     r"      - 'ci'\n      - 'ci-\*'\n  workflow_call:"
 )
 BUILD_TAG = "- 'build-v*'"
-REQUIRED_VALIDATOR = "python3 -B tools/validate.py --no-cache"
+REQUIRED_VALIDATOR = "python3 -B tools/validate.py --no-cache --stdout-only"
 REUSABLE_CI = "uses: ./.github/workflows/ci.yml"
 VALIDATE_JOB = "  validate:"
 LOG_UPLOAD_CONDITION = "if: always()"
@@ -24,16 +24,13 @@ ADVISORY_INPUT = "advisory: true"
 ADVISORY_CONTINUE = "continue-on-error: ${{ inputs.advisory == true }}"
 STRICT_STANDALONE_DEFAULT = "default: false"
 SOURCE_OUTCOME = "steps.source_validation.outcome"
-VALIDATION_RESULT = "needs.validate.result"
-VALIDATION_CHECK_OUTCOME = "needs.validate.outputs.validation_outcome"
-ADVISORY_WARNING = "::warning title=Advisory CI validation::"
 CANCEL_GUARD = "!cancelled()"
-STRICT_SUCCESS_GATE = "needs.validate.result == 'success'"
+VALIDATOR_STDOUT_MODE = "--stdout-only"
+VALIDATE_DEPENDENCY = "needs: validate"
+REFERENCED_NEEDS = "needs.validate"
+HOMEBREW_COMMAND = "brew "
 CI_ADVISORY_WARNING_GUARD = "inputs.advisory &&"
 CI_ADVISORY_WARNING = "::warning title=Source validation failed::"
-JOB_STATUS_TEST = '[ "$VALIDATION_RESULT" != success ]'
-CHECK_STATUS_TEST = '[ "$VALIDATION_CHECK_OUTCOME" != success ]'
-CONTINUING_WARNING = "Continuing authorized build"
 PUBLIC_RUNNER_GUARD = "github.event.repository.private == false"
 FORBIDDEN_EVENTS = ("pull_request:", "workflow_dispatch:", "schedule:")
 CI_REQUIREMENTS = (
@@ -41,8 +38,16 @@ CI_REQUIREMENTS = (
     "python-version: '3.15'",
     "actions/checkout@v7",
     "actions/setup-python@v7",
-    "actions/upload-artifact@v7",
-    "brew install llvm ruff basedpyright",
+    "astral-sh/setup-uv@v7",
+    "enable-cache: false",
+    "uv pip install --system --python python3 --no-cache",
+    "--only-binary :all:",
+    "clang-format==22.1.8",
+    "clang-tidy==22.1.8",
+    "ruff==0.17.4",
+    "basedpyright==1.40.2",
+    "nodejs-wheel-binaries==24.19.0",
+    "RUFF_NO_CACHE: '1'",
     "tools/bootstrap_sdk.py",
     "tools/generate_compile_commands.py",
     REQUIRED_VALIDATOR,
@@ -51,9 +56,12 @@ CI_FORBIDDEN = (
     "tools/validate.py --linux",
     "-target SimpleATH",
     "CODE_SIGNING_ALLOWED",
+    "brew update",
+    "brew install",
+    "report.json",
+    "actions/upload-artifact",
 )
 BUILD_REQUIREMENTS = (
-    "needs: validate",
     "startsWith(github.ref, 'refs/tags/build-v')",
     CANCEL_GUARD,
     "runs-on: macos-26-intel",
@@ -102,7 +110,7 @@ class TagGatedCI(unittest.TestCase):
         assert ADVISORY_CONTINUE in ci
         assert STRICT_STANDALONE_DEFAULT in ci
         assert SOURCE_OUTCOME in ci
-        assert LOG_UPLOAD_CONDITION in ci
+        assert VALIDATOR_STDOUT_MODE in ci
         assert CI_ADVISORY_WARNING_GUARD in ci
         assert CI_ADVISORY_WARNING in ci
         for forbidden in CI_FORBIDDEN:
@@ -121,15 +129,10 @@ class TagGatedCI(unittest.TestCase):
         assert PUBLIC_RUNNER_GUARD in kernel_build
         for required in BUILD_REQUIREMENTS:
             assert required in kernel_build
-        # CI failure, skip or unavailable macOS prerequisites must yield a
-        # warning, not an unauthorized bypass of an owner build tag.
-        assert STRICT_SUCCESS_GATE not in kernel_build
-        assert VALIDATION_RESULT in kernel_build
-        assert VALIDATION_CHECK_OUTCOME in kernel_build
-        assert ADVISORY_WARNING in kernel_build
-        assert JOB_STATUS_TEST in kernel_build
-        assert CHECK_STATUS_TEST in kernel_build
-        assert CONTINUING_WARNING in kernel_build
+        # CI runs concurrently, not as a dependency of the authorized build.
+        assert VALIDATE_DEPENDENCY not in kernel_build
+        assert REFERENCED_NEEDS not in kernel_build
+        assert HOMEBREW_COMMAND not in kernel_build
         assert (
             LOG_UPLOAD_CONDITION
             in kernel_build.split(
