@@ -16,6 +16,7 @@ from typing import TypedDict
 OBJCXX_SUFFIX = ".mm"
 CXX_LANGUAGE = "c++"
 DARWIN_TARGET = "x86_64-apple-macosx14.0"
+TAHOE_CONTROLLER_SOURCE = "src/platform/tahoe/SimpleATHTahoeController.cpp"
 
 
 def _kernel_parse_flags(root: Path) -> list[str]:
@@ -88,6 +89,11 @@ def source_commands(root: Path) -> list[CompileCommand]:
                 *(
                     kernel_flags
                     if relative.startswith("src/") and language == CXX_LANGUAGE
+                    else ()
+                ),
+                *(
+                    ("-D__IO80211_TARGET=10",)
+                    if relative == TAHOE_CONTROLLER_SOURCE
                     else ()
                 ),
                 "-x",

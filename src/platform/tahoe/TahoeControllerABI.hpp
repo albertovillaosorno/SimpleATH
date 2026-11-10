@@ -6,7 +6,18 @@
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/network/IOEthernetController.h>
+#include <stddef.h>
 #include <stdint.h>
+
+namespace simpleath
+{
+    namespace tahoe
+    {
+        constexpr size_t kWorkQueueAbiBytes = 0x50U;
+        constexpr size_t kEthernetControllerAbiBytes = 0x118U;
+        constexpr size_t kWirelessControllerAbiBytes = 0x128U;
+    } // namespace tahoe
+} // namespace simpleath
 class IO80211SkywalkInterface;
 class CCLogStream;
 class CCPipe;
@@ -15,19 +26,26 @@ class CommonFaultReporter;
 class IO80211WorkQueue : public IOWorkLoop
 {
     OSDeclareAbstractStructors(IO80211WorkQueue) private
-        : uint8_t nativeStorage_[0x50 - sizeof(IOWorkLoop)];
+        : uint8_t nativeStorage_[simpleath::tahoe::kWorkQueueAbiBytes -
+                                 sizeof(IOWorkLoop)];
 };
 
-static_assert(sizeof(IO80211WorkQueue) == 0x50,
+static_assert(sizeof(IO80211WorkQueue) == simpleath::tahoe::kWorkQueueAbiBytes,
               "25G332 IO80211 work queue size");
 
+// Pure virtual Apple80211 dispatch uses the verified *slot order*, not
+// exported name references to this subclass. C++-style source names for the
+// locally implemented overrides do not re-order or resize that ABI.
 // Native-owned methods with opaque private parameter types are imported at
 // their exact slots below. They have no replacement implementation and must
 // never be called through these opaque source declarations. Typed methods and
 // required driver overrides retain the actual x86_64 calling convention.
 class IO80211Controller : public IOEthernetController
 {
-    OSDeclareAbstractStructors(IO80211Controller) public : void free() override;
+    OSDeclareAbstractStructors(IO80211Controller) protected
+        : void free() override;
+
+    public:
         bool init(OSDictionary * /*properties*/) override;
         IOReturn configureReport(IOReportChannelList * /*channels*/,
                                  unsigned int /*action*/, void * /*result*/,
@@ -43,17 +61,23 @@ class IO80211Controller : public IOEthernetController
         UInt32 getFeatures() const override;
         const OSString *newVendorString() const override;
         const OSString *newModelString() const override;
+
+    protected:
         bool createWorkLoop() override;
+
+    public:
         IOReturn getHardwareAddress(IOEthernetAddress * /*addrP*/) override;
         IOReturn setMulticastMode(bool /*active*/) override;
         IOReturn setPromiscuousMode(bool /*active*/) override;
         // These two occupied IONetworkController reserve slots in the older
         // SDK.
+    private:
         void _RESERVEDIONetworkController6() __asm__(
             "__ZN19IONetworkController20allocatePacketNoWaitEj") override;
         void _RESERVEDIONetworkController7() __asm__(
             "__ZN19IONetworkController18setHardwareAssistsEjj") override;
 
+    public:
         virtual bool isCommandProhibited(int) = 0; // slot 0x0c50
 
         virtual bool createWorkQueue(); // slot 0x0c58
@@ -95,14 +119,14 @@ class IO80211Controller : public IOEthernetController
             "__ZN17IO80211Controller13enableFeatureE18IO80211FeatureCodePv");
 
     public:
-        virtual IOReturn getDRIVER_VERSION(IO80211SkywalkInterface *,
-                                           void *) = 0; // slot 0x0cc0
+        virtual IOReturn getDriverVersion(IO80211SkywalkInterface *,
+                                          void *) = 0; // slot 0x0cc0
 
-        virtual IOReturn getHARDWARE_VERSION(IO80211SkywalkInterface *,
-                                             void *) = 0; // slot 0x0cc8
+        virtual IOReturn getHardwareVersion(IO80211SkywalkInterface *,
+                                            void *) = 0; // slot 0x0cc8
 
-        virtual IOReturn getCARD_CAPABILITIES(IO80211SkywalkInterface *,
-                                              void *) = 0; // slot 0x0cd0
+        virtual IOReturn getCardCapabilities(IO80211SkywalkInterface *,
+                                             void *) = 0; // slot 0x0cd0
 
         virtual IOReturn getPOWER(IO80211SkywalkInterface *,
                                   void *) = 0; // slot 0x0cd8
@@ -110,14 +134,14 @@ class IO80211Controller : public IOEthernetController
         virtual IOReturn setPOWER(IO80211SkywalkInterface *,
                                   void *) = 0; // slot 0x0ce0
 
-        virtual IOReturn getCOUNTRY_CODE(IO80211SkywalkInterface *,
-                                         void *) = 0; // slot 0x0ce8
+        virtual IOReturn getCountryCode(IO80211SkywalkInterface *,
+                                        void *) = 0; // slot 0x0ce8
 
-        virtual IOReturn setCOUNTRY_CODE(IO80211SkywalkInterface *,
-                                         void *) = 0; // slot 0x0cf0
+        virtual IOReturn setCountryCode(IO80211SkywalkInterface *,
+                                        void *) = 0; // slot 0x0cf0
 
-        virtual IOReturn setGET_DEBUG_INFO(IO80211SkywalkInterface *,
-                                           void *) = 0; // slot 0x0cf8
+        virtual IOReturn setGetDebugInfo(IO80211SkywalkInterface *,
+                                         void *) = 0; // slot 0x0cf8
     private:
         virtual void nativeSlot0D00() __asm__(
             "__ZN17IO80211Controller18getPLATFORM_"
@@ -271,11 +295,14 @@ class IO80211Controller : public IOEthernetController
         virtual IOReturn setMulticastList(const struct EtherAddr *,
                                           unsigned int); // slot 0x0e70
     private:
-        uint8_t nativeStorage_[0x128 - sizeof(IOEthernetController)];
+        uint8_t nativeStorage_[simpleath::tahoe::kWirelessControllerAbiBytes -
+                               sizeof(IOEthernetController)];
 };
 
-static_assert(sizeof(IOEthernetController) == 0x118,
+static_assert(sizeof(IOEthernetController) ==
+                  simpleath::tahoe::kEthernetControllerAbiBytes,
               "25G332 Ethernet controller size");
-static_assert(sizeof(IO80211Controller) == 0x128,
+static_assert(sizeof(IO80211Controller) ==
+                  simpleath::tahoe::kWirelessControllerAbiBytes,
               "25G332 wireless controller size");
 #endif

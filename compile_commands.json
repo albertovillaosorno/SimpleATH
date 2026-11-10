@@ -950,6 +950,7 @@
       "/opt/LLVM-23.1.2-Linux-X64/include/x86_64-unknown-linux-gnu/c++/v1",
       "-isystem",
       "./.research/MacKernelSDK/Headers",
+      "-D__IO80211_TARGET=10",
       "-x",
       "c++",
       "-fsyntax-only",

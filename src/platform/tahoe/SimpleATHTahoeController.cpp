@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 #include "SimpleATHTahoeController.hpp"
-#ifndef __IO80211_TARGET
-#define __IO80211_TARGET 10
-#endif
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeControllerABI.hpp"
 #include "wifi/LegacyScanBridge.hpp"
@@ -119,19 +116,20 @@ IOReturn SimpleATHTahoeController::getHardwareAddress(IOEthernetAddress *out)
     return kIOReturnSuccess;
 }
 
-IOReturn SimpleATHTahoeController::getDRIVER_VERSION(
-    IO80211SkywalkInterface * /*unused*/, void *buffer)
+IOReturn
+SimpleATHTahoeController::getDriverVersion(IO80211SkywalkInterface * /*unused*/,
+                                           void *buffer)
 {
     return copyVersion(buffer, &kDriverVersion[0]);
 }
 
-IOReturn SimpleATHTahoeController::getHARDWARE_VERSION(
+IOReturn SimpleATHTahoeController::getHardwareVersion(
     IO80211SkywalkInterface * /*unused*/, void *buffer)
 {
     return copyVersion(buffer, &kHardwareVersion[0]);
 }
 
-IOReturn SimpleATHTahoeController::getCARD_CAPABILITIES(
+IOReturn SimpleATHTahoeController::getCardCapabilities(
     IO80211SkywalkInterface * /*unused*/, void *buffer)
 {
     // The modern 25G332 capability byte layout and dispatch are not confirmed
@@ -193,8 +191,8 @@ SimpleATHTahoeController::setPOWER(IO80211SkywalkInterface * /*unused*/,
 }
 
 IOReturn
-SimpleATHTahoeController::getCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
-                                          void *buffer)
+SimpleATHTahoeController::getCountryCode(IO80211SkywalkInterface * /*unused*/,
+                                         void *buffer)
 {
     if (buffer == nullptr)
     {
@@ -223,16 +221,17 @@ SimpleATHTahoeController::getCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
 }
 
 IOReturn
-SimpleATHTahoeController::setCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
-                                          void *buffer)
+SimpleATHTahoeController::setCountryCode(IO80211SkywalkInterface * /*unused*/,
+                                         void *buffer)
 {
     // Changing a registry country cannot authorize illegal RF channels or
     // raise power. Only a verified native regulatory policy may approve it.
     return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
 }
 
-IOReturn SimpleATHTahoeController::setGET_DEBUG_INFO(
-    IO80211SkywalkInterface * /*unused*/, void *buffer)
+IOReturn
+SimpleATHTahoeController::setGetDebugInfo(IO80211SkywalkInterface * /*unused*/,
+                                          void *buffer)
 {
     return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
 }

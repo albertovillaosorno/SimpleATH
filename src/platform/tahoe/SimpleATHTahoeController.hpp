@@ -15,25 +15,29 @@ class SimpleATHTahoeController final : public IO80211Controller
 
         public : bool start(IOService *provider) override;
         void stop(IOService *provider) override;
+
+    protected:
         void free() override;
+
+    public:
         bool isCommandProhibited(int command) override;
         IOReturn getHardwareAddress(IOEthernetAddress *out) override;
-        IOReturn getDRIVER_VERSION(IO80211SkywalkInterface * /*unused*/,
-                                   void * /*buffer*/) override;
-        IOReturn getHARDWARE_VERSION(IO80211SkywalkInterface * /*unused*/,
+        IOReturn getDriverVersion(IO80211SkywalkInterface * /*unused*/,
+                                  void * /*buffer*/) override;
+        IOReturn getHardwareVersion(IO80211SkywalkInterface * /*unused*/,
+                                    void * /*buffer*/) override;
+        IOReturn getCardCapabilities(IO80211SkywalkInterface * /*unused*/,
                                      void * /*buffer*/) override;
-        IOReturn getCARD_CAPABILITIES(IO80211SkywalkInterface * /*unused*/,
-                                      void * /*buffer*/) override;
         IOReturn getPOWER(IO80211SkywalkInterface * /*unused*/,
                           void * /*buffer*/) override;
         IOReturn setPOWER(IO80211SkywalkInterface * /*unused*/,
                           void * /*buffer*/) override;
-        IOReturn getCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
+        IOReturn getCountryCode(IO80211SkywalkInterface * /*unused*/,
+                                void * /*buffer*/) override;
+        IOReturn setCountryCode(IO80211SkywalkInterface * /*unused*/,
+                                void * /*buffer*/) override;
+        IOReturn setGetDebugInfo(IO80211SkywalkInterface * /*unused*/,
                                  void * /*buffer*/) override;
-        IOReturn setCOUNTRY_CODE(IO80211SkywalkInterface * /*unused*/,
-                                 void * /*buffer*/) override;
-        IOReturn setGET_DEBUG_INFO(IO80211SkywalkInterface * /*unused*/,
-                                   void * /*buffer*/) override;
         int32_t handleCardSpecific(IO80211SkywalkInterface * /*unused*/,
                                    unsigned long /*unused*/, void * /*unused*/,
                                    bool /*unused*/) override;
