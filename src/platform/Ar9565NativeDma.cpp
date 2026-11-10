@@ -81,12 +81,17 @@ namespace simpleath
         phase_ = NativeDmaPhase::CpuOwned;
         lastKernelError_ = kIOReturnSuccess;
 
-        // A device-specific mapper is mandatory. Never substitute a raw
-        // physical address, system-global mapper or bypassed/unmapped command
-        // on failure.
+        // Use the device's IOMMU domain when present. A machine without any
+        // mapper still uses IODMACommand for address-width/segment validation.
+        // Never substitute another IOMMU domain or manufacture bus addresses.
         mapper_ = IOMapper::copyMapperForDevice(provider_);
         if (!mapper_)
-            return cleanupUnpublishedClient(NativeDmaResult::MapperUnavailable);
+        {
+            IOMapper::checkForSystemMapper();
+            if (IOMapper::gSystem || provider_->getProperty("iommu-parent"))
+                return cleanupUnpublishedClient(
+                    NativeDmaResult::MapperUnavailable);
+        }
         buffer_ = IOBufferMemoryDescriptor::inTaskWithOptions(
             kernel_task, request_.direction, request_.length,
             request_.alignment);

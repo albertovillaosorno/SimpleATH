@@ -36,6 +36,9 @@ namespace simpleath
             // Separate active capability for the serialized reset/NVM owner.
             // Inspection callbacks retain their three-register allowlist.
             RegisterBus activeRegisters();
+            // Only the serialized queue owner may enable this, after all
+            // descriptors and receive buffers are mapped and published.
+            bool setBusMasterGated(bool enabled);
 
         private:
             static bool claim(void *);
@@ -56,6 +59,7 @@ namespace simpleath
             uint8_t powerCapability_;
             bool configured_;
             bool claimed_;
+            bool dmaEnabled_;
     };
 } // namespace simpleath
 #endif

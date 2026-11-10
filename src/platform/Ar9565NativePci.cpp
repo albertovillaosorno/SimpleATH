@@ -28,7 +28,8 @@ namespace simpleath
 
     NativePciBackend::NativePciBackend()
         : owner_(nullptr), pci_(nullptr), bar_(nullptr), power_ {}, length_(0),
-          powerCapability_(0), configured_(false), claimed_(false)
+          powerCapability_(0), configured_(false), claimed_(false),
+          dmaEnabled_(false)
     {
     }
 
@@ -69,7 +70,7 @@ namespace simpleath
 
     bool NativePciBackend::clear()
     {
-        if (claimed_ || bar_)
+        if (claimed_ || bar_ || dmaEnabled_)
             return false;
         configured_ = false;
         power_ = {};
@@ -280,6 +281,24 @@ namespace simpleath
         return true;
     }
 
+    bool NativePciBackend::setBusMasterGated(bool enabled)
+    {
+        uint32_t command = 0;
+        if (!bar_ || !inD0(this) || !configRead32(this, 0x04, &command) ||
+            (command & 2U) == 0U)
+            return false;
+        const uint16_t desired =
+            static_cast<uint16_t>(enabled ? command | 4U : command & ~4U);
+        // Do not write PCI status or alter unrelated command bits.
+        pci_->extendedConfigWrite16(0x04, desired);
+        uint32_t observed = 0;
+        if (!configRead32(this, 0x04, &observed) ||
+            static_cast<uint16_t>(observed) != desired || !inD0(this))
+            return false;
+        dmaEnabled_ = enabled;
+        return true;
+    }
+
     RegisterBus NativePciBackend::activeRegisters()
     {
         if (!bar_ || !inD0(this))
@@ -319,8 +338,9 @@ namespace simpleath
         auto &self = *static_cast<NativePciBackend *>(context);
         uint32_t command = 0;
         if (!self.bar_ || !configRead32(context, 0x04, &command) ||
-            (command & 0x0006U) != 0x0002U || (offset & 3U) ||
-            offset > self.length_ || self.length_ - offset < sizeof(uint32_t))
+            (command & 0x0006U) != (self.dmaEnabled_ ? 0x0006U : 0x0002U) ||
+            (offset & 3U) || offset > self.length_ ||
+            self.length_ - offset < sizeof(uint32_t))
             return false;
         const auto address = self.bar_->getVirtualAddress();
         if (!address || self.length_ > UINTPTR_MAX - address || !inD0(context))

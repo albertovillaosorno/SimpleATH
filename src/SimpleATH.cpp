@@ -4,8 +4,11 @@
 #include "hardware/Ar9565NvmReader.hpp"
 #include "hardware/Ar9565RtcPower.hpp"
 #include "platform/Ar9565NativePci.hpp"
+#include "platform/Ar9565NativeQueues.hpp"
+#include "wifi/WifiEngine.hpp"
 #include <IOKit/IOCommandGate.h>
 #include <IOKit/IOLib.h>
+#include <IOKit/IOLocks.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/pwr_mgt/IOPM.h>
@@ -57,9 +60,10 @@ class SimpleATH final : public IOService
             pci_ = OSDynamicCast(IOPCIDevice, provider);
             if (!pci_)
                 return failStart(provider, "PCIProvider", kIOReturnBadArgument);
+            lifecycle_ = IOLockAlloc();
             loop_ = IOWorkLoop::workLoop();
             gate_ = IOCommandGate::commandGate(this);
-            if (!loop_ || !gate_)
+            if (!lifecycle_ || !loop_ || !gate_)
                 return failStart(provider, "WorkLoop", kIOReturnNoMemory);
             const IOReturn added = loop_->addEventSource(gate_);
             if (added != kIOReturnSuccess)
@@ -83,7 +87,7 @@ class SimpleATH final : public IOService
                 registerPowerDriver(this, gPowerStates, 2);
             if (registered != kIOReturnSuccess)
                 return failStart(provider, "PowerRegistration", registered);
-            const IOReturn result = gate_->runAction(startAction);
+            const IOReturn result = startClient();
             if (result != kIOReturnSuccess)
                 return failStart(provider, "HardwareStart", result);
             started_ = true;
@@ -100,9 +104,12 @@ class SimpleATH final : public IOService
             if (gate_ && started_)
             {
                 if (state == 0)
+                {
                     gate_->runAction(sleepAction);
+                    releaseQueuesClient();
+                }
                 else
-                    gate_->runAction(startAction);
+                    startClient();
             }
             return kIOPMAckImplied;
         }
@@ -110,7 +117,10 @@ class SimpleATH final : public IOService
         bool willTerminate(IOService *provider, IOOptionBits options) override
         {
             if (gate_)
+            {
                 gate_->runAction(terminateAction);
+                releaseQueuesClient();
+            }
             return IOService::willTerminate(provider, options);
         }
 
@@ -123,6 +133,7 @@ class SimpleATH final : public IOService
             }
             if (gate_ && gateAttached_)
                 gate_->runAction(stopAction);
+            releaseQueuesClient();
             cleanup();
             IOService::stop(provider);
         }
@@ -191,6 +202,156 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto bus = self.backend_.activeRegisters();
             return bus.write32 && bus.write32(bus.context, offset, value);
+        }
+
+        static bool currentQueueOwner(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && nvmOwner(context);
+        }
+
+        static bool queueRadioReady(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return currentQueueOwner(context, epoch) && self.radioOperational_;
+        }
+
+        static bool queueBusMaster(void *context, bool enabled)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return self.backend_.setBusMasterGated(enabled);
+        }
+
+        static void queueReceived(void *context, const uint8_t *frame,
+                                  size_t bytes,
+                                  const simpleath::edma::RxStatus &status)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (!self.radioOperational_ || !self.powered_)
+                return;
+            simpleath::ieee80211::InputTrust trust {};
+            trust.radioReady = true;
+            trust.channelAuthorized = self.channelAuthorized_;
+            trust.dmaAndFcsVerified = status.frameValid && !status.crcError;
+            trust.rxFrameIncludesFcs = true;
+            // The security owner supplies replay verification before protected
+            // data can enter the controlled port; clear scan/management frames
+            // do not require a key or a fabricated CCMP attestation.
+            simpleath::ieee80211::EngineAction action {};
+            const auto result = self.engine_.acceptRx(
+                frame, bytes, status.combinedRssi, nowMicros(nullptr) / 1000,
+                trust, self.managementReply_, sizeof(self.managementReply_),
+                action);
+            self.setProperty("SimpleATHLastReceiveResult",
+                             static_cast<uint32_t>(result), 32);
+            ++self.receivedFrames_;
+            self.setProperty("SimpleATHReceivedFrames", self.receivedFrames_,
+                             64);
+        }
+
+        static void
+        queueTransmitted(void *context, uint64_t,
+                         const simpleath::edma::TxCompletion &status)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            ++self.transmitCompletions_;
+            self.setProperty("SimpleATHTransmitCompletions",
+                             self.transmitCompletions_, 64);
+            self.setProperty("SimpleATHLastTransmitSucceeded",
+                             status.frameTransmitOk);
+        }
+
+        static void queueFault(void *context, IOReturn result)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            // Stop device DMA before the owner revokes radio readiness. A
+            // masked host interrupt alone cannot transfer ring ownership.
+            self.queues_.stopGated(!self.pci_->isInactive());
+            self.queuesAdopted_ = false;
+            self.radioOperational_ = false;
+            self.engine_.radioStopped(nowMicros(nullptr) / 1000, false);
+            self.error("DMAInterrupt", static_cast<uint32_t>(result));
+        }
+
+        static void queueInterrupt(OSObject *owner, IOInterruptEventSource *,
+                                   int)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            if (self.queuesAdopted_)
+                self.queues_.serviceInterruptGated();
+        }
+
+        IOReturn startClient()
+        {
+            if (!lifecycle_ || !gate_)
+                return kIOReturnNotReady;
+            IOLockLock(lifecycle_);
+            IOReturn result = gate_->runAction(startAction);
+            if (result == kIOReturnSuccess &&
+                queues_.phase() == simpleath::NativeQueuePhase::Empty)
+            {
+                // NVM/reset completed under the gate. Mapping/preparation and
+                // interrupt registration run on this retained, sleepable caller
+                // outside the gate. Stop revokes the epoch before waiting here.
+                const uint64_t preparedEpoch = epoch_;
+                const simpleath::NativeQueueOwner callbacks {
+                    &access_,
+                    currentQueueOwner,
+                    queueRadioReady,
+                    queueBusMaster,
+                    readRegister,
+                    writeRegister,
+                    delayMicros,
+                    queueReceived,
+                    queueTransmitted,
+                    queueFault,
+                    session_.status().barLengthBytes};
+                result = queues_.prepareClient(this, pci_, loop_, preparedEpoch,
+                                               callbacks, queueInterrupt);
+                if (result == kIOReturnSuccess)
+                    result = gate_->runAction(adoptQueuesAction);
+                if (result != kIOReturnSuccess)
+                {
+                    queues_.releaseClient();
+                    gate_->runAction(failedQueueStartAction);
+                }
+            }
+            IOLockUnlock(lifecycle_);
+            return result;
+        }
+
+        void releaseQueuesClient()
+        {
+            if (!lifecycle_)
+                return;
+            IOLockLock(lifecycle_);
+            const IOReturn result = queues_.releaseClient();
+            if (result != kIOReturnSuccess)
+                IOLog("SimpleATH: queue mappings quarantined (0x%x)\n", result);
+            IOLockUnlock(lifecycle_);
+        }
+
+        static IOReturn adoptQueuesAction(OSObject *owner, void *, void *,
+                                          void *, void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            const IOReturn result = self.queues_.adoptGated(self.epoch_);
+            if (result == kIOReturnSuccess)
+            {
+                self.queuesAdopted_ = true;
+                self.setProperty("SimpleATHDmaMappingsReady", true);
+                self.stage("DMAResourcesPrepared");
+            }
+            return result;
+        }
+
+        static IOReturn failedQueueStartAction(OSObject *owner, void *, void *,
+                                               void *, void *)
+        {
+            auto &self = *static_cast<SimpleATH *>(owner);
+            self.error("DMAPreparation", kIOReturnNoResources);
+            self.stopHardware(simpleath::ProviderAccess::Available);
+            return kIOReturnSuccess;
         }
 
         bool quiesceEngines()
@@ -333,11 +494,20 @@ class SimpleATH final : public IOService
 
         void stopHardware(simpleath::ProviderAccess access)
         {
+            if (queuesAdopted_)
+            {
+                queues_.stopGated(access ==
+                                  simpleath::ProviderAccess::Available);
+                queuesAdopted_ = false;
+            }
+            radioOperational_ = false;
+            channelAuthorized_ = false;
+            engine_.radioStopped(nowMicros(nullptr) / 1000, true);
             board_.invalidate();
             enginesQuiesced_ = false;
-            // There are no published DMA allocations in this owner. Stop
-            // revokes the borrowed register capability before unmapping/closing
-            // PCI.
+            // IRQ delivery and queue DMA stop before BAR/provider revocation.
+            // Client mapping release occurs after leaving the gate; uncertain
+            // hardware ownership remains quarantined in NativeQueues.
             session_.stop(access);
             powered_ = false;
             identity_ = {};
@@ -394,6 +564,11 @@ class SimpleATH final : public IOService
         void cleanup()
         {
             backend_.clear();
+            if (lifecycle_)
+            {
+                IOLockFree(lifecycle_);
+                lifecycle_ = nullptr;
+            }
             if (gate_)
             {
                 if (gateAttached_)
@@ -424,6 +599,15 @@ class SimpleATH final : public IOService
         }
 
         RegisterAccess access_ {nullptr};
+        IOLock *lifecycle_ {nullptr};
+        simpleath::NativeQueues queues_;
+        simpleath::ieee80211::WifiEngine engine_;
+        uint8_t managementReply_[4096] {};
+        uint64_t receivedFrames_ {0};
+        uint64_t transmitCompletions_ {0};
+        bool queuesAdopted_ {false};
+        bool radioOperational_ {false};
+        bool channelAuthorized_ {false};
         IOPCIDevice *pci_ {nullptr};
         IOWorkLoop *loop_ {nullptr};
         IOCommandGate *gate_ {nullptr};

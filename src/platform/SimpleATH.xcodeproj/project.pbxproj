@@ -14,6 +14,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        00000000000000000000D4F0 /* Ar9565NativeQueues.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4F1 /* Ar9565NativeQueues.cpp */; };
+        00000000000000000000D4E0 /* Ar9565RfIni.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4E1 /* Ar9565RfIni.cpp */; };
         00000000000000000000D4D0 /* Ar9565MacControl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4D1 /* Ar9565MacControl.cpp */; };
 		00000000000000000000D4C0 /* Ar9565RtcPower.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4C1 /* Ar9565RtcPower.cpp */; };
 		00000000000000000000D4B0 /* Ar9565NativePci.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D4B1 /* Ar9565NativePci.cpp */; };
@@ -53,6 +55,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        00000000000000000000D4F1 /* Ar9565NativeQueues.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = platform/Ar9565NativeQueues.cpp; sourceTree = "<group>"; };
+        00000000000000000000D4F2 /* Ar9565NativeQueues.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = platform/Ar9565NativeQueues.hpp; sourceTree = "<group>"; };
+        00000000000000000000D4E1 /* Ar9565RfIni.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565RfIni.cpp; sourceTree = "<group>"; };
+        00000000000000000000D4E2 /* Ar9565RfIni.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565RfIni.hpp; sourceTree = "<group>"; };
         00000000000000000000D4D1 /* Ar9565MacControl.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565MacControl.cpp; sourceTree = "<group>"; };
         00000000000000000000D4D2 /* Ar9565MacControl.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565MacControl.hpp; sourceTree = "<group>"; };
 		00000000000000000000D4C1 /* Ar9565RtcPower.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565RtcPower.cpp; sourceTree = "<group>"; };
@@ -137,6 +143,10 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000064 /* SimpleATH.cpp */,
+                00000000000000000000D4F1 /* Ar9565NativeQueues.cpp */,
+                00000000000000000000D4F2 /* Ar9565NativeQueues.hpp */,
+                00000000000000000000D4E1 /* Ar9565RfIni.cpp */,
+                00000000000000000000D4E2 /* Ar9565RfIni.hpp */,
                 00000000000000000000D4D1 /* Ar9565MacControl.cpp */,
                 00000000000000000000D4D2 /* Ar9565MacControl.hpp */,
 				00000000000000000000D4A1 /* Ar9565NativeDma.cpp */,
@@ -297,6 +307,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				000000000000000000000096 /* SimpleATH.cpp in Sources */,
+                00000000000000000000D4F0 /* Ar9565NativeQueues.cpp in Sources */,
+                00000000000000000000D4E0 /* Ar9565RfIni.cpp in Sources */,
                 00000000000000000000D4D0 /* Ar9565MacControl.cpp in Sources */,
 				00000000000000000000D4A0 /* Ar9565NativeDma.cpp in Sources */,
 				00000000000000000000D4B0 /* Ar9565NativePci.cpp in Sources */,
