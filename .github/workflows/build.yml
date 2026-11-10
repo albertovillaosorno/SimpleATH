@@ -59,8 +59,8 @@ jobs:
           test -d "$builtin" && test -d "$sdk/usr/include"
           printf '#include <stddef.h>\n#include <stdint.h>\n' | \
             xcrun clang++ -x c++ -std=c++14 -mkernel -nostdinc \
-              -isystem "$builtin" -isystem "$sdk/usr/include" \
-              -isystem "$kernel" -fsyntax-only -
+              -isystem "$builtin" -isystem "$kernel" \
+              -isystem "$sdk/usr/include" -fsyntax-only -
           echo "sdk=$sdk" >> "$GITHUB_OUTPUT"
           echo "kernel=$kernel" >> "$GITHUB_OUTPUT"
           echo "builtin=$builtin" >> "$GITHUB_OUTPUT"
@@ -83,7 +83,7 @@ jobs:
             OBJROOT="$PWD/build/Objects" \
             ARCHS=x86_64 \
             HEADER_SEARCH_PATHS="$PWD/src" \
-            SYSTEM_HEADER_SEARCH_PATHS="$builtin $sdk/usr/include" \
+            SYSTEM_HEADER_SEARCH_PATHS="$builtin $kernel $sdk/usr/include" \
             KERNEL_EXTENSION_HEADER_SEARCH_PATHS="$kernel" \
             KERNEL_FRAMEWORK_HEADERS="$kernel" \
             CODE_SIGNING_ALLOWED=NO \

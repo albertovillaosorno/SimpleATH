@@ -55,6 +55,11 @@ BUILD_REQUIREMENTS = (
     "python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi",
     "actions/upload-artifact@v7",
 )
+# The Apple kernel header tree must take precedence over macOS usr/include.
+BUILD_KERNEL_FIRST_SYNTAX = '-isystem "$builtin" -isystem "$kernel"'
+BUILD_KERNEL_FIRST_XCODE = (
+    'SYSTEM_HEADER_SEARCH_PATHS="$builtin $kernel $sdk/usr/include"'
+)
 BUILD_FORBIDDEN = (
     CI_CALL,
     "needs: validate",
@@ -123,6 +128,13 @@ class WorkflowContract(unittest.TestCase):
         )
         compilation = content.index("Build unsigned x86_64 kernel extension")
         assert first < second < preflight < compilation
+
+    @staticmethod
+    def test_build_kernel_header_search_never_selects_userspace_first() -> None:
+        """Ensure Apple libkern declarations win over SDK _strings.h."""
+        content = BUILD.read_text(encoding="utf-8")
+        assert BUILD_KERNEL_FIRST_SYNTAX in content
+        assert BUILD_KERNEL_FIRST_XCODE in content
 
     @staticmethod
     def test_release_requires_a_successful_strict_ci_result() -> None:

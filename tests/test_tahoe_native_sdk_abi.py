@@ -13,6 +13,8 @@ import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import sys
 import unittest
 
+from tools.native_apple_kernel_headers import native_kernel_syntax_command
+
 MACOS_PLATFORM = "darwin"
 EXPECTED_OVERRIDE = "override"
 CONTROLLER_BASE_DECLARATION = (
@@ -160,39 +162,15 @@ class TahoeNativeSdkAbi(unittest.TestCase):
         assert sdk.returncode == 0, sdk.stderr
         resource = _run(["xcrun", "clang++", "-print-resource-dir"])
         assert resource.returncode == 0, resource.stderr
-        kernel = (
-            Path(sdk.stdout.strip())
-            / "System/Library/Frameworks/Kernel.framework/Headers"
+        # Userland usr/include must never precede Kernel.framework:
+        # that order imports incompatible _strings.h, MacTypes.h and
+        # sys/cdefs.h declarations into IOKit/libkern.
+        command = native_kernel_syntax_command(
+            Path(sdk.stdout.strip()),
+            Path(resource.stdout.strip()),
+            ROOT / "src",
         )
-        builtin = Path(resource.stdout.strip()) / "include"
-        assert (kernel / "IOKit/network/IONetworkController.h").is_file()
-        result = _run(
-            [
-                "xcrun",
-                "clang++",
-                "-std=c++14",
-                "-mkernel",
-                "-DKERNEL",
-                "-D__APPLE__",
-                "-D__IO80211_TARGET=10",
-                "-fno-rtti",
-                "-fno-exceptions",
-                "-nostdinc",
-                "-isystem",
-                str(builtin),
-                "-isystem",
-                str(Path(sdk.stdout.strip()) / "usr/include"),
-                "-isystem",
-                str(kernel),
-                "-I",
-                str(ROOT / "src"),
-                "-fsyntax-only",
-                "-x",
-                "c++",
-                "-",
-            ],
-            source=NATIVE_SDK_PROBE,
-        )
+        result = _run(command, source=NATIVE_SDK_PROBE)
         assert result.returncode == 0, result.stderr
 
 
