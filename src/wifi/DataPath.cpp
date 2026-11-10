@@ -71,6 +71,15 @@ namespace simpleath
                 return address;
             }
 
+            const uint8_t *byteAt(const uint8_t *base, size_t offset)
+            {
+                const uintptr_t address = pointerAddress(base) + offset;
+                const uint8_t *result = nullptr;
+                __builtin_memcpy(static_cast<void *>(&result), &address,
+                                 sizeof(result));
+                return result;
+            }
+
             bool overlaps(const void *a, size_t aBytes, const void *b,
                           size_t bBytes)
             {
@@ -354,6 +363,8 @@ namespace simpleath
                 overlaps(out, capacity, &pairwise, sizeof(pairwise)) ||
                 overlaps(&result, sizeof(result), &pairwise,
                          sizeof(pairwise)) ||
+                overlaps(scratch, scratchCapacity, ethernet, ethernetBytes) ||
+                overlaps(scratch, scratchCapacity, &link, sizeof(link)) ||
                 overlaps(&result, sizeof(result), scratch, scratchCapacity) ||
                 overlaps(&result, sizeof(result), ethernet, ethernetBytes) ||
                 overlaps(&result, sizeof(result), &link, sizeof(link)))
@@ -404,6 +415,167 @@ namespace simpleath
             staged.needsCcmp = false;
             result = staged;
             return DataPathResult::Ok;
+        }
+
+        static bool aliasesProtectedRxIo(const LinkContext &link,
+                                         const uint8_t *encrypted,
+                                         size_t encryptedBytes,
+                                         crypto::CcmpSession &receive,
+                                         const uint8_t *scratch,
+                                         size_t scratchCapacity, Msdu &result)
+        {
+            return overlaps(&result, sizeof(result), encrypted,
+                            encryptedBytes) ||
+                   overlaps(&result, sizeof(result), scratch,
+                            scratchCapacity) ||
+                   overlaps(&result, sizeof(result), &link, sizeof(link)) ||
+                   overlaps(&result, sizeof(result), &receive,
+                            sizeof(receive)) ||
+                   overlaps(scratch, scratchCapacity, encrypted,
+                            encryptedBytes) ||
+                   overlaps(scratch, scratchCapacity, &link, sizeof(link)) ||
+                   overlaps(scratch, scratchCapacity, &receive,
+                            sizeof(receive)) ||
+                   overlaps(encrypted, encryptedBytes, &link, sizeof(link)) ||
+                   overlaps(encrypted, encryptedBytes, &receive,
+                            sizeof(receive));
+        }
+
+        static DataPathResult protectedRxLinkStatus(const LinkContext &link,
+                                                    bool dmaValidated,
+                                                    bool sessionInstalled)
+        {
+            if (!dmaValidated)
+            {
+                return DataPathResult::InvalidRxStatus;
+            }
+            if (link.security != LinkSecurity::Wpa2Ccmp ||
+                !validStationMac(link.station) ||
+                !physicalBssidValid(link.bssid) ||
+                sameMac(link.station, link.bssid))
+            {
+                return DataPathResult::InvalidSecurityState;
+            }
+            if (!link.associated || !link.rfReady)
+            {
+                return DataPathResult::NotAssociated;
+            }
+            if (!link.channelPermitted)
+            {
+                return DataPathResult::CountryNotAuthorized;
+            }
+            return link.pairwiseAndGroupKeysInstalled && sessionInstalled
+                       ? DataPathResult::Ok
+                       : DataPathResult::MissingKeys;
+        }
+
+        static DataPathResult
+        protectedRxCryptoFailure(crypto::CcmpResult authenticated)
+        {
+            if (authenticated == crypto::CcmpResult::BufferTooSmall)
+            {
+                return DataPathResult::BufferTooSmall;
+            }
+            return authenticated == crypto::CcmpResult::MissingKey
+                       ? DataPathResult::MissingKeys
+                       : DataPathResult::UnverifiedDecryption;
+        }
+
+        DataPathResult inspectProtectedStationRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, Msdu &result)
+        {
+            // Reject overlaps before clearing the result or writing scratch:
+            // all are caller-owned, and receive retains secret key state.
+            if (aliasesProtectedRxIo(link, encrypted, encryptedBytes, receive,
+                                     scratch, scratchCapacity, result))
+            {
+                return DataPathResult::OverlappingBuffers;
+            }
+            result = {};
+            if (encrypted == nullptr || scratch == nullptr)
+            {
+                return DataPathResult::NullBuffer;
+            }
+            const auto linkStatus = protectedRxLinkStatus(
+                link, fcsAndDmaValidated, receive.installed());
+            if (linkStatus != DataPathResult::Ok)
+            {
+                return linkStatus;
+            }
+            if (encryptedBytes < (containsFcs ? kFcsBytes : 0U))
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            const size_t mpduBytes =
+                encryptedBytes - (containsFcs ? kFcsBytes : 0U);
+            Frame header {};
+            if (parseFrame(encrypted, mpduBytes, header) != Result::Ok ||
+                header.type != FrameType::Data || !header.protectedFrame)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            if (header.toDs || !header.fromDs ||
+                !sameMac(header.bssid, link.bssid) ||
+                !validStationMac(header.source))
+            {
+                return DataPathResult::NotFromAssociatedAccessPoint;
+            }
+            const bool group = (header.destination.bytes[0] & 1U) != 0U;
+            if (!group && !sameMac(header.destination, link.station))
+            {
+                return DataPathResult::NotForThisStation;
+            }
+            // Check the wire key ID only after verifying the CCMP IV span.
+            // A forged group MPDU must not use the pairwise key and vice
+            // versa; unprotect independently checks the selected key ID/MIC.
+            constexpr size_t kCcmpExtIvBytes = 8U;
+            constexpr size_t kCcmpMicBytes = 8U;
+            constexpr uint8_t kKeyIdShift = 6U;
+            if (mpduBytes <
+                header.headerLength + kCcmpExtIvBytes + kCcmpMicBytes + 1U)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            uint8_t iv[4] {};
+            __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
+                             sizeof(iv));
+            const auto keyId = static_cast<uint8_t>(iv[3] >> kKeyIdShift);
+            if ((group && keyId == 0U) || (!group && keyId != 0U))
+            {
+                return DataPathResult::UnverifiedDecryption;
+            }
+            size_t plainBytes = 0;
+            const auto authenticated =
+                receive.unprotect(epoch, encrypted, mpduBytes, scratch,
+                                  scratchCapacity, plainBytes);
+            if (authenticated != crypto::CcmpResult::Ok)
+            {
+                return protectedRxCryptoFailure(authenticated);
+            }
+            // CcmpSession intentionally clears the encrypted wire Protected
+            // bit on its plaintext output. Restore the authenticated bit on
+            // our private plaintext header for the existing RX admission
+            // contract; this is NEVER done before CCMP MIC/PN acceptance.
+            constexpr size_t kControlFlagsOffset = 1U;
+            constexpr uint8_t kProtectedFrameBit = 0x40U;
+            // The validated fixed header guarantees this 1-byte writable span.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            scratch[kControlFlagsOffset] |= kProtectedFrameBit;
+            const auto admitted = inspectStationRx(link, scratch, plainBytes,
+                                                   false, true, true, result);
+            if (admitted != DataPathResult::Ok)
+            {
+                volatile uint8_t *const clear = scratch;
+                for (size_t i = 0; i < plainBytes; ++i)
+                {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    clear[i] = 0;
+                }
+            }
+            return admitted;
         }
 
         DataPathResult inspectStationRx(const LinkContext &link,

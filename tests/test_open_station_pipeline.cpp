@@ -783,6 +783,18 @@ namespace
                 return false;
             }
         }
+        // An aliased caller scratch cannot erase the input Ethernet frame
+        // while preparing an authenticated packet.
+        const uint8_t savedEtherType = ethernet[12U];
+        if (prepareProtectedStationTx(
+                link, ethernet, sizeof(ethernet), 3U, tx, kEpoch, ethernet,
+                sizeof(ethernet), protectedFrame, sizeof(protectedFrame),
+                result) != DataPathResult::OverlappingBuffers ||
+            ethernet[12U] != savedEtherType ||
+            tx.lastTransmittedPn() != committedPn)
+        {
+            return false;
+        }
         // Normal WPA2 data must also be encrypted, never returned as an
         // unprotected MPDU or transmitted with a fabricated security flag.
         uint8_t data[19] {};
@@ -801,6 +813,210 @@ namespace
                                          result) == DataPathResult::Ok &&
                result.frameBytes == 32U + 5U + 16U &&
                tx.lastTransmittedPn() == 2U;
+    }
+
+    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+
+    // A synthetic authenticated AP MPDU must cross CCMP and the ordinary
+    // station receiver together. No DMA or native network stack is involved.
+    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+    bool protectedWpa2Receive()
+    {
+        constexpr uint64_t kEpoch = 992U;
+        const uint8_t key[16] {0x11U, 0x22U, 0x33U, 0x44U};
+        uint8_t clear[35] {};
+        clear[0] = 0x08U;
+        clear[1] = 0x02U;
+        addresses(clear, kStation);
+        clear[24] = clear[25] = 0xaaU;
+        clear[26] = 3U;
+        clear[30] = 0x08U;
+        clear[31] = 0x00U;
+        clear[32] = 0x45U;
+        clear[33] = 0x67U;
+        clear[34] = 0x89U;
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+        crypto::CcmpSession tx {};
+        crypto::CcmpSession rx {};
+        if (tx.install(key, kAp, 0U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok ||
+            rx.install(key, kAp, 0U, kEpoch, 0U, 0U) != crypto::CcmpResult::Ok)
+        {
+            return false;
+        }
+        uint8_t wire[128] {};
+        size_t wireBytes = 0U;
+        if (tx.protect(kEpoch, clear, sizeof(clear), wire, sizeof(wire),
+                       wireBytes) != crypto::CcmpResult::Ok ||
+            wireBytes != sizeof(clear) + 16U)
+        {
+            return false;
+        }
+        uint8_t scratch[128] {};
+        Msdu delivered {};
+        delivered.payload = clear;
+        delivered.payloadLength = sizeof(clear);
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, false, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::InvalidRxStatus ||
+            delivered.payload != nullptr || rx.receiveFloor() != 0U)
+        {
+            return false;
+        }
+        // No unauthorized plaintext may be published by a stale key epoch.
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch + 1U, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::UnverifiedDecryption ||
+            rx.receiveFloor() != 0U)
+        {
+            return false;
+        }
+        // Reject a mutation before accepting a correct authenticated PN.
+        constexpr size_t kMicLastByte = sizeof(clear) + 16U - 1U;
+        wire[kMicLastByte] ^= 1U;
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::UnverifiedDecryption ||
+            rx.receiveFloor() != 0U || delivered.payload != nullptr)
+        {
+            return false;
+        }
+        wire[kMicLastByte] ^= 1U;
+        // A scratch alias must not destroy ciphertext, the link, or keys.
+        const uint8_t encryptedFirst = wire[0U];
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, wire, sizeof(wire), delivered) !=
+                DataPathResult::OverlappingBuffers ||
+            wire[0U] != encryptedFirst || rx.receiveFloor() != 0U)
+        {
+            return false;
+        }
+        // Group destinations must not ride on the pairwise key ID zero.
+        wire[4U] |= 1U;
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::UnverifiedDecryption ||
+            rx.receiveFloor() != 0U)
+        {
+            return false;
+        }
+        wire[4U] &= static_cast<uint8_t>(~1U);
+        // The FCS is supplied out of band after the native RX descriptor has
+        // authenticated it. AES-CCM must not process the four FCS bytes.
+        std::memset(wire + wireBytes, 0xaaU, 4U);
+        if (inspectProtectedStationRx(link, wire, wireBytes + 4U, true, true,
+                                      rx, kEpoch, scratch, sizeof(scratch),
+                                      delivered) != DataPathResult::Ok ||
+            delivered.payload != scratch + 32U ||
+            delivered.payloadLength != 3U || delivered.etherType != 0x0800U ||
+            !delivered.protectedFrame || delivered.payload[0] != 0x45U ||
+            delivered.payload[2] != 0x89U || (scratch[1U] & 0x40U) == 0U ||
+            rx.receiveFloor() != 1U)
+        {
+            return false;
+        }
+        // A replay cannot borrow the previously delivered plaintext again.
+        if (inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::UnverifiedDecryption ||
+            delivered.payload != nullptr || rx.receiveFloor() != 1U)
+        {
+            return false;
+        }
+        // Owner erases accepted plaintext after synchronous delivery.
+        std::memset(scratch, 0, sizeof(scratch));
+        return true;
+    }
+
+    bool protectedGroup1Decrypt()
+    {
+        constexpr uint64_t kEpoch = 993U;
+        constexpr size_t kGroup1Bytes = 139U;
+        constexpr size_t kDataHeaderBytes = 32U;
+        const uint8_t key[16] {0x11U, 0x22U, 0x33U, 0x44U};
+        uint8_t clear[kDataHeaderBytes + kGroup1Bytes] {};
+        clear[0U] = 0x08U;
+        clear[1U] = 0x02U;
+        addresses(clear, kStation);
+        clear[24U] = clear[25U] = 0xaaU;
+        clear[26U] = 3U;
+        clear[30U] = 0x88U;
+        clear[31U] = 0x8eU;
+        uint8_t *const eapol = clear + kDataHeaderBytes;
+        eapol[0U] = 2U;
+        eapol[1U] = 3U;
+        eapol[3U] = 135U;
+        eapol[4U] = 2U;
+        eapol[5U] = 0x13U;
+        eapol[6U] = 0x82U;
+        eapol[8U] = 16U;
+        eapol[16U] = 7U;
+        eapol[65U] = 2U;
+        eapol[81U] = 0x5aU;
+        eapol[98U] = 40U;
+        for (size_t index = 99U; index < kGroup1Bytes; ++index)
+        {
+            eapol[index] = static_cast<uint8_t>(index);
+        }
+        LinkContext link {};
+        link.station = {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        link.bssid = {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        link.security = LinkSecurity::Wpa2Ccmp;
+        link.associated = true;
+        link.rfReady = true;
+        link.channelPermitted = true;
+        link.pairwiseAndGroupKeysInstalled = true;
+        crypto::CcmpSession tx {};
+        crypto::CcmpSession rx {};
+        if (tx.install(key, kAp, 0U, kEpoch, 0U, 0U) !=
+                crypto::CcmpResult::Ok ||
+            rx.install(key, kAp, 0U, kEpoch, 0U, 0U) != crypto::CcmpResult::Ok)
+        {
+            return false;
+        }
+        uint8_t wire[256] {};
+        uint8_t scratch[256] {};
+        size_t wireBytes = 0U;
+        Msdu delivered {};
+        if (tx.protect(kEpoch, clear, sizeof(clear), wire, sizeof(wire),
+                       wireBytes) != crypto::CcmpResult::Ok ||
+            inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) != DataPathResult::Ok ||
+            delivered.etherType != 0x888eU || !delivered.protectedFrame ||
+            delivered.payloadLength != kGroup1Bytes ||
+            std::memcmp(delivered.payload, eapol, kGroup1Bytes) != 0 ||
+            rx.receiveFloor() != 1U)
+        {
+            return false;
+        }
+        // A fully MIC-verified packet that is not authenticator Group1 still
+        // must be discarded after decrypt, with the borrowed plaintext wiped.
+        eapol[6U] = 0x0aU;
+        if (tx.protect(kEpoch, clear, sizeof(clear), wire, sizeof(wire),
+                       wireBytes) != crypto::CcmpResult::Ok ||
+            inspectProtectedStationRx(link, wire, wireBytes, false, true, rx,
+                                      kEpoch, scratch, sizeof(scratch),
+                                      delivered) !=
+                DataPathResult::UnsupportedFrame ||
+            delivered.payload != nullptr || rx.receiveFloor() != 2U)
+        {
+            return false;
+        }
+        uint8_t zero[sizeof(scratch)] {};
+        return std::memcmp(scratch, zero, sizeof(scratch)) == 0;
     }
 
     // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
@@ -1713,6 +1929,14 @@ int main()
     if (!rejectForeignWpa2Authenticator())
     {
         return 21;
+    }
+    if (!protectedWpa2Receive())
+    {
+        return 59;
+    }
+    if (!protectedGroup1Decrypt())
+    {
+        return 60;
     }
     if (!protectedGroup1RxAdmission())
     {

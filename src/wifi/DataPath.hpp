@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Infrastructure-station 802.11 data path framing (RFC 1042 LLC/SNAP).
-// NO RF transmission, packet encryption, PCI DMA, or macOS network interface.
+// Offline CCMP framing only; NO RF, PCI DMA or native interface ownership.
 #ifndef SIMPLEATH_WIFI_DATA_PATH_HPP
 #define SIMPLEATH_WIFI_DATA_PATH_HPP
 
@@ -71,8 +71,8 @@ namespace simpleath
         };
 
         // Serialize one Ethernet-II MSDU to an unprotected 802.11 ToDS data
-        // frame. WPA2 non-EAPOL traffic requires a separately implemented CCMP
-        // path and will fail closed until that exists. Only a complete parsed
+        // frame. WPA2 non-EAPOL traffic must use prepareProtectedStationTx
+        // and fails closed through this cleartext path. Only a complete parsed
         // WPA2 EAPOL M2 before key install or M4 after key install is allowed,
         // and it must address the selected BSSID, never a group or peer.
         // The result has NO FCS;
@@ -103,10 +103,31 @@ namespace simpleath
             size_t scratchCapacity, uint8_t *out, size_t capacity,
             SerializedData &result);
 
+        // Authenticate one encrypted AP-to-station MPDU using the live
+        // pairwise or group CCMP receive session, then apply the SAME station
+        // address, LLC and EAPOL admission checks as inspectStationRx.
+        // The owner must verify EDMA/FCS first, select the correct same-link
+        // session and supply a fresh epoch. FCS, if present, is stripped
+        // before AES-CCM authentication. A group destination requires a GTK
+        // Key ID (1..3); unicast requires pairwise Key ID 0. Never treat an
+        // unprotected input as proof of verified decryption.
+        //
+        // On success result.payload BORROWS plaintext in scratch; the native
+        // owner must consume/copy it synchronously and securely wipe scratch
+        // before releasing RX ownership. No borrowed pointer survives failed
+        // admission. All buffers, the session, link and result must be
+        // disjoint.
+        DataPathResult inspectProtectedStationRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, Msdu &result);
+
         // Gate a decoded 802.11 MSDU before it is ever delivered into a native
-        // network interface. The caller must have checked the EDMA RX status,
-        // FCS and decrypted integrity/packet number using a real hardware
-        // backend. Association addresses must be valid; WPA2-PSK EAPOL
+        // network interface. The caller must have checked EDMA RX status,
+        // FCS and CCMP integrity/packet number (for example through
+        // inspectProtectedStationRx). Association addresses must be valid;
+        // WPA2-PSK EAPOL
         // handshake traffic must be unicast to this station. Only a complete
         // parsed AP-side M1/M3 is accepted as cleartext before key install.
         // Post-install EAPOL is limited to a complete AP-origin protected
