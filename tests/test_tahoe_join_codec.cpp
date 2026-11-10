@@ -32,6 +32,27 @@ namespace
     constexpr uint32_t kWclPmkCipher = 6U;
     constexpr uint32_t kWclPmksaCipher = 7U;
     constexpr uint32_t kWclPasswordCipher = 10U;
+    constexpr size_t kPasswordBytes = 8U;
+    constexpr int kPasswordFixtureFailure = 5;
+    constexpr std::array<uint8_t, kPasswordBytes> kPassword {
+        {
+            'p',
+            'a',
+            's',
+            's',
+            'w',
+            'o',
+            'r',
+            'd',
+        },
+    };
+    constexpr std::array<uint8_t, kWclPmkBytes> kExpectedPasswordPmk {
+        {
+            0x04, 0x22, 0x1a, 0x7d, 0x2b, 0xb5, 0x2b, 0x87, 0x08, 0xd9, 0x6e,
+            0xa2, 0xf5, 0xac, 0x3e, 0x0f, 0xe2, 0x60, 0x9a, 0x34, 0xdd, 0xfc,
+            0x16, 0xa3, 0xc9, 0xf4, 0x64, 0xd2, 0xf5, 0xa7, 0x85, 0x0d,
+        },
+    };
     constexpr uint32_t kWpa3SaeAuth = 1U << 12U;
     constexpr uint32_t kOpenAuth = 1U;
     constexpr uint32_t kTestSsidLength = 4U;
@@ -170,6 +191,29 @@ namespace
                left.wpa2Personal == right.wpa2Personal;
     }
 
+    bool acceptsPasswordWithExpectedPbkdf2()
+    {
+        Wire request = makeWpa2();
+        write<uint32_t>(request, kKeyCipherOffset, kWclPasswordCipher);
+        write<uint32_t>(request, kKeyLengthOffset, kPasswordBytes);
+        std::fill_n(std::next(request.begin(), kKeyOffset), kWclPmkBytes, 0);
+        std::copy(kPassword.begin(), kPassword.end(),
+                  std::next(request.begin(), kKeyOffset));
+        JoinSelection output {};
+        if (!decodeJoin(request.data(), request.size(), output) ||
+            !output.wpa2Personal ||
+            !std::equal(kExpectedPasswordPmk.begin(),
+                        kExpectedPasswordPmk.end(), std::begin(output.pmk)))
+        {
+            clearJoin(output);
+            return false;
+        }
+        clearJoin(output);
+        // Reject embedded NUL instead of deriving a different key from it.
+        request.at(kKeyOffset + 1U) = 0U;
+        return !decodeJoin(request.data(), request.size(), output);
+    }
+
     bool rejectsMalformed()
     {
         const Wire valid = makeWpa2();
@@ -199,7 +243,6 @@ namespace
             !rejectedField(kUpperAuthOffset, kWpa3SaeAuth) ||
             !rejectedField(kUpperAuthOffset, kWpa2PskAuth | 1U) ||
             !rejectedField(kKeyLengthOffset, kKeyTooLong) ||
-            !rejectedField(kKeyCipherOffset, kWclPasswordCipher) ||
             !rejectedField(kRsnLengthOffset, kRsnTooLong) ||
             !rejectedField(kRsnLengthOffset, uint16_t {3U}) ||
             !rejectedField(kChannelSpecOffset, k5GhzChannel6) ||
@@ -273,6 +316,10 @@ int main()
     if (!checkOpenAndOtherPmk())
     {
         return 2;
+    }
+    if (!acceptsPasswordWithExpectedPbkdf2())
+    {
+        return kPasswordFixtureFailure;
     }
     if (!rejectsMalformed())
     {

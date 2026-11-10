@@ -4,6 +4,7 @@
 #ifndef SIMPLEATH_TAHOE_JOIN_CODEC_HPP
 #define SIMPLEATH_TAHOE_JOIN_CODEC_HPP
 
+#include "../../wifi/crypto/Wpa2Primitives.hpp"
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -74,6 +75,9 @@ namespace simpleath
             constexpr uint32_t kWpa2PersonalAuthentication = 1U << 3U;
             constexpr uint32_t kWclCipherPmk = 6U;
             constexpr uint32_t kWclCipherPmksa = 7U;
+            constexpr uint32_t kWclCipherPassphrase = 10U;
+            constexpr size_t kMinPassphraseBytes = 8U;
+            constexpr size_t kMaxPassphraseBytes = 63U;
             constexpr uint8_t kRsnElement = 48U;
             constexpr uint16_t kRsnVersion = 1U;
             constexpr size_t kMaxRsnBytes = 257U;
@@ -127,10 +131,45 @@ namespace simpleath
                 copyField(bytes, offset, &result, sizeof(result));
                 return result;
             }
+
+            inline bool derivePassphrase(const uint8_t *bytes, size_t keyLength,
+                                         JoinSelection &selection)
+            {
+                uint8_t password[kMaxPassphraseBytes] {};
+                copyField(bytes, kKeyOffset, &password[0], keyLength);
+                uint8_t zeros = 0;
+                size_t processed = 0;
+                for (const uint8_t byte : password)
+                {
+                    if (processed == keyLength)
+                    {
+                        break;
+                    }
+                    zeros |= static_cast<uint8_t>(byte == 0);
+                    ++processed;
+                }
+                const auto status =
+                    zeros == 0
+                        ? ieee80211::crypto::derivePmk(
+                              &password[0], keyLength, &selection.ssid[0],
+                              selection.ssidLength, &selection.pmk[0])
+                        : ieee80211::crypto::Error::InvalidPassword;
+                for (volatile uint8_t &byte : password)
+                {
+                    byte = 0;
+                }
+                if (status != ieee80211::crypto::Error::Ok)
+                {
+                    clearJoin(selection);
+                    return false;
+                }
+                return true;
+            }
         } // namespace join_codec_detail
 
         // Only supports an explicit 20-MHz 2.4-GHz station join, either truly
-        // open or WPA2-PSK with a host-derived 32-byte PMK. Legacy WEP/TKIP,
+        // open or WPA2-PSK with a host-derived PMK (32-byte PMK or an 8..63
+        // byte passphrase derived through the portable PBKDF2). WEP/TKIP,
         // SAE/WPA3, enterprise, 5/6 GHz, MLO and ambiguous auth are rejected.
         // The caller must supply exactly the native WCL request allocation;
         // neither arbitrary length nor a fabricated request is permitted.
@@ -177,10 +216,14 @@ namespace simpleath
             }
             const bool open =
                 upper == 0 && keyLength == 0 && cipher == 0 && rsnLength == 0;
-            const bool personal =
-                upper == kWpa2PersonalAuthentication &&
+            const bool rawPmk =
                 keyLength == kWclPmkBytes &&
                 (cipher == kWclCipherPmk || cipher == kWclCipherPmksa);
+            const bool passphrase = keyLength >= kMinPassphraseBytes &&
+                                    keyLength <= kMaxPassphraseBytes &&
+                                    cipher == kWclCipherPassphrase;
+            const bool personal =
+                upper == kWpa2PersonalAuthentication && (rawPmk || passphrase);
             if (!open && !personal)
             {
                 return false;
@@ -200,7 +243,7 @@ namespace simpleath
             selection.ssidLength = static_cast<uint8_t>(ssidLength);
             selection.channel = channel;
             selection.wpa2Personal = personal;
-            if (personal)
+            if (personal && rawPmk)
             {
                 uint8_t bits = 0;
                 for (size_t i = 0; i < kWclPmkBytes; ++i)
@@ -212,6 +255,11 @@ namespace simpleath
                     return false;
                 }
                 copyField(bytes, kKeyOffset, &selection.pmk[0], kWclPmkBytes);
+            }
+            if (personal && passphrase &&
+                !derivePassphrase(bytes, keyLength, selection))
+            {
+                return false;
             }
             out = selection;
             clearJoin(selection);
