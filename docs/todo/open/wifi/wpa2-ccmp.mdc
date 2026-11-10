@@ -206,3 +206,15 @@ and pass with the new checks under C++14 and C++17 ASan+UBSan. This is an
 offline backend-contract regression, not proof of a physical keycache,
 constant-time crypto, real scan/connect, native supplicant integration or
 hardware operation. The production and WPA2 integration TODOs remain open.
+
+## Source progress — 2026-11-10: M1 PTK provider input integrity
+
+The initial M1 PTK derivation now snapshots the borrowed PMK, observed
+ANonce, generated SNonce and authenticated AP/station identities, rejecting
+any provider-side alteration before signing M2 or advancing to M3.
+Each temporary snapshot is erased on exit, without adding another full-sized
+EAPOL buffer to the bounded kernel stack. Three old-source-negative
+regressions (mutated PMK, ANonce and SNonce) pass after the fix under both
+C++14 and C++17 ASan+UBSan; neither the original M1 nor caller PMK is
+modified. This is an offline provider-contract test, not proof of real
+hardware keycache, RF readiness or native supplicant integration.

@@ -129,6 +129,9 @@ namespace
             bool mutatePairwiseInstallTk = false;
             bool mutateInitialGroupInstallGtk = false;
             bool mutateInitialGroupInstallRsc = false;
+            bool mutatePtkPmk = false;
+            bool mutatePtkAnonce = false;
+            bool mutatePtkSnonce = false;
             unsigned nonceCalls = 0;
             unsigned ptkCalls = 0;
             unsigned micCalls = 0;
@@ -162,8 +165,8 @@ namespace
 
     bool handshakePtk(void *context, const uint8_t pmk[32],
                       const Mac & /*unused*/, const Mac & /*unused*/,
-                      const uint8_t /*unused*/[32],
-                      const uint8_t /*unused*/[32], uint8_t out[48])
+                      const uint8_t anonce[32], const uint8_t snonce[32],
+                      uint8_t out[48])
     {
         auto &state = *static_cast<HandshakeCallbacks *>(context);
         ++state.ptkCalls;
@@ -172,6 +175,18 @@ namespace
             state.owner->reset();
         }
         state.observedPmk = pmk[0];
+        if (state.mutatePtkPmk)
+        {
+            const_cast<uint8_t *>(pmk)[0] ^= 1U;
+        }
+        if (state.mutatePtkAnonce)
+        {
+            const_cast<uint8_t *>(anonce)[0] ^= 1U;
+        }
+        if (state.mutatePtkSnonce)
+        {
+            const_cast<uint8_t *>(snonce)[0] ^= 1U;
+        }
         for (size_t index = 0; index < 48; ++index)
         {
             out[index] = static_cast<uint8_t>(index + 1);
@@ -1044,6 +1059,41 @@ namespace
         return state.rollbackCalls == (installationFailed ? 1U : 0U);
     }
 
+    // A PTK provider is given borrowed read-only inputs. On success it must
+    // not rewrite the PMK, the authenticated M1 ANonce or generated SNonce.
+    bool rejectMutatedPtkInput(unsigned mutation)
+    {
+        HandshakeCallbacks callbacks {};
+        callbacks.mutatePtkPmk = mutation == 0U;
+        callbacks.mutatePtkAnonce = mutation == 1U;
+        callbacks.mutatePtkSnonce = mutation == 2U;
+        Wpa2Supplicant supplicant;
+        uint8_t pmk[32] {};
+        pmk[0] = 1;
+        if (supplicant.begin(handshakeCrypto(callbacks), kStation, kAp, pmk,
+                             kRsnIe, sizeof(kRsnIe)) != Wpa2Result::Ok)
+        {
+            return false;
+        }
+        uint8_t m1[99] {};
+        makeM1(m1);
+        uint8_t originalM1[sizeof(m1)] {};
+        std::memcpy(originalM1, m1, sizeof(m1));
+        uint8_t m2[121] {};
+        std::memset(m2, 0xa5, sizeof(m2));
+        size_t written = 19;
+        const Wpa2Result result =
+            supplicant.onMessage1(m1, sizeof(m1), m2, sizeof(m2), written);
+        return result == Wpa2Result::KeyDerivationFailure && written == 0 &&
+               m2[0] == 0xa5 && callbacks.nonceCalls == 1 &&
+               callbacks.ptkCalls == 1 && callbacks.micCalls == 0 &&
+               callbacks.pairwiseCalls == 0 && callbacks.groupCalls == 0 &&
+               callbacks.rollbackCalls == 0 &&
+               supplicant.state() == Wpa2State::Failed &&
+               !supplicant.keysInstalled() && pmk[0] == 1 &&
+               std::memcmp(m1, originalM1, sizeof(m1)) == 0;
+    }
+
     // Crypto callbacks may synchronously revoke the owner. No continuation
     // may call a cleared provider, publish a response, or restore old state.
     bool rejectRevokedCallback(unsigned stage)
@@ -1565,6 +1615,13 @@ namespace
 
 int main()
 {
+    for (unsigned mutation = 0; mutation < 3; ++mutation)
+    {
+        if (!rejectMutatedPtkInput(mutation))
+        {
+            return 52 + static_cast<int>(mutation);
+        }
+    }
     for (unsigned value = static_cast<unsigned>(GroupScenario::Success);
          value <= static_cast<unsigned>(GroupScenario::ZeroResponseMic);
          ++value)

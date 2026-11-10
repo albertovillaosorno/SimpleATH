@@ -493,6 +493,12 @@ namespace simpleath
             copyBytes(pmkSnapshot.bytes, pmk_, sizeof(pmk_));
             const Mac apSnapshot = ap_;
             const Mac stationSnapshot = station_;
+            ScopedSecret<32> snonceSnapshot {};
+            copyBytes(snonceSnapshot.bytes, generatedNonce,
+                      sizeof(generatedNonce));
+            ScopedSecret<32> anonceSnapshot {};
+            copyBytes(anonceSnapshot.bytes, parsed.nonce,
+                      sizeof(anonceSnapshot.bytes));
             uint8_t derivedPtk[48] {};
             const bool derived = crypto_.derivePtk(
                 crypto_.context, pmkSnapshot.bytes, apSnapshot, stationSnapshot,
@@ -504,7 +510,18 @@ namespace simpleath
                 secureClear(receivedM1, sizeof(receivedM1));
                 return Wpa2Result::InvalidState;
             }
-            if (!derived)
+            // The external PTK provider only borrows read-only PMK, M1
+            // ANonce, SNonce and link identities. A callback that corrupts
+            // those inputs but reports success must never publish a signed
+            // M2 for key material different from the observed handshake.
+            if (!derived ||
+                !constantTimeEqual(pmkSnapshot.bytes, pmk_, sizeof(pmk_)) ||
+                !constantTimeEqual(anonceSnapshot.bytes, parsed.nonce,
+                                   sizeof(anonceSnapshot.bytes)) ||
+                !constantTimeEqual(snonceSnapshot.bytes, generatedNonce,
+                                   sizeof(generatedNonce)) ||
+                !sameMac(apSnapshot, ap_) ||
+                !sameMac(stationSnapshot, station_))
             {
                 secureClear(generatedNonce, sizeof(generatedNonce));
                 secureClear(derivedPtk, sizeof(derivedPtk));
