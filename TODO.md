@@ -52,8 +52,9 @@ Owner directive, 2026-11-09. This is the project's highest-priority order:
    finding without weakening rules, hiding source or treating skips as passes.
    Required checks must report zero failures and zero skips on the integrated
    source. Do not substitute repeated lint sweeps for step 1.
-3. **Keep CI as the mandatory build gate.** A kernel build requires successful
-   CI for that exact commit; failed, canceled or skipped CI blocks the build.
+3. **Run advisory CI before authorized builds.** The 2026-11-10 owner update
+   permits a `build-v*` compilation despite CI failures. Preserve warnings,
+   complete validation reports and the zero-failure objective.
 4. **Then harden edge cases indefinitely and finish the remaining TODOs while
    testing the driver.** Once implementation and the zero-failure validation
    milestone are met, ongoing hardening runs alongside owner-authorized
@@ -68,11 +69,12 @@ the rest is absent. The goal is to expose interactions across the whole driver,
 then debug real failures from the owner's logs. A failed launch or crash in an
 authorized test is a failure to diagnose and fix, not grounds for replacing
 required behavior with a disabled path. First-run perfection is not a prerequisite;
-complete source implementation and successful CI are. Never manufacture success.
+complete source implementation is. CI remains advisory and findings must
+still be fixed rather than concealed. Never manufacture success.
 
 **Work allocation:** the integration agent prioritizes missing runtime behavior
 and end-to-end wiring. Other active agents handle Clang-Tidy/validator findings
-in coordinated files, preserving every rule and the mandatory CI build gate.
+in coordinated files, preserving every rule and advisory CI evidence.
 Focused checks may support development; repeated global lint passes must not
 consume the implementation phase.
 
@@ -274,7 +276,8 @@ hardening indefinitely and complete the remaining documentation, provenance
 and maintenance TODOs. This work proceeds in parallel with the owner's
 authorized notebook tests and the log-driven repair loop. It never delays
 all testing until an unfinishable hardening phase is declared complete.
-Every subsequent kernel build still requires successful CI.
+Every subsequent kernel build still requires explicit owner authorization;
+CI results are advisory warnings rather than a build prerequisite.
 
 ## P5 — FINAL TODO: owner-controlled physical testing
 

@@ -14,7 +14,8 @@ native execution or Wi-Fi operation. RF calibration, live channel/rate/country
 policy, packet queues/interrupts and native AirPort registration still remain
 required before Wi-Fi can scan, connect or transfer traffic. These
 remaining tasks are implementation priorities, not a reason for indefinite
-hardening. A macOS build still requires successful CI.
+hardening. An authorized macOS build runs advisory CI, which warns on
+failures rather than requiring a passing result (2026-11-10 override).
 
 **Target:** Dell Inspiron 5567, Qualcomm Atheros QCA9565/AR9565
 PCI `168c:0036`, macOS Tahoe 26.7.2 (Darwin 25, build 25G332),

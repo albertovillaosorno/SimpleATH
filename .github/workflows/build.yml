@@ -1,4 +1,4 @@
-name: SimpleATH Tahoe Intel gated kernel build
+name: SimpleATH Tahoe Intel authorized kernel build
 
 # Only a user-authorized build-v* tag may compile the kext.
 on:
@@ -15,21 +15,40 @@ concurrency:
 
 jobs:
   validate:
-    name: Required full macOS validation
+    name: Advisory macOS source validation
     if: github.event.repository.private == false
     uses: ./.github/workflows/ci.yml
+    with:
+      advisory: true
 
   build:
-    name: Build x86_64 kext after successful validation
+    name: Build authorized x86_64 kext (CI advisory)
     needs: validate
+    # A failed/missing macOS CI environment must not block an authorized
+    # build. !cancelled() prevents a manually canceled run from proceeding.
     if: >-
+      !cancelled() &&
       github.event.repository.private == false &&
-      needs.validate.result == 'success' &&
       startsWith(github.ref, 'refs/tags/build-v')
     runs-on: macos-26-intel
     timeout-minutes: 40
     steps:
-      - name: Checkout validated commit
+      - name: Warn when pre-build validation did not succeed
+        env:
+          VALIDATION_RESULT: ${{ needs.validate.result }}
+          VALIDATION_CHECK_OUTCOME: ${{ needs.validate.outputs.validation_outcome }}
+        shell: bash
+        run: |
+          if [ "$VALIDATION_RESULT" != success ] || [ "$VALIDATION_CHECK_OUTCOME" != success ]; then
+            echo "::warning title=Advisory CI validation::CI job: $VALIDATION_RESULT; strict checks: $VALIDATION_CHECK_OUTCOME. Continuing authorized build; inspect the validation report if available."
+            {
+              echo '### Advisory macOS validation'
+              echo "CI job: **$VALIDATION_RESULT**; strict checks: **$VALIDATION_CHECK_OUTCOME**."
+              echo 'The owner authorized build continuation despite incomplete or failed CI.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout exact authorized commit
         uses: actions/checkout@v7
         with:
           persist-credentials: false

@@ -1,12 +1,23 @@
 name: SimpleATH Tahoe Intel source validation
 
-# CI tags run validation only; release builds call this same gate.
+# Standalone CI tags retain strict failure; owner-authorized builds request
+# advisory validation (warnings rather than a build prerequisite).
 on:
   push:
     tags:
       - 'ci'
       - 'ci-*'
   workflow_call:
+    inputs:
+      advisory:
+        description: Report validation failures without blocking builds
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      validation_outcome:
+        description: Actual status of strict source validation
+        value: ${{ jobs.validate.outputs.validation_outcome }}
 
 permissions:
   contents: read
@@ -21,6 +32,8 @@ jobs:
     if: github.event.repository.private == false
     runs-on: macos-26-intel
     timeout-minutes: 60
+    outputs:
+      validation_outcome: ${{ steps.source_validation.outcome }}
     steps:
       - name: Checkout exact requested commit
         uses: actions/checkout@v7
@@ -58,11 +71,24 @@ jobs:
         run: python3 -B tools/generate_compile_commands.py
 
       - name: Validate every source and offline host test
+        id: source_validation
+        continue-on-error: ${{ inputs.advisory == true }}
         env:
           CPATH: ${{ github.workspace }}/.references/MacKernelSDK/Headers
         run: |
           export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
           python3 -B tools/validate.py --no-cache
+
+      - name: Warn about advisory source validation failure
+        if: ${{ always() && inputs.advisory && steps.source_validation.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo '::warning title=Source validation failed::The checked-in validator reported errors; this is advisory for authorized builds only.'
+          {
+            echo '### Advisory validation findings'
+            echo 'Source validation failed. Review the uploaded report.json.'
+            echo 'Standalone ci tags remain strict and fail on the same findings.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Preserve failed or successful validation evidence
         if: always()

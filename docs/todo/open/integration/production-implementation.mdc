@@ -81,8 +81,8 @@ checks or imposing a serial lint-only hold on the missing source work.
    Focused behavior tests support implementation; they do not replace it or
    prove physical Wi-Fi function.
 2. Then complete validator-findings: zero lint/check failures and zero skips,
-   preserving all rules and source coverage. Keep CI as the mandatory gate
-   before every kernel build of the exact reviewed commit.
+   preserving all rules and source coverage. CI remains advisory for every
+   expressly authorized build; report actual failures and skips honestly.
 3. Then continue edge-case hardening indefinitely and finish the remaining
    TODOs alongside the owner's authorized notebook tests. The owner supplies
    real logs in this conversation; agents diagnose and fix actual failures,
@@ -119,7 +119,7 @@ acceptance above is unchanged and remains unfinished.
 The same commit implements startup diagnostic selection in the PCI/native
 controller (explicit `simpleathdbg=0/1`, otherwise exposed OpenCore DBG/NPT,
 normal logging on absent or invalid metadata), and preserves matching Release
-dSYM artifacts behind the existing mandatory CI build gate. Focused host
+dSYM artifacts with the owner's new advisory pre-build CI behavior. Focused host
 policy tests, strict Darwin SDK syntax for changed native units, scoped Tidy
 for the capture/policy code, and exact-KDK native import inspection passed.
 There is no new whole-tree zero-failure claim, kext build, runtime verification,

@@ -55,10 +55,11 @@ as proven behavior.
 The owner's 2026-11-09 order is: first implement the required production
 driver 100%; then validate linters with zero failures and zero skips; then
 continue edge-case hardening indefinitely and finish the remaining TODOs
-while the owner tests the notebook and supplies logs here. Keep CI as the
-mandatory gate before every kernel build. See the highest-priority
-`production-implementation` record in TODO.md. No required runtime path may
-be replaced by a passive property publisher or deferred behind hardening.
+while the owner tests the notebook and supplies logs here. The owner's
+2026-11-10 update makes pre-build CI advisory instead of blocking.
+See the highest-priority `production-implementation` record in TODO.md.
+No required runtime path may be replaced by a passive property publisher or
+deferred behind hardening.
 
 Continuous hardening runs alongside authorized notebook testing after the
 implementation/validation milestones; it is never an indefinite testing hold.
@@ -76,8 +77,10 @@ from successful operations; never set success flags to conceal missing code.
 Report a specific failing stage and its real error so the owner can build,
 run and diagnose it. Missing source functionality is the highest-priority
 work; strict lint does not take precedence over implementing that path.
-CI remains a mandatory build gate: failed, canceled or skipped validation
-must block the kernel build. Fix findings without weakening checks.
+CI is advisory for explicitly authorized `build-v*` builds: failures and
+missing macOS prerequisites produce warnings, not a build stop. Standalone CI
+remains strict. Fix findings without weakening checks or hiding failures.
+No build tag, compilation, or hardware activity is authorized by this policy.
 
 Before notebook testing, after the production-implementation and zero-failure
 validation milestones, the committed AR9565 source must be complete and integrated for all required paths, with no known
@@ -269,5 +272,6 @@ alongside owner-authorized notebook testing and the remaining TODOs.**
 After the implementation and validation milestones, continue evidence-backed
 edge-case hardening, recovery work and log-driven fixes indefinitely. The
 owner supplies real notebook logs here; agents coordinate source changes in
-their chat. CI remains mandatory for every build. Preserve explicit build,
-deployment and hardware authorization scopes, and report actual results.
+their chat. CI remains advisory for each authorized build, with failures
+reported accurately. Preserve explicit build, deployment and hardware
+authorization scopes.

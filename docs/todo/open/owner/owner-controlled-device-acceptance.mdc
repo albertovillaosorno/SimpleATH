@@ -58,9 +58,10 @@ their chat, then repeat the CI/build/test loop.
 Hardening continues indefinitely and is not an indefinite testing hold.
 Source-hardening and Linux-reference retirement need not be closed to start
 this loop once the implementation and validation milestones are met. Every
-kernel build still requires successful CI for the exact reviewed commit and
-its separately authorized GitHub build tag. No failed, canceled or skipped CI
-may be bypassed. This roadmap does not itself select or authorize a tag.
+kernel build still requires a separately authorized GitHub `build-v*` tag.
+The owner's 2026-11-10 update permits compilation even if advisory CI fails;
+failures and incomplete checks must remain visible and be resolved toward
+zero findings. This roadmap does not itself select or authorize a tag.
 
 The acceptance objective is fully functional native Wi-Fi on the specified
 Dell/Tahoe target, plus the requested Bluetooth/coexistence and AirDrop

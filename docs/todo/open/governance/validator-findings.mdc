@@ -42,7 +42,9 @@ The owner's 2026-11-09 ordering requires 100% production implementation
 before this zero-failure lint milestone. Do not prioritize repeated lint-only
 sweeps over the highest-priority production-implementation TODO. Once that
 milestone is met, reach zero failures and zero skips without weakening rules.
-Successful CI remains mandatory before the exact commit can be built.
+Standalone CI remains strict, and the target is zero failures and skips.
+Under the owner's 2026-11-10 override, CI runs advisory for an expressly
+authorized `build-v*` compilation; failed checks warn but do not block it.
 
 Resolve the existing root-configured formatting, lint and type findings
 without changing script behavior, hiding sources or weakening rules. Keep
