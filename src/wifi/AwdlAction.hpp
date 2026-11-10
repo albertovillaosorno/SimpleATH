@@ -159,6 +159,9 @@ namespace simpleath
                 uint16_t awPeriodTu {};
                 uint16_t txDownCounterTu {};
                 uint16_t nextAwSequence {};
+                // 12-bit source MAC sequence of the most recent MIF. A
+                // repeated or stale MIF must not refresh radio timing.
+                uint16_t macSequence {};
                 uint16_t channelSixSlots {};
                 uint32_t masterMetric {};
                 uint32_t masterCounter {};
@@ -176,6 +179,9 @@ namespace simpleath
         // Only structurally complete MIFs with nonzero Version, Sync,
         // Election-v2 and Channel Sequence TLVs establish peer eligibility.
         // PSFs never create peers. Valid IPv6 data may refresh existing ones.
+        // Replayed, duplicate or half-range-ambiguous MIF MAC sequence
+        // values cannot move the lastMifMs phase anchor forward. This is
+        // freshness bookkeeping, NOT cryptographic peer authentication.
         class AwdlNeighbors
         {
             public:

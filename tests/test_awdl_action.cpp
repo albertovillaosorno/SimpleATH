@@ -1127,12 +1127,25 @@ namespace
                written == 0U && output.at(0U) == kNonzeroSentinel;
     }
 
+    void setNeighborMacSequence(NeighborFixture &fixture, uint16_t sequence)
+    {
+        constexpr unsigned kMacSequenceShift = 4U;
+        constexpr unsigned kBitsPerByte = 8U;
+        const auto encoded =
+            static_cast<uint16_t>(sequence << kMacSequenceShift);
+        fixture.frame.at(kFragmentOffset) = static_cast<uint8_t>(encoded);
+        fixture.frame.at(kFragmentOffset + 1U) =
+            static_cast<uint8_t>(encoded >> kBitsPerByte);
+    }
+
     bool rejectsOutOfRangeMifCountdown(AwdlNeighbors &peers,
                                        NeighborFixture fixture)
     {
         // A sync TLV's EAW countdown must fit 1..64 TU.
         constexpr uint8_t kTooLongDownCounterTu = 65U;
         constexpr uint8_t kMaxValidDownCounterTu = 64U;
+        constexpr uint16_t kNextMifSequence = 1U;
+        setNeighborMacSequence(fixture, kNextMifSequence);
         fixture.frame.at(fixture.syncOffset + 1U) = 0U;
         if (peers.observeMif(kNeighborFirstSeenMs + 1U, fixture.frame.data(),
                              fixture.length) != Result::InvalidElement)
@@ -1692,6 +1705,61 @@ namespace
                candidate.channelSixSlots == 0U;
     }
 
+    bool neighborMifSequenceReplay()
+    {
+        constexpr uint16_t kInitialSequence = 0xffeU;
+        constexpr uint16_t kPreviousSequence = 0xffdU;
+        constexpr uint16_t kWrappedSequence = 0U;
+        constexpr uint16_t kAdvancedSequence = 1U;
+        constexpr uint16_t kAmbiguousSequence = 0x801U;
+        constexpr uint64_t kTimeIncrementMs = 1U;
+        constexpr uint64_t kFiveIncrementsMs = 5U;
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        setNeighborMacSequence(fixture, kInitialSequence);
+        AwdlNeighbors peers {};
+        AwdlNeighbor observed {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs, observed) ||
+            observed.lastMifMs != kNeighborFirstSeenMs ||
+            peers.observeMif(kNeighborFirstSeenMs + kTimeIncrementMs,
+                             fixture.frame.data(),
+                             fixture.length) != Result::InvalidFrame ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + kTimeIncrementMs,
+                        observed) ||
+            observed.lastMifMs != kNeighborFirstSeenMs)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, kPreviousSequence);
+        if (peers.observeMif(kNeighborFirstSeenMs + 2U, fixture.frame.data(),
+                             fixture.length) != Result::InvalidFrame ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 2U, observed) ||
+            observed.lastMifMs != kNeighborFirstSeenMs)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, kWrappedSequence);
+        if (peers.observeMif(kNeighborFirstSeenMs + 3U, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, kAdvancedSequence);
+        if (peers.observeMif(kNeighborFirstSeenMs + 4U, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, kAmbiguousSequence);
+        return peers.observeMif(kNeighborFirstSeenMs + kFiveIncrementsMs,
+                                fixture.frame.data(),
+                                fixture.length) == Result::InvalidFrame &&
+               peers.find(fixture.source,
+                          kNeighborFirstSeenMs + kFiveIncrementsMs, observed) &&
+               observed.lastMifMs == kNeighborFirstSeenMs + 4U;
+    }
+
     bool neighborElectionAndExpiry()
     {
         NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
@@ -1939,6 +2007,11 @@ int main()
     {
         constexpr int kActionTxFailure = 8;
         return kActionTxFailure;
+    }
+    if (!neighborMifSequenceReplay())
+    {
+        constexpr int kReplayFailure = 18;
+        return kReplayFailure;
     }
     if (!neighborElectionAndExpiry())
     {

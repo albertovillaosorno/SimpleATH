@@ -43,6 +43,7 @@ namespace simpleath
             constexpr size_t kFcsBytes = 4U;
             constexpr size_t kMaxMpduWithFcs = 2346U;
             constexpr uint16_t kMacSequenceMax = 0x0fffU;
+            constexpr uint16_t kMacSequenceHalfRange = 0x0800U;
             constexpr uint8_t kMacSequenceShift = 4U;
             constexpr uint8_t kDataFrameControl = 0x08U;
             constexpr uint8_t kActionFrameControl = 0xd0U;
@@ -799,6 +800,7 @@ namespace simpleath
                 }
                 AwdlNeighbor candidate {};
                 candidate.source = action.header.source;
+                candidate.macSequence = action.header.sequence;
                 uint8_t seen = 0U;
                 AwdlTlvs tlvs(usbByteOffset(frame, action.tlvOffset),
                               bytes - action.tlvOffset);
@@ -959,6 +961,18 @@ namespace simpleath
                 if (entry.occupied &&
                     sameMac(entry.neighbor.source, candidate.source))
                 {
+                    // 802.11 management sequence is 12-bit serial space.
+                    // Require a strictly forward modular step less than
+                    // half its space: duplicates and reordered/replayed
+                    // MIFs must not invent a fresh clock synchronization.
+                    const auto distance =
+                        (static_cast<uint32_t>(candidate.macSequence) -
+                         static_cast<uint32_t>(entry.neighbor.macSequence)) &
+                        static_cast<uint32_t>(kMacSequenceMax);
+                    if (distance == 0U || distance >= kMacSequenceHalfRange)
+                    {
+                        return Result::InvalidFrame;
+                    }
                     entry.neighbor = candidate;
                     return Result::Ok;
                 }
