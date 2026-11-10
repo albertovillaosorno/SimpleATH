@@ -31,8 +31,36 @@ namespace simpleath
             {
                 return;
             }
-            recipe.phases[recipe.count++] = {phase, view.rows, view.count};
-            recipe.registerWrites += view.count;
+            size_t current = 0;
+            for (RegisterTable &slot : recipe.phases)
+            {
+                if (current == recipe.count)
+                {
+                    slot = {phase, view.rows, view.count};
+                    ++recipe.count;
+                    recipe.registerWrites += view.count;
+                    return;
+                }
+                ++current;
+            }
+        }
+
+        const RegisterTable *phaseAt(const RegisterRecipe &recipe, size_t index)
+        {
+            if (index >= recipe.count || index >= kRegisterPhaseCapacity)
+            {
+                return nullptr;
+            }
+            size_t current = 0;
+            for (const RegisterTable &phase : recipe.phases)
+            {
+                if (current == index)
+                {
+                    return &phase;
+                }
+                ++current;
+            }
+            return nullptr;
         }
 
         TableView rxGain(RxGainProfile profile, ChannelWidth width)
@@ -71,9 +99,13 @@ namespace simpleath
         if (!r.eepromContentsVerified || !r.boardAntennaConfigurationVerified ||
             !r.channelPermitted || !r.radioKillUnblocked ||
             !r.coexistenceConfigurationVerified)
+        {
             return false;
+        }
         if (r.use == RadioInitialization::ReceiveOnly)
+        {
             return true;
+        }
         return r.use == RadioInitialization::TransmitReceive &&
                r.localCountryRulesAvailable && r.txPowerLimitsVerified;
     }
@@ -84,7 +116,9 @@ namespace simpleath
     {
         if (!recipe.tablesComplete ||
             !radioInitializationAuthorized(requirements))
+        {
             return false;
+        }
         // A caller-mutated recipe cannot replace the pinned phase sequence.
         RegisterRecipe expected {};
         if (createInitRecipe(recipe.silicon, recipe.channel, recipe.width,
@@ -97,11 +131,18 @@ namespace simpleath
         {
             return false;
         }
-        for (size_t i = 0; i < expected.count; ++i)
+        if (expected.count > kRegisterPhaseCapacity)
         {
-            if (recipe.phases[i].phase != expected.phases[i].phase ||
-                recipe.phases[i].data != expected.phases[i].data ||
-                recipe.phases[i].count != expected.phases[i].count)
+            return false;
+        }
+        for (size_t phaseIndex = 0; phaseIndex < expected.count; ++phaseIndex)
+        {
+            const RegisterTable *selected = phaseAt(recipe, phaseIndex);
+            const RegisterTable *canonical = phaseAt(expected, phaseIndex);
+            if (selected == nullptr || canonical == nullptr ||
+                selected->phase != canonical->phase ||
+                selected->data != canonical->data ||
+                selected->count != canonical->count)
             {
                 return false;
             }
