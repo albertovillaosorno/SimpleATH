@@ -571,7 +571,8 @@ class SimpleATH final : public IOService
             return false;
         }
 
-        // Submit only engine-authored 802.11 frames. The RF owner must first
+        // Submit only admitted 802.11 frames from the station engine or
+        // the strict OS EAPOL/CCMP serializers. The RF owner must first
         // publish independently verified channel/rate/TPC authorization; no
         // EEPROM interpolation, software station state, or mailbox flag can
         // manufacture permission to transmit. This runs inside the PCI gate.
@@ -634,31 +635,56 @@ class SimpleATH final : public IOService
             const auto &packet =
                 *static_cast<NativeTransmitRequest *>(argument);
             const auto link = self->engine_.linkStatus();
-            // Queue ownership, station association, port authorization and
-            // RF/TPC permissions must all refer to this same physical epoch.
-            // A valid EEPROM alone NEVER confers a regulatory or TX-power
-            // permission. The RF owner must install verified rate/TPC limits
-            // before this packet may reach a DMA descriptor.
+            // EAPOL M2/M4 and Group2 are part of OS-owned WPA2 key setup:
+            // requiring the controlled data port to be open first would
+            // deadlock the handshake. This exception MUST NOT admit general
+            // Ethernet traffic, nor an unrelated AP or unparsed EAPOL frame.
+            uint8_t ethernetHeader[kMinimumEthernetBytes] {};
+            if (packet.bytes == nullptr ||
+                packet.length < sizeof(ethernetHeader))
+            {
+                return kIOReturnBadArgument;
+            }
+            __builtin_memcpy(&ethernetHeader[0], packet.bytes,
+                             sizeof(ethernetHeader));
+            constexpr size_t kEtherTypeHighOffset = 12U;
+            constexpr size_t kEtherTypeLowOffset = 13U;
+            const bool isEapol =
+                ethernetHeader[kEtherTypeHighOffset] ==
+                    static_cast<uint8_t>(kEtherTypeEapol >> kByteBits) &&
+                ethernetHeader[kEtherTypeLowOffset] ==
+                    static_cast<uint8_t>(kEtherTypeEapol);
+            const bool nativeHandshake =
+                self->engine_.stationState() ==
+                simpleath::ieee80211::StationState::WaitingForWpa2Keys;
             if (!self->powered_ || self->stopping_ ||
-                !self->controlledPortAuthorized_ ||
-                link.state != simpleath::ieee80211::LinkState::Associated)
+                link.state != simpleath::ieee80211::LinkState::Associated ||
+                self->nativePairwiseKeyRevoked_ ||
+                (!self->controlledPortAuthorized_ &&
+                 !(isEapol && nativeHandshake)))
             {
                 return kIOReturnNotReady;
             }
             if (!self->queues_.hasTransmitSpace())
+            {
                 return kIOReturnNoResources;
+            }
             simpleath::ieee80211::InputTrust trust {};
             trust.radioReady = true;
             trust.channelAuthorized = true;
             simpleath::ieee80211::EngineAction action {};
-            // The portable engine emits clear MPDUs for open associations.
-            // Native WPA2 uses the OS-supplied same-epoch TK and the portable
-            // CCM implementation, never an unencrypted fallback. A failed DMA
-            // submission burns the CCM PN (safe) rather than reusing it.
+            // The native owner uses an OS-supplied, same-epoch WPA2 key.
+            // No generic WPA2 plaintext data is ever serialized. Initial
+            // pairwise M2/M4 remain clear (by 802.11 specification); Group2
+            // and ordinary post-key traffic MUST use the CCMP session.
             const bool protectedWpa2 = self->nativePairwiseTx_.installed();
+            const bool keysReady = protectedWpa2 &&
+                                   self->nativePairwiseRx_.installed() &&
+                                   self->nativeGroupInstalled();
             simpleath::ieee80211::EngineResult prepared =
                 simpleath::ieee80211::EngineResult::CryptoUnavailable;
-            if (protectedWpa2)
+            bool softwareProtected = false;
+            if (isEapol && nativeHandshake)
             {
                 const simpleath::ieee80211::LinkContext connection {
                     link.station,
@@ -667,8 +693,33 @@ class SimpleATH final : public IOService
                     true,
                     self->radioOperational_,
                     self->channelAuthorized_,
-                    self->nativePairwiseRx_.installed() &&
-                        self->nativeGroupInstalled(),
+                    keysReady,
+                };
+                simpleath::ieee80211::SerializedData serialized {};
+                const auto clear = simpleath::ieee80211::prepareStationTx(
+                    connection, packet.bytes, packet.length, self->txSequence_,
+                    &self->ethernetTx_[0], sizeof(self->ethernetTx_),
+                    serialized);
+                if (clear == simpleath::ieee80211::DataPathResult::Ok &&
+                    serialized.isEapol)
+                {
+                    action.kind =
+                        simpleath::ieee80211::ActionKind::TransmitEapol;
+                    action.bytes = serialized.frameBytes;
+                    prepared = simpleath::ieee80211::EngineResult::Ok;
+                }
+            }
+            if (prepared != simpleath::ieee80211::EngineResult::Ok &&
+                protectedWpa2)
+            {
+                const simpleath::ieee80211::LinkContext connection {
+                    link.station,
+                    link.bssid,
+                    simpleath::ieee80211::LinkSecurity::Wpa2Ccmp,
+                    true,
+                    self->radioOperational_,
+                    self->channelAuthorized_,
+                    keysReady,
                 };
                 simpleath::ieee80211::SerializedData serialized {};
                 const auto encrypted =
@@ -686,13 +737,17 @@ class SimpleATH final : public IOService
                             : simpleath::ieee80211::ActionKind::TransmitData;
                     action.bytes = serialized.frameBytes;
                     prepared = simpleath::ieee80211::EngineResult::Ok;
+                    softwareProtected = true;
                 }
                 else if (encrypted ==
                          simpleath::ieee80211::DataPathResult::BufferTooSmall)
+                {
                     prepared =
                         simpleath::ieee80211::EngineResult::BufferTooSmall;
+                }
             }
-            else
+            else if (prepared != simpleath::ieee80211::EngineResult::Ok &&
+                     !nativeHandshake && !protectedWpa2)
             {
                 prepared = self->engine_.encodeOutgoingEthernet(
                     packet.bytes, packet.length, self->txSequence_, trust,
@@ -716,7 +771,7 @@ class SimpleATH final : public IOService
                 return kIOReturnBadArgument;
             }
             const IOReturn result = self->submitPreparedTransmit(
-                &self->ethernetTx_[0], action.bytes, protectedWpa2);
+                &self->ethernetTx_[0], action.bytes, softwareProtected);
             if (result == kIOReturnSuccess)
             {
                 self->txSequence_ = static_cast<uint16_t>(
