@@ -209,6 +209,20 @@ namespace simpleath
             return true;
         }
 
+        // ath9k ar9003_eeprom.c interpolate(): double the ratio before
+        // rounding, preserving C++ signed-division/remainder semantics on
+        // descending curves. With 2G piers the largest intermediate is well
+        // inside int32_t (255 units * 2 * 72 MHz).
+        int32_t interpolatePier(int32_t frequency, int32_t lowFrequency,
+                                int32_t highFrequency, int32_t lowValue,
+                                int32_t highValue)
+        {
+            const int32_t scaled = 2 * (highValue - lowValue) *
+                                   (frequency - lowFrequency) /
+                                   (highFrequency - lowFrequency);
+            return lowValue + (scaled / 2) + (scaled % 2);
+        }
+
         // Unlike upstream's permissive restoration, reject truncated records
         // and propagate every bounds failure. Validate the ENTIRE delta before
         // applying.
@@ -709,6 +723,97 @@ namespace simpleath
                                              : RxGainProfile::Standard;
         tx = selectedTx;
         rx = selectedRx;
+        return EepromResult::Ok;
+    }
+
+    EepromResult calculateBoardCalibration2G(const BoardDataSummary &board,
+                                             uint16_t channelMhz,
+                                             BoardChannelCalibration2G &out)
+    {
+        if (overlaps(&board, sizeof(board), &out, sizeof(out)))
+        {
+            return EepromResult::InvalidArgument;
+        }
+        out = {};
+        TxGainProfile tx = TxGainProfile::Unknown;
+        RxGainProfile rx = RxGainProfile::Unknown;
+        const EepromResult boardResult = selectBoardGainProfiles(board, tx, rx);
+        if (boardResult != EepromResult::Ok)
+        {
+            return boardResult;
+        }
+        // Only exact mapped 2G channel centers, not arbitrary frequencies or
+        // 5-GHz samples. The country/regulatory owner must still approve the
+        // chosen channel and the radio must remain silent until then.
+        bool supportedChannel = false;
+        for (uint8_t number = 1; number <= 14; ++number)
+        {
+            Channel channel {};
+            if (mapChannel(number, channel) == Result::Ok &&
+                channel.centerMhz == channelMhz)
+            {
+                supportedChannel = true;
+                break;
+            }
+        }
+        if (!supportedChannel)
+        {
+            return EepromResult::UnsupportedChannel;
+        }
+
+        const auto *const piers = board.calibrationPiers2G;
+        size_t lower = 0;
+        size_t upper = kCalibrationPiers - 1;
+        for (size_t i = 0; i < kCalibrationPiers; ++i)
+        {
+            if (piers[i].centerMhz <= channelMhz)
+            {
+                lower = i;
+            }
+            if (piers[i].centerMhz >= channelMhz)
+            {
+                upper = i;
+                break;
+            }
+        }
+        if (channelMhz <= piers[0].centerMhz)
+        {
+            lower = upper = 0;
+        }
+        else if (channelMhz >= piers[kCalibrationPiers - 1].centerMhz)
+        {
+            lower = upper = kCalibrationPiers - 1;
+        }
+
+        BoardChannelCalibration2G result {};
+        result.channelMhz = channelMhz;
+        result.lowerPierMhz = piers[lower].centerMhz;
+        result.upperPierMhz = piers[upper].centerMhz;
+        result.interpolated = lower != upper;
+        if (result.interpolated)
+        {
+            const auto correction = interpolatePier(
+                channelMhz, result.lowerPierMhz, result.upperPierMhz,
+                piers[lower].referencePower, piers[upper].referencePower);
+            const auto voltage = interpolatePier(
+                channelMhz, result.lowerPierMhz, result.upperPierMhz,
+                piers[lower].voltageMeasurement,
+                piers[upper].voltageMeasurement);
+            const auto temperature = interpolatePier(
+                channelMhz, result.lowerPierMhz, result.upperPierMhz,
+                piers[lower].temperatureMeasurement,
+                piers[upper].temperatureMeasurement);
+            result.referenceCorrection = static_cast<int16_t>(correction);
+            result.voltageMeasurement = static_cast<uint8_t>(voltage);
+            result.temperatureMeasurement = static_cast<uint8_t>(temperature);
+        }
+        else
+        {
+            result.referenceCorrection = piers[lower].referencePower;
+            result.voltageMeasurement = piers[lower].voltageMeasurement;
+            result.temperatureMeasurement = piers[lower].temperatureMeasurement;
+        }
+        out = result;
         return EepromResult::Ok;
     }
 

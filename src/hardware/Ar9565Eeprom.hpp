@@ -27,6 +27,7 @@ namespace simpleath
         UnsupportedFormat,
         InvalidBoardIdentity,
         UnsupportedGainConfiguration,
+        UnsupportedChannel,
     };
 
     struct EepromBlockInfo
@@ -187,6 +188,28 @@ namespace simpleath
     // InvalidArgument without writing either. No TX permission.
     EepromResult selectBoardGainProfiles(const BoardDataSummary &board,
                                          TxGainProfile &tx, RxGainProfile &rx);
+
+    // Channel-specific, single-chain AR9565 open-loop calibration inputs from
+    // the three 2-GHz piers. Matches ath9k's signed interpolation/nearest-end
+    // calculation, but deliberately DOES NOT validate the factory measurements
+    // or authorize programming TPC, temperature compensation, RF or TX. The
+    // caller must retain a verified, epoch-current reconstructed board under
+    // its native ownership gate. Output is cleared on ordinary failure; an
+    // output overlapping the diagnostic board is rejected untouched.
+    struct BoardChannelCalibration2G
+    {
+            uint16_t channelMhz;
+            uint16_t lowerPierMhz;
+            uint16_t upperPierMhz;
+            int16_t referenceCorrection;
+            uint8_t voltageMeasurement;
+            uint8_t temperatureMeasurement;
+            bool interpolated;
+    };
+
+    EepromResult calculateBoardCalibration2G(const BoardDataSummary &board,
+                                             uint16_t channelMhz,
+                                             BoardChannelCalibration2G &out);
 
 } // namespace simpleath
 #endif

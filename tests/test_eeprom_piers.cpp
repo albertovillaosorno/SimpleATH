@@ -496,6 +496,73 @@ int main()
         return 27;
     }
 
+    // Source-only AR9565 2G op-loop correction/voltage/temperature inputs:
+    // exact pier, signed ath9k interpolation, and endpoint clamping. These
+    // measurements do not establish calibrated RF or transmit permission.
+    BoardChannelCalibration2G calibration {};
+    if (calculateBoardCalibration2G(accepted, 2412, calibration) !=
+            EepromResult::Ok ||
+        calibration.channelMhz != 2412 || calibration.lowerPierMhz != 2412 ||
+        calibration.upperPierMhz != 2412 || calibration.interpolated ||
+        calibration.referenceCorrection != -8 ||
+        calibration.voltageMeasurement != 100 ||
+        calibration.temperatureMeasurement != 40)
+    {
+        return 33;
+    }
+    if (calculateBoardCalibration2G(accepted, 2422, calibration) !=
+            EepromResult::Ok ||
+        calibration.lowerPierMhz != 2412 || calibration.upperPierMhz != 2437 ||
+        !calibration.interpolated || calibration.referenceCorrection != 46 ||
+        calibration.voltageMeasurement != 92 ||
+        calibration.temperatureMeasurement != 38)
+    {
+        return 34;
+    }
+    if (calculateBoardCalibration2G(accepted, 2437, calibration) !=
+            EepromResult::Ok ||
+        calibration.interpolated || calibration.referenceCorrection != 127 ||
+        calibration.voltageMeasurement != 80 ||
+        calibration.temperatureMeasurement != 36)
+    {
+        return 35;
+    }
+    if (calculateBoardCalibration2G(accepted, 2484, calibration) !=
+            EepromResult::Ok ||
+        calibration.interpolated || calibration.lowerPierMhz != 2484 ||
+        calibration.upperPierMhz != 2484 ||
+        calibration.referenceCorrection != -128 ||
+        calibration.voltageMeasurement != 130 ||
+        calibration.temperatureMeasurement != 10)
+    {
+        return 36;
+    }
+    if (calculateBoardCalibration2G(accepted, 5180, calibration) !=
+            EepromResult::UnsupportedChannel ||
+        calibration.channelMhz != 0 || calibration.interpolated ||
+        calculateBoardCalibration2G(accepted, 2421, calibration) !=
+            EepromResult::UnsupportedChannel ||
+        calibration.channelMhz != 0)
+    {
+        return 37;
+    }
+    invalid = accepted;
+    invalid.calibrationPiers2G[1].centerMhz = 2438;
+    calibration.channelMhz = 2412; // Invalid board must clear stale values.
+    if (calculateBoardCalibration2G(invalid, 2412, calibration) !=
+            EepromResult::UnsupportedFormat ||
+        calibration.channelMhz != 0 || calibration.referenceCorrection != 0)
+    {
+        return 38;
+    }
+    invalid = accepted;
+    invalid.mac[0] |= 1;
+    if (calculateBoardCalibration2G(invalid, 2437, calibration) !=
+        EepromResult::InvalidBoardIdentity)
+    {
+        return 39;
+    }
+
     image.bytes[0] = 1; // Invalid image version.
     if (summarizeBoardData(image, board) != EepromResult::UnsupportedFormat ||
         board.eepromVersion != 0 || board.calibrationPierBinsPlausible ||
