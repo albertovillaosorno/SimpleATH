@@ -104,14 +104,35 @@ successful radio calibration, or an authorization to transmit. The native
 serialized owner still has to establish live board provenance, real TPC
 register programming/readback and the verified country/antenna/RF gates.
 
+## Hardware TX rate-bank source stage — 2026-11-10
+
+`makeAr9565TxRateRegisters` packs a single-chain candidate into all 12 AR9003
+`AR_PHY_POWER_TX_RATE(n)` words, including mixed HT20/HT40 groups, CCK preamble
+minima and ACK/CTS power. Malformed geometry, an over-ceiling target and stale
+channel-calibration metadata fail closed. Absent rate modes get numeric zero,
+**not RF mute**. Synthetic vectors test CCK minima, HT40 grouping and errors.
+
+`programAr9565TxRateRegisters` is a separately gated MMIO source stage. It
+requires explicit full TX authorization, plus a synchronous native owner-epoch
+callback that independently verifies D0, the physical board, applied TPC/
+thermal compensation, country and antenna policy, RF kill, coexistence and
+quiesced MAC/queues/automatic responses. With permission it disables forced
+gain, programs 12 rate registers, and updates only AR_TPC ACK/CTS power bits,
+retaining unrelated bits. Every write is read back, and partial/ambiguous
+writes or revoked ownership require a reset. Fake-MMIO host tests cover
+success, write/read failure, readback mismatch and owner revocation. No live
+caller invokes this source; it **never enables the transmitter**, MAC, EDMA,
+automatic ACK or TX-ready flags. No hardware has been accessed by these tests.
+
 ## What remains before any transmission
 
 PowerCandidates contains **half-dBm candidate limits**, not descriptor power
 indexes. Do not assign these directly to TxRate::powerIndex or mark any
-TxSafetyPolicy readiness boolean from arithmetic success. The hardware TPC
-conversion, calibration corrections, PAPRD/backoff, MCI/coexistence caps,
-per-rate power registers, autonomous ACK/CTS power and readback/measurement
-remain unimplemented/unverified.
+TxSafetyPolicy readiness boolean from arithmetic success. Actual factory
+calibration verification and applied compensation, PAPRD/backoff, MCI/
+coexistence caps, descriptor power-index mapping, native MMIO integration,
+autonomous ACK/CTS safety, live power readback and physical measurements remain
+unimplemented/unverified. The staged rate-bank source does not authorize TX.
 
 The verified country/OS/board domain intersection and live RF-kill/antenna
 state remain missing. Choosing ctlGroup or entering a country string does

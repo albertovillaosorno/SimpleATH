@@ -67,6 +67,25 @@ namespace simpleath
         constexpr uint8_t kOfdmMode = 2U;
         constexpr uint8_t kHt20Mode = 5U;
         constexpr uint8_t kHt40Mode = 7U;
+        // Linux ath9k ar9003_phy.h AR_PHY_POWER_TX_RATE(n),
+        // AR_PHY_TX_FORCED_GAIN; reg.h AR_TPC ACK/CTS fields.
+        constexpr uint32_t kTxRateBase = 0xa3c0U;
+        constexpr uint32_t kTxRateStride = 4U;
+        constexpr uint32_t kTxForcedGain = 0xa458U;
+        constexpr uint32_t kAutoResponseTpc = 0x80e8U;
+        constexpr uint32_t kAckCtsMask = 0x00003f3fU;
+        constexpr uint32_t kAckCtsShift = 8U;
+        constexpr uint32_t kPowerByteShift = 8U;
+        constexpr uint32_t kMaxPowerField = 0x3fU;
+        constexpr size_t kIndexFive = 5U;
+        constexpr size_t kIndexSix = 6U;
+        constexpr size_t kIndexSeven = 7U;
+        constexpr size_t kIndexEight = 8U;
+        constexpr size_t kIndexNine = 9U;
+        constexpr size_t kIndexTen = 10U;
+        constexpr size_t kIndexEleven = 11U;
+        constexpr size_t kIndexTwelve = 12U;
+        constexpr size_t kIndexThirteen = 13U;
 
         struct TargetLayout
         {
@@ -608,6 +627,76 @@ namespace simpleath
             return PowerResult::Ok;
         }
 
+        uint32_t packRateWords(uint8_t first, uint8_t second, uint8_t third,
+                               uint8_t fourth)
+        {
+            return static_cast<uint32_t>(first) |
+                   (static_cast<uint32_t>(second) << kPowerByteShift) |
+                   (static_cast<uint32_t>(third) << (2U * kPowerByteShift)) |
+                   (static_cast<uint32_t>(fourth) << (3U * kPowerByteShift));
+        }
+
+        template <size_t N>
+        bool checkRateGroup(const uint8_t (&rates)[N], uint8_t ceiling)
+        {
+            for (size_t i = 0; i < N; ++i)
+            {
+                if (at(rates, i) > kMaximumHalfDbm || at(rates, i) > ceiling)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool txPermit(const TxPowerBackend &backend,
+                      TxPowerProgramProgress &progress)
+        {
+            if (backend.permitWrite(backend.context, backend.ownerEpoch))
+            {
+                return true;
+            }
+            progress.result = TxPowerProgramResult::OwnershipLost;
+            return false;
+        }
+
+        bool txWriteVerified(const TxPowerBackend &backend,
+                             TxPowerProgramProgress &progress, uint32_t offset,
+                             uint32_t value)
+        {
+            progress.lastOffset = offset;
+            if (!txPermit(backend, progress))
+            {
+                return false;
+            }
+            // The write may reach silicon even if the callback reports a
+            // failure. The reset obligation remains sticky until full success.
+            progress.requiresReset = true;
+            if (!backend.write32(backend.context, offset, value))
+            {
+                progress.result = TxPowerProgramResult::WriteFailed;
+                return false;
+            }
+            ++progress.completedWrites;
+            if (!txPermit(backend, progress))
+            {
+                return false;
+            }
+            uint32_t observed = 0;
+            if (!backend.read32(backend.context, offset, &observed))
+            {
+                progress.result = TxPowerProgramResult::ReadFailed;
+                return false;
+            }
+            ++progress.completedReads;
+            if (observed != value)
+            {
+                progress.result = TxPowerProgramResult::ReadbackMismatch;
+                return false;
+            }
+            return true;
+        }
+
     } // namespace
 
     PowerResult calculatePowerCandidates(const EepromImage &image,
@@ -770,6 +859,175 @@ namespace simpleath
         }
         halfDbm = selected;
         return PowerResult::Ok;
+    }
+
+    TxPowerProgramResult
+    makeAr9565TxRateRegisters(const PowerCandidates &candidate,
+                              TxPowerRegisterImage &out)
+    {
+        if (overlaps(&candidate, sizeof(candidate), &out, sizeof(out)))
+        {
+            return TxPowerProgramResult::InvalidArgument;
+        }
+        out = {};
+        if (validateCandidateGeometry(candidate, false) != PowerResult::Ok ||
+            (candidate.ht40Present &&
+             validateCandidateGeometry(candidate, true) != PowerResult::Ok) ||
+            candidate.channelCalibration.channelMhz != candidate.controlMhz ||
+            !checkRateGroup(candidate.cck, candidate.conductedCeilingHalfDbm) ||
+            (!candidate.legacyOnlyChannel14 &&
+             !checkRateGroup(candidate.ofdm,
+                             candidate.conductedCeilingHalfDbm)) ||
+            (candidate.ht20Present &&
+             !checkRateGroup(candidate.ht20,
+                             candidate.conductedCeilingHalfDbm)) ||
+            (candidate.ht40Present &&
+             !checkRateGroup(candidate.ht40,
+                             candidate.conductedCeilingHalfDbm)))
+        {
+            return TxPowerProgramResult::InvalidCandidate;
+        }
+        // Populate fixed-size arrays for the occupied capabilities. Numeric
+        // zero does not suppress PHY emissions; the native MAC gate does.
+        uint8_t ofdm[4] {};
+        uint8_t ht20[kHtTargetPowerGroups] {};
+        uint8_t ht40[kHtTargetPowerGroups] {};
+        if (!candidate.legacyOnlyChannel14)
+        {
+            for (size_t i = 0; i < 4U; ++i)
+            {
+                at(ofdm, i) = at(candidate.ofdm, i);
+            }
+        }
+        for (size_t i = 0; i < kHtTargetPowerGroups; ++i)
+        {
+            if (candidate.ht20Present)
+            {
+                at(ht20, i) = at(candidate.ht20, i);
+            }
+            if (candidate.ht40Present)
+            {
+                at(ht40, i) = at(candidate.ht40, i);
+            }
+        }
+        TxPowerRegisterImage image {};
+        at(image.words, 0U) = packRateWords(at(ofdm, 0U), at(ofdm, 0U),
+                                            at(ofdm, 0U), at(ofdm, 0U));
+        at(image.words, 1U) = packRateWords(at(ofdm, 0U), at(ofdm, 1U),
+                                            at(ofdm, 2U), at(ofdm, 3U));
+        at(image.words, 2U) =
+            packRateWords(at(candidate.cck, 0U), 0U, at(candidate.cck, 0U),
+                          at(candidate.cck, 0U));
+        // Linux ar9003_hw_init_txpower_cck takes the minimum across both
+        // preambles for 5.5 and 11 Mbps before writing the PHY bank.
+        const uint8_t cckFive =
+            minimum(at(candidate.cck, 0U), at(candidate.cck, 1U));
+        const uint8_t cckEleven =
+            minimum(at(candidate.cck, 2U), at(candidate.cck, 3U));
+        at(image.words, 3U) =
+            packRateWords(at(candidate.cck, 0U), cckFive, cckEleven, cckEleven);
+        at(image.words, kIndexEight) =
+            packRateWords(at(candidate.cck, 0U), at(ofdm, 0U),
+                          at(candidate.cck, 0U), at(ofdm, 0U));
+        at(image.words, 4U) = packRateWords(at(ht20, 0U), at(ht20, 1U),
+                                            at(ht20, 2U), at(ht20, 3U));
+        at(image.words, kIndexFive) =
+            packRateWords(at(ht20, 4U), at(ht20, kIndexFive),
+                          at(ht20, kIndexSix), at(ht20, kIndexSeven));
+        at(image.words, kIndexNine) =
+            packRateWords(at(ht20, kIndexEight), at(ht20, kIndexNine),
+                          at(ht20, kIndexTen), at(ht20, kIndexEleven));
+        at(image.words, kIndexTen) =
+            packRateWords(at(ht20, kIndexTwelve), at(ht20, kIndexThirteen),
+                          at(ht40, kIndexTwelve), at(ht40, kIndexThirteen));
+        at(image.words, kIndexSix) = packRateWords(at(ht40, 0U), at(ht40, 1U),
+                                                   at(ht40, 2U), at(ht40, 3U));
+        at(image.words, kIndexSeven) =
+            packRateWords(at(ht40, 4U), at(ht40, kIndexFive),
+                          at(ht40, kIndexSix), at(ht40, kIndexSeven));
+        at(image.words, kIndexEleven) =
+            packRateWords(at(ht40, kIndexEight), at(ht40, kIndexNine),
+                          at(ht40, kIndexTen), at(ht40, kIndexEleven));
+        image.ackCtsHalfDbm = at(candidate.cck, 0U);
+        out = image;
+        return TxPowerProgramResult::Ok;
+    }
+
+    TxPowerProgramProgress
+    programAr9565TxRateRegisters(const PowerCandidates &candidate,
+                                 const CalibrationAndRegulatory &authorization,
+                                 const TxPowerBackend &backend)
+    {
+        TxPowerProgramProgress progress {};
+        // Retain a stable callback table if a backend callback tries to
+        // mutate the caller's borrowed table mid-transaction.
+        const TxPowerBackend stable = backend;
+        if (stable.context == nullptr || stable.ownerEpoch == 0U ||
+            stable.permitWrite == nullptr || stable.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::MissingAuthorization;
+        if (authorization.use != RadioInitialization::TransmitReceive ||
+            !radioInitializationAuthorized(authorization))
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::InvalidBar;
+        // The forced-gain register lies above all 12 rate and AR_TPC words.
+        if (stable.barLengthBytes < kTxForcedGain + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        TxPowerRegisterImage registers {};
+        progress.result = TxPowerProgramResult::InvalidCandidate;
+        if (makeAr9565TxRateRegisters(candidate, registers) !=
+            TxPowerProgramResult::Ok)
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::OwnershipLost;
+        if (!txPermit(stable, progress) ||
+            !txWriteVerified(stable, progress, kTxForcedGain, 0U))
+        {
+            return progress;
+        }
+        for (size_t index = 0; index < kAr9565RatePowerRegisters; ++index)
+        {
+            if (!txWriteVerified(stable, progress,
+                                 kTxRateBase + (static_cast<uint32_t>(index) *
+                                                kTxRateStride),
+                                 at(registers.words, index)))
+            {
+                return progress;
+            }
+        }
+        // Preserve non-ACK/CTS fields; do not grant autonomous responses.
+        progress.lastOffset = kAutoResponseTpc;
+        if (!txPermit(stable, progress))
+        {
+            return progress;
+        }
+        uint32_t oldTpc = 0;
+        if (!stable.read32(stable.context, kAutoResponseTpc, &oldTpc))
+        {
+            progress.result = TxPowerProgramResult::ReadFailed;
+            return progress;
+        }
+        ++progress.completedReads;
+        const uint32_t ackCts =
+            static_cast<uint32_t>(registers.ackCtsHalfDbm) & kMaxPowerField;
+        const uint32_t desiredTpc =
+            (oldTpc & ~kAckCtsMask) | ackCts | (ackCts << kAckCtsShift);
+        if (!txWriteVerified(stable, progress, kAutoResponseTpc, desiredTpc) ||
+            !txPermit(stable, progress))
+        {
+            return progress;
+        }
+        progress.result = TxPowerProgramResult::Ok;
+        progress.requiresReset = false;
+        return progress;
     }
 
 } // namespace simpleath

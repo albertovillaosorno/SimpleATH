@@ -1,3 +1,4 @@
 src/hardware/Ar9565Power.cpp
 src/hardware/Ar9565Eeprom.cpp
 src/hardware/Ar9565Core.cpp
+src/hardware/Ar9565InitCatalog.cpp

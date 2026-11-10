@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Alberto Villa Osorno.
 // Synthetic half-dBm EEPROM target selection, NOT a hardware TX power index.
 #include "hardware/Ar9565Eeprom.hpp"
+#include "hardware/Ar9565InitCatalog.hpp"
 #include "hardware/Ar9565Power.hpp"
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 using namespace simpleath;
@@ -106,6 +108,28 @@ namespace
     constexpr auto kTwoCtlRowEdgeBytes = 8U;
     constexpr auto kUnsupportedHtRate = 0x88;
     constexpr auto kVoltageReferenceOrOffbandBin = 100;
+    constexpr uint32_t kTxRateBase = 0xa3c0U;
+    constexpr uint32_t kTxRateStride = 4U;
+    constexpr uint32_t kTxForcedGain = 0xa458U;
+    constexpr uint32_t kTxAutoTpc = 0x80e8U;
+    constexpr uint32_t kTxInitialAutoTpc = 0xa5000000U;
+    constexpr uint32_t kTxAckCtsMask = 0x00003f3fU;
+    constexpr uint32_t kTxAckCtsShift = 8U;
+    constexpr uint32_t kTxClampedCckWord = 0x11111616U;
+    constexpr uint8_t kTxClampedCckLow = 22U;
+    constexpr uint8_t kTxClampedCckHigh = 27U;
+    constexpr uint8_t kTxClampedCckElevenLow = 17U;
+    constexpr uint32_t kTxEpoch = 42U;
+    constexpr uint32_t kTxBarBytes = 0xa45cU;
+    constexpr uint32_t kTxInitialForcedGain = 99U;
+    constexpr uint32_t kTxExpectedPacked = 0x18181818U;
+    constexpr uint32_t kTxExpectedPackedCck2 = 0x18180018U;
+    constexpr size_t kTxExpectedWrites = 14U;
+    constexpr size_t kTxExpectedReads = 15U;
+    constexpr size_t kTxHt40RegisterWord = 6U;
+    constexpr size_t kTxMixedRateRegisterWord = 10U;
+    constexpr size_t kFirstCommittedWrite = 1U;
+    constexpr size_t kSecondCommittedWrite = 2U;
 
     enum class Failure : int
     {
@@ -138,6 +162,15 @@ namespace
         Cck11ReverseMinimum = 27,
         Cck12Rates = 28,
         Channel6Calibration = 30,
+        TxRatePack = 31,
+        TxRateRejected = 32,
+        TxGateRejected = 33,
+        TxRateReadback = 34,
+        TxRateEpochLoss = 35,
+        TxRateWriteFailed = 36,
+        TxRateReadFailed = 37,
+        TxRateHt40Pack = 38,
+        TxRateReadMismatch = 39,
     };
 
     struct RateFixture
@@ -640,6 +673,227 @@ namespace
         return 0;
     }
 
+    struct SimulatedTxRegisters
+    {
+            std::array<uint32_t, kAr9565RatePowerRegisters> rates {};
+            uint32_t forcedGain {kTxInitialForcedGain};
+            uint32_t automaticTpc {kTxInitialAutoTpc};
+            size_t writes {};
+            size_t reads {};
+            size_t denyAfterWrites {kTxExpectedWrites + 1U};
+            bool failAfterFirstWrite {};
+            bool failReadback {};
+            bool mismatchReadback {};
+    };
+
+    bool fakePermit(void *context, uint64_t epoch)
+    {
+        const auto &state = *static_cast<SimulatedTxRegisters *>(context);
+        return epoch == kTxEpoch && state.writes < state.denyAfterWrites;
+    }
+
+    bool fakeRead(void *context, uint32_t offset, uint32_t *value)
+    {
+        auto &state = *static_cast<SimulatedTxRegisters *>(context);
+        ++state.reads;
+        if (state.failReadback && offset == kTxRateBase)
+        {
+            return false;
+        }
+        if (value == nullptr)
+        {
+            return false;
+        }
+        if (offset == kTxForcedGain)
+        {
+            *value = state.forcedGain;
+            return true;
+        }
+        if (offset == kTxAutoTpc)
+        {
+            *value = state.automaticTpc;
+            return true;
+        }
+        if (offset >= kTxRateBase &&
+            offset <
+                kTxRateBase + (kAr9565RatePowerRegisters * kTxRateStride) &&
+            ((offset - kTxRateBase) % kTxRateStride == 0))
+        {
+            *value = state.rates.at((offset - kTxRateBase) / kTxRateStride);
+            if (state.mismatchReadback && offset == kTxRateBase)
+            {
+                *value ^= 1U;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    bool fakeWrite(void *context, uint32_t offset, uint32_t value)
+    {
+        auto &state = *static_cast<SimulatedTxRegisters *>(context);
+        ++state.writes;
+        if (offset == kTxForcedGain)
+        {
+            state.forcedGain = value;
+        }
+        else if (offset == kTxAutoTpc)
+        {
+            state.automaticTpc = value;
+        }
+        else if (offset >= kTxRateBase &&
+                 offset < kTxRateBase +
+                              (kAr9565RatePowerRegisters * kTxRateStride) &&
+                 ((offset - kTxRateBase) % kTxRateStride == 0))
+        {
+            state.rates.at((offset - kTxRateBase) / kTxRateStride) = value;
+        }
+        else
+        {
+            return false;
+        }
+        return !state.failAfterFirstWrite ||
+               state.writes != kFirstCommittedWrite;
+    }
+
+    int verifyTxRateProgramming(const BoardFixture &fixture)
+    {
+        const auto &candidate = fixture.output;
+        TxPowerRegisterImage registerImage {};
+        if (makeAr9565TxRateRegisters(candidate, registerImage) !=
+                TxPowerProgramResult::Ok ||
+            registerImage.words[0] != kTxExpectedPacked ||
+            registerImage.words[2] != kTxExpectedPackedCck2 ||
+            registerImage.words[4] != 0U ||
+            registerImage.words[kTxHt40RegisterWord] != 0U ||
+            registerImage.ackCtsHalfDbm != kCtlLimitedHalfDbm)
+        {
+            return static_cast<int>(Failure::TxRatePack);
+        }
+        PowerCandidates unequal = candidate;
+        unequal.cck[0] = kTxClampedCckLow;
+        unequal.cck[1] = kTxClampedCckHigh;
+        unequal.cck[2] = kTxClampedCckHigh;
+        unequal.cck[3] = kTxClampedCckElevenLow;
+        if (makeAr9565TxRateRegisters(unequal, registerImage) !=
+                TxPowerProgramResult::Ok ||
+            registerImage.words[3] != kTxClampedCckWord)
+        {
+            return static_cast<int>(Failure::TxRatePack);
+        }
+        PowerCandidates ht40 = candidate;
+        ht40.ht20Present = true;
+        ht40.ht40Present = true;
+        ht40.extensionMhz = kExtensionMhz;
+        ht40.synthMhz = kSynthMhz;
+        uint8_t nextGroupPower = 1U;
+        for (uint8_t &power : ht40.ht20)
+        {
+            power = nextGroupPower++;
+        }
+        nextGroupPower = 2U;
+        for (uint8_t &power : ht40.ht40)
+        {
+            power = nextGroupPower++;
+        }
+        constexpr uint32_t kPackedHt20First = 0x04030201U;
+        constexpr uint32_t kPackedHt40First = 0x05040302U;
+        constexpr uint32_t kPackedHtMixedLast = 0x0f0e0e0dU;
+        if (makeAr9565TxRateRegisters(ht40, registerImage) !=
+                TxPowerProgramResult::Ok ||
+            registerImage.words[4] != kPackedHt20First ||
+            registerImage.words[kTxHt40RegisterWord] != kPackedHt40First ||
+            registerImage.words[kTxMixedRateRegisterWord] != kPackedHtMixedLast)
+        {
+            return static_cast<int>(Failure::TxRateHt40Pack);
+        }
+        PowerCandidates bad = candidate;
+        bad.cck[0] = kOverCeilingHalfDbm;
+        registerImage.words[0] = kTxExpectedPacked;
+        if (makeAr9565TxRateRegisters(bad, registerImage) !=
+                TxPowerProgramResult::InvalidCandidate ||
+            registerImage.words[0] != 0U)
+        {
+            return static_cast<int>(Failure::TxRateRejected);
+        }
+
+        SimulatedTxRegisters state {};
+        const TxPowerBackend backend {
+            &state, kTxEpoch, kTxBarBytes, fakePermit, fakeWrite, fakeRead,
+        };
+        CalibrationAndRegulatory authority {};
+        authority.use = RadioInitialization::TransmitReceive;
+        if (programAr9565TxRateRegisters(candidate, authority, backend)
+                    .result != TxPowerProgramResult::MissingAuthorization ||
+            state.writes != 0U)
+        {
+            return static_cast<int>(Failure::TxGateRejected);
+        }
+        authority.eepromContentsVerified = true;
+        authority.boardAntennaConfigurationVerified = true;
+        authority.localCountryRulesAvailable = true;
+        authority.channelPermitted = true;
+        authority.txPowerLimitsVerified = true;
+        authority.radioKillUnblocked = true;
+        authority.coexistenceConfigurationVerified = true;
+        const auto completed =
+            programAr9565TxRateRegisters(candidate, authority, backend);
+        const uint32_t expectedAckCts =
+            static_cast<uint32_t>(kCtlLimitedHalfDbm) |
+            (static_cast<uint32_t>(kCtlLimitedHalfDbm) << kTxAckCtsShift);
+        if (completed.result != TxPowerProgramResult::Ok ||
+            completed.requiresReset ||
+            completed.completedWrites != kTxExpectedWrites ||
+            completed.completedReads != kTxExpectedReads ||
+            state.forcedGain != 0U || state.rates.at(0U) != kTxExpectedPacked ||
+            (state.automaticTpc & kTxAckCtsMask) != expectedAckCts ||
+            (state.automaticTpc & ~kTxAckCtsMask) != kTxInitialAutoTpc)
+        {
+            return static_cast<int>(Failure::TxRateReadback);
+        }
+        state = {};
+        state.denyAfterWrites = kFirstCommittedWrite;
+        const auto revoked =
+            programAr9565TxRateRegisters(candidate, authority, backend);
+        if (revoked.result != TxPowerProgramResult::OwnershipLost ||
+            !revoked.requiresReset ||
+            revoked.completedWrites != kFirstCommittedWrite)
+        {
+            return static_cast<int>(Failure::TxRateEpochLoss);
+        }
+        state = {};
+        state.failAfterFirstWrite = true;
+        const auto failed =
+            programAr9565TxRateRegisters(candidate, authority, backend);
+        if (failed.result != TxPowerProgramResult::WriteFailed ||
+            !failed.requiresReset || failed.completedWrites != 0U ||
+            state.writes != kFirstCommittedWrite)
+        {
+            return static_cast<int>(Failure::TxRateWriteFailed);
+        }
+        state = {};
+        state.failReadback = true;
+        const auto badRead =
+            programAr9565TxRateRegisters(candidate, authority, backend);
+        if (badRead.result != TxPowerProgramResult::ReadFailed ||
+            !badRead.requiresReset ||
+            badRead.completedWrites != kSecondCommittedWrite)
+        {
+            return static_cast<int>(Failure::TxRateReadFailed);
+        }
+        state = {};
+        state.mismatchReadback = true;
+        const auto mismatch =
+            programAr9565TxRateRegisters(candidate, authority, backend);
+        if (mismatch.result != TxPowerProgramResult::ReadbackMismatch ||
+            !mismatch.requiresReset ||
+            mismatch.completedWrites != kSecondCommittedWrite)
+        {
+            return static_cast<int>(Failure::TxRateReadMismatch);
+        }
+        return 0;
+    }
+
 } // namespace
 
 int main()
@@ -659,6 +913,10 @@ int main()
         return failure;
     }
     if (const int failure = verifyBoardSetup(board))
+    {
+        return failure;
+    }
+    if (const int failure = verifyTxRateProgramming(board))
     {
         return failure;
     }

@@ -91,5 +91,73 @@ namespace simpleath
                                       uint8_t rateCode, bool ht40,
                                       uint8_t &halfDbm);
 
+    // AR9003 per-rate TPC bank (AR_PHY_POWER_TX_RATE 0..11), FCS-independent.
+    // Packed half-dBm targets remain arithmetic candidates, not complete
+    // temperature/PAPRD/antenna-calibrated hardware TX power indexes.
+    constexpr size_t kAr9565RatePowerRegisters = 12U;
+
+    struct TxPowerRegisterImage
+    {
+            uint32_t words[kAr9565RatePowerRegisters] {};
+            uint8_t ackCtsHalfDbm {};
+    };
+
+    enum class TxPowerProgramResult : uint8_t
+    {
+        Ok,
+        InvalidCandidate,
+        InvalidBackend,
+        MissingAuthorization,
+        InvalidBar,
+        OwnershipLost,
+        ReadFailed,
+        WriteFailed,
+        ReadbackMismatch,
+        InvalidArgument,
+    };
+
+    // Pure packing of the ath9k hardware rate-word order. No device access.
+    // Inactive rates get numeric zero (0 dBm, NOT RF mute); the native owner
+    // MUST gate every packet and all automatic MAC responses independently.
+    // Invalid input wipes output; output/candidate alias returns untouched.
+    TxPowerProgramResult
+    makeAr9565TxRateRegisters(const PowerCandidates &candidate,
+                              TxPowerRegisterImage &out);
+
+    // Requires the real native PCI owner's serialized D0/epoch gate. Every
+    // callback is synchronous and non-reentrant; permit must recheck an
+    // independently sourced physical board, actually applied temperature/
+    // voltage/TPC calibration, legal runtime country/channel/antenna limits,
+    // RF-kill, BT coexistence and FULL MAC/EDMA/automatic-TX quiescence.
+    // This routine never enables automatic ACK/CTS, TX queues, or PHY TX; the
+    // AR_TPC power fields alone are not an authorization to transmit.
+    struct TxPowerBackend
+    {
+            void *context {};
+            uint64_t ownerEpoch {};
+            uint32_t barLengthBytes {};
+            bool (*permitWrite)(void *context, uint64_t epoch) {};
+            bool (*write32)(void *context, uint32_t offset, uint32_t value) {};
+            bool (*read32)(void *context, uint32_t offset, uint32_t *value) {};
+    };
+
+    struct TxPowerProgramProgress
+    {
+            TxPowerProgramResult result {TxPowerProgramResult::InvalidBackend};
+            size_t completedWrites {};
+            size_t completedReads {};
+            uint32_t lastOffset {};
+            bool requiresReset {};
+    };
+
+    // Programs and reads back forced-gain OFF, all 12 rate words, then AR_TPC
+    // ACK/CTS power fields, preserving unrelated AR_TPC fields. Any ambiguous
+    // write/readback or epoch loss after writes requires a native PHY reset
+    // before retry. A source-only Ok is not calibrated RF or TX readiness.
+    TxPowerProgramProgress
+    programAr9565TxRateRegisters(const PowerCandidates &candidate,
+                                 const CalibrationAndRegulatory &authorization,
+                                 const TxPowerBackend &backend);
+
 } // namespace simpleath
 #endif
