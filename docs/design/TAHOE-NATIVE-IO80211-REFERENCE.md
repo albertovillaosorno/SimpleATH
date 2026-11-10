@@ -1,6 +1,10 @@
 # External native AirPort precedent for Tahoe — source research only
 
-The experimental third-party AirportRtw88 project reports real native
+Earlier sections preserve the historical ABI research snapshots. The latest
+production source status is recorded in the concrete native packet-path and
+version-2 join/card-inventory sections below.
+
+The third-party AirportRtw88 project reports real native
 IO80211 scanning, WPA2 association, DHCP, IPv4/IPv6 and macOS Wi-Fi menu
 on Intel Tahoe 26.6.2 build 25G83 with RTL8821CE PCI 10ec:c821.
 This is a reference for architectural feasibility, NOT AR9565 validation.
@@ -37,9 +41,10 @@ and HT metadata. LegacyScanBridge provides a stable completed scan snapshot
 that can remain visible during a later ongoing radio scan, without returning
 pointers into DMA or a live mutable cache.
 
-This is ONLY a portable result model. The actual macOS IO80211Controller
-subclass, Apple80211 request dispatcher, native scan event client, AirPort
-packet queue, PCI owner and key management APIs are not implemented.
+This was initially only a portable result model. The later implementation
+sections below supersede that initial snapshot: concrete modern native
+controller, InfraProtocol, packet queues, scan and join callers now exist.
+Physical RF activation and complete platform integration remain open.
 
 ## Exact 25G332 control-path evidence and source integration gates
 
@@ -116,7 +121,7 @@ source integration boundary (still unverified for the exact native ABI) is:
 | --- | --- |
 | UI scan, network choice and credentials | macOS AirPort control client requests scan/join; controller validates selectors, copies requests, and chooses one authorized channel/BSS. Portable `ScanCache` may supply verified results but must never invent radio dwell or SCAN_DONE |
 | 802.11 open authentication and association | Native controller serializes physical MAC TX/RX and calls `WifiEngine`/`Station` for frame parsing/production. OS `joinStarted`/`joinDone` are notifications **after** real state transitions, never a parallel second state machine |
-| WPA2-PSK PMK, PTK, GTK, replay and controlled port | Decide which side owns 4-way handshake **before** enabling adapter. With current source, `Wpa2Supplicant` owns derivation/EAPOL state, while a verified native key backend alone installs hardware keys and validates PN/MIC. If the selected Tahoe Apple80211 contract instead delegates PMK/PTK to the OS and delivers `CIPHER_KEY`, do **not** run the portable handshake in parallel; adapt to the OS-owned protocol and disable conflicting transitions. Neither arrangement has a verified native implementation today |
+| WPA2-PSK PMK, PTK, GTK, replay and controlled port | Decide which side owns 4-way handshake **before** enabling adapter. With current source, `Wpa2Supplicant` owns derivation/EAPOL state, while a verified native key backend alone installs hardware keys and validates PN/MIC. If the selected Tahoe Apple80211 contract instead delegates PMK/PTK to the OS and delivers `CIPHER_KEY`, do **not** run the portable handshake in parallel; adapt to the OS-owned protocol and disable conflicting transitions. The implemented modern WCL path now uses driver-owned supplication through the version-2 native owner contract; runtime behavior remains unverified |
 | Network-ready and packet delivery | Open the controlled data port only after real association, authorized channel, pairwise/group key installation and replay protection. OS-owned packet buffers and network stack handle Ethernet-II payload delivery, DHCP, IPv4/IPv6, DNS and TCP; the kext does **not** build a parallel IP stack |
 | Disconnect, sleep, new join, teardown | Work-loop owner closes the controlled port first, revokes queues/user callbacks, quiesces DMA, erases keys/replay state, retires association/scan epochs and then notifies OS. Never publish connected state during recovery or after a stale callback |
 
@@ -287,7 +292,63 @@ Darwin SDK C++14 syntax-only checking; the production-used scan codec passes
 its offline host fixture for truncated requests, 5/6 GHz overlap, SSID filters,
 maximum rate/RSN payload capacity and malformed RSN rejection. No kext
 compilation, link, load, radio or physical traffic test has run. Source/global
-lint is not claimed clean. Native association/PMK handshake ownership and
-completion events, remaining status/capability selectors, RF activation,
-Bluetooth-host integration and AWDL remain open requirements; this is not a
-claim that the driver is 100% complete or usable on the notebook yet.
+lint is not claimed clean. The subsequent version-2 join and capability implementation below supersedes
+the previous missing-control-path snapshot. RF activation, remaining required
+selectors, Bluetooth-host integration and AWDL still prevent a 100% source or
+notebook-readiness claim.
+
+## Version-2 native join and capability inventory — 2026-11-10
+
+The production WCL associate slot now decodes the fixed 0x2cc native request,
+including exact BSSID/SSID/channel and either a supplied PMK or bounded
+passphrase-to-PMK derivation. `NativeConnectRequest` carries a provider epoch,
+monotonic request ID and an owned 32-byte PMK. `SimpleATHWirelessOwnerV2`
+negotiates this changed shape explicitly. Transport and physical provider
+make short-lived copies and erase them after their gates return. The provider
+uses the driver-owned `WifiEngine` open/WPA2 selection paths; a macOS-owned
+four-way handshake is no longer assumed for this modern request.
+
+`JoinSession` runs in the actual InfraProtocol polling path. It matches the
+provider epoch, request ID, exact BSSID and successful association generation.
+Association, first freshly observed associated beacon, real controlled-port
+opening and connection completion are distinct observations. Parser success,
+a queued authentication frame or a supplied PMK cannot emit connected state.
+Abort/leave, timeout, provider loss and successor generations retire the old
+session. `getWCL_BSS_INFO` encodes the provider's copied associated BSS; RSSI
+requires a genuine current-association signal measurement.
+
+The source used the retained BE200 WCL files for protocol research, then
+checked the following facts directly in matching 25G332 IO80211Family (UUID
+`4C2B4969-2B92-3646-9512-C1769BE0F9A4`). These are static ABI observations,
+not loaded-kernel validation, and no implementation bodies were imported.
+
+| Native consumer | Observed requirement |
+| --- | --- |
+| `WCLJoinManager::authAssocCompleteEventHandler`, 0xf47aa | Exact 0x1c event extent |
+| `WCLJoinManager::firstBeaconEventHandler`, 0xf4832 | Exact 0x14 event extent |
+| `WCLJoinManager::connectCompleteEventHandler`, 0xf48b4 | Exact 0xa4 event extent |
+| `WCLJoinRequest::updateFirstBeaconEvent`, 0x11ea12 | BSSID at byte 4, driver status/reason at byte 12, status/reason at bytes 0/2 |
+| `WCLJoinRequest::updateConnectCompleteEvent`, 0x11eb0c | First peer driver status/reason at byte 12, status/reason at bytes 0/2 |
+| `WCLNetManager::handleSupplicantEvent`, 0xec12 | Exact 0x28 event; `updateSupplicantEvent` reads status at byte 8 |
+| `WCLNetManager::linkStatusInd`, 0xd77c | Link-up byte at offset 6 |
+| `WCLDeviceConfiguration::setCardCapbilities`, 0xf04fc | Copies three qwords and one dword: 0x1c bytes total |
+| `WCLDeviceConfiguration::getCardCapbilities`, 0xf0534 | Stored envelope begins at object-data offset 0xc98 |
+| `is6GSupported`, `isHeSupported`, `isEhtSupported` | Bitmap byte 11 bit 6, byte 17 bit 7, byte 17 bit 4, respectively |
+
+The controller's card-capability getter now supplies that complete modern
+28-byte envelope instead of always returning Unsupported or copying the
+compatibility SDK's smaller legacy 16-byte structure. It describes CCMP,
+WPA2, short slot/preamble and the implemented asynchronous scan/completion
+contract. It does not imply radio readiness, advertise unrelated PHY bands,
+or turn the still-missing native AWDL service into a claimed capability.
+Inventory remains queryable before RF startup and while the radio is off.
+The exact bitmap and padding are represented by `TahoeCapabilities.hpp` in
+the normal production controller; there is no experimental opt-in path.
+
+The capability fixture verifies the independent native extent, wire offsets,
+required bits, zeroed later feature/padding bytes and neighboring sentinels.
+Its host run and strict SDK C++14 controller syntax pass. Existing join
+lifecycle/wire fixtures passed C++14/C++17 ASan/UBSan. These focused checks do
+not establish global lint success, native linking, packet registration or
+physical traffic. Required RF/country/coexistence orchestration, complete
+native packet/CCMP operation, Bluetooth host and AirDrop/AWDL remain open.

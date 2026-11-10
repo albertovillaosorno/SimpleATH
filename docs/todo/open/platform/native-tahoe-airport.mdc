@@ -72,16 +72,16 @@ prerequisite.**
 ## Start here and next implementation step
 
 Read TAHOE-NATIVE-IO80211-REFERENCE.md and the exact-build KDK record. The
-current target's SimpleATH service is passive. The retained NativeSkywalk/
+current source includes a native controller and physical PCI owner. The retained NativeSkywalk/
 Bridge code is an old Ethernet-wrapper research path, not an AR9565-native
 controller; source presence or renamed identifiers do not close this task.
 
-First settle the exact usable Tahoe family and superclass ABI with A1. Then
-implement a real native controller/interface and bounded Apple80211 request/
-event dispatcher: scan start/results/completion, connect/disconnect, SSID/BSSID,
-channel, RSSI, auth/key and power state. Connect real packet input/output and
-ownership/backpressure to the EDMA and MAC/security owners. Keep UI state tied
-to real association generations, including stop and resume cancellation.
+Continue from the existing exact-Tahoe modern controller/InfraProtocol,
+version-2 join and bounded packet path; do not introduce a parallel legacy
+wrapper. Implement the remaining country/regulatory and native control
+operations, connect genuine RF/channel activation, and complete packet/CCMP
+ownership across EDMA, MAC and security. Keep UI state tied to actual
+association generations, including stop and resume cancellation.
 
 Apple documents [NetworkingDriverKit](https://developer.apple.com/documentation/networkingdriverkit)
 as Ethernet-only; its interface cannot satisfy native AirPort. Public third-party
@@ -127,6 +127,39 @@ for exact static evidence and remaining ABI assumptions.
 Strict syntax-only SDK checks passed for 3 changed native translation units;
 the production scan codec's host fixture passed. Nineteen native method labels
 were verified as defined external symbols in the exact KDK. These checks do
-not prove loading, packet registration or RF success. Required native join/
-PMK ownership, completion/status/capability operations and AWDL are still
-missing; physical RF activation is also not complete. This TODO stays open.
+not prove loading, packet registration or RF success. The source progress
+below supersedes the initially missing native join/PMK and capability paths;
+remaining native operations, AWDL and physical RF activation still keep this
+TODO open.
+
+### Integrated WCL join and card inventory follow-through
+
+`78b2aa7` and subsequent native fixes connect version-2 epoch/request-scoped
+PMK delivery to the physical driver's real selection/authentication path.
+The native child now posts association, first-beacon, supplicant, connection,
+abort and loss events only from matching observed provider state, with bounded
+timeout and copied BSS/signal metadata. These are normal target callers,
+not standalone codecs. Safe EDMA key-update work is separately integrated;
+this record does not claim end-to-end WPA2 or packet operation without the
+remaining RF startup and native transport work.
+
+The controller's previously unconditional Unsupported card-capability response
+is replaced with a complete 0x1c native envelope: CCMP/WPA2, short timing and
+asynchronous scan/completion inventory. KDK `setCardCapbilities` at 0xf04fc
+copies exactly 28 bytes; the compatibility SDK's legacy structure is only 16.
+Exact later feature-byte readers were checked before zeroing unsupported
+bands/HE/EHT rather than copying a different chipset's bitmap. The new normal
+controller uses `TahoeCapabilities.hpp`, covered by an offline wire-layout
+fixture and strict SDK C++14 syntax. Full lint and runtime proof are separate.
+
+Additional concrete references for this control-plane implementation:
+
+- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/AirportItlwmV2.cpp` — card capability semantics; unrelated Intel feature masks are not imported.
+- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/include/Airport/apple80211_ioctl.h` — modern WCL capability shape.
+- `.references/MacKernelSDK/Headers/IOKit/80211/apple80211_ioctl.h` — legacy layout comparison, not exact modern ABI authority.
+
+Next required native work: full source-derived RF/country/coexistence activation,
+remaining WCL selectors, complete packet/CCMP lifecycle and AWDL host/virtual
+interface integration. Do not close the parent task on inventory or fixture
+success. Continue using `rg` in `.references/` and primary web sources when
+contracts are unclear, updating the sole `.references/ledger.jsonl`.

@@ -1,5 +1,6 @@
 #include "SimpleATHTahoeController.hpp"
 #include "SimpleATHInfraProtocol.hpp"
+#include "TahoeCapabilities.hpp"
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeControllerABI.hpp"
@@ -286,10 +287,16 @@ IOReturn SimpleATHTahoeController::getHardwareVersion(
 IOReturn SimpleATHTahoeController::getCardCapabilities(
     IO80211SkywalkInterface * /*unused*/, void *buffer)
 {
-    // The modern 25G332 capability byte layout and dispatch are not confirmed
-    // by the legacy SDK. Reject instead of advertising 5 GHz, HT40, AWDL or
-    // WPA3 capabilities that AR9565 does not provide.
-    return (buffer != nullptr) ? kIOReturnUnsupported : kIOReturnBadArgument;
+    if (buffer == nullptr)
+    {
+        return kIOReturnBadArgument;
+    }
+    // This is the modern fixed native GET envelope, not the smaller legacy
+    // apple80211_capability_data in the compatibility SDK. Inventory must
+    // remain available before RF/association and while the radio is off.
+    const auto capabilities = simpleath::tahoe::ar9565Capabilities();
+    memcpy(buffer, &capabilities, sizeof(capabilities));
+    return kIOReturnSuccess;
 }
 
 IOReturn
