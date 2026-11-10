@@ -24,10 +24,12 @@ It’s just for fun—we’ll see if it works or not.
 I used some "**G**arbage & **P**oop **L**overs" license—I absolutely loathe it.
 I preferred having access to Linux source code to use for this project.
 
-GitHub Actions on standard hosted runners (including `macos-26-intel`) is
-free while this repository is public. Larger runners cost money, and
-artifact storage has separate billing limits; I use standard runners and
-one-day artifact retention. See the official GitHub billing details:
+GitHub currently lists this repository as **private**, so hosted macOS
+Actions could incur charges beyond the account's included usage. Standard
+GitHub-hosted runners (including `macos-26-intel`) are free for **public**
+repositories; larger runners and excess artifact storage can cost money.
+The workflows refuse to allocate macOS runners while the repository is
+private, and use one-day artifact retention. Billing details:
 https://docs.github.com/en/actions/concepts/billing-and-usage
 
 ## Development protocol
@@ -206,7 +208,8 @@ The runner uses the project's Python 3.14 tool environment.
 ## Builds, CI and hardware testing
 
 The GitHub Actions workflows are **tag-only** and do not run on ordinary
-`main` pushes, pull requests or manual workflow dispatch:
+`main` pushes, pull requests or manual workflow dispatch. They also require
+**public** repository visibility, to avoid chargeable private-runner usage:
 
 - `ci` or `ci-*`: run the complete macOS-mode validator and offline host tests
   on the standard Intel Tahoe runner. **No kext is built.**

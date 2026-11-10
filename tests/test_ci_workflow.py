@@ -21,6 +21,7 @@ REQUIRED_VALIDATOR = "python3 -B tools/validate.py --no-cache"
 REUSABLE_CI = "uses: ./.github/workflows/ci.yml"
 VALIDATE_JOB = "  validate:"
 LOG_UPLOAD_CONDITION = "if: always()"
+PUBLIC_RUNNER_GUARD = "github.event.repository.private == false"
 FORBIDDEN_EVENTS = ("pull_request:", "workflow_dispatch:", "schedule:")
 CI_REQUIREMENTS = (
     "runs-on: macos-26-intel",
@@ -82,6 +83,7 @@ class TagGatedCI(unittest.TestCase):
         ci = CI.read_text(encoding="utf-8")
         for required in CI_REQUIREMENTS:
             assert required in ci
+        assert PUBLIC_RUNNER_GUARD in ci
         for forbidden in CI_FORBIDDEN:
             assert forbidden not in ci
 
@@ -93,6 +95,8 @@ class TagGatedCI(unittest.TestCase):
         validation, kernel_build = jobs.split("\n  build:\n", maxsplit=1)
         assert VALIDATE_JOB in validation
         assert REUSABLE_CI in validation
+        assert PUBLIC_RUNNER_GUARD in validation
+        assert PUBLIC_RUNNER_GUARD in kernel_build
         for required in BUILD_REQUIREMENTS:
             assert required in kernel_build
         assert (

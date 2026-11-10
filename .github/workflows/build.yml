@@ -16,12 +16,14 @@ concurrency:
 jobs:
   validate:
     name: Required full macOS validation
+    if: github.event.repository.private == false
     uses: ./.github/workflows/ci.yml
 
   build:
     name: Build x86_64 kext after successful validation
     needs: validate
     if: >-
+      github.event.repository.private == false &&
       needs.validate.result == 'success' &&
       startsWith(github.ref, 'refs/tags/build-v')
     runs-on: macos-26-intel

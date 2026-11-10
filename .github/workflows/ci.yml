@@ -18,6 +18,7 @@ concurrency:
 jobs:
   validate:
     name: Full macOS source validation
+    if: github.event.repository.private == false
     runs-on: macos-26-intel
     timeout-minutes: 60
     steps:
