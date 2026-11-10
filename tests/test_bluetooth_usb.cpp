@@ -489,6 +489,75 @@ namespace
                                  kReadBufferSize.size()) == UsbHciStatus::Ok;
     }
 
+    bool testAclHandlePressure()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        if (attachUsbHci(state, kEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kReadBufferSize.data(),
+                              kReadBufferSize.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        // The physical controller can expose more buffers than this owner's
+        // fixed number of live handle slots. Capacity must remain bounded.
+        auto response = kBufferSizeResponse;
+        constexpr size_t kTotalAclPacketsOffset = 9U;
+        response.at(kTotalAclPacketsOffset) =
+            static_cast<uint8_t>(kUsbHciTrackedAclHandles + 1U);
+        if (receiveUsbHciEvent(state, host(fake), response.data(),
+                               response.size()) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        constexpr std::array<uint8_t, 5U> kExampleAcl {
+            1U, 0x20U, 1U, 0U, 0x7fU,
+        };
+        auto acl = kExampleAcl;
+        for (size_t index = 0; index < kUsbHciTrackedAclHandles; ++index)
+        {
+            acl.at(0U) = static_cast<uint8_t>(index + 1U);
+            if (sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
+                UsbHciStatus::Ok)
+            {
+                return false;
+            }
+        }
+        acl.at(0U) = static_cast<uint8_t>(kUsbHciTrackedAclHandles + 1U);
+        if (state.aclWindow.availableCredits != 1U ||
+            sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
+                UsbHciStatus::TooManyConnections)
+        {
+            return false;
+        }
+        constexpr std::array<uint8_t, 7U> kCompleteFirst {
+            0x13U, 5U, 1U, 1U, 0U, 1U, 0U,
+        };
+        if (receiveUsbHciEvent(state, host(fake), kCompleteFirst.data(),
+                               kCompleteFirst.size()) != UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), acl.data(), acl.size()) !=
+                UsbHciStatus::Ok ||
+            state.aclWindow.availableCredits != 1U)
+        {
+            return false;
+        }
+        // Two entries for one handle in a single completion event are
+        // ambiguous even when their sum does not exceed the outstanding
+        // count. Neither entry may credit a partially validated event.
+        constexpr std::array<uint8_t, 11U> kDuplicate {
+            0x13U, 9U, 2U, 2U, 0U, 1U, 0U, 2U, 0U, 1U, 0U,
+        };
+        return receiveUsbHciEvent(state, host(fake), kDuplicate.data(),
+                                  kDuplicate.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted && state.aclWindow.availableCredits == 1U;
+    }
+
     bool testHci()
     {
         UsbFake fake = newFake();
@@ -604,5 +673,9 @@ int main()
     {
         return 2;
     }
-    return testAclCredits() ? 0 : 3;
+    if (!testAclCredits())
+    {
+        return 3;
+    }
+    return testAclHandlePressure() ? 0 : 4;
 }
