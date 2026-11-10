@@ -518,6 +518,27 @@ namespace ath
                     capacity > 0x80000 || (capacity & 3) ||
                     length > MaximumEventPayload || (length && !payload))
                     return RingResult::Invalid;
+                // The status word is atomically published at a 4-byte aligned
+                // address. Never clobber retained ring/owner metadata or
+                // borrowed inputs while serializing a new event record.
+                const auto ringStart = reinterpret_cast<uintptr_t>(ring);
+                const auto overlapsRing = [ringStart,
+                                           capacity](const void *pointer,
+                                                     size_t bytes) -> bool
+                {
+                    if (!pointer || !bytes)
+                        return false;
+                    const auto source = reinterpret_cast<uintptr_t>(pointer);
+                    return ringStart <= source ? source - ringStart < capacity
+                                               : ringStart - source < bytes;
+                };
+                if ((ringStart & (alignof(uint32_t) - 1U)) ||
+                    overlapsRing(state, sizeof(*state)) ||
+                    overlapsRing(&write, sizeof(write)) ||
+                    overlapsRing(&sequence, sizeof(sequence)) ||
+                    overlapsRing(name, sizeof(EventHeader::interfaceName)) ||
+                    overlapsRing(payload, length))
+                    return RingResult::Invalid;
                 const uint32_t read =
                     __atomic_load_n(&state->read, __ATOMIC_ACQUIRE);
                 if (read >= capacity || write >= capacity ||
