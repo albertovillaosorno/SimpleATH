@@ -55,6 +55,7 @@ tests/**/*        linguist-documentation=false eol=lf linguist-detectable
 tools/**/*        linguist-documentation=false eol=lf linguist-detectable
 cpp/**/*          linguist-documentation=false eol=lf linguist-detectable
 src/**/*          linguist-documentation=false eol=lf linguist-detectable
+src/linux/**/*    linguist-documentation=true  eol=lf linguist-detectable
 
 # Binaries
 *.png             binary
