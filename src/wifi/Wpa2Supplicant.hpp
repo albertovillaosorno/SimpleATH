@@ -165,22 +165,22 @@ namespace simpleath
             private:
                 Wpa2Result fail(Wpa2Result error);
                 static void secureClear(uint8_t *ptr, size_t length);
-                Wpa2State state_;
-                Wpa2Crypto crypto_;
+                Wpa2State state_ {Wpa2State::Inactive};
+                Wpa2Crypto crypto_ {};
                 ReplayGuard replay_;
-                Mac station_;
-                Mac ap_;
-                uint8_t pmk_[kWpa2PmkBytes];
-                uint8_t ptk_[kWpa2PtkBytes];
-                uint8_t snonce_[kWpa2NonceBytes];
-                uint8_t expectedRsnIe_[kMaxRsnIeBytes];
-                size_t expectedRsnIeLength_;
-                uint8_t eapolVersion_;
-                bool keyInstallAttempted_;
-                uint64_t lastGroupReplayCounter_;
+                Mac station_ {};
+                Mac ap_ {};
+                uint8_t pmk_[kWpa2PmkBytes] {};
+                uint8_t ptk_[kWpa2PtkBytes] {};
+                uint8_t snonce_[kWpa2NonceBytes] {};
+                uint8_t expectedRsnIe_[kMaxRsnIeBytes] {};
+                size_t expectedRsnIeLength_ {0};
+                uint8_t eapolVersion_ {0};
+                bool keyInstallAttempted_ {false};
+                uint64_t lastGroupReplayCounter_ {0};
                 // Reset/begin revoke callbacks from an earlier handshake even
                 // when a provider reenters reset()+begin() before returning.
-                uint64_t sessionEpoch_;
+                uint64_t sessionEpoch_ {0};
         };
 
     } // namespace ieee80211
