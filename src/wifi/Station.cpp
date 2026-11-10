@@ -45,6 +45,17 @@ namespace simpleath
                 return address;
             }
 
+            const uint8_t *pointerAt(const uint8_t *base, size_t offset)
+            {
+                uintptr_t address = pointerAddress(base);
+                address += offset;
+                const uint8_t *result = nullptr;
+                __builtin_memcpy(static_cast<void *>(&result),
+                                 static_cast<const void *>(&address),
+                                 sizeof(result));
+                return result;
+            }
+
             bool overlapsStorage(const void *first, size_t firstBytes,
                                  const void *second, size_t secondBytes)
             {
@@ -69,7 +80,8 @@ namespace simpleath
                 {
                     return false;
                 }
-                Elements cursor(frame + kRatesOffset, length - kRatesOffset);
+                Elements cursor(pointerAt(frame, kRatesOffset),
+                                length - kRatesOffset);
                 Element element {};
                 bool sharedRate = false;
                 while (cursor.next(element) == CursorStatus::Element)
@@ -84,22 +96,24 @@ namespace simpleath
                         // A raw BSS may contain optional PHY rates omitted
                         // from our association request. Only negotiated
                         // local/AP rates can make a response compatible.
+                        const uint8_t receivedRate =
+                            *pointerAt(element.data, i);
                         const bool supported =
-                            associationRateSupported(selected, element.data[i]);
+                            associationRateSupported(selected, receivedRate);
                         // A response's basic bit is part of the negotiated
                         // BSS contract, not merely a supported PHY code. The
                         // AP cannot upgrade an optional rate to mandatory
                         // after our association request. Duplicate beacon
                         // rates may carry either bit, so accept a required
                         // response rate only when it was originally basic.
-                        if ((element.data[i] & kBasicRateFlag) != 0)
+                        if ((receivedRate & kBasicRateFlag) != 0)
                         {
                             bool selectedBasic = false;
                             for (size_t j = 0; j < selected.rateCount; ++j)
                             {
                                 selectedBasic |=
                                     boundedElement(selected.rates, j) ==
-                                    element.data[i];
+                                    receivedRate;
                             }
                             if (!supported || !selectedBasic)
                             {
@@ -332,7 +346,8 @@ namespace simpleath
             // using a response that advertises the opposite protection bit.
             // parseAssociationResponse already proved the 24-byte header and
             // six-byte fixed response body are present.
-            if (((static_cast<uint32_t>(bytes[kAssociationCapabilitiesOffset]) ^
+            if (((static_cast<uint32_t>(
+                      *pointerAt(bytes, kAssociationCapabilitiesOffset)) ^
                   static_cast<uint32_t>(chosen_.beacon.capabilities)) &
                  kPrivacyCapabilityBit) != 0)
             {
