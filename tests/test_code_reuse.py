@@ -3,28 +3,57 @@
 
 from __future__ import annotations
 
-import importlib.util
+from contextlib import contextmanager
 import hashlib
 import io
 import json
 from pathlib import Path
-import sys
+import re
 import tarfile
 import tempfile
+from typing import TYPE_CHECKING
+from typing import cast
 import unittest
 from unittest import mock
+import urllib.request
 
-SCRIPT = (
-    Path(__file__).resolve().parents[1] / "tools" / "references" / "download.py"
-)
-SPEC = importlib.util.spec_from_file_location("simpleath_code_reuse", SCRIPT)
-assert SPEC is not None and SPEC.loader is not None
-REUSE = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = REUSE
-SPEC.loader.exec_module(REUSE)
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+from tools.references import download as ref_download
+
+
+@contextmanager
+def expect_exception(
+    error_type: type[Exception], pattern: str | None = None
+) -> Generator[None]:
+    """Verify an exception and optional message without a third-party runner.
+
+    Raises:
+        AssertionError: If the expected error or message does not occur.
+
+    """
+    try:
+        yield
+    except error_type as error:
+        if pattern is not None and re.search(pattern, str(error)) is None:
+            raise AssertionError from error
+    else:
+        raise AssertionError
+
+
+EXPECTED_SPDX_LICENSE = "BSD-3-Clause"
+SDK_EXPECTED_FILE_COUNT = 2
+GIT_METADATA = b"local Git metadata"
 
 
 def archive_bytes(name: str, payload: bytes) -> bytes:
+    """Build a source-only archive fixture.
+
+    Returns:
+        Compressed bytes representing one archive entry.
+
+    """
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz") as archive:
         entry = tarfile.TarInfo(name)
@@ -34,8 +63,14 @@ def archive_bytes(name: str, payload: bytes) -> bytes:
 
 
 class ReferenceAcquisitionTests(unittest.TestCase):
-    def test_complete_cache_and_preserved_assessment(self) -> None:
-        repository = REUSE.Repository("fixture", "example/fixture", "a" * 40, 1)
+    """Exercise pinned caches and immutable ledger history."""
+
+    @staticmethod
+    def test_complete_cache_and_preserved_assessment() -> None:
+        """Retain verified source metadata and prior analyst assessments."""
+        repository = ref_download.Repository(
+            "fixture", "example/fixture", "a" * 40, 1
+        )
         payload = (
             b"// SPDX-License-Identifier: BSD-3-Clause\nint source_only;\n"
         )
@@ -43,61 +78,69 @@ class ReferenceAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with mock.patch.object(
-                REUSE.urllib.request,
+                urllib.request,
                 "urlopen",
                 return_value=io.BytesIO(archive),
             ) as network:
-                records = REUSE.download(repository, root)
+                records = ref_download.download(repository, root)
                 network.assert_called_once()
-            self.assertEqual(records[0]["spdx_in_source"], "BSD-3-Clause")
+            assert records[0]["spdx_in_source"] == EXPECTED_SPDX_LICENSE
             ledger = root / "ledger.jsonl"
-            self.assertEqual(REUSE.update_ledger(ledger, records), 1)
-            row = json.loads(ledger.read_text())
+            assert ref_download.update_ledger(ledger, records) == 1
+            row = cast("dict[str, object]", json.loads(ledger.read_text()))
             row["status"] = "partially-adapted"
             row["destinations"] = ["src/fixture.cpp"]
-            ledger.write_text(json.dumps(row) + "\n")
+            _ = ledger.write_text(json.dumps(row) + "\n")
             reviewed = ledger.read_bytes()
             with mock.patch.object(
-                REUSE.urllib.request,
+                urllib.request,
                 "urlopen",
                 side_effect=AssertionError("offline means no network"),
             ):
-                cached = REUSE.download(repository, root, offline=True)
-            self.assertEqual(REUSE.update_ledger(ledger, cached), 0)
-            self.assertEqual(ledger.read_bytes(), reviewed)
-            checkout = (
+                cached = ref_download.download(repository, root, offline=True)
+            assert ref_download.update_ledger(ledger, cached) == 0
+            assert ledger.read_bytes() == reviewed
+            _ = (
                 root / repository.name / repository.revision / "source.cpp"
-            )
-            checkout.write_text("modified reference")
-            with self.assertRaisesRegex(ValueError, "source changed"):
-                REUSE.download(repository, root, offline=True)
+            ).write_text("modified reference")
+            with expect_exception(ValueError, "source changed"):
+                _ = ref_download.download(repository, root, offline=True)
 
-    def test_traversal_never_writes_outside_checkout(self) -> None:
+    @staticmethod
+    def test_traversal_never_writes_outside_checkout() -> None:
+        """Reject archive path traversal before creating outside files."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             archive = root / "malformed.tar.gz"
-            archive.write_bytes(
+            _ = archive.write_bytes(
                 archive_bytes("fixture/../outside.txt", b"must not escape")
             )
             checkout = root / "tree"
             checkout.mkdir()
-            with self.assertRaisesRegex(ValueError, "Unsafe"):
-                REUSE.extract_sources(archive, checkout)
-            self.assertFalse((root / "outside.txt").exists())
+            with expect_exception(ValueError, "Unsafe"):
+                _ = ref_download.extract_sources(archive, checkout)
+            assert not ((root / "outside.txt").exists())
 
-    def test_missing_offline_cache_is_an_error(self) -> None:
+    @staticmethod
+    def test_missing_offline_cache_is_an_error() -> None:
+        """Fail when required offline source bytes are unavailable."""
         with tempfile.TemporaryDirectory() as directory:
-            repository = REUSE.Repository(
+            repository = ref_download.Repository(
                 "missing", "example/missing", "b" * 40, 1
             )
-            with self.assertRaises(FileNotFoundError):
-                REUSE.download(repository, Path(directory), offline=True)
+            with expect_exception(FileNotFoundError):
+                _ = ref_download.download(
+                    repository, Path(directory), offline=True
+                )
 
-    def test_linux_restore_preserves_mixed_ledger_and_assessments(self) -> None:
+    @staticmethod
+    def test_linux_restore_preserves_mixed_ledger_and_assessments() -> None:
+        """Restore Linux bytes without changing the provenance history."""
         payload = b"// Linux source, retained fixture\n"
+        linux_source = "linux/drivers/bluetooth/ath3k.c"
         row = {
             "schema": 1,
-            "source": "linux/drivers/bluetooth/ath3k.c",
+            "source": linux_source,
             "sha256": hashlib.sha256(payload).hexdigest(),
             "revision": "a" * 40,
             "upstream_path": "drivers/bluetooth/ath3k.c",
@@ -107,7 +150,7 @@ class ReferenceAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             ledger = root / "ledger.jsonl"
-            ledger.write_text(
+            _ = ledger.write_text(
                 json.dumps(row)
                 + "\n"
                 + json.dumps({
@@ -121,66 +164,78 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             )
             before = ledger.read_bytes()
             with mock.patch.object(
-                REUSE.urllib.request,
+                urllib.request,
                 "urlopen",
                 return_value=io.BytesIO(payload),
             ):
-                self.assertEqual(REUSE.download_linux(root), 1)
-            self.assertEqual((root / row["source"]).read_bytes(), payload)
+                assert ref_download.download_linux(root) == 1
+            assert (root / linux_source).read_bytes() == payload
             with mock.patch.object(
-                REUSE.urllib.request,
+                urllib.request,
                 "urlopen",
                 side_effect=AssertionError("offline"),
             ):
-                self.assertEqual(REUSE.download_linux(root, offline=True), 1)
-            self.assertEqual(ledger.read_bytes(), before)
-            self.assertEqual(REUSE.update_ledger(ledger, []), 0)
-            self.assertEqual(ledger.read_bytes(), before)
-            (root / row["source"]).write_bytes(b"changed")
-            with self.assertRaisesRegex(ValueError, "Linux source changed"):
-                REUSE.download_linux(root, offline=True)
+                assert ref_download.download_linux(root, offline=True) == 1
+            assert ledger.read_bytes() == before
+            assert ref_download.update_ledger(ledger, []) == 0
+            assert ledger.read_bytes() == before
+            _ = (root / linux_source).write_bytes(b"changed")
+            with expect_exception(ValueError, "Linux source changed"):
+                _ = ref_download.download_linux(root, offline=True)
 
-    def test_linux_bad_download_is_never_published(self) -> None:
+    @staticmethod
+    def test_linux_bad_download_is_never_published() -> None:
+        """Refuse mismatched Linux source content before publishing it."""
+        linux_source = "linux/net/mac80211/scan.c"
         row = {
             "schema": 1,
-            "source": "linux/net/mac80211/scan.c",
+            "source": linux_source,
             "revision": "b" * 40,
             "upstream_path": "net/mac80211/scan.c",
             "sha256": hashlib.sha256(b"correct").hexdigest(),
         }
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "ledger.jsonl").write_text(json.dumps(row) + "\n")
-            with mock.patch.object(
-                REUSE.urllib.request,
-                "urlopen",
-                return_value=io.BytesIO(b"incorrect"),
+            _ = (root / "ledger.jsonl").write_text(json.dumps(row) + "\n")
+            with (
+                mock.patch.object(
+                    urllib.request,
+                    "urlopen",
+                    return_value=io.BytesIO(b"incorrect"),
+                ),
+                expect_exception(ValueError, "hash mismatch"),
             ):
-                with self.assertRaisesRegex(ValueError, "hash mismatch"):
-                    REUSE.download_linux(root)
-            self.assertFalse((root / row["source"]).exists())
+                _ = ref_download.download_linux(root)
+            assert not ((root / linux_source).exists())
 
-    def test_missing_custom_ledger_uses_canonical_history(self) -> None:
+    @staticmethod
+    def test_missing_custom_ledger_uses_canonical_history() -> None:
+        """Seed a separate cache from the tracked canonical history."""
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             canonical = project / ".references/ledger.jsonl"
             canonical.parent.mkdir()
-            canonical.write_text(
+            _ = canonical.write_text(
                 '{"schema":1,"source":"linux/source","implementation":"partial"}\n'
             )
             destination = project / "separate-cache"
-            with mock.patch.object(REUSE, "ROOT", project):
-                REUSE.seed_ledger(destination)
-            self.assertEqual(
-                (destination / "ledger.jsonl").read_bytes(),
-                canonical.read_bytes(),
-            )
+            with mock.patch.object(ref_download, "ROOT", project):
+                ref_download.seed_ledger(destination)
+            assert (
+                destination / "ledger.jsonl"
+            ).read_bytes() == canonical.read_bytes()
 
-    def test_sparse_sdk_adoption_checks_old_bytes_and_fills_missing_files(
-        self,
-    ) -> None:
-        repository = REUSE.Repository(
-            "MacKernelSDK", "example/sdk", "c" * 40, 2, True
+    @staticmethod
+    def test_sparse_sdk_adoption_checks_old_bytes_and_fills_missing_files() -> (
+        None
+    ):
+        """Compare existing SDK bytes before adopting a complete archive."""
+        repository = ref_download.Repository(
+            "MacKernelSDK",
+            "example/sdk",
+            "c" * 40,
+            SDK_EXPECTED_FILE_COUNT,
+            flat=True,
         )
         archive = io.BytesIO()
         with tarfile.open(fileobj=archive, mode="w:gz") as bundle:
@@ -195,40 +250,53 @@ class ReferenceAcquisitionTests(unittest.TestCase):
             root = Path(directory)
             old = root / "MacKernelSDK/Headers/header.h"
             old.parent.mkdir(parents=True)
-            old.write_bytes(b"header")
+            _ = old.write_bytes(b"header")
             metadata = root / "MacKernelSDK/.git/config"
             metadata.parent.mkdir()
-            metadata.write_bytes(b"local Git metadata")
+            _ = metadata.write_bytes(GIT_METADATA)
             with mock.patch.object(
-                REUSE.urllib.request,
+                urllib.request,
                 "urlopen",
                 return_value=io.BytesIO(archive.getvalue()),
             ):
-                records = REUSE.download(repository, root)
-            self.assertEqual(len(records), 2)
-            self.assertTrue((root / "MacKernelSDK/LICENSE.txt").is_file())
-            self.assertEqual(metadata.read_bytes(), b"local Git metadata")
-            self.assertEqual(
-                records, REUSE.download(repository, root, offline=True)
+                records = ref_download.download(repository, root)
+            assert len(records) == SDK_EXPECTED_FILE_COUNT
+            assert (root / "MacKernelSDK/LICENSE.txt").is_file()
+            assert metadata.read_bytes() == GIT_METADATA
+            assert records == ref_download.download(
+                repository, root, offline=True
             )
 
-    def test_hash_conflict_preserves_existing_ledger(self) -> None:
-        original = {
+    @staticmethod
+    def test_hash_conflict_preserves_existing_ledger() -> None:
+        """Keep the previous ledger untouched when source identity conflicts."""
+        original: ref_download.ReferenceRecord = {
+            "schema": "simpleath.reference.v1",
             "repository": "upstream",
             "revision": "commit",
             "path": "file",
+            "cache_path": "upstream/file",
             "sha256": "original",
+            "bytes": 0,
+            "kind": "file",
+            "spdx_in_source": None,
+            "license_review": "reviewed",
             "status": "reviewed",
+            "destinations": [],
+            "notes": "Synthetic ledger conflict fixture",
         }
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "ledger.jsonl"
-            self.assertEqual(REUSE.update_ledger(ledger, [original]), 1)
+            assert ref_download.update_ledger(ledger, [original]) == 1
             before = ledger.read_bytes()
-            changed = dict(original, sha256="different")
-            with self.assertRaisesRegex(ValueError, "differs from ledger"):
-                REUSE.update_ledger(ledger, [changed])
-            self.assertEqual(before, ledger.read_bytes())
+            changed: ref_download.ReferenceRecord = {
+                **original,
+                "sha256": "different",
+            }
+            with expect_exception(ValueError, "differs from ledger"):
+                _ = ref_download.update_ledger(ledger, [changed])
+            assert before == ledger.read_bytes()
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()
