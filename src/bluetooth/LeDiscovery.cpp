@@ -170,6 +170,37 @@ namespace simpleath
             return LeDiscoveryResult::Ignored;
         }
 
+        // An AD structure starts with its size (type byte + payload), not
+        // including the size octet itself. A zero size may terminate the
+        // data with zero padding; nonzero bytes after it are malformed.
+        // Check these boundaries before publishing any report in the event.
+        bool validLegacyAd(const uint8_t *data, size_t bytes)
+        {
+            size_t cursor = 0U;
+            while (cursor < bytes)
+            {
+                const size_t field = *usbByteOffset(data, cursor);
+                if (field == 0U)
+                {
+                    while (cursor < bytes)
+                    {
+                        if (*usbByteOffset(data, cursor) != 0U)
+                        {
+                            return false;
+                        }
+                        ++cursor;
+                    }
+                    return true;
+                }
+                if (field > bytes - cursor - 1U)
+                {
+                    return false;
+                }
+                cursor += field + 1U;
+            }
+            return true;
+        }
+
         // Validate ALL reports before delivery, avoiding partial consumption
         // of one malformed controller event. Legacy HCI advertising reports
         // have at most 31 AD bytes; extended events are not interpreted.
@@ -197,7 +228,10 @@ namespace simpleath
                     *usbByteOffset(event, offset + kAdvertDataLengthOffset);
                 if (kind > 4U || addressType > 1U ||
                     length > kLeLegacyAdvertisingBytes ||
-                    bytes - offset - kReportHeaderBytes < length + 1U)
+                    bytes - offset - kReportHeaderBytes < length + 1U ||
+                    !validLegacyAd(
+                        usbByteOffset(event, offset + kReportHeaderBytes),
+                        length))
                 {
                     return false;
                 }

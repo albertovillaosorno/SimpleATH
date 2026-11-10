@@ -582,6 +582,22 @@ namespace
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
+        Fixture malformedAd {};
+        if (!malformedAd.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto invalidAd = kAdvertisement;
+        invalidAd.at(1U) = kEventPayloadBytes;
+        // Report Data_Length is 3, but the AD field claims four bytes.
+        invalidAd.at(kAdvertDataLengthOffset + 1U) = 4U;
+        if (malformedAd.accept(invalidAd.data(), invalidAd.size() - 1U) !=
+                LeDiscoveryResult::MalformedEvent ||
+            malformedAd.fake().reports != 0U ||
+            malformedAd.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
         Fixture revoked {};
         if (!revoked.start())
         {
@@ -638,6 +654,21 @@ namespace
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
+        Fixture invalidAd {};
+        if (!invalidAd.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        packet.at(kSecondReportOffset + kReportDataLengthOffset) = 3U;
+        packet.at(kSecondReportOffset + kReportDataLengthOffset + 1U) = 4U;
+        // Validate all reports before delivering the first.
+        if (invalidAd.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::MalformedEvent ||
+            invalidAd.fake().reports != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        packet.at(kSecondReportOffset + kReportDataLengthOffset + 1U) = kAdByte;
         Fixture revoked {};
         if (!revoked.start())
         {
