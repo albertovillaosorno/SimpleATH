@@ -7,6 +7,7 @@ lane: A10
 phase: source-only
 hardware_required: false
 dependencies:
+  - "production-implementation"
   - "validator-findings"
   - "exact-tahoe-abi"
   - "native-pci"
@@ -27,6 +28,11 @@ scope:
 # TODO - Finish source-only hardening/documentation
 
 ## Objective
+
+After 100% production implementation and zero-failure validation, continue
+edge-case hardening indefinitely while the owner tests the notebook and
+shares logs in this conversation. This work is parallel to authorized testing;
+its ongoing status must never block every hardware test indefinitely.
 
 Reason through bounds, overflow, lifetime, crypto erasure, regulatory safety,
 deadlocks, interrupt races, rollback, licensing and documentation. Keep
@@ -54,8 +60,8 @@ frameworks, kext compilation, CI or hardware diagnostics.
       import evidence. Preserve Linux/SimpleBCM notices; no renamed-driver
       identity or fabricated success claim may substitute for AR9565 support.
 - [ ] Close only when source work is complete and no known source-resolvable
-      blocker remains. Afterwards, continue theoretical/web hardening under
-      the indefinite hold; reopen source records for newly discovered work.
+      blocker remains. Afterwards, continue hardening alongside notebook testing;
+      reopen source records for newly discovered work.
 
 ## Start here and next implementation step
 
@@ -71,8 +77,8 @@ current source before changing it; peer commits may already have fixed it.
 Add a regression only if it materially tests behavior or an error boundary.
 Source-only completion still does not require a hardware dump or owner logs.
 
-After all pre-final records close, keep the owner-only final record open and
-continue this research/review loop indefinitely until new owner guidance.
+Keep the owner-only acceptance record open while continuous hardening and
+authorized notebook testing proceed together after implementation/validation.
 Reopen a source record for newly required implementation rather than hiding it
 under the final physical task. Keep the highest-priority ready work moving;
 do not use endless cosmetic cleanup to avoid a missing native driver path.

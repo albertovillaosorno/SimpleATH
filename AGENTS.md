@@ -3,7 +3,7 @@
 **Target:** Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036) native Wi-Fi
 for Intel macOS Tahoe on Dell Inspiron 5567.
 **Owner:** albertovillaosorno.
-**Status:** experimental; NOT verified as a working Wi-Fi driver.
+**Development priority:** production implementation and integration first; correction follows real, reproducible failures. Runtime verification is reported separately.
 Read TODO.md, README.md and relevant docs/design/ records before editing.
 Source code, comments, documents and commits are written in English.
 
@@ -22,14 +22,31 @@ If the public evidence is incomplete, record assumptions and implement
 safe rejection/rollback. Do not make up evidence or label assumptions
 as proven behavior.
 
-**FIRST finish every pre-final TODO. THEN harden the source and research
-indefinitely**, without scheduling builds or requesting physical tests.
-The hold has no expiry or target date. The owner alone decides when
-to end it and begin the FINAL TODO. Theoretical completion can be
-declared without hardware, but it is NOT proof of working networking.
+**FIRST IMPLEMENTATION, THEN CORRECTION.**
 
-When only the final acceptance TODO remains, the committed AR9565 source
-must be complete and integrated for all required paths, with no known
+The owner's 2026-11-09 order is: first implement the required production
+driver 100%; then validate linters with zero failures and zero skips; then
+continue edge-case hardening indefinitely and finish the remaining TODOs
+while the owner tests the notebook and supplies logs here. Keep CI as the
+mandatory gate before every kernel build. See the highest-priority
+`production-implementation` record in TODO.md. No required runtime path may
+be replaced by a passive property publisher or deferred behind hardening.
+
+Continuous hardening runs alongside authorized notebook testing after the
+implementation/validation milestones; it is never an indefinite testing hold.
+
+Required implementations belong in the normal production target. Do not
+hide them behind experimental feature flags, permanently false readiness
+methods, empty callbacks or future-work substitutes. Readiness must come
+from successful operations; never set success flags to conceal missing code.
+Report a specific failing stage and its real error so the owner can build,
+run and diagnose it. Missing source functionality is the highest-priority
+work; strict lint does not take precedence over implementing that path.
+CI remains a mandatory build gate: failed, canceled or skipped validation
+must block the kernel build. Fix findings without weakening checks.
+
+Before notebook testing, after the production-implementation and zero-failure
+validation milestones, the committed AR9565 source must be complete and integrated for all required paths, with no known
 source-resolvable blocker, placeholder, permanently disabled substitute,
 or invented readiness state. The owner must be able to request the first
 GitHub compilation of that exact commit through ONE explicitly authorized
@@ -40,8 +57,7 @@ neither source review nor lint can promise 100% runtime success before
 the owner-controlled experiment. Document unresolved platform assumptions
 honestly rather than marking an unavailable native interface complete.
 
-Only the final TODO permits experimental hardware activity after fresh,
-explicit owner authorization. The owner will physically test the
+Hardware deployment and testing require explicit owner authorization. The owner will physically test the
 Dell and share diagnostics in THIS ChatGPT conversation. Agents use
 their existing coordination chat to discuss source fixes; source
 changes will continue until the owner is satisfied. Bluetooth and
@@ -197,15 +213,11 @@ and fail-closed paths. Source review is not a statement of runtime
 reliability or cryptographic certification. Do not invent scan results,
 kernel logs, MACs, throughput or a claim of 100% tested Wi-Fi.
 
-**No agent may begin the final experiment or ask the owner to start it.
-The owner alone ends the indefinite theoretical-hardening hold.**
+**Implement 100% first, then reach zero lint failures, then harden indefinitely
+alongside owner-authorized notebook testing and the remaining TODOs.**
 
-When only P5 remains and no new owner instruction arrives, continue
-whole-source static hardening and web research indefinitely: compare
-versioned upstream code and documentation; find and repair concrete panic,
-memory, concurrency, DMA, power, security and regulatory defects. Record
-evidence and useful source commits, not cosmetic churn or invented bugs.
-Reopen an appropriate source TODO if new required work is discovered.
-Keep the AR9565 ledger current through reference retirement. This standing
-instruction never authorizes kext builds, tags, RF activity or P5 closure.
-Necessary offline host tests remain within the separate authorization above.
+After the implementation and validation milestones, continue evidence-backed
+edge-case hardening, recovery work and log-driven fixes indefinitely. The
+owner supplies real notebook logs here; agents coordinate source changes in
+their chat. CI remains mandatory for every build. Preserve explicit build,
+deployment and hardware authorization scopes, and report actual results.

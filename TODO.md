@@ -16,11 +16,34 @@ Ten agents coordinate in their existing chat, commit directly to main
 and do not open PRs. This repository does not use Jig. Use only the
 installed-tool validator tools/validate.py and its local .cache/ report.
 
-**Order:** finish all P0–P4 tasks; then harden theoretically
-**indefinitely**; only the owner may activate P5. The owner will
-perform the real hardware testing and send results in this chat.
+## FIRST IMPLEMENTATION, THEN CORRECTION
 
-**Priority rule:** work P0 first, then P1, P2, P3 and P4, following the
+Owner directive, 2026-11-09. This is the project's highest-priority order:
+
+1. **Implement the complete production driver, 100%.** Finish and connect
+   every required runtime path in the normal build target. Missing PCI,
+   RF/PHY/calibration, DMA/interrupts, native AirPort, scan/connect, WPA2,
+   packet delivery, power and recovery behavior takes precedence over
+   lint-only work or speculative hardening. No passive substitutes, empty
+   callbacks, experimental opt-ins or permanently disabled required features.
+2. **Then validate the linters and reach zero failures.** Resolve every
+   finding without weakening rules, hiding source or treating skips as passes.
+   Required checks must report zero failures and zero skips on the integrated
+   source. Do not substitute repeated lint sweeps for step 1.
+3. **Keep CI as the mandatory build gate.** A kernel build requires successful
+   CI for that exact commit; failed, canceled or skipped CI blocks the build.
+4. **Then harden edge cases indefinitely and finish the remaining TODOs while
+   testing the driver.** Once implementation and the zero-failure validation
+   milestone are met, ongoing hardening runs alongside owner-authorized
+   notebook testing. The owner shares real logs in this conversation; agents
+   diagnose, implement fixes and repeat the CI/build/test loop. Hardening has
+   no completion deadline and must never become an indefinite testing hold.
+
+Source completeness is an implementation milestone, not proof of physical
+Wi-Fi success. Readiness must reflect actual completed operations; never
+replace missing functionality with labels or fabricated success flags.
+
+**Priority rule:** implement missing runtime functionality first, following the
 recorded dependencies. Within a priority choose the next dependency-ready
 unfinished deliverable. If blocked, work on its actual prerequisite or an
 independent ready item and record why; do not silently skip implementation
@@ -31,7 +54,7 @@ without waiting. No stale file or quiet chat proves task completion.
 
 Each index entry has a TODO title, one summary and one typed-record link.
 
-## Criterion for leaving only the final TODO
+## Production implementation and testing milestones
 
 **Full theoretical functionality is the exit criterion: 100% of the required
 AR9565 kext behavior must be implemented and integrated.** Completion means
@@ -48,7 +71,8 @@ static evidence; lint alone is insufficient. All validator findings must
 be resolved without hiding files, weakening rules or calling skipped checks
 successful. Record which checks actually ran.
 
-At that point the owner must be able to request compilation of the exact
+After the implementation and zero-failure validation milestones, the owner
+must be able to request compilation of the exact
 reviewed commit in GitHub Actions using ONE expressly authorized `build-v*`
 tag. Do not create a tag, dispatch CI, compile a kext locally, install or experiment
 without the corresponding explicit authorization. No exact tag is authorized
@@ -62,14 +86,14 @@ and separate Bluetooth/Continuity support must remain honestly documented.
 
 ## P0 — Source-only
 
-### TODO - Resolve validator findings and review interrupted Python edits
+### TODO - Complete production driver implementation — highest priority
 
-Finish the pending lint/type corrections, review the interrupted edits under
-tools/, preserve every script's behavior and obtain a fresh full validator
-report with no unresolved findings. Necessary offline host tests are allowed;
-kext builds, CI and hardware experiments remain unauthorized.
+Implement and integrate 100% of the required native AR9565 driver behavior
+before starting the zero-failure lint milestone. This umbrella TODO drives
+all required ABI, PCI, NVM, radio, DMA, Wi-Fi and full-pipeline deliverables
+below. It remains open while any required runtime path is absent or disabled.
 
-[docs/todo/open/governance/validator-findings.mdc](docs/todo/open/governance/validator-findings.mdc)
+[docs/todo/open/integration/production-implementation.mdc](docs/todo/open/integration/production-implementation.mdc)
 
 ### TODO - Tahoe ABI
 
@@ -157,7 +181,19 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 
 [docs/todo/open/integration/full-wifi-pipeline.mdc](docs/todo/open/integration/full-wifi-pipeline.mdc)
 
-## P4 — Source-only
+## Validation milestone — after 100% implementation
+
+### TODO - Resolve validator findings and review interrupted Python edits
+
+After implementing the entire required driver, finish pending lint/type
+corrections and review interrupted edits under tools/. Preserve every script's
+behavior and obtain a fresh full validator
+report with no unresolved findings. Necessary offline host tests are allowed;
+kext builds, CI and hardware experiments remain unauthorized.
+
+[docs/todo/open/governance/validator-findings.mdc](docs/todo/open/governance/validator-findings.mdc)
+
+## P4 — Continuous hardening and remaining source work
 
 ### TODO - Finish source-only hardening/documentation
 
@@ -180,29 +216,24 @@ not an unnecessary port. The deletion conditions are not satisfied today.
 
 [docs/todo/open/governance/linux-reference-retirement.mdc](docs/todo/open/governance/linux-reference-retirement.mdc)
 
-## Indefinite theoretical hardening
+## Continuous hardening alongside notebook testing
 
-After P0–P4 source completion, continue research and source hardening
-without deadline, physical checks or owner diagnostic requests.
-This hold ends ONLY by an explicit owner decision.
-
-When the acceptance TODO below is the sole open item and the owner gives no
-new instruction, keep researching with web search and reviewing the entire
-driver indefinitely. Find and repair concrete panic, bounds, lifetime,
-locking, interrupt, DMA, power, cryptographic and regulatory defects. Compare
-versioned source/documentation and record evidence, maintain the AR9565
-ledger, and reopen source tasks when newly required work is found. Never
-substitute formatting churn or unsupported safety claims for implementation.
+After 100% implementation and zero-failure validation, continue edge-case
+hardening indefinitely and complete the remaining documentation, provenance
+and maintenance TODOs. This work proceeds in parallel with the owner's
+authorized notebook tests and the log-driven repair loop. It never delays
+all testing until an unfinishable hardening phase is declared complete.
+Every subsequent kernel build still requires successful CI.
 
 ## P5 — FINAL TODO: owner-controlled physical testing
 
 ### TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
 
 The owner starts separately authorized Dell experiments only after all
-theoretical tasks and the indefinite hold, then shares diagnostics here for
+required implementation, zero-failure validation and successful CI, then
+shares diagnostics here during continuous hardening for
 agent-guided bug fixes until the requested result is reached.
 This task NEVER closes unless the owner explicitly asks to close it, even
-after successful experiments. Without that request it remains open while
-the standing theoretical-hardening instruction continues.
+after successful experiments. Without that request it remains open.
 
 [docs/todo/open/owner/owner-controlled-device-acceptance.mdc](docs/todo/open/owner/owner-controlled-device-acceptance.mdc)

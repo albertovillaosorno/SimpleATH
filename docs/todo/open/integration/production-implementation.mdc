@@ -1,0 +1,63 @@
+---
+schema: simpleath.todo.v1
+id: production-implementation
+status: open
+priority: P0
+lane: integration
+phase: source-only
+hardware_required: false
+dependencies: []
+scope:
+  - "src/"
+  - "src/platform/SimpleATH.xcodeproj/"
+  - "src/Info.plist"
+---
+
+# TODO - Complete production driver implementation — highest priority
+
+## Owner directive
+
+**FIRST IMPLEMENTATION, THEN CORRECTION.** Implement the complete required
+production driver, 100%, before starting the zero-failure lint milestone.
+This is the highest-priority umbrella TODO and takes precedence over
+lint-only cleanup, speculative hardening and conflicting older hold language.
+
+## Required implementation
+
+- [ ] Native PCI ownership/power, mapped registers and complete lifecycle.
+- [ ] EEPROM/OTP acquisition, board data and applied RF/PHY calibration.
+- [ ] Revision-correct reset, PLL/channel configuration and regulatory power.
+- [ ] Actual DMA rings, packet buffers, interrupts, completion and recovery.
+- [ ] Native Tahoe Wi-Fi controller/interface and OS packet/event contracts.
+- [ ] Real scan, authentication, association, WPA2/CCMP/key lifecycle and traffic.
+- [ ] Suspend/resume, disconnect/reconnect, partial failure and teardown.
+- [ ] All required paths are connected to real callers and included in the
+      normal production target, without experimental opt-ins, empty methods,
+      passive substitutes or permanently disabled required functionality.
+
+## Acceptance and subsequent order
+
+1. Close this TODO only when every required source workflow above is fully
+   implemented and integrated, with no known source-resolvable missing path.
+   Focused behavior tests support implementation; they do not replace it or
+   prove physical Wi-Fi function.
+2. Then complete validator-findings: zero lint/check failures and zero skips,
+   preserving all rules and source coverage. Keep CI as the mandatory gate
+   before every kernel build of the exact reviewed commit.
+3. Then continue edge-case hardening indefinitely and finish the remaining
+   TODOs alongside the owner's authorized notebook tests. The owner supplies
+   real logs in this conversation; agents diagnose and fix actual failures,
+   repeat CI/build/testing and keep the owner-controlled acceptance TODO open
+   until the owner explicitly requests its closure.
+
+Hardening must not become an indefinite prerequisite for notebook testing.
+This roadmap does not fabricate runtime success or authorize an unspecified
+build tag, deployment or hardware action.
+
+## Current evidence and missing source
+
+The native entrypoint now owns PCI, maps registers, quiesces MAC engines,
+runs RTC bootstrap and discovers EEPROM/OTP board data. PCI and DMA source
+are compiled normally. These implementations are progress, not completion:
+calibrated RF/channel programming, hardware queues/interrupts, native AirPort
+registration and the connected scan/association/packet workflow remain open.

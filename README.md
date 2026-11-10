@@ -1,6 +1,6 @@
 # SimpleATH
 
-**Experimental, source-first native Wi-Fi kernel extension for Intel macOS
+**Native Wi-Fi kernel extension for Intel macOS
 Tahoe, targeting the Qualcomm Atheros AR9565 / QCA9565 (PCI 168c:0036)
 in the Dell Inspiron 5567.**
 
@@ -8,7 +8,7 @@ in the Dell Inspiron 5567.**
 authorized binary was a passive device-matching prototype; the substantial
 AR9565 radio, MAC, DMA, WPA2 and native AirPort code added since then has
 not been built into a new authorized kext or tested on the Dell.
-A few portable modules now have offline host regressions; those do not
+The normal target now includes a native PCI owner with serialized power, BAR access, RTC reset and EEPROM acquisition. RF calibration, hardware queues and native Wi-Fi registration are still required for scanning and networking. Portable modules have offline host regressions; those do not
 verify kernel loading, native AirPort or real device operation. The development goal is genuine
 macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
@@ -46,31 +46,28 @@ available driver sources. They implement and harden the driver and
 its fail-closed behavior without requiring Dell diagnostics,
 EEPROM dumps, RF measurements or user testing.
 
-**Order of operations:** finish ALL source-only TODOs, then
-continue theoretical source hardening **indefinitely**. No deadline,
-scheduled release or automatic transition to experiments exists.
-Only when the owner explicitly decides the time is right will
-the last TODO begin. **The owner personally tests the Dell and
-shares logs/diagnostics in this ChatGPT conversation**; the agents
-then coordinate real-bug fixes in their own chat and commit them
-directly to main. This owner-led loop repeats until the outcome
-is satisfactory.
+**FIRST IMPLEMENTATION, THEN CORRECTION.** The owner's 2026-11-09 order is:
+implement the complete production driver 100%; then resolve all lint/check
+failures to zero without weakening rules; then harden edge cases indefinitely
+and finish the remaining TODOs while testing the notebook. The owner shares
+logs here, and agents use them to implement real fixes. Continuous hardening
+must never become an indefinite testing hold. CI remains the mandatory gate
+before every kernel build.
 
-When only the final acceptance TODO remains, all required AR9565 source
-must be complete, integrated on main and reviewed, with no known source
-blocker or passive-only substitute. The owner can then request the first
+Before notebook testing, all required AR9565 source must be complete,
+integrated on main and reviewed, with no known missing implementation or
+passive-only substitute, and validation must reach zero failures. Continuous
+hardening and remaining maintenance TODOs may stay open during testing. The owner can then request the first
 GitHub compilation of that exact commit through one expressly authorized
 `build-v*` tag. Reaching this milestone never authorizes a build by itself.
 The objective is fully functional Wi-Fi; source review cannot guarantee
 first-run success. The final TODO stays open until the owner explicitly
 asks to close it, including after otherwise successful experiments.
 
-Without a new owner instruction, agents continue whole-source theoretical
-hardening and web research indefinitely, repairing concrete defects and
-reopening source TODOs when needed. Complete the AR9565 Linux ledger and
-the dedicated reference-retirement TODO before removing the local linux/
-tree. Existing inline notices and THIRD_PARTY_NOTICES.md are sufficient;
-no additional reference archive or preservation infrastructure is required.
+Agents finish missing runtime implementations, reach zero validation failures,
+then continue hardening alongside authorized notebook testing.
+Complete the AR9565 Linux ledger and reference-retirement TODO before removing
+the local linux/ tree. Existing notices preserve third-party attribution.
 
 Source-level completeness is not empirical proof. Unknown hardware
 values, regulatory conditions and private macOS ABI differences
@@ -79,8 +76,9 @@ misrepresented as verified.
 
 ## Architecture and current source
 
-- **PCI and device identity:** guarded AR9565 register/session source,
-  power/ownership and mapped-DMA transport contracts.
+- **PCI and device identity:** native AR9565 ownership, live identity/D0 checks,
+  BAR mapping, ordered active MMIO, RTC bootstrap and EEPROM acquisition in
+  `SimpleATH::start`, with gated sleep/resume/termination and startup errors.
 - **EEPROM, OTP and calibration:** bounded parsing, revision-specific
   definitions and generated register recipes derived from ath9k.
 - **RF/PHY and regulatory rules:** static channel, calibration and
@@ -107,6 +105,30 @@ Bluetooth may be a separate chipset on the Dell; **AirDrop also depends
 on Bluetooth and macOS Continuity compatibility**. Neither Bluetooth
 nor AirDrop can be guaranteed solely by writing an AR9565 Wi-Fi kext.
 Both remain goals of the owner-controlled final experimental cycle.
+
+## Build for macOS testing
+
+From the repository root on an Intel Mac with Xcode and the pinned SDK:
+
+```sh
+python3 tools/bootstrap_sdk.py
+xcodebuild -project src/platform/SimpleATH.xcodeproj -target SimpleATH \
+  -configuration Release SYMROOT="$PWD/build/Products" \
+  OBJROOT="$PWD/build/Objects" CODE_SIGNING_ALLOWED=NO build
+```
+
+The unsigned bundle is `build/Products/Release/SimpleATH.kext`. It now runs
+PCI claim/map, physical silicon inspection, MAC quiescence, RTC bootstrap and
+EEPROM discovery when loaded on the target. `SimpleATHStartupStage` reports
+progress; failures log the exact stage and detail code. `BoardAcquired` means
+reset and board acquisition succeeded; it does not mean Wi-Fi can yet scan or
+connect. Remaining RF/calibration, queue/interrupt and AirPort integration
+stays open in TODO.md.
+
+An owner-authorized `build-v*` tag first runs full macOS CI. The kernel build
+requires that CI job to succeed; failed, canceled or skipped validation blocks
+compilation. Fix real validation errors rather than bypassing this gate. Ordinary source pushes do not
+trigger a kext build. The `-simpleathoff` boot argument still disables matching.
 
 ## Tooling: explicitly NOT a Jig repository
 

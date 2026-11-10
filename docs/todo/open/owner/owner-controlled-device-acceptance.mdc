@@ -6,10 +6,11 @@ priority: P5
 lane: owner
 phase: owner-authorized-hardware
 hardware_required: true
-hold: indefinite-until-explicit-owner-decision
+hold: after-production-implementation-and-zero-failure-validation
 closure: explicit-owner-request-required
 build_route: github-actions-single-explicitly-authorized-build-v-tag
 dependencies:
+  - "production-implementation"
   - "exact-tahoe-abi"
   - "eeprom-otp"
   - "native-pci"
@@ -19,24 +20,25 @@ dependencies:
   - "wpa2-ccmp"
   - "native-tahoe-airport"
   - "full-wifi-pipeline"
-  - "source-hardening"
   - "validator-findings"
-  - "linux-reference-retirement"
 ---
 
 # TODO - Owner-controlled Wi-Fi Bluetooth and AirDrop acceptance
 
 ## Objective
 
-Only AFTER every P0-P4 record is source-complete and the indefinite hardening
-hold is expressly ended by the owner, begin the real Dell diagnostic/repair
-loop in this ChatGPT conversation.
+After 100% production implementation and zero-failure validation, run the
+owner-authorized Dell diagnostic/repair loop alongside continuous edge-case
+hardening and the remaining maintenance TODOs. The owner supplies real logs
+in this conversation; agents coordinate implementation and corrections in
+their chat, then repeat the CI/build/test loop.
 
-When this is the ONLY open TODO, the exact main commit must have complete,
-integrated AR9565 source and no known source-resolvable blockers. The owner
-can then request its first compilation through ONE specifically authorized
-GitHub `build-v*` tag. No tag, build or experiment is authorized by reaching
-this state. Local builds and alternate CI triggers are not permitted.
+Hardening continues indefinitely and is not an indefinite testing hold.
+Source-hardening and Linux-reference retirement need not be closed to start
+this loop once the implementation and validation milestones are met. Every
+kernel build still requires successful CI for the exact reviewed commit and
+its separately authorized GitHub build tag. No failed, canceled or skipped CI
+may be bypassed. This roadmap does not itself select or authorize a tag.
 
 The acceptance objective is fully functional native Wi-Fi on the specified
 Dell/Tahoe target, plus the requested Bluetooth/coexistence and AirDrop
@@ -45,8 +47,8 @@ unobserved result or a promise that static review proves first-run success.
 
 ## Acceptance
 
-- [ ] Owner explicitly ends the hold and separately authorizes each build,
-      install and hardware experiment.
+- [ ] Complete production implementation and zero-failure validation; the
+      owner separately authorizes the build, install and hardware experiment.
 - [ ] Compile only the reviewed commit via the single explicitly approved
       GitHub build tag; record the artifact hash and actual build diagnostics.
 - [ ] Observe OpenCore injection without unresolved imports/relocations,
@@ -66,16 +68,14 @@ unobserved result or a promise that static review proves first-run success.
 ## Standing instruction while open
 
 This record MUST NOT be closed, moved to completed or removed from TODO.md
-without the owner's explicit request to close it. If it is the only open
-record and no new owner instruction arrives, continue theoretical hardening
-of the entire driver indefinitely using web research, upstream comparisons
-and static reasoning. Repair evidence-backed panic, lifetime, concurrency,
-DMA, power, security and regulatory defects; maintain provenance and reopen
-source records when required work is found. Do not request early device
-tests or infer authorization from elapsed time or source completeness.
+without the owner's explicit request to close it. After implementation and
+validation, continue edge-case hardening alongside the owner's notebook
+experiments and actual logs. Correct concrete failures, preserve CI as the
+build gate and reopen source tasks when required work is discovered. Do not
+wait for indefinite hardening to finish before authorized testing.
 
 ## Evidence
 
-- Currently unavailable by owner decision; do not request it early.
+- Actual notebook evidence is supplied by the owner during the authorized loop.
 - After authorization: owner-run device diagnostics and observed behavior.
 - AirDrop/Bluetooth depend on distinct hardware and Continuity compatibility.
