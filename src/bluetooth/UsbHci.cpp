@@ -26,6 +26,7 @@ namespace simpleath
         constexpr uint8_t kHciDisconnectionComplete = 0x05U;
         constexpr uint8_t kHciLeMeta = 0x3eU;
         constexpr uint8_t kHciLeConnectionComplete = 0x01U;
+        constexpr uint8_t kHciLeEnhancedConnectionComplete = 0x0aU;
         constexpr uint8_t kHciAclLinkType = 0x01U;
         constexpr uint8_t kHciHardwareError = 0x10U;
         constexpr uint8_t kHciDataBufferOverflow = 0x1aU;
@@ -35,6 +36,7 @@ namespace simpleath
         constexpr size_t kClassicConnectionBytes = 13U;
         constexpr size_t kDisconnectionBytes = 6U;
         constexpr size_t kLeConnectionBytes = 21U;
+        constexpr size_t kLeEnhancedConnectionBytes = 33U;
         constexpr size_t kCommandStatusBytes = 6U;
         constexpr size_t kCommandCreditOffset = 2U;
         constexpr size_t kStatusCreditOffset = 3U;
@@ -139,15 +141,32 @@ namespace simpleath
             const bool le =
                 kind == kHciLeMeta && bytes >= 3U &&
                 *usbByteOffset(packet, 2U) == kHciLeConnectionComplete;
-            if (!classic && !le)
+            const bool enhancedLe =
+                kind == kHciLeMeta && bytes >= 3U &&
+                *usbByteOffset(packet, 2U) == kHciLeEnhancedConnectionComplete;
+            if (!classic && !le && !enhancedLe)
             {
                 return UsbHciStatus::Ok;
             }
-            if (bytes != (le ? kLeConnectionBytes : kClassicConnectionBytes))
+            // Both LE connection-complete formats carry the same status and
+            // connection handle, but the privacy-aware report appends local
+            // and peer resolvable addresses before its connection timing.
+            // Only the complete controller event can establish LE ACL credit
+            // ownership. A truncated enhanced report must fail closed.
+            size_t expectedBytes = kClassicConnectionBytes;
+            if (le)
+            {
+                expectedBytes = kLeConnectionBytes;
+            }
+            if (enhancedLe)
+            {
+                expectedBytes = kLeEnhancedConnectionBytes;
+            }
+            if (bytes != expectedBytes)
             {
                 return UsbHciStatus::MalformedPacket;
             }
-            const size_t status = le ? 3U : 2U;
+            const size_t status = (le || enhancedLe) ? 3U : 2U;
             if (*usbByteOffset(packet, status) != 0U)
             {
                 return UsbHciStatus::Ok;
@@ -159,9 +178,9 @@ namespace simpleath
                 // SCO is not transported on this ACL pipe.
                 return UsbHciStatus::Ok;
             }
-            const uint16_t handle =
-                little16(packet, le ? kLeConnectionHandleOffset
-                                    : kClassicConnectionHandleOffset);
+            const uint16_t handle = little16(
+                packet, (le || enhancedLe) ? kLeConnectionHandleOffset
+                                           : kClassicConnectionHandleOffset);
             if (handle > kHciMaximumHandle)
             {
                 return UsbHciStatus::MalformedPacket;
@@ -175,7 +194,7 @@ namespace simpleath
             {
                 return UsbHciStatus::MalformedPacket;
             }
-            entry->le = le;
+            entry->le = le || enhancedLe;
             entry->classified = true;
             entry->connected = true;
             entry->retired = false;

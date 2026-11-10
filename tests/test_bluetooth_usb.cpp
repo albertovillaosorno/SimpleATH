@@ -855,6 +855,74 @@ namespace
                                  kLeReadSize.size()) == UsbHciStatus::Ok;
     }
 
+    bool testEnhancedLeConnection()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        // HCI LE Enhanced Connection Complete, subevent 0x0a (Bluetooth
+        // privacy): 31 event parameter bytes, including the extra local and
+        // peer resolvable addresses. This is a controller-reported LE handle,
+        // not a host assertion based on the ACL packet's low 12 bits.
+        constexpr std::array<uint8_t, 33U> kEnhancedConnected {
+            0x3eU, 31U, 0x0aU, 0U, 1U, 0U,
+        };
+        constexpr size_t kLeMetaSubeventOffset = 2U;
+        constexpr size_t kLeConnectionStatusOffset = 3U;
+        constexpr uint8_t kConnectionRejected = 0x0cU;
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            sendUsbHciCommand(state, host(fake), kLeReadSize.data(),
+                              kLeReadSize.size()) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), kLeDedicatedResponse.data(),
+                               kLeDedicatedResponse.size()) !=
+                UsbHciStatus::Ok ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::FlowControlUnavailable ||
+            receiveUsbHciEvent(state, host(fake), kEnhancedConnected.data(),
+                               kEnhancedConnected.size()) != UsbHciStatus::Ok ||
+            !state.aclWindow.connections.at(0U).le ||
+            sendUsbHciAcl(state, host(fake), kLeAcl.data(), kLeAcl.size()) !=
+                UsbHciStatus::Ok ||
+            state.leAclWindow.availableCredits != 1U ||
+            receiveUsbHciEvent(state, host(fake), kLeCompleted.data(),
+                               kLeCompleted.size()) != UsbHciStatus::Ok ||
+            state.leAclWindow.availableCredits != 2U)
+        {
+            return false;
+        }
+        // Duplicate connection metadata never reclassifies a live handle.
+        if (receiveUsbHciEvent(state, host(fake), kEnhancedConnected.data(),
+                               kEnhancedConnected.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        // Older 21-byte LE Connection Complete bodies cannot masquerade as
+        // the 33-byte enhanced format. No ACL credit may escape this error.
+        auto truncated = kLeConnected;
+        truncated.at(kLeMetaSubeventOffset) =
+            kEnhancedConnected.at(kLeMetaSubeventOffset);
+        if (attachUsbHci(state, kLeEndpoints, host(fake)) != UsbHciStatus::Ok ||
+            receiveUsbHciEvent(state, host(fake), truncated.data(),
+                               truncated.size()) !=
+                UsbHciStatus::MalformedPacket ||
+            !state.faulted)
+        {
+            return false;
+        }
+        detachUsbHci(state);
+        // A controller-reported connection failure is legal but cannot mint
+        // an LE ACL handle, even with a syntactically complete privacy event.
+        auto failed = kEnhancedConnected;
+        failed.at(kLeConnectionStatusOffset) = kConnectionRejected;
+        return attachUsbHci(state, kLeEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), failed.data(),
+                                  failed.size()) == UsbHciStatus::Ok &&
+               !state.aclWindow.connections.at(0U).active && !state.faulted;
+    }
+
     bool testMalformedLeBufferSize()
     {
         UsbFake fake = newFake();
@@ -1051,6 +1119,11 @@ int main()
     if (!testAclCredits())
     {
         return 3;
+    }
+    if (!testEnhancedLeConnection())
+    {
+        constexpr int kEnhancedLeTestFailure = 7;
+        return kEnhancedLeTestFailure;
     }
     if (!testAclHandlePressure())
     {
