@@ -148,8 +148,9 @@ namespace ath
                                  size_t capacity, const UserABI &abi)
     {
         const auto outputLength = eventPayloadSize(event, length, abi);
-        if (length > MaximumEventPayload || outputLength > capacity ||
-            (outputLength && !destination) || (length && !source))
+        if (length > MaximumEventPayload || outputLength < length ||
+            outputLength > capacity || (outputLength && !destination) ||
+            (length && !source))
             return false;
         const auto bytes = static_cast<const uint8_t *>(source);
         for (size_t offset = 0; offset < length; ++offset)
@@ -250,7 +251,8 @@ namespace ath
     inline bool prepareScanResult(Request &request, uint8_t *buffer,
                                   size_t capacity, const UserABI &abi)
     {
-        if (!buffer || capacity < abi.scanResultSize ||
+        if (!buffer || abi.scanResultSize < LegacyScanResultSize ||
+            capacity < abi.scanResultSize ||
             request.length != abi.scanResultSize)
             return false;
         uint16_t length = static_cast<uint16_t>(
@@ -267,7 +269,8 @@ namespace ath
     inline bool expandScanResult(Request &request, uint8_t *buffer,
                                  size_t capacity, const UserABI &abi)
     {
-        if (!buffer || capacity < abi.scanResultSize ||
+        if (!buffer || abi.scanResultSize < LegacyScanResultSize ||
+            capacity < abi.scanResultSize ||
             request.length != LegacyScanResultSize)
             return false;
         for (size_t offset = LegacyScanResultSize; offset < abi.scanResultSize;
@@ -281,7 +284,8 @@ namespace ath
                                    size_t capacity, const UserABI &abi,
                                    bool scanEvents)
     {
-        if (!buffer || capacity < abi.capabilitySize ||
+        if (!buffer || abi.capabilitySize < LegacyCapabilitySize ||
+            capacity < abi.capabilitySize ||
             request.length != LegacyCapabilitySize)
             return false;
         for (size_t offset = LegacyCapabilitySize; offset < abi.capabilitySize;
@@ -309,7 +313,8 @@ namespace ath
     inline bool prepareScanMultiple(Request &request, uint8_t *buffer,
                                     size_t capacity, const UserABI &abi)
     {
-        if (!buffer || capacity < abi.scanMultipleSize ||
+        if (!buffer || abi.scanMultipleSize < LegacyScanMultipleSize ||
+            capacity < abi.scanMultipleSize ||
             request.length != abi.scanMultipleSize || readUInt32(buffer) != 1 ||
             readUInt32(buffer + 8) > 10 || readUInt32(buffer + 0x19C) > 16 ||
             readUInt32(buffer + 0x210) > 400)
@@ -330,7 +335,9 @@ namespace ath
                                         uint8_t *output, size_t capacity,
                                         const UserABI &abi)
     {
+        // The fixed status and reason words occupy bytes through 0x13.
         if (!power || !output || length != PowerDataSize ||
+            abi.driverAvailableSize < 0x14 ||
             capacity < abi.driverAvailableSize || readUInt32(power) != 1)
             return false;
         const auto radios = readUInt32(power + 4);
@@ -356,13 +363,17 @@ namespace ath
                                  uint8_t *output, size_t capacity,
                                  const UserABI &abi)
     {
-        if (abi.joinEventPolicy == JoinEventPolicy::Passthrough || !output ||
-            capacity < abi.joinStatusSize ||
-            (bssidLength && (!bssid || bssidLength != 6)))
+        const bool sequoia = abi.joinEventPolicy == JoinEventPolicy::Sequoia;
+        const bool tahoe = abi.joinEventPolicy == JoinEventPolicy::Tahoe;
+        // The 32-bit status fields and optional BSSID have policy-specific
+        // fixed offsets; reject a shortened profile before any output write.
+        const size_t minimum = sequoia ? 0x10 : 0x1CC + bssidLength;
+        if ((!sequoia && !tahoe) || !output ||
+            (bssidLength && (!bssid || bssidLength != 6)) ||
+            abi.joinStatusSize < minimum || capacity < abi.joinStatusSize)
             return false;
         for (size_t index = 0; index < abi.joinStatusSize; ++index)
             output[index] = 0;
-        const bool sequoia = abi.joinEventPolicy == JoinEventPolicy::Sequoia;
         writeUInt32(output + (sequoia ? 0x08 : 0x1B8), status);
         writeUInt32(output + (sequoia ? 0x0C : 0x1BC), status);
         if (!sequoia)
@@ -378,8 +389,15 @@ namespace ath
     inline bool prepareAssociate(Request &request, uint8_t *buffer,
                                  size_t capacity, const UserABI &abi)
     {
-        if (!buffer || capacity < abi.associateSize ||
-            request.length != abi.associateSize)
+        // Extended layout shifts the bytes at 0x218..0x223 from
+        // 0x244..0x24F; both source and destination must be present.
+        const size_t minimum = abi.associateLayout == AssociateLayout::Legacy
+                                   ? LegacyAssociateSize
+                                   : LegacyAssociateSize + 0x2C;
+        if ((abi.associateLayout != AssociateLayout::Legacy &&
+             abi.associateLayout != AssociateLayout::Extended) ||
+            !buffer || abi.associateSize < minimum ||
+            capacity < abi.associateSize || request.length != abi.associateSize)
             return false;
         if (abi.associateLayout == AssociateLayout::Legacy)
         {
