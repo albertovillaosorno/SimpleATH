@@ -343,6 +343,13 @@ namespace simpleath
             {
                 return LeDiscoveryResult::OwnershipLost;
             }
+            // permit() is an external policy callback. It can synchronously
+            // start another scan while our initial Idle check is suspended.
+            // Do not overwrite that procedure or issue a second HCI command.
+            if (state.phase != LeScanPhase::Idle)
+            {
+                return LeDiscoveryResult::Busy;
+            }
             // HCI LE Set Scan Parameters (0x200b): passive or active, public
             // address, unfiltered. Active requests already passed an explicit
             // host privacy/procedure authorization callback.
@@ -417,6 +424,13 @@ namespace simpleath
             !owner.permit(owner.context, owner.epoch))
         {
             return LeDiscoveryResult::OwnershipLost;
+        }
+        // A nested passive scan may have started during permit(). Do not
+        // even invoke the active-radio policy callback for a procedure that
+        // no longer owns an Idle controller.
+        if (state.phase != LeScanPhase::Idle)
+        {
+            return LeDiscoveryResult::Busy;
         }
         if (!authorize(owner.context, owner.epoch, interval, window))
         {

@@ -51,33 +51,36 @@ namespace
 
     struct Fake
     {
-            std::array<std::array<uint8_t, kUsbHciMaxCommandBytes>,
-                       kMaxCommands>
-                commands {};
-            std::array<size_t, kMaxCommands> commandSizes {};
             size_t commandCount {};
             size_t reports {};
             size_t deliveredBytes {};
             size_t hostDeliveredEvents {};
             size_t aclTransfers {};
+            const LeScanPhase *pendingPhase {};
+            void *inlineContext {};
+            bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
+            void *reportContext {};
+            bool (*onFirstReport)(void *) {};
+            void *permitContext {};
+            bool (*onNextPermit)(void *) {};
+            size_t activeAuthorizations {};
+            std::array<size_t, kMaxCommands> commandSizes {};
             uint8_t observedAddress {};
             int8_t observedRssi {};
             bool valid {true};
             bool failCommand {};
-            const LeScanPhase *pendingPhase {};
             InlineReply inlineReply {InlineReply::None};
-            void *inlineContext {};
-            bool (*inlineEvent)(void *, const uint8_t *, size_t) {};
             bool failAdvertisement {};
             bool revokeOnAdvertisement {};
             bool reboundEpoch {};
-            void *reportContext {};
-            bool (*onFirstReport)(void *) {};
             bool allowActiveScan {true};
             bool revokeOnActiveAuthorization {};
-            size_t activeAuthorizations {};
+            LeDiscoveryResult nestedScanResult {LeDiscoveryResult::Ignored};
             uint8_t expectedEventType {};
             uint8_t expectedAdByte {kAdByte};
+            std::array<std::array<uint8_t, kUsbHciMaxCommandBytes>,
+                       kMaxCommands>
+                commands {};
     };
 
     uint64_t activeEpoch(const Fake &fake)
@@ -100,7 +103,19 @@ namespace
 
     bool permit(void *context, uint64_t epoch)
     {
-        const auto &fake = *static_cast<Fake *>(context);
+        auto &fake = *static_cast<Fake *>(context);
+        if (!fake.valid || epoch != activeEpoch(fake))
+        {
+            return false;
+        }
+        // A physical host may synchronously call the same scan owner while
+        // evaluating policy. Fire exactly once to avoid recursive fixtures.
+        if (fake.onNextPermit != nullptr)
+        {
+            const auto callback = fake.onNextPermit;
+            fake.onNextPermit = nullptr;
+            (void)callback(fake.permitContext);
+        }
         return fake.valid && epoch == activeEpoch(fake);
     }
 
@@ -276,6 +291,19 @@ namespace
             LeDiscoveryState scan_ {};
 
         public:
+            static bool beginDuringPermit(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                fixture.fake_.nestedScanResult = fixture.begin();
+                return true;
+            }
+
+            void beginNestedFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = beginDuringPermit;
+            }
+
             static bool stopDuringReport(void *context)
             {
                 auto &fixture = *static_cast<Fixture *>(context);
@@ -452,6 +480,52 @@ namespace
                                  ownerFor(fake_));
             }
     };
+
+    int policyReentrancy()
+    {
+        Fixture f {};
+        if (!f.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        f.beginNestedFromPermit();
+        // The nested grant owns the single HCI scan procedure. The outer
+        // caller must report Busy without overwriting its pending phase or
+        // putting a second command on the physical controller.
+        if (f.begin() != LeDiscoveryResult::Busy ||
+            f.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+            f.fake().commandCount != 1U ||
+            f.phase() != LeScanPhase::AwaitParameters ||
+            f.completeParameters() != LeDiscoveryResult::Ok ||
+            f.completeEnable() != LeDiscoveryResult::Ok ||
+            f.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int activePolicyReentrancy()
+    {
+        Fixture f {};
+        if (!f.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        f.beginNestedFromPermit();
+        if (f.beginActive() != LeDiscoveryResult::Busy ||
+            f.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+            f.fake().activeAuthorizations != 0U ||
+            f.fake().commandCount != 1U ||
+            f.phase() != LeScanPhase::AwaitParameters ||
+            f.completeParameters() != LeDiscoveryResult::Ok ||
+            f.completeEnable() != LeDiscoveryResult::Ok ||
+            f.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
 
     int normalLifecycle()
     {
@@ -970,6 +1044,14 @@ namespace
 
 int main()
 {
+    if (const int reentry = policyReentrancy())
+    {
+        return reentry;
+    }
+    if (const int activeReentry = activePolicyReentrancy())
+    {
+        return activeReentry;
+    }
     if (const int normal = normalLifecycle())
     {
         return normal;
