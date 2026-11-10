@@ -553,6 +553,47 @@ namespace simpleath
             constexpr uint32_t kAwdlChannelSlotMask = 0x0fU;
             constexpr uint32_t kAwdlEawSequenceMask = 0xfffcU;
             constexpr uint16_t kChannelFill = 0xffffU;
+            constexpr uint8_t kLocalAwdlVersion = 0x10U;
+            constexpr uint8_t kLocalAwdlMacClass = 1U;
+            constexpr size_t kMifChannelBytes =
+                kChannelPrefix + kChannelCount + kChannelPadding;
+            constexpr size_t kMifTlvBytes = (4U * kTlvHeaderBytes) +
+                                            kSyncMinBytes + kMifChannelBytes +
+                                            kElectionBytes + kVersionBytes;
+            constexpr Mac kAwdlBroadcast {
+                {0xffU, 0xffU, 0xffU, 0xffU, 0xffU, 0xffU},
+            };
+
+            void writeLittle16(uint8_t *bytes, uint16_t value)
+            {
+                *usbByteOffset(bytes, 0U) = static_cast<uint8_t>(value);
+                *usbByteOffset(bytes, 1U) =
+                    static_cast<uint8_t>(value >> kBitsPerByte);
+            }
+
+            void writeLittle32(uint8_t *bytes, uint32_t value)
+            {
+                for (size_t index = 0U; index < sizeof(value); ++index)
+                {
+                    *usbByteOffset(bytes, index) =
+                        static_cast<uint8_t>(value >> (index * kBitsPerByte));
+                }
+            }
+
+            enum class MifTlvType : uint8_t
+            {
+                Sync = kTlvSync,
+                Channel = kTlvChannel,
+                Election = kTlvElectionV2,
+                Version = kTlvVersion,
+            };
+
+            void writeTlvHeader(uint8_t *bytes, MifTlvType type,
+                                uint16_t length)
+            {
+                *usbByteOffset(bytes, 0U) = static_cast<uint8_t>(type);
+                writeLittle16(usbByteOffset(bytes, 1U), length);
+            }
 
             bool validAt(uint64_t nowMs, uint64_t lastHeardMs)
             {
@@ -765,6 +806,108 @@ namespace simpleath
                 return Result::Ok;
             }
         } // namespace
+
+        Result makeAwdlChannelSixMif(const AwdlLocalMifTx &request,
+                                     uint8_t *output, size_t capacity,
+                                     size_t &written)
+        {
+            if (overlaps(output, capacity, &request, sizeof(request)) ||
+                overlaps(&written, sizeof(written), &request,
+                         sizeof(request)) ||
+                overlaps(output, capacity, &written, sizeof(written)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            written = 0U;
+            if (output == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            if (!validStationMac(request.source) ||
+                !validStationMac(request.syncMaster) ||
+                !validStationMac(request.electionMaster))
+            {
+                return Result::InvalidAddress;
+            }
+            if (request.macSequence > kMacSequenceMax ||
+                request.txDownCounterTu == 0U ||
+                request.txDownCounterTu > kAwdlEawTu ||
+                request.channelSixSlots == 0U)
+            {
+                return Result::InvalidElement;
+            }
+            // This fixed local MIF conveys no unreviewed 5-GHz slots or
+            // arbitrary election/synchronization padding. The native owner
+            // must still derive these counters from live radio observations.
+            UsbBytes<uint8_t, kMifTlvBytes> tlvs {};
+            size_t position = 0U;
+            uint8_t *header = usbByteOffset(tlvs.data(), position);
+            writeTlvHeader(header, MifTlvType::Sync, kSyncMinBytes);
+            uint8_t *sync = usbByteOffset(header, kTlvHeaderBytes);
+            writeLittle16(usbByteOffset(sync, kSyncDownCounter),
+                          request.txDownCounterTu);
+            writeLittle16(usbByteOffset(sync, kSyncPeriod), kAwdlPeriodTu);
+            __builtin_memcpy(usbByteOffset(sync, kSyncMaster),
+                             &request.syncMaster.bytes, kMacAddressBytes);
+            writeLittle16(usbByteOffset(sync, kSyncAwSequence),
+                          request.nextAwSequence);
+            position += kTlvHeaderBytes + kSyncMinBytes;
+
+            header = usbByteOffset(tlvs.data(), position);
+            writeTlvHeader(header, MifTlvType::Channel, kMifChannelBytes);
+            uint8_t *channels = usbByteOffset(header, kTlvHeaderBytes);
+            *usbByteOffset(channels, 0U) = kChannelSlotCount;
+            *usbByteOffset(channels, 1U) = kChannelSimple;
+            *usbByteOffset(channels, 3U) = kChannelStepCount;
+            writeLittle16(usbByteOffset(channels, 4U), kChannelFill);
+            for (size_t slot = 0U; slot < kChannelCount; ++slot)
+            {
+                if ((static_cast<uint32_t>(request.channelSixSlots) &
+                     (uint32_t {1U} << slot)) != 0U)
+                {
+                    *usbByteOffset(channels, kChannelPrefix + slot) =
+                        kChannelSix;
+                }
+            }
+            position += kTlvHeaderBytes + kMifChannelBytes;
+
+            header = usbByteOffset(tlvs.data(), position);
+            writeTlvHeader(header, MifTlvType::Election, kElectionBytes);
+            uint8_t *election = usbByteOffset(header, kTlvHeaderBytes);
+            __builtin_memcpy(usbByteOffset(election, kElectionMaster),
+                             &request.electionMaster.bytes, kMacAddressBytes);
+            writeLittle32(usbByteOffset(election, kElectionCounter),
+                          request.masterCounter);
+            writeLittle32(usbByteOffset(election, kElectionMasterMetric),
+                          request.masterMetric);
+            writeLittle32(usbByteOffset(election, kElectionOwnMetric),
+                          request.ownMetric);
+            writeLittle32(usbByteOffset(election, kElectionOwnCounter),
+                          request.ownCounter);
+            position += kTlvHeaderBytes + kElectionBytes;
+
+            header = usbByteOffset(tlvs.data(), position);
+            writeTlvHeader(header, MifTlvType::Version, kVersionBytes);
+            uint8_t *version = usbByteOffset(header, kTlvHeaderBytes);
+            *usbByteOffset(version, 0U) = kLocalAwdlVersion;
+            *usbByteOffset(version, 1U) = kLocalAwdlMacClass;
+            position += kTlvHeaderBytes + kVersionBytes;
+            if (position != kMifTlvBytes)
+            {
+                return Result::InvalidElement;
+            }
+            const AwdlActionTx action {
+                request.source,
+                kAwdlBroadcast,
+                request.macSequence,
+                kMasterIndicationSubtype,
+                request.phyTransmitUsec,
+                request.targetTransmitUsec,
+                tlvs.data(),
+                kMifTlvBytes,
+            };
+            return makeAwdlAction(action, output, capacity, written);
+        }
 
         Result AwdlNeighbors::observeMif(uint64_t nowMs, const uint8_t *frame,
                                          size_t bytes)

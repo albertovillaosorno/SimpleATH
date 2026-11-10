@@ -117,6 +117,36 @@ namespace simpleath
         Result makeAwdlAction(const AwdlActionTx &request, uint8_t *output,
                               size_t capacity, size_t &written);
 
+        // Construct the four independently documented required MIF TLVs in
+        // canonical simple channel-sequence encoding. All election, clock,
+        // channel and metric values MUST be supplied from a genuine native
+        // owner; this serializer performs no peer election or RF work.
+        // Only channel-six slots are represented: other slots encode zero,
+        // never an invented 5-GHz capability for the AR9565.
+        struct AwdlLocalMifTx
+        {
+                Mac source {};
+                Mac syncMaster {};
+                Mac electionMaster {};
+                uint16_t macSequence {};
+                uint16_t txDownCounterTu {};
+                uint16_t nextAwSequence {};
+                uint16_t channelSixSlots {};
+                uint32_t phyTransmitUsec {};
+                uint32_t targetTransmitUsec {};
+                uint32_t masterMetric {};
+                uint32_t masterCounter {};
+                uint32_t ownMetric {};
+                uint32_t ownCounter {};
+        };
+
+        // Encodes an FCS-free broadcast MIF using the known v1 Mac device
+        // class. Rejects input/output and output/count aliasing before any
+        // caller mutation. This is NOT permission to publish a live MIF.
+        Result makeAwdlChannelSixMif(const AwdlLocalMifTx &request,
+                                     uint8_t *output, size_t capacity,
+                                     size_t &written);
+
         // A compact, copied MIF snapshot. Only slots whose peer actually
         // advertises the 2.4 GHz AWDL social channel 6 are exposed; this
         // is evidence of peer intent, NOT a radio/channel TX grant.

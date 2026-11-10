@@ -247,3 +247,23 @@ This remains read-only planning rather than radio authorization: local
 channel tune, peer trust, regulatory clearance, coexistence, native AWDL
 ownership, physical timestamp alignment and actual TX are unimplemented.
 The P0 acceptance checklist remains open.
+
+## Source progress — 2026-11-10: typed local MIF serialization
+
+`makeAwdlChannelSixMif` now constructs the four required outbound MIF TLVs
+(synchronization, simple channel sequence, Election-v2 and Version) using
+bounded, typed caller-supplied fields. The frame advertises channel 6 only
+in explicitly selected 2.4-GHz slots and zero otherwise, without claiming
+an unsupported 5-GHz radio capability. It rejects invalid station/master
+addresses, absent social slots, invalid MIF countdowns, wrapped MAC
+sequence and unsafe output aliases before modifying caller-owned output.
+The independent source parser and neighbor-state machinery round-trip
+these frames in a synthetic host fixture, including valid copied election,
+synchronization and channel state plus buffer/field rejection. Both
+C++14 and C++17 ASan+UBSan and focused strict Clang-Tidy/format pass.
+
+All timestamp, metric, sequence and channel-slot values require independent
+native owner evidence. The serializer is not called by a macOS AWDL host,
+BLE discovery, radio scheduler or TX queue. Apple peer election, service
+policy, RF coexistence, authenticated IPv6 and AirDrop transfer remain
+unimplemented; this P0 TODO is still open.

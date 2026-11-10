@@ -972,6 +972,116 @@ namespace
         fixture.length += kNeighborExtraChannelBytes;
     }
 
+    bool serializeChannelSixMif()
+    {
+        constexpr uint16_t kLocalMacSequence = 0x123U;
+        constexpr size_t kMifFourTlvs = 4U;
+        constexpr size_t kLocalMifBytes =
+            kHeaderBytes + kActionBytes + (kNeighborTlvHeader * kMifFourTlvs) +
+            kNeighborSyncBytes + kNeighborChannelBytes +
+            kNeighborElectionBytes + 2U;
+        constexpr uint8_t kNonzeroSentinel = 0xa7U;
+        constexpr uint16_t kTooLongDownCounter = 65U;
+        const AwdlLocalMifTx valid {
+            kNeighborBaseSource,
+            kNeighborBaseSource,
+            kNeighborBaseSource,
+            kLocalMacSequence,
+            kNeighborChannelStep,
+            kNeighborNextAwSeq,
+            kNeighborSlotMask,
+            kPhyTime,
+            kTargetTime,
+            kNeighborElectionMetric,
+            kNeighborElectionCounter,
+            kNeighborElectionOwnMetric,
+            kNeighborElectionCounter,
+        };
+        std::array<uint8_t, kLocalMifBytes> output {};
+        size_t written = 0U;
+        if (makeAwdlChannelSixMif(valid, output.data(), output.size(),
+                                  written) != Result::Ok ||
+            written != kLocalMifBytes)
+        {
+            return false;
+        }
+        AwdlAction parsed {};
+        AwdlNeighbors neighbors {};
+        AwdlNeighbor observed {};
+        if (parseAwdlAction(output.data(), written, parsed) != Result::Ok ||
+            parsed.tlvCount != kMifFourTlvs || parsed.subtype != kNeighborMif ||
+            parsed.phyTransmitUsec != kPhyTime ||
+            parsed.targetTransmitUsec != kTargetTime ||
+            neighbors.observeMif(kNeighborFirstSeenMs, output.data(),
+                                 written) != Result::Ok ||
+            !neighbors.find(valid.source, kNeighborFirstSeenMs, observed) ||
+            observed.channelSixSlots != kNeighborSlotMask ||
+            observed.txDownCounterTu != kNeighborChannelStep ||
+            observed.nextAwSequence != kNeighborNextAwSeq ||
+            observed.masterMetric != kNeighborElectionMetric ||
+            observed.ownMetric != kNeighborElectionOwnMetric ||
+            observed.masterCounter != kNeighborElectionCounter ||
+            observed.ownCounter != kNeighborElectionCounter ||
+            !sameMac(observed.syncMaster, valid.syncMaster) ||
+            !sameMac(observed.electionMaster, valid.electionMaster))
+        {
+            return false;
+        }
+        // Verify unselected channel slots are reserved-zero rather than
+        // advertising an unimplemented 5-GHz AR9565 radio channel.
+        AwdlTlvs tlvs(usbByteOffset(output.data(), parsed.tlvOffset),
+                      written - parsed.tlvOffset);
+        AwdlTlv element {};
+        if (tlvs.next(element) != AwdlTlvStatus::Element ||
+            element.type != kNeighborTlvSync ||
+            tlvs.next(element) != AwdlTlvStatus::Element ||
+            element.type != kNeighborTlvChannel)
+        {
+            return false;
+        }
+        for (size_t slot = 0U; slot < kNeighborSlotCount; ++slot)
+        {
+            const uint8_t expected =
+                (kNeighborSlotMask & (uint32_t {1U} << slot)) != 0U
+                    ? kNeighborSocialChannel
+                    : 0U;
+            if (*usbByteOffset(element.data, kNeighborChannelOffset + slot) !=
+                expected)
+            {
+                return false;
+            }
+        }
+        AwdlLocalMifTx invalid = valid;
+        output.fill(kNonzeroSentinel);
+        invalid.channelSixSlots = 0U;
+        written = kLocalMifBytes;
+        if (makeAwdlChannelSixMif(invalid, output.data(), output.size(),
+                                  written) != Result::InvalidElement ||
+            written != 0U || output.at(0U) != kNonzeroSentinel)
+        {
+            return false;
+        }
+        invalid = valid;
+        invalid.txDownCounterTu = kTooLongDownCounter;
+        if (makeAwdlChannelSixMif(invalid, output.data(), output.size(),
+                                  written) != Result::InvalidElement ||
+            written != 0U || output.at(0U) != kNonzeroSentinel)
+        {
+            return false;
+        }
+        invalid = valid;
+        invalid.syncMaster = {};
+        if (makeAwdlChannelSixMif(invalid, output.data(), output.size(),
+                                  written) != Result::InvalidAddress ||
+            written != 0U || output.at(0U) != kNonzeroSentinel)
+        {
+            return false;
+        }
+        return makeAwdlChannelSixMif(valid, output.data(), output.size() - 1U,
+                                     written) == Result::BufferTooSmall &&
+               written == 0U && output.at(0U) == kNonzeroSentinel;
+    }
+
     bool rejectsOutOfRangeMifCountdown(AwdlNeighbors &peers,
                                        NeighborFixture fixture)
     {
@@ -1599,6 +1709,11 @@ int main()
     {
         constexpr int kFutureRendezvousFailure = 15;
         return kFutureRendezvousFailure;
+    }
+    if (!serializeChannelSixMif())
+    {
+        constexpr int kLocalMifFailure = 16;
+        return kLocalMifFailure;
     }
     return 0;
 }
