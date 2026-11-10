@@ -51,7 +51,8 @@ namespace simpleath
             IOUSBHostDevice *device = interface->getDevice();
             const auto *deviceDescriptor =
                 device == nullptr ? nullptr : device->getDeviceDescriptor();
-            if (interfaceDescriptor == nullptr || deviceDescriptor == nullptr)
+            if (interfaceDescriptor == nullptr || deviceDescriptor == nullptr ||
+                device->isInactive())
             {
                 return false;
             }
@@ -73,6 +74,35 @@ namespace simpleath
                    left.productId == right.productId &&
                    left.deviceRevision == right.deviceRevision &&
                    left.interfaceNumber == right.interfaceNumber;
+        }
+
+        bool liveHciIdentity(IOUSBHostInterface *interface,
+                             Ath3kUsbIdentity &identity)
+        {
+            identity = {};
+            if (interface == nullptr || interface->isInactive())
+            {
+                return false;
+            }
+            const auto *descriptor = interface->getInterfaceDescriptor();
+            IOUSBHostDevice *device = interface->getDevice();
+            const auto *usb =
+                device == nullptr ? nullptr : device->getDeviceDescriptor();
+            if (descriptor == nullptr || usb == nullptr ||
+                device->isInactive() || descriptor->bInterfaceNumber != 0U ||
+                descriptor->bInterfaceClass != kBluetoothUsbClass ||
+                descriptor->bInterfaceSubClass != 0x01U ||
+                descriptor->bInterfaceProtocol != 0x01U)
+            {
+                return false;
+            }
+            identity = {
+                USBToHost16(usb->idVendor),
+                USBToHost16(usb->idProduct),
+                USBToHost16(usb->bcdDevice),
+                descriptor->bInterfaceNumber,
+            };
+            return isSupportedAth3kHciIdentity(identity);
         }
 
         bool discoverHciEndpoints(IOUSBHostInterface *interface,
@@ -139,9 +169,23 @@ namespace simpleath
         bool ownerPermit(void *context, uint64_t epoch)
         {
             const auto &native = *static_cast<NativeAth3kIo *>(context);
-            return native.opened && native.epoch == epoch &&
-                   native.permit != nullptr &&
-                   native.permit(native.policyContext, epoch);
+            if (!native.opened || native.epoch != epoch ||
+                native.permit == nullptr || native.interface == nullptr ||
+                native.device == nullptr)
+            {
+                return false;
+            }
+            IOUSBHostInterface *const interface = native.interface;
+            const IOUSBHostDevice *const device = native.device;
+            if (!native.permit(native.policyContext, epoch) || !native.opened ||
+                native.epoch != epoch || native.interface != interface ||
+                native.device != device || interface->getDevice() != device)
+            {
+                return false;
+            }
+            Ath3kUsbIdentity current {};
+            return bootInterfaceIdentity(interface, current) &&
+                   sameIdentity(native.identity, current);
         }
 
         bool controlTransfer(IOUSBHostInterface *interface, uint8_t requestType,
@@ -243,9 +287,26 @@ namespace simpleath
         bool hciPermit(void *context, uint64_t epoch)
         {
             const auto &native = *static_cast<NativeUsbHciIo *>(context);
-            return native.opened && native.epoch == epoch &&
-                   native.permit != nullptr &&
-                   native.permit(native.policyContext, epoch);
+            if (!native.opened || native.epoch != epoch ||
+                native.permit == nullptr || native.interface == nullptr ||
+                native.device == nullptr)
+            {
+                return false;
+            }
+            IOUSBHostInterface *const interface = native.interface;
+            const IOUSBHostDevice *const device = native.device;
+            const uint64_t generation = native.stream.generation;
+            if (!native.permit(native.policyContext, epoch) || !native.opened ||
+                native.epoch != epoch ||
+                native.stream.generation != generation ||
+                native.interface != interface || native.device != device ||
+                interface->getDevice() != device)
+            {
+                return false;
+            }
+            Ath3kUsbIdentity current {};
+            return liveHciIdentity(interface, current) &&
+                   sameIdentity(native.identity, current);
         }
 
         bool hciCommand(void *context, const uint8_t *buffer, size_t bytes)
@@ -354,8 +415,12 @@ namespace simpleath
             return false;
         }
         Ath3kUsbIdentity initialIdentity {};
-        if (!bootInterfaceIdentity(interface, initialIdentity) ||
-            !interface->open(owner))
+        if (!bootInterfaceIdentity(interface, initialIdentity))
+        {
+            return false;
+        }
+        IOUSBHostDevice *const device = interface->getDevice();
+        if (device == nullptr || !interface->open(owner))
         {
             return false;
         }
@@ -364,6 +429,7 @@ namespace simpleath
         if (!validPipe(firmwarePipe, kFirmwareEndpoint,
                        StandardUSB::kEndpointDescriptorTransferTypeBulk) ||
             !permit(context, epoch) || native.opened ||
+            interface->getDevice() != device ||
             !bootInterfaceIdentity(interface, currentIdentity) ||
             !sameIdentity(initialIdentity, currentIdentity))
         {
@@ -376,6 +442,7 @@ namespace simpleath
         }
         native.owner = owner;
         native.interface = interface;
+        native.device = device;
         native.firmwareBulkOut = firmwarePipe;
         native.identity = initialIdentity;
         native.policyContext = context;
@@ -446,42 +513,15 @@ namespace simpleath
         {
             return false;
         }
-        const auto *descriptor = interface->getInterfaceDescriptor();
-        // Bluetooth HCI is a separate USB function. Refuse an unrelated
-        // interface even when it exposes similarly numbered endpoints.
-        if (descriptor == nullptr || descriptor->bInterfaceNumber != 0U ||
-            descriptor->bInterfaceClass != kBluetoothUsbClass ||
-            descriptor->bInterfaceSubClass != 0x01U ||
-            descriptor->bInterfaceProtocol != 0x01U)
+        // The real USB HCI function must be both class-correct and one of
+        // the published, post-firmware ATH3012 physical identities. Never
+        // derive this from a property on the WLAN PCI function.
+        Ath3kUsbIdentity initialIdentity {};
+        if (!liveHciIdentity(interface, initialIdentity))
         {
             return false;
         }
-        // HCI-class endpoint topology alone is NOT device identity: do not
-        // claim an unrelated Intel/Broadcom/Qualcomm Bluetooth USB adapter.
-        // Read the physical USB DEVICE descriptor, never a registry hint or
-        // the AR9565 WLAN PCI identity, and refuse pre-firmware boot mode.
-        IOUSBHostDevice *device = interface->getDevice();
-        const auto *deviceDescriptor =
-            device == nullptr ? nullptr : device->getDeviceDescriptor();
-        if (deviceDescriptor == nullptr || interface->isInactive() ||
-            !isSupportedAth3kHciIdentity({
-                USBToHost16(deviceDescriptor->idVendor),
-                USBToHost16(deviceDescriptor->idProduct),
-                USBToHost16(deviceDescriptor->bcdDevice),
-                descriptor->bInterfaceNumber,
-            }))
-        {
-            return false;
-        }
-        const Ath3kUsbIdentity initialIdentity {
-            USBToHost16(deviceDescriptor->idVendor),
-            USBToHost16(deviceDescriptor->idProduct),
-            USBToHost16(deviceDescriptor->bcdDevice),
-            descriptor->bInterfaceNumber,
-        };
-        const uint8_t interfaceClass = descriptor->bInterfaceClass;
-        const uint8_t interfaceSubClass = descriptor->bInterfaceSubClass;
-        const uint8_t interfaceProtocol = descriptor->bInterfaceProtocol;
+        IOUSBHostDevice *const device = interface->getDevice();
         UsbHciEndpoints endpoints {};
         if (!discoverHciEndpoints(interface, endpoints))
         {
@@ -502,36 +542,21 @@ namespace simpleath
         // obtained before pipe discovery is not sufficient to publish an
         // adapter after detach or replacement. Release all local pipes and
         // leave a possible successor's state untouched on lease loss.
-        const auto *currentInterface = interface->getInterfaceDescriptor();
-        IOUSBHostDevice *currentDevice = interface->getDevice();
-        const auto *currentDeviceDescriptor =
-            currentDevice == nullptr ? nullptr
-                                     : currentDevice->getDeviceDescriptor();
         Ath3kUsbIdentity currentIdentity {};
-        if (currentInterface != nullptr && currentDeviceDescriptor != nullptr)
-        {
-            currentIdentity = {
-                USBToHost16(currentDeviceDescriptor->idVendor),
-                USBToHost16(currentDeviceDescriptor->idProduct),
-                USBToHost16(currentDeviceDescriptor->bcdDevice),
-                currentInterface->bInterfaceNumber,
-            };
-        }
+        const IOUSBHostDevice *const currentDevice = interface->getDevice();
         UsbHciEndpoints currentEndpoints {};
         const bool sameEndpoints =
             discoverHciEndpoints(interface, currentEndpoints) &&
             currentEndpoints.eventInterruptIn == endpoints.eventInterruptIn &&
             currentEndpoints.aclBulkIn == endpoints.aclBulkIn &&
             currentEndpoints.aclBulkOut == endpoints.aclBulkOut;
-        const bool stillHci =
-            currentInterface != nullptr && currentDeviceDescriptor != nullptr &&
-            currentInterface->bInterfaceClass == interfaceClass &&
-            currentInterface->bInterfaceSubClass == interfaceSubClass &&
-            currentInterface->bInterfaceProtocol == interfaceProtocol &&
-            sameIdentity(initialIdentity, currentIdentity) &&
-            isSupportedAth3kHciIdentity(currentIdentity);
-        if (!endpointsValid || !sameEndpoints || !permit(context, epoch) ||
-            native.opened || interface->isInactive() || !stillHci)
+        const bool permitted = permit(context, epoch);
+        const bool stillHci = currentDevice == device &&
+                              interface->getDevice() == device &&
+                              liveHciIdentity(interface, currentIdentity) &&
+                              sameIdentity(initialIdentity, currentIdentity);
+        if (!endpointsValid || !sameEndpoints || !permitted || native.opened ||
+            interface->isInactive() || !stillHci)
         {
             if (eventPipe != nullptr)
             {
@@ -548,6 +573,8 @@ namespace simpleath
             return false;
         }
         native.interface = interface;
+        native.device = device;
+        native.identity = initialIdentity;
         native.eventIn = eventPipe;
         native.aclIn = aclRead;
         native.aclOut = aclWrite;

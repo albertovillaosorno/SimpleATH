@@ -14,6 +14,8 @@ namespace simpleath
     {
             IOService *owner {};
             IOUSBHostInterface *interface {};
+            // Borrowed while this service exclusively owns the boot interface.
+            IOUSBHostDevice *device {};
             IOUSBHostPipe *firmwareBulkOut {};
             // Exact physical USB identity captured while opening the DFU
             // session. A later bootstrap must verify the same interface.
@@ -46,6 +48,11 @@ namespace simpleath
     struct NativeUsbHciIo
     {
             IOUSBHostInterface *interface {};
+            // Borrowed under the caller's exclusively opened USB interface.
+            // A swapped device object is NOT the same controller even when
+            // USB VID/PID/revision and the owner's epoch happen to match.
+            IOUSBHostDevice *device {};
+            Ath3kUsbIdentity identity {};
             IOUSBHostPipe *eventIn {};
             IOUSBHostPipe *aclIn {};
             IOUSBHostPipe *aclOut {};
@@ -59,8 +66,10 @@ namespace simpleath
     };
 
     // The caller holds the OPEN USB interface under exclusive, serialized
-    // ownership. Endpoints are discovered from its active descriptors;
-    // callers must not guess addresses. closeNativeUsbHciIo releases pipes,
+    // ownership. Endpoints are discovered from its active descriptors; the
+    // physical USB device and interface identity are checked again before
+    // each native HCI operation and after external permission callbacks.
+    // Callers must not guess addresses. closeNativeUsbHciIo releases pipes,
     // not the caller's open interface session.
     bool openNativeUsbHciIo(NativeUsbHciIo &native,
                             IOUSBHostInterface *interface, void *context,
