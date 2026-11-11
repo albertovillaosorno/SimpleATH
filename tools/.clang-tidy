@@ -1,8 +1,0 @@
-# Tool utilities: no cosmetic C++ modernization/readability churn.
-# Inherit root bugprone/analyzer/concurrency and warnings-as-errors gates.
-InheritParentConfig: true
-Checks: >
-  -readability-*,
-  -modernize-*,
-  -cppcoreguidelines-avoid-magic-numbers
-WarningsAsErrors: '*'

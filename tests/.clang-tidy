@@ -1,8 +1,0 @@
-# Test code: keep analyzer, bugprone and correctness diagnostics mandatory.
-# Avoid chasing cosmetic readability/modernization suggestions in fixtures.
-InheritParentConfig: true
-Checks: >
-  -readability-*,
-  -modernize-*,
-  -cppcoreguidelines-avoid-magic-numbers
-WarningsAsErrors: '*'
