@@ -1276,6 +1276,19 @@ namespace simpleath
                 dataFragments_.clear();
                 return EngineResult::InvalidReceivedFrame;
             }
+            // Only AP-originating, station-addressed fragments may allocate
+            // the one receive stream. Foreign frames must not evict a
+            // pending legitimate fragment stream before final MSDU checks.
+            Frame incoming {};
+            if (parseFrame(frame, macBytes, incoming) != Result::Ok ||
+                incoming.type != FrameType::Data || incoming.toDs ||
+                !incoming.fromDs || !validStationMac(incoming.source) ||
+                !sameMac(incoming.bssid, station_.candidate().beacon.bssid) ||
+                (((incoming.destination.bytes[0] & 1U) == 0U) &&
+                 !sameMac(incoming.destination, stationAddress_)))
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
             DataFrameView view {};
             const auto assembly =
                 dataFragments_.ingest(frame, macBytes, nowMs, view);

@@ -183,3 +183,13 @@ path explicitly rejects EAPOL here; WPA2 owns its separate protected ingress.
 The host fixture confirms that the final raw fragment cannot independently
 parse as LLC but its accepted action serializes to the correct Ethernet-II
 frame. Native on-device operation still needs independently verified hardware.
+
+## Native-fragment FCS and foreign-BSS isolation
+
+The fragment ingress now checks the selected BSSID, single-DS direction,
+valid Ethernet source, and actual station receiver before touching the
+association-local reassembly slot. Verified frames from an unrelated AP
+therefore cannot preempt a valid in-flight fragment stream. Regression
+fixtures also simulate physically retained four-byte FCS on each QoS fragment,
+check that no FCS reaches Ethernet, and revoke partial state after an invalid
+FCS layout. The hardware owner remains responsible for real FCS evidence.

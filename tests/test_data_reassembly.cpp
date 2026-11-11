@@ -311,6 +311,17 @@ namespace
         {
             return __LINE__;
         }
+        // A foreign AP with an otherwise valid FCS must not evict a
+        // fragment sequence already started by the associated AP.
+        auto foreign = first;
+        foreign[10] ^= 1U;
+        if (engine.acceptRx(foreign.data(), foreign.size(), trust, {-40, 130},
+                            out, sizeof(out),
+                            action) != EngineResult::InvalidReceivedFrame ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__;
+        }
         if (engine.acceptRx(last.data(), last.size(), trust, {-40, 131}, out,
                             sizeof(out), action) != EngineResult::Ok ||
             action.kind != ActionKind::ReceivedPayload ||
@@ -364,6 +375,49 @@ namespace
             engine.acceptRx(last.data(), last.size(), trust, {-40, 133}, out,
                             sizeof(out), action) != EngineResult::NoAction ||
             action.kind != ActionKind::None)
+        {
+            return __LINE__;
+        }
+        // Native DMA retains a verified four-byte FCS on *each* fragment;
+        // none of those bytes may leak into the reconstructed Ethernet MSDU.
+        const InputTrust includesFcs {true, true, true, false, true};
+        auto qos = dataFrame(true);
+        qos[22] = 0x50U; // New sequence, independent QoS TID 3.
+        auto qosStart = fragment(qos, 0, 8, 0, true);
+        auto qosEnd = fragment(qos, 8, 3, 1, false);
+        qosStart.insert(qosStart.end(), {0xfaU, 0xfbU, 0xfcU, 0xfdU});
+        qosEnd.insert(qosEnd.end(), {0xeaU, 0xebU, 0xecU, 0xedU});
+        if (engine.acceptRx(qosStart.data(), qosStart.size(), includesFcs,
+                            {-40, 134}, out, sizeof(out),
+                            action) != EngineResult::NoAction ||
+            engine.acceptRx(qosEnd.data(), qosEnd.size(), includesFcs,
+                            {-40, 135}, out, sizeof(out),
+                            action) != EngineResult::Ok ||
+            action.kind != ActionKind::ReceivedPayload ||
+            action.receivedPayloadBytes != 3U || action.etherType != 0x0800U ||
+            std::memcmp(action.receivedPayload, qos.data() + qos.size() - 3U,
+                        3U) != 0 ||
+            std::memcmp(action.receivedSource.bytes, kAp.data(), kAp.size()) !=
+                0 ||
+            std::memcmp(action.receivedDestination.bytes, kSta.data(),
+                        kSta.size()) != 0)
+        {
+            return __LINE__;
+        }
+        // A malformed retained-FCS layout must invalidate an earlier stream.
+        auto fcsFirst = first;
+        auto fcsLast = last;
+        fcsFirst[22] = 0x40U;
+        fcsLast[22] = 0x41U;
+        if (engine.acceptRx(fcsFirst.data(), fcsFirst.size(), trust, {-40, 136},
+                            out, sizeof(out),
+                            action) != EngineResult::NoAction ||
+            engine.acceptRx(fcsFirst.data(), 3U, includesFcs, {-40, 137}, out,
+                            sizeof(out),
+                            action) != EngineResult::InvalidReceivedFrame ||
+            engine.acceptRx(fcsLast.data(), fcsLast.size(), trust, {-40, 138},
+                            out, sizeof(out),
+                            action) != EngineResult::InvalidReceivedFrame)
         {
             return __LINE__;
         }
