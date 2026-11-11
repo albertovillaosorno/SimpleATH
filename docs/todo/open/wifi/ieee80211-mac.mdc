@@ -250,18 +250,3 @@ and passes under C++14/C++17 ASan+UBSan on the updated implementation.
 Actual 802.11w/PMF authenticated management admission is not implemented
 by this reassembler; hardware FCS, native RX ownership and radio behavior
 remain unverified. The wider MAC task remains open.
-
-## Protected management isolation in the standalone fragment owner
-
-The standalone `ManagementReassembly` now rejects Protected management
-MPDUs before its unfragmented fast path, not only when fragment bits are
-present. This unprotected/FCS-only owner cannot authenticate PMF and must
-not publish even a single protected MPDU or leave stale fragment state.
-A synthetic regression confirms denial of an unfragmented Protected beacon,
-revocation of a pending cleartext fragment stream, and recovery on a fresh
-cleartext management MPDU. The regression fails against the prior source,
-and passes under C++14/C++17 ASan+UBSan on the updated implementation.
-
-Actual 802.11w/PMF authenticated management admission is not implemented
-by this reassembler; hardware FCS, native RX ownership and radio behavior
-remain unverified. The wider MAC task remains open.
