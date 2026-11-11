@@ -184,6 +184,27 @@ namespace
         {
             return __LINE__;
         }
+        // A Protected management MPDU is never publishable by this
+        // FCS-only owner, even when there are no fragments. Rejecting it
+        // must also revoke a previously pending unprotected exchange.
+        auto protectedBeacon = original;
+        protectedBeacon[1] |= 0x40U;
+        if (receiver.ingest(first.data(), first.size(), 630, complete) !=
+                ManagementFragmentResult::Pending ||
+            receiver.ingest(protectedBeacon.data(), protectedBeacon.size(), 631,
+                            complete) != ManagementFragmentResult::Rejected ||
+            complete.bytes != nullptr || complete.length != 0U ||
+            receiver.ingest(last.data(), last.size(), 632, complete) !=
+                ManagementFragmentResult::Rejected)
+        {
+            return __LINE__;
+        }
+        if (receiver.ingest(original.data(), original.size(), 633, complete) !=
+                ManagementFragmentResult::Complete ||
+            complete.bytes != original.data())
+        {
+            return __LINE__;
+        }
         // Total reassembly cannot exceed an FCS-free legacy MPDU, even if
         // individual input fragments fit the hardware length limit.
         std::array<uint8_t, kManagementReassembledBytes> huge {};

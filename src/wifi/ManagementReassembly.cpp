@@ -160,6 +160,13 @@ namespace simpleath
                  << kBitsPerByte));
             const auto fragment = static_cast<uint8_t>(control & kFragmentMask);
             const bool more = (header[1] & kMoreFragments) != 0U;
+            // FCS does not authenticate PMF. Even an unfragmented protected
+            // management frame cannot cross this unprotected-only owner.
+            if ((header[1] & kProtected) != 0U)
+            {
+                clear();
+                return ManagementFragmentResult::Rejected;
+            }
             if (!more && fragment == 0U)
             {
                 // Ordinary unfragmented management is checked by the normal
@@ -167,9 +174,7 @@ namespace simpleath
                 out = {frame, length};
                 return ManagementFragmentResult::Complete;
             }
-            // FCS alone does not authenticate PMF fragments. Their crypto
-            // reassembly belongs to an explicitly verified protected owner.
-            if ((header[1] & kProtected) != 0U || length == kHeaderBytes ||
+            if (length == kHeaderBytes ||
                 (more && fragment == kMaximumFragment))
             {
                 clear();
