@@ -234,6 +234,48 @@ namespace
         return 0;
     }
 
+    int aggregateCountLimit()
+    {
+        Bytes frame {};
+        size_t cursor = sample(frame);
+        // Rebuild 17 tiny subframes so a valid on-air MPDU exceeds the
+        // intentionally small all-or-nothing fixed view budget.
+        frame = {};
+        frame.at(0U) = 0x88U;
+        frame.at(1U) = 0x02U;
+        std::memcpy(&frame.at(4U), kStation.data(), 6U);
+        std::memcpy(&frame.at(10U), kAp.data(), 6U);
+        std::memcpy(&frame.at(16U), kAp.data(), 6U);
+        frame.at(24U) = 0x80U;
+        cursor = 26U;
+        for (size_t i = 0U; i < kMaximumAmsduSubframes + 1U; ++i)
+        {
+            setSubframe(frame, cursor, false, 'A');
+            cursor += 23U;
+            if (i != kMaximumAmsduSubframes)
+            {
+                frame.at(cursor++) = 0U;
+            }
+        }
+        AmsduPayload decoded {};
+        if (decodeAmsduData(frame.data(), cursor, false, false, decoded) !=
+                Result::Truncated ||
+            !empty(decoded))
+        {
+            return __LINE__;
+        }
+        // The complete initial 16-subframe prefix fits. Its last pad
+        // belongs to the 17th frame, so the prefix ends just before it.
+        const size_t sixteenBytes = cursor - 24U;
+        if (decodeAmsduData(frame.data(), sixteenBytes, false, false,
+                            decoded) != Result::Ok ||
+            decoded.count != kMaximumAmsduSubframes)
+        {
+            return __LINE__;
+        }
+        return 0;
+    }
+
     int protectedAggregation()
     {
         Bytes plain {};
@@ -323,6 +365,10 @@ int main()
         return result;
     }
     if (const int result = rejectedAggregates())
+    {
+        return result;
+    }
+    if (const int result = aggregateCountLimit())
     {
         return result;
     }

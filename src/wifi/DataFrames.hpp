@@ -41,7 +41,9 @@ namespace simpleath
         // MIC/PN and destination authority. EAPOL cannot be aggregated here.
         // Output must not alias the source. Native callers must copy payloads
         // while retaining this immutable RX buffer.
-        constexpr size_t kMaximumAmsduSubframes = 32U;
+        // 16 fixed views bound total nested RX kernel stack usage. Frames
+        // with additional subframes fail atomically instead of allocating.
+        constexpr size_t kMaximumAmsduSubframes = 16U;
 
         struct AmsduPayload
         {
