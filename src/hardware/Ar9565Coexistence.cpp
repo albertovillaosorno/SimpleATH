@@ -148,13 +148,16 @@ namespace simpleath
             }
             if (!backend.read32(backend.io.context, address, &value))
             {
+                // An unreadable live MCI interrupt status is not idle.
                 status.result = CoexistenceResult::ReadFailed;
+                status.requiresReset = true;
                 return false;
             }
             ++status.completedReads;
             if (value == kMciInvalidReadValue || value == UINT32_MAX)
             {
                 status.result = CoexistenceResult::ReadbackMismatch;
+                status.requiresReset = true;
                 return false;
             }
             return true;

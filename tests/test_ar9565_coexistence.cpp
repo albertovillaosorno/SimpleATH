@@ -815,7 +815,7 @@ namespace
                 return false;
             }
         }
-        for (size_t scenario = 0U; scenario < 6U; ++scenario)
+        for (size_t scenario = 0U; scenario < 7U; ++scenario)
         {
             Mock mock {};
             MciGpmCursor cursor {};
@@ -846,12 +846,18 @@ namespace
                 {
                     mock.revokeAfter = 1U;
                 }
-                else
+                else if (scenario == 5U)
                 {
                     // Acknowledge RX_MSG successfully, then fail the RAW
                     // status acknowledgement. Never leak the first event.
                     find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
                     mock.failWrite = 2U;
+                }
+                else
+                {
+                    // After eight preflight reads, the first RAW status
+                    // read fails. This cannot be considered an idle device.
+                    mock.failRead = 9U;
                 }
             }
             const auto result =
@@ -861,10 +867,11 @@ namespace
                 : scenario == 2U ? CoexistenceResult::WriteFailed
                 : scenario == 3U ? CoexistenceResult::ReadbackMismatch
                 : scenario == 4U ? CoexistenceResult::OwnershipLost
-                                 : CoexistenceResult::WriteFailed;
+                : scenario == 5U ? CoexistenceResult::WriteFailed
+                                 : CoexistenceResult::ReadFailed;
             if (result.progress.result != expected ||
                 (scenario < 2U && mock.writes != 0U) ||
-                (scenario >= 2U && !result.progress.requiresReset) ||
+                result.progress.requiresReset != (scenario != 1U) ||
                 !cursor.attached || cursor.ownerEpoch != kEpoch ||
                 result.gpmNotification ||
                 result.bluetoothRenegotiationRequired || result.hardwareFault ||
