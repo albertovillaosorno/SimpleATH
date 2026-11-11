@@ -393,3 +393,27 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   host claim or deliver Bluetooth traffic: a real OS-owned HCI transport,
   event worker, BLE discovery integration and RF coexistence are still
   required. The P0 TODO remains open.
+
+- **LE command completion and advertising owner-reentry hardening
+  (2026-11-10):** DCO `48fe97a` rejects missing or surplus return parameters
+  in Command Complete for the five implemented legacy LE advertising and
+  scan-control commands, before a malformed reply can retire a pending HCI
+  opcode or grant command credits. The five-opcode negative synthetic USB
+  fixture failed against the prior source (exit 30). DCO `c67c100` rechecks
+  the borrowed Bluetooth host permission after it returns: an inline revoke
+  during advertising stop or event admission cannot mutate an already
+  retired Idle session; those new regressions failed against prior source
+  (nonzero exit 202). DCO `861e0f0` adds monotonic producer generations so
+  even a revoke/restart during a callback with the **same USB epoch and LE
+  phase** cannot inherit the old operation's authorization. Its regression
+  failed against the previous code (exit 21); generation exhaustion is also
+  tested to fail closed. All three updates passed focused C++14/C++17
+  ASan+UBSan Bluetooth host fixtures, scoped direct strict Clang-Tidy and
+  formatting. Freestanding C++14 syntax passed for the final advertising
+  change. The broader `tools/validate.py --tidy --tests` run did not finish
+  within the available invocation; no full-tree success is claimed for
+  these source patches. The latest *authorized* macOS Xcode kext CI build
+  succeeded at `58dd1da` **before** these Bluetooth changes; it is not a
+  build validation of the later commits. Native macOS Bluetooth host
+  registration, real USB HCI execution, shared-radio coexistence and
+  AirDrop remain unimplemented or unverified. This P0 task stays open.
