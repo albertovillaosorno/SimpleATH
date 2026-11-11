@@ -3068,6 +3068,22 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_protected_fragments.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_protected_fragments.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
       "path": "tests/test_public_contract.py",
       "license": "MIT",
       "license_file": "LICENSE-MIT",

@@ -1022,6 +1022,8 @@ class SimpleATH final : public IOService
 
         void failNativeJoin(IOReturn status)
         {
+            // No partial verified MSDU survives a failed association.
+            nativeProtectedFragments_.clear();
             if (joinEpoch_ == epoch_ && joinRequestId_ != 0)
             {
                 joinStatus_ = status;
@@ -1060,6 +1062,8 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
+            // A new association must never inherit a previous key stream.
+            self.nativeProtectedFragments_.clear();
             self.joinEpoch_ = request.epoch;
             self.joinRequestId_ = request.requestId;
             self.joinStatus_ = kIOReturnSuccess;
@@ -1253,6 +1257,7 @@ class SimpleATH final : public IOService
             // owns its copied management frame until completion.
             self.controlledPortAuthorized_ = false;
             self.nativePairwiseTx_.revoke();
+            self.nativeProtectedFragments_.clear();
             self.nativePairwiseRx_.revoke();
             for (auto &group : self.nativeGroupRx_)
             {
@@ -1300,6 +1305,7 @@ class SimpleATH final : public IOService
                        simpleath::tahoe::kWirelessMacBytes) == 0)
             {
                 self.nativePairwiseTx_.revoke();
+                self.nativeProtectedFragments_.clear();
                 self.nativePairwiseRx_.revoke();
                 for (auto &group : self.nativeGroupRx_)
                 {
@@ -1322,6 +1328,7 @@ class SimpleATH final : public IOService
                 {
                     return kIOReturnUnsupported;
                 }
+                self.nativeProtectedFragments_.clear();
                 (*self.nativeGroupSlot(key.keyId)).revoke();
                 self.nativeGroupKeyRevokedMask_ |=
                     static_cast<uint8_t>(1U << key.keyId);
@@ -1399,6 +1406,7 @@ class SimpleATH final : public IOService
                 // replacing the same slot without a fresh epoch is refused.
                 // Never use the GTK to transmit station unicast data or
                 // trust unauthenticated packet KeyID as a key selector.
+                self.nativeProtectedFragments_.clear();
                 const auto installed =
                     (*self.nativeGroupSlot(key.keyId))
                         .install(&key.material[0], &link.bssid.bytes[0],
@@ -1416,6 +1424,7 @@ class SimpleATH final : public IOService
                 // Require a fresh connection epoch with guaranteed new keys.
                 return kIOReturnUnsupported;
             }
+            self.nativeProtectedFragments_.clear();
             const auto installed = self.nativePairwiseTx_.install(
                 &key.material[0], &link.station.bytes[0], 0, self.epoch_, 0, 0);
             if (installed != simpleath::ieee80211::crypto::CcmpResult::Ok)
@@ -2156,6 +2165,7 @@ class SimpleATH final : public IOService
             // CCMP MIC/PN verifier and TX sequencer. This does not assume
             // that hardware RX hands us untouched ciphertext: an on-air
             // protected MPDU must still pass independent MIC/PN verification.
+            self.nativeProtectedFragments_.clear();
             const auto tx =
                 result.result == simpleath::KeyCacheResult::Ok
                     ? self.nativePairwiseTx_.install(
@@ -2171,6 +2181,7 @@ class SimpleATH final : public IOService
                 rx != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
                 self.nativePairwiseTx_.revoke();
+                self.nativeProtectedFragments_.clear();
                 self.nativePairwiseRx_.revoke();
                 // Once hardware key RAM may have been modified, an error is
                 // not a harmless handshake retry. The borrowed RX callback
@@ -2209,6 +2220,7 @@ class SimpleATH final : public IOService
             // The hardware keycache validated the MIC-authenticated RSC and
             // retained its 48-bit PN floor. Mirrored GTK replay state must
             // start at that exact floor, never an invented zero.
+            self.nativeProtectedFragments_.clear();
             const auto mirrored =
                 result.result == simpleath::KeyCacheResult::Ok
                     // keyId was proven < kCcmpGroupSlots above.
@@ -2222,6 +2234,7 @@ class SimpleATH final : public IOService
                 mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
                 // NOLINTNEXTLINE(*bounds-constant-array-index)
+                self.nativeProtectedFragments_.clear();
                 self.nativeGroupRx_[keyId].revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
@@ -2250,6 +2263,7 @@ class SimpleATH final : public IOService
             self.wpa2M4TransmitConfirmed_ = false;
             self.authenticatedProtectedRxObserved_ = false;
             self.nativePairwiseTx_.revoke();
+            self.nativeProtectedFragments_.clear();
             self.nativePairwiseRx_.revoke();
             for (auto &slot : self.nativeGroupRx_)
             {
@@ -2600,6 +2614,7 @@ class SimpleATH final : public IOService
                 nativePairwiseKeyRevoked_ || !nativePairwiseTx_.installed() ||
                 !nativePairwiseRx_.installed() || !nativeGroupInstalled())
             {
+                nativeProtectedFragments_.clear();
                 return;
             }
             const size_t mpduBytes = bytes - kFcsBytes;
@@ -2660,9 +2675,24 @@ class SimpleATH final : public IOService
                 true,
             };
             simpleath::ieee80211::Msdu msdu {};
-            const auto result = simpleath::ieee80211::inspectProtectedStationRx(
-                connection, frame, bytes, true, true, *receive, epoch_,
-                &protectedRxScratch_[0], sizeof(protectedRxScratch_), msdu);
+            // A CCMP fragment authenticates *its own* IV/MIC before any
+            // portion can enter an MSDU. No raw fragment may reach the native
+            // Ethernet or EAPOL port. Ordinary CCMP packets retain the old
+            // strictly nonfragmented path and PN/replay lifetime.
+            const bool fragmented =
+                header.moreFragments || header.fragment != 0U;
+            const auto result =
+                fragmented
+                    ? simpleath::ieee80211::inspectProtectedFragmentStationRx(
+                          connection, frame, bytes, true, true, *receive,
+                          epoch_, nativeProtectedFragments_,
+                          nowMicros(nullptr) / kMicrosPerMillisecond,
+                          &protectedRxScratch_[0], sizeof(protectedRxScratch_),
+                          msdu)
+                    : simpleath::ieee80211::inspectProtectedStationRx(
+                          connection, frame, bytes, true, true, *receive,
+                          epoch_, &protectedRxScratch_[0],
+                          sizeof(protectedRxScratch_), msdu);
             setProperty("SimpleATHLastProtectedReceiveResult",
                         static_cast<uint32_t>(result), kRfPropertyWidthBits);
             if (result == simpleath::ieee80211::DataPathResult::Ok)
@@ -3222,6 +3252,7 @@ class SimpleATH final : public IOService
                 // native network client can receive or transmit another byte.
                 self.controlledPortAuthorized_ = false;
                 self.nativePairwiseTx_.revoke();
+                self.nativeProtectedFragments_.clear();
                 self.nativePairwiseRx_.revoke();
                 for (auto &group : self.nativeGroupRx_)
                 {
@@ -3387,6 +3418,7 @@ class SimpleATH final : public IOService
                    sizeof(self.protectedScratch_));
             memset(&self.managementReply_[0], 0, sizeof(self.managementReply_));
             self.nativePairwiseTx_.revoke();
+            self.nativeProtectedFragments_.clear();
             self.nativePairwiseRx_.revoke();
             for (auto &group : self.nativeGroupRx_)
             {
@@ -3995,6 +4027,7 @@ class SimpleATH final : public IOService
             memset(&protectedScratch_[0], 0, sizeof(protectedScratch_));
             memset(&protectedRxScratch_[0], 0, sizeof(protectedRxScratch_));
             nativePairwiseTx_.revoke();
+            nativeProtectedFragments_.clear();
             nativePairwiseRx_.revoke();
             for (auto &group : nativeGroupRx_)
             {
@@ -4252,6 +4285,10 @@ class SimpleATH final : public IOService
         uint8_t protectedScratch_[kNativeTxMpduCapacity] {};
         uint8_t protectedRxScratch_
             [simpleath::ieee80211::crypto::kCcmpMaximumMpduBytes] {};
+        // Only MIC/PN-verified plaintext may enter this same-key stream.
+        // Cleared on every native key change, disconnect and radio reset.
+        simpleath::ieee80211::ProtectedFragmentStream
+            nativeProtectedFragments_ {};
         // Software CCMP sessions exist only in the current physical epoch.
         // TX uses local station address; RX needs the AP transmitter instead.
         // They are distinct because PN ownership differs by direction.

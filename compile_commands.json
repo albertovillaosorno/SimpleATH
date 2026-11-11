@@ -1515,6 +1515,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_protected_fragments.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_protected_fragments.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_relocate_safety.cpp",
     "arguments": [
       "clang++",

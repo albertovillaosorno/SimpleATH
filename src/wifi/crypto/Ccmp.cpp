@@ -277,7 +277,8 @@ namespace simpleath
 
                 bool validHeader(const uint8_t *frame, size_t bytes,
                                  bool encrypted, const uint8_t transmitter[6U],
-                                 bool sppAmsdu, FrameHeader &header)
+                                 bool sppAmsdu, FrameHeader &header,
+                                 bool allowFragments = false)
                 {
                     if (frame == nullptr || bytes < kHeaderBytes + 1U ||
                         bytes > kCcmpMaximumMpduBytes)
@@ -293,10 +294,13 @@ namespace simpleath
                     if ((control0 != kLegacyDataSubtype && !qos) ||
                         bytes < headerBytes + 1U ||
                         (direction != kToDs && direction != kFromDs) ||
-                        (control1 &
-                         (kFragmentFlag | kProtected | kHtControlPresent)) !=
+                        (control1 & (kProtected | kHtControlPresent |
+                                     (allowFragments ? 0U : kFragmentFlag))) !=
                             (encrypted ? kProtected : 0U) ||
-                        (*byteAt(frame, 22U) & 0x0fU) != 0U ||
+                        (!allowFragments &&
+                         (*byteAt(frame, 22U) & 0x0fU) != 0U) ||
+                        ((control1 & kFragmentFlag) != 0U &&
+                         (*byteAt(frame, 22U) & 0x0fU) == 15U) ||
                         __builtin_memcmp(byteAt(frame, 10U), transmitter,
                                          kCcmpMacBytes) != 0)
                     {
@@ -570,7 +574,8 @@ namespace simpleath
             CcmpResult CcmpSession::protect(uint64_t epoch,
                                             const uint8_t *frame, size_t bytes,
                                             uint8_t *output, size_t capacity,
-                                            size_t &written)
+                                            size_t &written,
+                                            bool allowFragments)
             {
                 if (!installed_)
                 {
@@ -589,7 +594,7 @@ namespace simpleath
                 FrameHeader header {};
                 if (keyId_ != 0U ||
                     !validHeader(frame, bytes, false, transmitter_, sppAmsdu_,
-                                 header))
+                                 header, allowFragments))
                 {
                     return CcmpResult::UnsupportedFrame;
                 }
@@ -646,7 +651,8 @@ namespace simpleath
             CcmpResult CcmpSession::unprotect(uint64_t epoch,
                                               const uint8_t *frame,
                                               size_t bytes, uint8_t *output,
-                                              size_t capacity, size_t &written)
+                                              size_t capacity, size_t &written,
+                                              bool allowFragments)
             {
                 if (!installed_)
                 {
@@ -664,7 +670,7 @@ namespace simpleath
                 }
                 FrameHeader header {};
                 if (!validHeader(frame, bytes, true, transmitter_, sppAmsdu_,
-                                 header) ||
+                                 header, allowFragments) ||
                     bytes < header.bytes + kExtIvBytes + kMicBytes + 1U)
                 {
                     return CcmpResult::UnsupportedFrame;

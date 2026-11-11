@@ -88,12 +88,13 @@ Wpa2CryptoAdapter and portable Wpa2Primitives. Eapol.* supplies parsing/replay
 logic. KeyHardware is still a native callback contract; no AR9565 hardware
 key installer is connected. `src/wifi/crypto/Ccmp.{hpp,cpp}` now implements
 source-only AES-CCM-128/8-byte MIC and 802.11 CCMP IV/AAD/nonce for bounded
-three-address non-QoS and QoS Data MPDUs, nonfragmented and without FCS.
+three-address non-QoS and QoS Data MPDUs without FCS.
 QoS nonce priority and 24-byte AAD carry the authenticated TID; replay checks
 are per TID, sharing a floor for legacy data and QoS TID 0, while transmit PN
 is monotonically owned per TK. Its serialized `CcmpSession` rejects wrong
-epochs/transmitters, ambiguous buffer aliases, A-MSDU/HT-control/fragmented
-frames, stale per-TID receive PNs, wrong key IDs, exhausted transmit PN and
+epochs/transmitters, ambiguous buffer aliases, A-MSDU/HT-control frames,
+fragmentation without explicit opt-in, stale per-TID receive PNs, wrong key IDs,
+exhausted transmit PN and
 failed authentication without disclosing decrypted bytes or advancing replay
 state. It erases ephemeral round keys and private session key on
 revoke/destruction. Offline tests include independent OpenSSL AES-CCM non-QoS

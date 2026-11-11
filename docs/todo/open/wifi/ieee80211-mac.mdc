@@ -165,10 +165,13 @@ synthetic regressions cover order, identity, QoS, time, overflow, aliasing,
 trust revocation and actual open-association delivery.
 
 Each fragment still requires external verified DMA/FCS evidence, which portable
-tests cannot supply. WPA2 CCMP fragmentation remains explicitly rejected
-until independently authenticated per-fragment PN/MIC and controlled RX
-lifetime are implemented. This does not complete BlockAck/A-MPDU reordering,
-native Ethernet delivery or physical radio permission; keep the task open.
+tests cannot supply. The separate native WPA2 CCMP receive owner now verifies
+the individual MIC/PN of every fragment before bounded reassembly, binding its
+one pending MSDU to the same physical epoch, GTK/PTK key ID and address class.
+The completed canonical MPDU alone reaches the existing station/security
+admission gate; no partial payload is delivered. This does not complete
+BlockAck/A-MPDU reordering, actual hardware receive, association or RF/TPC
+permission. Keep the task open.
 
 ## Native publication of reassembled open data
 

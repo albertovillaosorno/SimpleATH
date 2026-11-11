@@ -41,6 +41,7 @@
 #define SIMPLEATH_WIFI_DATA_PATH_HPP
 
 #include "DataFrames.hpp"
+#include "DataReassembly.hpp"
 
 namespace simpleath
 {
@@ -73,6 +74,7 @@ namespace simpleath
             UnsupportedFrame,
             InvalidSecurityState,
             EncryptionFailed,
+            PendingFragments,
         };
 
         enum class LinkSecurity : uint8_t
@@ -158,6 +160,41 @@ namespace simpleath
             size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
             crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
             size_t scratchCapacity, Msdu &result);
+
+        // A single pending CCMP MSDU must never span key IDs, group/unicast
+        // security classes, or physical association epochs. This is only a
+        // plaintext reassembly slot; CcmpSession owns the actual MIC/PN proof.
+        struct ProtectedFragmentStream
+        {
+                DataReassembly reassembly;
+                uint64_t epoch {};
+                uint8_t keyId {};
+                bool group {};
+                bool pending {};
+
+                void clear()
+                {
+                    reassembly.clear();
+                    epoch = 0U;
+                    keyId = 0U;
+                    group = false;
+                    pending = false;
+                }
+        };
+
+        // Authenticate *each* encrypted fragment with its own PN/MIC before
+        // appending its verified plaintext to one bounded association-local
+        // stream. A pending stream never exposes an MSDU; complete reassembly
+        // gets one final station/LLC/security admission. The caller owns the
+        // current key lease and MUST clear fragments whenever that key, its
+        // association or its physical epoch changes. FCS must be independently
+        // verified on every fragment. Output borrows scratch only on success.
+        DataPathResult inspectProtectedFragmentStationRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch,
+            ProtectedFragmentStream &fragments, uint64_t nowMs,
+            uint8_t *scratch, size_t scratchCapacity, Msdu &result);
 
         // Inspect an entire associated AP-to-station QoS A-MSDU before
         // publishing any subframe; rejected peers/recipients revoke all

@@ -35,7 +35,8 @@
 //
 // Module: Native driver contracts and implementation for ccmp.
 
-// 802.11 CCMP-128 for unfragmented, three-address data and QoS data.
+// 802.11 CCMP-128 for three-address data and QoS data.
+// Fragment use is explicit; RX needs same-key, per-MIC verification.
 // Pure source implementation; native key/PN ownership still requires wiring.
 #ifndef SIMPLEATH_WIFI_CCMP_HPP
 #define SIMPLEATH_WIFI_CCMP_HPP
@@ -126,10 +127,16 @@ namespace simpleath
                     // protect additionally requires pairwise key ID zero.
                     CcmpResult protect(uint64_t epoch, const uint8_t *frame,
                                        size_t bytes, uint8_t *output,
-                                       size_t capacity, size_t &written);
+                                       size_t capacity, size_t &written,
+                                       bool allowFragments = false);
+                    // Fragmented RX requires an explicit opt-in; each wire
+                    // fragment has its own authenticated CCMP PN/MIC. The
+                    // caller must reassemble only successfully verified
+                    // plaintext under the current key/association lease.
                     CcmpResult unprotect(uint64_t epoch, const uint8_t *frame,
                                          size_t bytes, uint8_t *output,
-                                         size_t capacity, size_t &written);
+                                         size_t capacity, size_t &written,
+                                         bool allowFragments = false);
                     void revoke();
 
                     bool installed() const

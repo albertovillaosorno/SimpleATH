@@ -667,7 +667,10 @@ namespace simpleath
             __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
                              sizeof(iv));
             const auto keyId = static_cast<uint8_t>(iv[3] >> kKeyIdShift);
-            if ((group && keyId == 0U) || (!group && keyId != 0U))
+            // A group destination selects the native GTK slot, even when
+            // its legal on-air key ID is zero; the native owner must never
+            // send it to the pairwise session with the same numeric key ID.
+            if (!group && keyId != 0U)
             {
                 return DataPathResult::UnverifiedDecryption;
             }
@@ -699,6 +702,126 @@ namespace simpleath
                     clear[i] = 0;
                 }
             }
+            return admitted;
+        }
+
+        DataPathResult inspectProtectedFragmentStationRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch,
+            ProtectedFragmentStream &fragments, uint64_t nowMs,
+            uint8_t *scratch, size_t scratchCapacity, Msdu &result)
+        {
+            // A forged alias cannot overwrite a key ledger or retained
+            // fragment state, even if the final admission would reject it.
+            if (aliasesProtectedRxIo(link, encrypted, encryptedBytes, receive,
+                                     scratch, scratchCapacity, result) ||
+                overlaps(&fragments, sizeof(fragments), encrypted,
+                         encryptedBytes) ||
+                overlaps(&fragments, sizeof(fragments), scratch,
+                         scratchCapacity) ||
+                overlaps(&fragments, sizeof(fragments), &receive,
+                         sizeof(receive)) ||
+                overlaps(&fragments, sizeof(fragments), &link, sizeof(link)) ||
+                overlaps(&fragments, sizeof(fragments), &result,
+                         sizeof(result)))
+            {
+                return DataPathResult::OverlappingBuffers;
+            }
+            result = {};
+            if (encrypted == nullptr || scratch == nullptr)
+            {
+                return DataPathResult::NullBuffer;
+            }
+            const auto status = protectedRxLinkStatus(link, fcsAndDmaValidated,
+                                                      receive.installed());
+            if (status != DataPathResult::Ok)
+            {
+                fragments.clear();
+                return status;
+            }
+            if (encryptedBytes < (containsFcs ? kFcsBytes : 0U))
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            const size_t mpduBytes =
+                encryptedBytes - (containsFcs ? kFcsBytes : 0U);
+            Frame header {};
+            if (parseFrame(encrypted, mpduBytes, header) != Result::Ok ||
+                header.type != FrameType::Data || !header.protectedFrame ||
+                (!header.moreFragments && header.fragment == 0U) ||
+                header.toDs || !header.fromDs ||
+                !sameMac(header.bssid, link.bssid) ||
+                !validStationMac(header.source))
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            const bool group = (header.destination.bytes[0] & 1U) != 0U;
+            if (!group && !sameMac(header.destination, link.station))
+            {
+                return DataPathResult::NotForThisStation;
+            }
+            constexpr size_t kExtIvBytes = 8U;
+            constexpr size_t kMicBytes = 8U;
+            constexpr uint8_t kKeyIdShift = 6U;
+            if (mpduBytes < header.headerLength + kExtIvBytes + kMicBytes + 1U)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            uint8_t iv[4] {};
+            __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
+                             sizeof(iv));
+            const uint8_t keyId = static_cast<uint8_t>(iv[3] >> kKeyIdShift);
+            if (!group && keyId != 0U)
+            {
+                return DataPathResult::UnverifiedDecryption;
+            }
+            size_t plainBytes = 0U;
+            // The decrypted output retains More Fragments/fragment number.
+            // CcmpSession commits this fragment's PN only after a valid MIC.
+            const auto authenticated =
+                receive.unprotect(epoch, encrypted, mpduBytes, scratch,
+                                  scratchCapacity, plainBytes, true);
+            if (authenticated != crypto::CcmpResult::Ok)
+            {
+                return protectedRxCryptoFailure(authenticated);
+            }
+            if (header.fragment == 0U)
+            {
+                fragments.clear();
+                fragments.epoch = epoch;
+                fragments.keyId = keyId;
+                fragments.group = group;
+            }
+            else if (!fragments.pending || fragments.epoch != epoch ||
+                     fragments.keyId != keyId || fragments.group != group)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            DataFrameView whole {};
+            const auto reassembled =
+                fragments.reassembly.ingest(scratch, plainBytes, nowMs, whole);
+            if (reassembled == DataFragmentResult::Pending)
+            {
+                fragments.pending = true;
+                return DataPathResult::PendingFragments;
+            }
+            if (reassembled != DataFragmentResult::Complete ||
+                whole.bytes == nullptr || whole.length > scratchCapacity)
+            {
+                fragments.clear();
+                return DataPathResult::MalformedFrame;
+            }
+            // DataReassembly publishes a canonical, clear synthetic MPDU.
+            // Copy to the disposable caller scratch before restoring the
+            // attested Protected bit for normal WPA2 station admission.
+            __builtin_memcpy(scratch, whole.bytes, whole.length);
+            constexpr uint8_t kProtectedFrameBit = 0x40U;
+            // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
+            scratch[1] |= kProtectedFrameBit;
+            const auto admitted = inspectStationRx(link, scratch, whole.length,
+                                                   false, true, true, result);
+            fragments.clear();
             return admitted;
         }
 
