@@ -514,3 +514,21 @@ before the fix, then confirms valid empty pre-credit completions remain
 accepted while malformed completions fault transport without host delivery.
 This changes neither controller authorization nor native Bluetooth host
 registration; source-only tests remain the available evidence.
+
+## Source audit — operational HCI owner still unwired
+
+The native `openNativeUsbHciIo`, `sendNativeUsbHciCommand`,
+`sendNativeUsbHciAcl`, `pumpNativeUsbHciEvent` and `pumpNativeUsbHciAcl`
+entrypoints are defined in `src/platform/bluetooth/NativeAth3kIo.cpp`
+(and declared in its header), but the production source tree contains no
+caller that opens or drives this post-firmware HCI transport. Conversely,
+`SimpleATHUsbBluetooth::probe` and `start` deliberately accept only the
+bootloader-revision USB identity and release the firmware owner before
+normal-mode re-enumeration; this is **not** an operational macOS Bluetooth
+host-controller service. A future implementation must introduce a separately
+verified post-reset USB interface owner, exclusive per-epoch endpoint lease,
+HCI command/event delivery into the real macOS Bluetooth host, bounded poll
+lifetime and teardown. Do not attach the old firmware loader to an already
+operational HCI interface or claim BLE pairing, AirDrop or Continuity ready
+from firmware bootstrap success alone. This is an audited missing wiring
+contract, not a completed host integration or device test.
