@@ -237,18 +237,6 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 
 [full wifi pipeline](docs/todo/open/integration/full-wifi-pipeline.mdc)
 
-## Validation milestone — after 100% implementation
-
-### TODO - Resolve validator findings and review interrupted Python edits
-
-After implementing the entire required driver, finish pending lint/type
-corrections and review interrupted edits under tools/. Preserve every script's
-behavior and obtain a fresh full validator
-report with no unresolved findings. Necessary offline host tests are allowed;
-kext builds, CI and hardware experiments remain unauthorized.
-
-[validator findings](docs/todo/open/governance/validator-findings.mdc)
-
 ## P4 — Continuous hardening and remaining source work
 
 ### TODO - Finish source-only hardening/documentation

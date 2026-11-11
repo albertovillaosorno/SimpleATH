@@ -1,7 +1,7 @@
 ---
 schema: simpleath.todo.v1
 id: validator-findings
-status: open
+status: completed
 priority: P0
 lane: A10
 phase: source-only
