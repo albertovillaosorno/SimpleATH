@@ -659,6 +659,34 @@ namespace
         {
             return __LINE__ % kFailureModulo + 1;
         }
+        // The native owner now polls this exact portable beacon deadline on
+        // its independent association watchdog. A silent AP loss must not
+        // require another received MPDU to retire an otherwise live port.
+        EngineAction timeout {};
+        const uint64_t lastBeacon = engine.linkStatus().lastBeaconMs;
+        if (engine.checkBeaconTimeout(lastBeacon + 1U, timeout) !=
+                EngineResult::NoAction ||
+            timeout.kind != ActionKind::None ||
+            engine.linkStatus().state != LinkState::Associated ||
+            engine.checkBeaconTimeout(lastBeacon + 30001U, timeout) !=
+                EngineResult::Ok ||
+            timeout.kind != ActionKind::LinkLost ||
+            engine.linkStatus().state != LinkState::ReconnectPending ||
+            engine.linkStatus().reason != LinkLoss::BeaconTimeout ||
+            engine.checkBeaconTimeout(lastBeacon + 30002U, timeout) !=
+                EngineResult::NoAction ||
+            timeout.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // The physical owner must quiesce DMA/remove keys separately;
+        // portable link timeout alone never asserts that those steps ran.
+        engine.radioStopped(lastBeacon + 30002U, false);
+        if (engine.linkStatus().state != LinkState::RadioUnavailable ||
+            engine.stationState() != StationState::Inactive)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
         rxScratch.fill(0U);
         return 0;
     }

@@ -101,6 +101,19 @@ controller, and is RX-only even when it succeeds. The driver must not
 replace missing calibrated/channel/regulatory operations with asserted flags.
 An end-to-end integrated, authorized driver is therefore still missing.
 
+The native association owner now schedules a separate same-workloop beacon
+watchdog after an actual AP association response. It polls the portable
+`WifiEngine::checkBeaconTimeout` at one-second intervals and routes an expired
+link through the existing native controlled-port, software CCMP and key-epoch
+revocation path used for AP deauthentication/disassociation. Failed timer
+scheduling, lost RF/queue ownership, explicit disconnect, sleep and teardown
+also invalidate the watchdog's epoch/association generation; scan timing stays
+independent. The `test_wifi_engine` fixture checks the portable deadline and
+one-shot link-loss action. This is **source-only**: the board-acquisition-only
+boot still cannot arm the watchdog in practice because RF/channel startup and
+native packet queues remain unverified; it does not prove hardware keycache
+scrub, interrupt service, reconnection or physical Wi-Fi operation.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.

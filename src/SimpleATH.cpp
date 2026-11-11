@@ -141,6 +141,7 @@ namespace
     constexpr unsigned int kCounterPropertyWidthBits = 64;
     constexpr size_t kManagementReplyCapacity = 4096;
     constexpr uint16_t kNativePassiveDwellMs = 120;
+    constexpr uint32_t kNativeLinkWatchdogMs = 1000U;
     constexpr uint8_t kAwdlSocialChannelSix = 6U;
     constexpr uint8_t kAwdlActionSubtype = 13U;
     constexpr unsigned int kAwdlCounterWidthBits = 64U;
@@ -278,6 +279,22 @@ class SimpleATH final : public IOService
                 return failStart(provider, "ScanTimer", timerAdded);
             }
             scanTimerAttached_ = true;
+            // Association liveness is independent of an active scan dwell.
+            // A successful association arms this same-workloop watchdog;
+            // board acquisition alone never starts it or grants RF access.
+            linkTimer_ = IOTimerEventSource::timerEventSource(
+                kIOTimerEventSourceOptionsPriorityWorkLoop, this,
+                linkTimerFired);
+            if (linkTimer_ == nullptr)
+            {
+                return failStart(provider, "LinkTimer", kIOReturnNoMemory);
+            }
+            const IOReturn linkTimerAdded = loop_->addEventSource(linkTimer_);
+            if (linkTimerAdded != kIOReturnSuccess)
+            {
+                return failStart(provider, "LinkTimer", linkTimerAdded);
+            }
+            linkTimerAttached_ = true;
             access_.owner = this;
             const simpleath::NativePciPowerGate power {&access_, poweredGate};
             if (!backend_.configure(this, pci_, power))
@@ -884,6 +901,58 @@ class SimpleATH final : public IOService
                        : self.gate_->runAction(ownerNextBssAction, &request);
         }
 
+        static void linkTimerFired(OSObject *owner, IOTimerEventSource *unused)
+        {
+            (void)unused;
+            // Only the serialized PCI owner can retire a live association.
+            // Sleep, stop and new associations invalidate this exact token.
+            // Do not treat a timer callback as an RX/beacon observation.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(owner);
+            if (self.loop_ == nullptr || !self.loop_->inGate() ||
+                self.linkWatchEpoch_ == 0 ||
+                self.linkWatchEpoch_ != self.epoch_ ||
+                self.linkWatchAssociationGeneration_ == 0 ||
+                self.linkWatchAssociationGeneration_ !=
+                    self.associationGeneration_)
+            {
+                return;
+            }
+            if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.queues_.epoch() != self.epoch_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                self.joinEpoch_ != self.epoch_ ||
+                self.engine_.linkStatus().state !=
+                    simpleath::ieee80211::LinkState::Associated)
+            {
+                self.retireNativeLink(kIOReturnNotReady);
+                return;
+            }
+            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            simpleath::ieee80211::EngineAction action {};
+            const auto result = self.engine_.checkBeaconTimeout(now, action);
+            if (result == simpleath::ieee80211::EngineResult::Ok &&
+                action.kind == simpleath::ieee80211::ActionKind::LinkLost)
+            {
+                self.setProperty(
+                    "SimpleATHLastLinkLoss",
+                    static_cast<uint32_t>(
+                        simpleath::ieee80211::LinkLoss::BeaconTimeout),
+                    kRfPropertyWidthBits);
+                self.retireNativeLink(kIOReturnTimeout);
+                return;
+            }
+            // A monotonic-clock regression, failed poll or timer scheduling
+            // failure must close the port, not make the AP immortal.
+            if (result != simpleath::ieee80211::EngineResult::NoAction ||
+                self.linkTimer_->setTimeoutMS(kNativeLinkWatchdogMs) !=
+                    kIOReturnSuccess)
+            {
+                self.retireNativeLink(kIOReturnNotReady);
+            }
+        }
+
         static void scanTimerFired(OSObject *owner, IOTimerEventSource *unused)
         {
             (void)unused;
@@ -1022,6 +1091,14 @@ class SimpleATH final : public IOService
 
         void failNativeJoin(IOReturn status)
         {
+            // A failed/disconnected association must not leave a previously
+            // scheduled timeout capable of retiring the next association.
+            linkWatchEpoch_ = 0;
+            linkWatchAssociationGeneration_ = 0;
+            if (linkTimer_ != nullptr)
+            {
+                linkTimer_->cancelTimeout();
+            }
             // No partial verified MSDU survives a failed association.
             nativeProtectedFragments_.clear();
             if (joinEpoch_ == epoch_ && joinRequestId_ != 0)
@@ -2847,6 +2924,26 @@ class SimpleATH final : public IOService
             }
         }
 
+        void retireNativeLink(IOReturn reason)
+        {
+            // Reuse this exact terminal path for a verified AP disconnect,
+            // missed beacon deadline and watchdog-owner revocation. The
+            // keycache remains under the native queue/reset owner; no new
+            // association or controlled port is authorized without it.
+            controlledPortAuthorized_ = false;
+            nativePairwiseTx_.revoke();
+            nativeProtectedFragments_.clear();
+            nativePairwiseRx_.revoke();
+            for (auto &group : nativeGroupRx_)
+            {
+                group.revoke();
+            }
+            nativePairwiseKeyRevoked_ = true;
+            nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+            failNativeJoin(reason);
+            notifyWirelessChange(false);
+        }
+
         void recordNativeAssociation()
         {
             // A beacon seen in the scan epoch is NOT proof that the AP is
@@ -2867,16 +2964,28 @@ class SimpleATH final : public IOService
                 notifyWirelessChange(false);
                 return;
             }
-            if (associationGeneration_ == UINT64_MAX)
+            if (associationGeneration_ == UINT64_MAX || linkTimer_ == nullptr ||
+                !radioOperational_ || !channelAuthorized_ ||
+                !liveRfKillUnblocked() || queues_.epoch() != epoch_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running)
             {
-                // Never wrap an OS-visible association token. Retire the
-                // new link rather than publishing an ambiguous lifetime.
+                // Neither an exhausted OS-visible association token nor an
+                // unverified hardware owner may publish a live connection.
+                retireNativeLink(kIOReturnNotReady);
                 engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
                                      false);
+                return;
             }
-            else
+            ++associationGeneration_;
+            linkWatchEpoch_ = epoch_;
+            linkWatchAssociationGeneration_ = associationGeneration_;
+            if (linkTimer_->setTimeoutMS(kNativeLinkWatchdogMs) !=
+                kIOReturnSuccess)
             {
-                ++associationGeneration_;
+                retireNativeLink(kIOReturnNotReady);
+                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                     false);
+                return;
             }
             controlledPortAuthorized_ = false;
             notifyWirelessChange(false);
@@ -3336,20 +3445,9 @@ class SimpleATH final : public IOService
             if (result == simpleath::ieee80211::EngineResult::Ok &&
                 action.kind == simpleath::ieee80211::ActionKind::LinkLost)
             {
-                // An AP disconnect revokes old key/PN ownership before any
-                // native network client can receive or transmit another byte.
-                self.controlledPortAuthorized_ = false;
-                self.nativePairwiseTx_.revoke();
-                self.nativeProtectedFragments_.clear();
-                self.nativePairwiseRx_.revoke();
-                for (auto &group : self.nativeGroupRx_)
-                {
-                    group.revoke();
-                }
-                self.nativePairwiseKeyRevoked_ = true;
-                self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
-                self.failNativeJoin(kIOReturnNotReady);
-                self.notifyWirelessChange(false);
+                // Verified AP disconnects and silent beacon expiry share
+                // one terminal port/key/association-watchdog path.
+                self.retireNativeLink(kIOReturnNotReady);
                 return;
             }
             // The engine accepts a data MSDU only after association,
@@ -4254,6 +4352,17 @@ class SimpleATH final : public IOService
 
         void cleanup()
         {
+            if (linkTimer_ != nullptr)
+            {
+                linkTimer_->cancelTimeout();
+                if (linkTimerAttached_ && loop_ != nullptr)
+                {
+                    loop_->removeEventSource(linkTimer_);
+                }
+                linkTimer_->release();
+                linkTimer_ = nullptr;
+                linkTimerAttached_ = false;
+            }
             if (scanTimer_ != nullptr)
             {
                 scanTimer_->cancelTimeout();
@@ -4356,6 +4465,11 @@ class SimpleATH final : public IOService
         simpleath::ieee80211::ScanBridgeTicket scanTicket_ {};
         simpleath::ieee80211::ScanBridgeTicket completedScanTicket_ {};
         IOTimerEventSource *scanTimer_ {nullptr};
+        IOTimerEventSource *linkTimer_ {nullptr};
+        // Workloop-only association identity; canceled on every failed join,
+        // disconnect, radio stop and physical PCI epoch retirement.
+        uint64_t linkWatchEpoch_ {0};
+        uint64_t linkWatchAssociationGeneration_ {0};
         uint64_t scanEpoch_ {0};
         uint64_t scanEngineGeneration_ {0};
         uint32_t scanSerial_ {0};
@@ -4363,6 +4477,7 @@ class SimpleATH final : public IOService
         // the current board-acquisition-only boot intentionally cannot.
         uint8_t verifiedReceiveChannel_ {0};
         bool scanTimerAttached_ {false};
+        bool linkTimerAttached_ {false};
         uint8_t managementReply_[kManagementReplyCapacity] {};
         bool deferredGroup2_ {false};
         size_t deferredManagementBytes_ {0};
