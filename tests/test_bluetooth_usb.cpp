@@ -1717,6 +1717,42 @@ namespace
                    UsbHciStatus::Faulted;
     }
 
+    bool testMalformedAclCompletionsBeforeCreditNegotiation()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        // Before Read Buffer Size, a well-formed empty Number of Completed
+        // Packets event carries no credits and must remain transport-legal.
+        constexpr std::array<uint8_t, 3U> kEmptyCompletions {
+            0x13U,
+            1U,
+            0U,
+        };
+        // Declares two handle/count tuples but supplies only one. The event
+        // header's advertised total length is otherwise self-consistent.
+        constexpr std::array<uint8_t, 7U> kTruncatedCompletions {
+            0x13U, 5U, 2U, 1U, 0U, 1U, 0U,
+        };
+        return attachUsbHci(state, kEndpoints, host(fake)) ==
+                   UsbHciStatus::Ok &&
+               receiveUsbHciEvent(state, host(fake), kEmptyCompletions.data(),
+                                  kEmptyCompletions.size()) ==
+                   UsbHciStatus::Ok &&
+               !state.faulted &&
+               fake.deliveredEventBytes == kEmptyCompletions.size() &&
+               receiveUsbHciEvent(state, host(fake),
+                                  kTruncatedCompletions.data(),
+                                  kTruncatedCompletions.size()) ==
+                   UsbHciStatus::MalformedPacket &&
+               state.faulted &&
+               fake.deliveredEventBytes == kEmptyCompletions.size();
+    }
+
     bool testHci()
     {
         UsbFake fake = newFake();
@@ -2440,6 +2476,11 @@ int main()
     {
         constexpr int kHciOwnerBufferAliasFailure = 29;
         return kHciOwnerBufferAliasFailure;
+    }
+    if (!testMalformedAclCompletionsBeforeCreditNegotiation())
+    {
+        constexpr int kPrecreditMalformedCompletionsFailure = 33;
+        return kPrecreditMalformedCompletionsFailure;
     }
     if (!testHci())
     {

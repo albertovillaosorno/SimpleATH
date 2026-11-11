@@ -502,3 +502,15 @@ USB transport tests, native SDK syntax and strict source checks cover the
 policy; there is still no physical USB result. Verified endpoint quiescence,
 provider detach and independent native Bluetooth-host registration remain
 required for physical memory-lifetime and recovery guarantees.
+
+## Source progress — pre-credit HCI completion event length validation
+
+Even before Read Buffer Size establishes ACL credits, Number Of Completed
+Packets events now validate their declared per-handle count and exact frame
+length. Previously an internally inconsistent but outer-length-valid event
+was forwarded directly to the native Bluetooth host because the controller
+pool was not yet configured. A synthetic regression reproduces that failure
+before the fix, then confirms valid empty pre-credit completions remain
+accepted while malformed completions fault transport without host delivery.
+This changes neither controller authorization nor native Bluetooth host
+registration; source-only tests remain the available evidence.

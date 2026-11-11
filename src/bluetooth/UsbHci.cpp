@@ -355,10 +355,9 @@ namespace simpleath
                                  size_t bytes)
         {
             UsbHciAclWindow &window = state.aclWindow;
-            if (!window.configured && !state.leAclWindow.configured)
-            {
-                return UsbHciStatus::Ok;
-            }
+            // HCI event framing is mandatory even before Read Buffer Size
+            // configures ACL credits. Otherwise a malformed controller
+            // completion would be forwarded to the macOS host unchecked.
             if (bytes < kCompletionHeaderBytes ||
                 bytes != kCompletionHeaderBytes +
                              (static_cast<size_t>(*usbByteOffset(
@@ -366,6 +365,10 @@ namespace simpleath
                               kCompletedHandleBytes))
             {
                 return UsbHciStatus::MalformedPacket;
+            }
+            if (!window.configured && !state.leAclWindow.configured)
+            {
+                return UsbHciStatus::Ok;
             }
             // Validate all entries against a private snapshot, then publish
             // credits together. A late malformed handle never grants a
