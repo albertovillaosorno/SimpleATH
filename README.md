@@ -12,6 +12,92 @@ The normal target now includes a native PCI owner with serialized power, BAR acc
 verify kernel loading, native AirPort or real device operation. The development goal is genuine
 macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 
+## Clean OpenCore baseline and later SimpleATH configuration
+
+The owner's November 10, 2026 USB diagnostic baseline is deliberately free
+of experimental Wi-Fi/Ethernet injections. On the USB EFI, `Kernel -> Add`
+contains neither `SimpleATH.kext` nor the old experimental
+`RealtekRTL8100.kext`. The Realtek bundle was removed; the SimpleATH bundle
+is **retained but inactive**, for a later authorized test. The old AR9565
+PCI `168c:0036` to `168c:0030` device-ID/`IOName` spoof was also removed.
+`Kernel -> Block`, `Kernel -> Patch`, and `Kernel -> Force` are empty. No
+El Capitan `IO80211ElCap.kext`, `corecaptureElCap.kext`,
+`AirPortAtheros40.kext`, `IO80211FamilyLegacy.kext`, or injected legacy
+`IOSkywalkFamily.kext` is present on this USB. Native Apple networking
+components must not be blocked or downgraded for SimpleATH.
+
+The USB **still contains** generic non-network boot support, including Lilu,
+VirtualSMC, battery/graphics and input drivers. `AMFIPass.kext` and the
+`-amfipassbeta` boot argument are also temporarily retained: AMFIPass is an
+OCLP/root-patch helper, **not a SimpleATH dependency**, and existing macOS
+root patches may still depend on it. Do not remove it or tighten SIP/AMFI
+until the system's actual root-patch requirements are known.
+
+### Does native SimpleATH require OCLP Legacy Wireless root patches?
+
+**No legacy Atheros/El Capitan injection is specified or required by the
+current SimpleATH source.** Its `src/Info.plist` directly requests the Tahoe
+Apple providers `com.apple.iokit.IO80211Family` (minimum `1200.13.1`),
+`com.apple.iokit.IOSkywalkFamily` (`1.0`),
+`com.apple.iokit.IONetworkingFamily` (`3.2`) and
+`com.apple.driver.corecapture` (`1.0`), *not*
+`IO80211FamilyLegacy`, `IO80211ElCap`, `AirPortAtheros40` or
+`corecaptureElCap`. These dependencies must actually be available on the
+installed macOS build. OpenCore injection succeeding with existing root
+patches does **not** prove the driver can start after a root-patch rollback;
+that remains untested.
+
+OCLP **Post-Install Root Patches** modify macOS's system volume and are
+separate from the USB's `EFI/OC/config.plist`. If OCLP was used **only** for
+legacy Wi-Fi, revert its root patches through OCLP after reaching a stable
+macOS boot. If OCLP also provides graphics or other indispensable hardware
+support, **do not revert all root patches blindly**: OCLP's rollback may
+remove those too. Plan a recovery path and restore only the needed non-Wi-Fi
+patch categories before discarding AMFIPass or changing SIP settings.
+See OCLP's [post-install guide][o1] and
+[patch rollback guide][o2].
+
+[o1]: https://dortania.github.io/OpenCore-Legacy-Patcher/POST-INSTALL.html
+[o2]: https://dortania.github.io/OpenCore-Legacy-Patcher/UNINSTALL.html
+
+### Re-enable SimpleATH after a confirmed working baseline
+
+1. First boot macOS with this clean OpenCore configuration. Run
+   `USB/SimpleATH-Collect.command` from the USB data partition and inspect
+   its output under `USB/SimpleATH-Diagnostics/` if diagnostics are needed.
+2. Ensure the new native Intel x86_64 `SimpleATH.kext` build is in
+   `EFI/OC/Kexts/SimpleATH.kext`. Keep the **original** AR9565 PCI identity,
+   vendor `168c`, device `0036`; do **not** restore the legacy `0030` spoof.
+3. Add **only this kext** to `Kernel -> Add` in `EFI/OC/config.plist`, after
+   the existing base kext entries. The entry is:
+
+   ```xml
+   <dict>
+       <key>Arch</key><string>Any</string>
+       <key>BundlePath</key><string>SimpleATH.kext</string>
+       <key>Comment</key><string>SimpleATH native Tahoe AR9565 test</string>
+       <key>Enabled</key><true/>
+       <key>ExecutablePath</key><string>Contents/MacOS/SimpleATH</string>
+       <key>MaxKernel</key><string></string>
+       <key>MinKernel</key><string>25.0.0</string>
+       <key>PlistPath</key><string>Contents/Info.plist</string>
+   </dict>
+   ```
+
+4. Do **not** restore `RealtekRTL8100.kext`, ElCapitan/legacy AirPort or
+   CoreCapture, a replacement `IOSkywalkFamily.kext`, or an Apple Skywalk
+   blocking/patch entry. Leave the existing non-network ACPI, graphics,
+   SMC and input configuration alone. Use `ocvalidate` against the **exact**
+   OpenCore version before the next authorized hardware experiment.
+5. For debugging, `simpleathdbg=1` may be added to boot arguments, with
+   normal verbose kernel logging if needed. Restore the clean baseline
+   if a subsequent boot freezes. A successful load does not yet prove the
+   radio, scan, WPA2 or AirDrop paths are functional.
+
+This recipe is a **future** test plan, not an instruction to auto-enable the
+kext now. Only the owner can confirm macOS boots reliably on this EFI and
+whether its installed OCLP root patches can be safely removed.
+
 ## Canonical references and research
 
 Use `.references/` at the repository root for all retained source research.
