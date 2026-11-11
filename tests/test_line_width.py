@@ -107,7 +107,7 @@ class LineWidthTests(unittest.TestCase):
         self.assertFalse(check_line_width.is_checked("firmware/image.dfu"))
 
     def test_no_tracked_source_exceeds_80_columns(self) -> None:
-        """Require a clean audit of all Markdown and comments in tracked code."""
+        """Audit comments and Markdown across every tracked source file."""
         findings = check_line_width.check_repository()
         self.assertFalse(findings, "\n".join(findings[:50]))
 
