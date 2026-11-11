@@ -857,7 +857,10 @@ namespace
             if (result.progress.result != expected ||
                 (scenario < 2U && mock.writes != 0U) ||
                 (scenario >= 2U && !result.progress.requiresReset) ||
-                !cursor.attached || cursor.ownerEpoch != kEpoch)
+                !cursor.attached || cursor.ownerEpoch != kEpoch ||
+                result.gpmNotification ||
+                result.bluetoothRenegotiationRequired || result.hardwareFault ||
+                result.rawMessageInterrupt != 0U || result.rawInterrupt != 0U)
             {
                 return false;
             }

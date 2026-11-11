@@ -692,15 +692,6 @@ namespace simpleath
         {
             return result;
         }
-        // Once the initial snapshot has been validated, expose only copied
-        // status, never a borrowed DMA slot or permission derived from it.
-        result.rawMessageInterrupt = rawMessage;
-        result.rawInterrupt = rawInterrupt;
-        result.gpmNotification = (rawMessage & kMciReceiveGpmMessage) != 0U &&
-                                 (rawInterrupt & kMciInterruptRxMessage) != 0U;
-        result.bluetoothRenegotiationRequired =
-            (rawMessage & (kMciReceiveRemoteReset | kMciReceiveReqWake)) != 0U;
-        result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
         // Device RAW registers are W1C, never RMW. The owner checks each
         // acknowledgement and readback before declaring the snapshot valid.
         if (!acknowledgeMciPendingRaw(stable, result.progress,
@@ -711,6 +702,16 @@ namespace simpleath
         {
             return result;
         }
+        // Only publish a copied status after both W1C acknowledgements
+        // succeeded. Failed/revoked acknowledgements return no actionable
+        // GPM or Bluetooth status, regardless of the speculative snapshot.
+        result.rawMessageInterrupt = rawMessage;
+        result.rawInterrupt = rawInterrupt;
+        result.gpmNotification = (rawMessage & kMciReceiveGpmMessage) != 0U &&
+                                 (rawInterrupt & kMciInterruptRxMessage) != 0U;
+        result.bluetoothRenegotiationRequired =
+            (rawMessage & (kMciReceiveRemoteReset | kMciReceiveReqWake)) != 0U;
+        result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
         result.progress.result = CoexistenceResult::Ok;
         result.progress.requiresReset = result.hardwareFault;
         return result;
