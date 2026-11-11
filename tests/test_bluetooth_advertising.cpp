@@ -75,6 +75,7 @@ namespace
             bool revokeOnAuthorization {};
             bool reenterOnAuthorization {};
             bool reenterOnPermit {};
+            bool revokeStateOnPermit {};
             bool stopOnAuthorization {};
             bool revokeStateOnAuthorization {};
             void *reentryContext {};
@@ -93,6 +94,11 @@ namespace
     bool permit(void *context, uint64_t epoch)
     {
         auto &fake = *static_cast<Fake *>(context);
+        if (fake.revokeStateOnPermit && fake.revokeState != nullptr)
+        {
+            fake.revokeStateOnPermit = false;
+            fake.revokeState(fake.reentryContext);
+        }
         if (fake.reenterOnPermit && fake.reenter != nullptr)
         {
             fake.reenterOnPermit = false;
@@ -367,6 +373,13 @@ namespace
             {
                 return endLeAdvertising(advertising_, transport_, host(),
                                         owner());
+            }
+
+            LeAdvertisingResult observeProducerEvent(const uint8_t *data,
+                                                     size_t bytes)
+            {
+                return acceptLeAdvertisingEvent(advertising_, transport_,
+                                                host(), owner(), data, bytes);
             }
 
             void revoke()
@@ -661,6 +674,45 @@ namespace
         return 0;
     }
 
+    int revokedInsidePermit()
+    {
+        // An owner may cancel its session synchronously while granting the
+        // callback. No caller may reactivate or fault its already-retired
+        // Idle state, or issue a late controller disable through old rights.
+        Fixture stopping {};
+        if (!stopping.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        stopping.fake().revokeStateOnPermit = true;
+        stopping.fake().revokeState = Fixture::revokeDuringAuthorization;
+        stopping.fake().reentryContext = &stopping;
+        if (stopping.stop() != LeAdvertisingResult::OwnershipLost ||
+            stopping.phase() != LeAdvertisingPhase::Idle ||
+            stopping.epoch() != 0U || stopping.stopRequested() ||
+            stopping.fake().commandCount != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture receiving {};
+        if (!receiving.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        receiving.fake().revokeStateOnPermit = true;
+        receiving.fake().revokeState = Fixture::revokeDuringAuthorization;
+        receiving.fake().reentryContext = &receiving;
+        if (receiving.observeProducerEvent(kUnrelatedComplete.data(),
+                                           kUnrelatedComplete.size()) !=
+                LeAdvertisingResult::OwnershipLost ||
+            receiving.phase() != LeAdvertisingPhase::Idle ||
+            receiving.epoch() != 0U || receiving.fake().commandCount != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int errorsAndOwnership()
     {
         Fixture failed {};
@@ -741,6 +793,10 @@ int main()
     if (const int reentry = policyReentry())
     {
         return reentry;
+    }
+    if (const int revoked = revokedInsidePermit())
+    {
+        return revoked;
     }
     if (const int inlineResult = inlineControllerResponses())
     {
