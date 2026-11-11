@@ -1,8 +1,7 @@
 {
   "include": [
-    "src",
-    "tests",
-    "tools"
+    "../../../tests",
+    "../../../tools"
   ],
   "exclude": [
     "**/node_modules",
@@ -18,14 +17,14 @@
   "pythonPlatform": "Linux",
   "executionEnvironments": [
     {
-      "root": "src",
+      "root": "../../../src",
       "typeCheckingMode": "strict",
       "reportAny": "error",
       "reportExplicitAny": "error",
       "reportMissingTypeStubs": "error"
     },
     {
-      "root": "tests",
+      "root": "../../../tests",
       "typeCheckingMode": "standard",
       "reportAny": "none",
       "reportExplicitAny": "none",
@@ -35,12 +34,17 @@
       "enableTypeIgnoreComments": true
     },
     {
-      "root": "tools",
+      "root": "../../../tools",
       "typeCheckingMode": "standard",
       "reportAny": "none",
       "reportExplicitAny": "none",
       "reportMissingTypeStubs": "warning",
       "enableTypeIgnoreComments": true
     }
+  ],
+  "extraPaths": [
+    "../../../src",
+    "../../../tools",
+    "../../../tests"
   ]
 }

@@ -1,6 +1,6 @@
 {
   "include": [
-    "../../src"
+    "../../../src"
   ],
   "exclude": [
     ".cache",
@@ -54,6 +54,8 @@
   "reportMissingSuperCall": "error",
   "reportUninitializedInstanceVariable": "error",
   "extraPaths": [
-    "../../src"
+    "../../../src",
+    "../../../tools",
+    "../../../tests"
   ]
 }
