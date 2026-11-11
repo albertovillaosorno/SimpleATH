@@ -1,9 +1,12 @@
 #include "SimpleATHInfraProtocol.hpp"
+#include "NativeWirelessOwner.hpp"
 #include "SimpleATHTahoeController.hpp"
 #include "TahoeApple80211Values.hpp"
 #include "TahoeCapabilities.hpp"
+#include "TahoeDataPathAdmission.hpp"
 #include <kern/clock.h>
 #include <libkern/c++/OSString.h>
+#include <stdint.h>
 #include <string.h>
 
 namespace
@@ -26,6 +29,24 @@ namespace
     constexpr unsigned int kScanDoneEvent = 237;
     constexpr unsigned int kDriverAvailableEvent = 55;
     constexpr unsigned int kJoinTimeoutSeconds = 30;
+
+    bool nativePacketAdmission(const simpleath::tahoe::WirelessSnapshot &state,
+                               bool requested, uint64_t requestEpoch)
+    {
+        const simpleath::tahoe::NativeDataPathAdmission evidence {
+            requestEpoch,
+            state.epoch,
+            state.associationGeneration,
+            requested,
+            state.radioAvailable,
+            state.powered,
+            state.rfKillBlocked,
+            state.associated,
+            state.controlledPortOpen,
+            state.associatedBeaconObserved,
+        };
+        return simpleath::tahoe::mayEnableNativeDataPath(evidence);
+    }
 
     template <typename T> T *prefix(OSObject *object)
     {
@@ -193,6 +214,8 @@ void SimpleATHInfraProtocol::shutdown()
         return;
     }
     stopping_ = true;
+    dataRequested_ = false;
+    dataRequestEpoch_ = 0;
     if (timer_ != nullptr)
     {
         timer_->cancelTimeout();
@@ -400,7 +423,7 @@ IO80211LinkState SimpleATHInfraProtocol::linkState()
                     controller_->radioSnapshot(state) == kIOReturnSuccess &&
                     state.radioAvailable && state.powered &&
                     !state.rfKillBlocked && state.associated &&
-                    state.controlledPortOpen;
+                    state.controlledPortOpen && state.associatedBeaconObserved;
     return static_cast<IO80211LinkState>(up ? 2 : 1);
 }
 
@@ -417,6 +440,8 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     }
     if (operation == kDisable)
     {
+        dataRequested_ = false;
+        dataRequestEpoch_ = 0;
         packets_.disable();
         if (scanGeneration_ != 0)
         {
@@ -428,17 +453,45 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     }
     if (operation == kEnablePackets)
     {
-        if (!isChipInterfaceReady())
+        simpleath::tahoe::WirelessSnapshot state {};
+        const IOReturn observed = controller_->radioSnapshot(state);
+        if (observed != kIOReturnSuccess)
         {
+            dataRequested_ = false;
+            dataRequestEpoch_ = 0;
+            packets_.disable();
+            return observed;
+        }
+        if (!state.radioAvailable || !state.powered || state.rfKillBlocked ||
+            state.epoch == 0 || !packets_.registered())
+        {
+            dataRequested_ = false;
+            dataRequestEpoch_ = 0;
+            packets_.disable();
             return kIOReturnNotReady;
         }
-        const auto result = packets_.enable();
-        dataRequested_ = result == kIOReturnSuccess;
-        return result;
+        // The OS may request its queues before association completes. Keep
+        // that request, but do not start ordinary Ethernet packet transfer
+        // until the corresponding association has opened the native port.
+        dataRequested_ = true;
+        dataRequestEpoch_ = state.epoch;
+        if (!nativePacketAdmission(state, dataRequested_, dataRequestEpoch_))
+        {
+            packets_.disable();
+            return kIOReturnSuccess;
+        }
+        const IOReturn enabled = packets_.enable();
+        if (enabled != kIOReturnSuccess)
+        {
+            dataRequested_ = false;
+            dataRequestEpoch_ = 0;
+        }
+        return enabled;
     }
     if (operation == kDisablePackets)
     {
         dataRequested_ = false;
+        dataRequestEpoch_ = 0;
         packets_.disable();
         return kIOReturnSuccess;
     }
@@ -897,6 +950,13 @@ void SimpleATHInfraProtocol::poll()
         }
         lastEpoch_ = live ? state.epoch : 0;
     }
+    // Revocation is sticky across a physical epoch change, lost RF power or
+    // an unreadable snapshot. A future link cannot replay an old OS request.
+    if (!available || dataRequestEpoch_ != state.epoch)
+    {
+        dataRequested_ = false;
+        dataRequestEpoch_ = 0;
+    }
     if (available != available_)
     {
         available_ = available;
@@ -930,7 +990,7 @@ void SimpleATHInfraProtocol::poll()
             finishScan(false);
         }
     }
-    if (available && dataRequested_)
+    if (live && nativePacketAdmission(state, dataRequested_, dataRequestEpoch_))
     {
         (void)packets_.enable();
     }

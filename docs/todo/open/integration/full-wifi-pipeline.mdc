@@ -209,6 +209,21 @@ and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/ma
   PMF and reconnect flows, Bluetooth and AWDL. The native connect/leave/scan
   callbacks are implemented but still blocked until RF authorization.
 
+## Tahoe Skywalk data-queue admission — 2026-11-10
+
+The native InfraProtocol now admits ordinary Skywalk Ethernet queues only
+when its current PCI epoch, real association generation, controlled port,
+verified AP beacon, live RF availability and OS enable request all agree.
+A pre-association OS request may be retained without enabling queues; lost
+radio power, rejected snapshots, explicit disable and a changed epoch revoke
+that request. The native link-state getter also requires the AP beacon.
+Synthetic C++14/C++17 ASan+UBSan positive/negative admission tests, focused
+host Clang-Tidy and MacKernelSDK native syntax passed. Full
+`tools/validate.py --tests --json` timed out without a fresh report; strict
+native Tidy still reports findings. This does not enable the still-unwired
+native RF/channel sequence, validate Tahoe ABI at runtime or prove network
+traffic on the Dell. The P0 full-pipeline task remains open.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint diagnostics.

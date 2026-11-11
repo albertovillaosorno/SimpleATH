@@ -1,5 +1,6 @@
 // Native card capability layout and station/security inventory, no RF I/O.
 #include "platform/tahoe/TahoeCapabilities.hpp"
+#include "platform/tahoe/TahoeDataPathAdmission.hpp"
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -19,10 +20,92 @@ namespace
     constexpr int kStationReservedExit = 7;
     constexpr int kStationNssWireExit = 8;
     constexpr int kStationPowerSaveWireExit = 9;
+    constexpr int kDataPortAdmissionExit = 10;
+    constexpr uint64_t kRequestEpoch = 51;
+    constexpr uint64_t kNewRadioEpoch = 52;
+
+    bool packetPortAdmission()
+    {
+        using namespace simpleath::tahoe;
+        NativeDataPathAdmission state {
+            kRequestEpoch, kRequestEpoch, 1,    true, true,
+            true,          false,         true, true, true,
+        };
+        if (!mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        // A request from a previous PCI epoch may not reopen the port.
+        state.radioEpoch = kNewRadioEpoch;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.radioEpoch = kRequestEpoch;
+        state.requestEpoch = 0;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.requestEpoch = kRequestEpoch;
+        state.associationGeneration = 0;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.associationGeneration = 1;
+        state.requested = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.requested = true;
+        state.radioAvailable = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.radioAvailable = true;
+        state.powered = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.powered = true;
+        state.rfKillBlocked = true;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.rfKillBlocked = false;
+        state.associated = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.associated = true;
+        state.controlledPortOpen = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.controlledPortOpen = true;
+        state.associatedBeaconObserved = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.associatedBeaconObserved = true;
+        return mayEnableNativeDataPath(state);
+    }
 } // namespace
 
 int main()
 {
+    if (!packetPortAdmission())
+    {
+        return kDataPortAdmissionExit;
+    }
     using namespace simpleath::tahoe;
     const auto record = ar9565Capabilities();
     if (record.version != 1 || sizeof(record) != kExpectedWireBytes)

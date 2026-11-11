@@ -116,5 +116,6 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
         bool available_ {false};
         bool linked_ {false};
         bool dataRequested_ {false};
+        uint64_t dataRequestEpoch_ {0};
 };
 #endif
