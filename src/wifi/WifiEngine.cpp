@@ -38,6 +38,7 @@
 #include "WifiEngine.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
+#include "wifi/DataReassembly.hpp"
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
@@ -78,6 +79,10 @@ namespace simpleath
             constexpr size_t kRxQosControlOffset = 24U;
             constexpr uint8_t kRxTidMask = 0x0fU;
             constexpr uint8_t kManagementVersionTypeMask = 0x0fU;
+            constexpr uint8_t kDataVersionType = 0x08U;
+            constexpr uint8_t kFragmentedMoreBit = 0x04U;
+            constexpr uint8_t kFragmentSequenceMask = 0x0fU;
+            constexpr size_t kDataFragmentHeaderBytes = 24U;
             constexpr uint16_t kMinimumPassiveDwellMs = 10;
             constexpr uint16_t kMaximumPassiveDwellMs = 1000;
             constexpr size_t kEthernetHeader = 14U;
@@ -304,6 +309,7 @@ namespace simpleath
             nextSequence_ = 0;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             scanConfigured_ = false;
             scanOnChannel_ = false;
             scanComplete_ = false;
@@ -381,6 +387,7 @@ namespace simpleath
             }
             cache_.clear();
             management_.clear();
+            dataFragments_.clear();
             channelAuthorized_ = countryChannelAllowed;
             scanConfigured_ = false;
             scanOnChannel_ = false;
@@ -559,6 +566,7 @@ namespace simpleath
             cache_.clear();
             station_.reset();
             management_.clear();
+            dataFragments_.clear();
             channelAuthorized_ = false;
             return EngineResult::Ok;
         }
@@ -640,6 +648,7 @@ namespace simpleath
             osSupplicantOwned_ = false;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -707,6 +716,7 @@ namespace simpleath
             osSupplicantOwned_ = false;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -759,6 +769,7 @@ namespace simpleath
             osSupplicantOwned_ = false;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -809,6 +820,7 @@ namespace simpleath
             osSupplicantOwned_ = wpa2Personal;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -843,6 +855,7 @@ namespace simpleath
             stationAddress_ = {};
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             selected_ = false;
             osSupplicantOwned_ = false;
         }
@@ -1213,6 +1226,69 @@ namespace simpleath
             return EngineResult::NoAction;
         }
 
+        EngineResult WifiEngine::prepareRxFrame(const uint8_t *frame,
+                                                size_t macBytes, uint64_t nowMs,
+                                                DataFrameView &complete)
+        {
+            complete = {frame, macBytes};
+            if (macBytes < 2U)
+            {
+                return EngineResult::Ok;
+            }
+            uint8_t frameControl = 0U;
+            __builtin_memcpy(&frameControl, frame, sizeof(frameControl));
+            if ((frameControl & kManagementVersionTypeMask) == 0U)
+            {
+                ManagementFrameView view {};
+                const auto assembly =
+                    management_.ingest(frame, macBytes, nowMs, view);
+                if (assembly == ManagementFragmentResult::Rejected)
+                {
+                    return EngineResult::InvalidReceivedFrame;
+                }
+                if (assembly == ManagementFragmentResult::Pending)
+                {
+                    return EngineResult::NoAction;
+                }
+                complete = {view.bytes, view.length};
+                return EngineResult::Ok;
+            }
+            if (macBytes < kDataFragmentHeaderBytes ||
+                (frameControl & kManagementVersionTypeMask) != kDataVersionType)
+            {
+                return EngineResult::Ok;
+            }
+            uint8_t initial[kDataFragmentHeaderBytes] {};
+            __builtin_memcpy(&initial[0], frame, sizeof(initial));
+            const bool fragmented = (initial[1] & kFragmentedMoreBit) != 0U ||
+                                    (initial[22] & kFragmentSequenceMask) != 0U;
+            if (!fragmented)
+            {
+                return EngineResult::Ok;
+            }
+            // Per-fragment CCMP PN/MIC ownership is unavailable. A fragment
+            // stream must never cross a station association or security mode.
+            if (station_.state() != StationState::AssociatedOpen ||
+                link_.status().state != LinkState::Associated)
+            {
+                dataFragments_.clear();
+                return EngineResult::InvalidReceivedFrame;
+            }
+            DataFrameView view {};
+            const auto assembly =
+                dataFragments_.ingest(frame, macBytes, nowMs, view);
+            if (assembly == DataFragmentResult::Rejected)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            if (assembly == DataFragmentResult::Pending)
+            {
+                return EngineResult::NoAction;
+            }
+            complete = view;
+            return EngineResult::Ok;
+        }
+
         EngineResult WifiEngine::acceptRx(
             const uint8_t *frame, size_t length, const InputTrust &trust,
             const EngineRxObservation &observation, uint8_t *out,
@@ -1240,6 +1316,7 @@ namespace simpleath
                 // An unverified or revoked RX must not leave an earlier
                 // fragment eligible for completion after radio recovery.
                 management_.clear();
+                dataFragments_.clear();
                 return EngineResult::InvalidInput;
             }
             // The trusted DMA owner must state whether the verified FCS was
@@ -1248,40 +1325,22 @@ namespace simpleath
             // allocation; all parsers below see only the on-air MAC body.
             if (trust.rxFrameIncludesFcs && length < 4U)
             {
+                management_.clear();
+                dataFragments_.clear();
                 return EngineResult::InvalidReceivedFrame;
             }
             const size_t macBytes =
                 length - (trust.rxFrameIncludesFcs ? 4U : 0U);
-            // Reassemble only independently FCS-verified management MPDUs.
-            // Partial fragments cannot reach scan, auth, association or link
-            // loss handlers. Borrowed assembly storage lives inside this
-            // serialized engine and is consumed before the next RX call.
-            const uint8_t *complete = frame;
-            size_t completeBytes = macBytes;
-            uint8_t frameControl = 0U;
-            if (macBytes >= 2U)
+            DataFrameView complete {};
+            const auto preparation =
+                prepareRxFrame(frame, macBytes, nowMs, complete);
+            if (preparation != EngineResult::Ok)
             {
-                __builtin_memcpy(&frameControl, frame, sizeof(frameControl));
-            }
-            if (macBytes >= 2U &&
-                (frameControl & kManagementVersionTypeMask) == 0U)
-            {
-                ManagementFrameView view {};
-                const auto assembly =
-                    management_.ingest(frame, macBytes, nowMs, view);
-                if (assembly == ManagementFragmentResult::Rejected)
-                {
-                    return EngineResult::InvalidReceivedFrame;
-                }
-                if (assembly == ManagementFragmentResult::Pending)
-                {
-                    return EngineResult::NoAction;
-                }
-                complete = view.bytes;
-                completeBytes = view.length;
+                return preparation;
             }
             Frame header {};
-            if (parseFrame(complete, completeBytes, header) != Result::Ok)
+            if (parseFrame(complete.bytes, complete.length, header) !=
+                Result::Ok)
             {
                 return EngineResult::InvalidReceivedFrame;
             }
@@ -1293,19 +1352,19 @@ namespace simpleath
                      header.subtype == kProbeResponseSubtype))
                 {
                     const EngineResult scanResult = observeScanFrame(
-                        complete, completeBytes, rssi, nowMs, action);
+                        complete.bytes, complete.length, rssi, nowMs, action);
                     if (scanResult == EngineResult::Ok || scanConfigured_)
                     {
                         return scanResult;
                     }
                 }
-                return handleManagement(complete, completeBytes, nowMs, out,
-                                        capacity, action);
+                return handleManagement(complete.bytes, complete.length, nowMs,
+                                        out, capacity, action);
             }
             if (header.type == FrameType::Data)
             {
-                return handleData(frame, macBytes, trust, out, capacity,
-                                  action);
+                return handleData(complete.bytes, complete.length, trust, out,
+                                  capacity, action);
             }
             return EngineResult::NoAction;
         }
@@ -1605,6 +1664,7 @@ namespace simpleath
             nextSequence_ = 0;
             resetDataSequences();
             management_.clear();
+            dataFragments_.clear();
             selected_ = false;
             keysConfigured_ = false;
             osSupplicantOwned_ = false;

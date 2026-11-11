@@ -1844,6 +1844,22 @@
       "kind": "code"
     },
     {
+      "path": "src/wifi/DataReassembly.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/DataReassembly.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
       "path": "src/wifi/Eapol.cpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -2522,6 +2538,22 @@
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
       "provenance": "SimpleATH original; independently developed or locally authored",
       "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_data_reassembly.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_data_reassembly.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
     },
     {
       "path": "tests/test_diagnostic_policy.cpp",

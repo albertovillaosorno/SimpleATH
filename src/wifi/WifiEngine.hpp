@@ -42,6 +42,7 @@
 #define SIMPLEATH_WIFI_ENGINE_HPP
 
 #include "DataPath.hpp"
+#include "DataReassembly.hpp"
 #include "LinkMonitor.hpp"
 #include "ManagementReassembly.hpp"
 #include "ScanCache.hpp"
@@ -381,6 +382,11 @@ namespace simpleath
                 EngineResult handleData(const uint8_t *frame, size_t length,
                                         const InputTrust &trust, uint8_t *out,
                                         size_t capacity, EngineAction &action);
+                // Assemble only trust-admitted management or open-data RX.
+                // A Pending result publishes no borrowed bytes.
+                EngineResult prepareRxFrame(const uint8_t *frame,
+                                            size_t macBytes, uint64_t nowMs,
+                                            DataFrameView &complete);
                 EngineResult packageEapol(const uint8_t *message,
                                           size_t messageBytes, uint8_t *out,
                                           size_t capacity,
@@ -410,6 +416,8 @@ namespace simpleath
                 // One bounded, FCS-gated management exchange per current RX
                 // owner. Cleared on association replacement and radio stop.
                 ManagementReassembly management_;
+                // One verified open-data fragment stream per association.
+                DataReassembly dataFragments_;
                 ScanCache cache_;
                 Station station_;
                 LinkMonitor link_;

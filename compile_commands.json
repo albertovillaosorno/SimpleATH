@@ -745,6 +745,20 @@
   },
   {
     "directory": ".",
+    "file": "src/wifi/DataReassembly.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/DataReassembly.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "src/wifi/Eapol.cpp",
     "arguments": [
       "clang++",
@@ -1245,6 +1259,20 @@
       "objective-c++",
       "-fsyntax-only",
       "tests/test_data_frames.mm"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_data_reassembly.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_data_reassembly.cpp"
     ]
   },
   {
