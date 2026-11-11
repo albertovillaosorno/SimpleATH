@@ -284,15 +284,21 @@ namespace simpleath
             const IOReturn prepared = descriptor->prepare();
             uint32_t actual = 0U;
             IOReturn status = kIOReturnError;
+            IOReturn completed = kIOReturnError;
             if (prepared == kIOReturnSuccess)
             {
                 status = pipe->io(descriptor, static_cast<uint32_t>(bytes),
                                   actual, kUsbTimeoutMs);
-                (void)descriptor->complete();
+                completed = descriptor->complete();
             }
             descriptor->release();
-            *transferred = actual;
-            return status == kIOReturnSuccess && actual == bytes;
+            // A successful pipe write is not sufficient when descriptor
+            // completion failed: report ambiguous physical state to the
+            // firmware/ACL owner so it faults and reestablishes a USB lease.
+            const bool finished =
+                status == kIOReturnSuccess && completed == kIOReturnSuccess;
+            *transferred = finished ? actual : 0U;
+            return finished && actual == bytes;
         }
 
         bool firmwareBulkOut(void *context, uint8_t endpoint,
@@ -477,12 +483,13 @@ namespace simpleath
             }
             const IOReturn prepared = descriptor->prepare();
             IOReturn status = kIOReturnError;
+            IOReturn completed = kIOReturnError;
             uint32_t transferred = 0U;
             if (prepared == kIOReturnSuccess)
             {
                 status = pipe->io(descriptor, sizeof(buffer), transferred,
                                   kUsbTimeoutMs);
-                (void)descriptor->complete();
+                completed = descriptor->complete();
             }
             descriptor->release();
             // An IN poll may outlive device removal or a host-controller
@@ -495,9 +502,10 @@ namespace simpleath
                                           ? native.stream.events.used != 0U
                                           : native.stream.acl.used != 0U;
             const UsbHciStatus read = classifyUsbHciRead(
-                hciPermit(&native, native.epoch), status == kIOReturnSuccess,
-                status == kIOReturnTimeout, transferred, sizeof(buffer),
-                partialFrame);
+                hciPermit(&native, native.epoch),
+                status == kIOReturnSuccess && completed == kIOReturnSuccess,
+                status == kIOReturnTimeout && completed == kIOReturnSuccess,
+                transferred, sizeof(buffer), partialFrame);
             if (read == UsbHciStatus::TransferFailed)
             {
                 native.stream.faulted = true;

@@ -488,3 +488,17 @@ behavior. This is **source-only** USB transport recovery, not native macOS
 Bluetooth host registration, a successful physical re-enumeration, BLE pairing
 or AirDrop availability. Firmware identity and native host integration remain
 open requirements.
+
+## Source progress — native USB descriptor-completion error propagation
+
+Both native USB bulk OUT writes and interrupt/bulk IN polls now validate
+`IOMemoryDescriptor::complete()` after the blocking USB transfer. If the
+mapping cleanup fails, the native consumer no longer treats successful pipe
+I/O as a complete packet or firmware write, and an incomplete cleanup on
+an idle timeout is not reported as benign `Idle`. A failed OUT completion
+clears its reported successful-byte count; callers fault the transport or
+abort the uncertain firmware update. Offline synthetic HCI read classification,
+USB transport tests, native SDK syntax and strict source checks cover the
+policy; there is still no physical USB result. Verified endpoint quiescence,
+provider detach and independent native Bluetooth-host registration remain
+required for physical memory-lifetime and recovery guarantees.

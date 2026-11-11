@@ -78,6 +78,16 @@ namespace
             false,
             UsbHciStatus::TransferFailed,
         },
+        // The native pump presents failed descriptor completion as neither
+        // successful I/O nor a clean idle timeout, regardless of USB status.
+        {
+            kShortTransfer,
+            kTransferCapacity,
+            true,
+            false,
+            false,
+            UsbHciStatus::TransferFailed,
+        },
         {
             0U,
             kTransferCapacity,
