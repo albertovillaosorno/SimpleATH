@@ -456,3 +456,17 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   freestanding C++14 syntax checks passed. This is source-only transport
   safety, not macOS Bluetooth-host registration, physical USB behavior,
   coexistence or AirDrop. This P0 task remains open.
+
+- **Final ATH3K mode/identity owner checks (2026-11-10):** Both vendor
+  zero-length control OUT requests (enter-normal-mode and switch-identity)
+  now recheck live physical USB ownership immediately after their callbacks.
+  A callback that synchronously detaches/revokes the boot device reports
+  `IdentityLost` regardless of USB transfer success/failure; the old owner
+  cannot issue another command or publish `AwaitReenumeration` based on its
+  stale transfer status. The preexisting ambiguous-write reset marker remains,
+  but the native owner will not reset an already-revoked device. Offline
+  `tests/test_bluetooth_usb.cpp` reproduced the prior error (exit 32), then
+  confirmed both phases, both USB outcomes and retained-owner transfer errors
+  under C++14/C++17 ASan+UBSan. Focused Clang-Tidy, freestanding C++14
+  syntax, Clang-Format and diff checks passed. This is not firmware operation
+  on a physical device, HCI host attachment or Bluetooth/AirDrop completion.

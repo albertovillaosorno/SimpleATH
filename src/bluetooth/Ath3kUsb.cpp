@@ -302,6 +302,33 @@ namespace simpleath
             }
             return true;
         }
+
+        // Controller mode changes may complete USB removal synchronously.
+        // A successful or failed USB callback cannot override physical owner
+        // revocation, and no subsequent mode command can use its old lease.
+        bool sendBootstrapModeControl(const Ath3kIo &io, uint8_t command,
+                                      Ath3kBootProgress &progress)
+        {
+            if (!authorized(io))
+            {
+                progress.result = Ath3kBootResult::IdentityLost;
+                return false;
+            }
+            progress.requiresUsbReset = true;
+            const bool transferred =
+                io.controlOut(io.context, {command, kVendorWrite}, nullptr, 0U);
+            if (!authorized(io))
+            {
+                progress.result = Ath3kBootResult::IdentityLost;
+                return false;
+            }
+            if (!transferred)
+            {
+                progress.result = Ath3kBootResult::UsbTransferFailed;
+                return false;
+            }
+            return true;
+        }
     } // namespace
 
     bool isSupportedAth3kUsbIdentity(const Ath3kUsbIdentity &identity)
@@ -431,30 +458,14 @@ namespace simpleath
         if ((state & kModeMask) != kNormalModeValue)
         {
             progress.phase = Ath3kBootPhase::EnterNormalMode;
-            if (!authorized(io))
+            if (!sendBootstrapModeControl(io, kNormalMode, progress))
             {
-                progress.result = Ath3kBootResult::IdentityLost;
-                return progress;
-            }
-            progress.requiresUsbReset = true;
-            if (!io.controlOut(io.context, {kNormalMode, kVendorWrite}, nullptr,
-                               0U))
-            {
-                progress.result = Ath3kBootResult::UsbTransferFailed;
                 return progress;
             }
         }
         progress.phase = Ath3kBootPhase::SwitchIdentity;
-        if (!authorized(io))
+        if (!sendBootstrapModeControl(io, kSwitchIdentity, progress))
         {
-            progress.result = Ath3kBootResult::IdentityLost;
-            return progress;
-        }
-        progress.requiresUsbReset = true;
-        if (!io.controlOut(io.context, {kSwitchIdentity, kVendorWrite}, nullptr,
-                           0U))
-        {
-            progress.result = Ath3kBootResult::UsbTransferFailed;
             return progress;
         }
         progress.result = Ath3kBootResult::AwaitReenumeration;

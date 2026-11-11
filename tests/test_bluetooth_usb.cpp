@@ -65,6 +65,10 @@ namespace
             bool revokeOnVersionRead {};
             bool revokeOnFirmwareDelay {};
             bool revokeOnFirmwareLookup {};
+            bool revokeOnNormalModeWrite {};
+            bool revokeOnSwitchIdentityWrite {};
+            bool failNormalModeWrite {};
+            bool failSwitchIdentityWrite {};
             bool failFirmwareLookupAndRevoke {};
             UsbHciState *reentryState {};
             UsbHciPacketKind reentryKind {UsbHciPacketKind::Event};
@@ -145,8 +149,22 @@ namespace
         {
             return true;
         }
+        if (command.request == kNormalModeRequest &&
+            fake.revokeOnNormalModeWrite)
+        {
+            fake.valid = false;
+        }
+        if (command.request == kSwitchIdentityRequest &&
+            fake.revokeOnSwitchIdentityWrite)
+        {
+            fake.valid = false;
+        }
         return (command.request == kNormalModeRequest ||
                 command.request == kSwitchIdentityRequest) &&
+               !(command.request == kNormalModeRequest &&
+                 fake.failNormalModeWrite) &&
+               !(command.request == kSwitchIdentityRequest &&
+                 fake.failSwitchIdentityWrite) &&
                bytes == 0U && buffer == nullptr;
     }
 
@@ -426,6 +444,72 @@ namespace
                result.requiresUsbReset &&
                result.firmwareBytesTransferred == kFirmwareHeaderBytes &&
                fake.vendorWrites == 1U && fake.bulkWrites == 0U;
+    }
+
+    bool testFirmwareFinalControlOwnership()
+    {
+        constexpr Ath3kUsbIdentity identity {
+            kAtherosUsbVendor,
+            kAtherosUsbProduct,
+            1U,
+            0U,
+        };
+        // Firmware resources are already installed, but the ROM still needs
+        // its final normal-mode and identity-switch commands.
+        UsbFake fake = newFake();
+        fake.state = kLoadedPatchState | kLoadedConfigurationState;
+        fake.revokeOnNormalModeWrite = true;
+        auto result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::EnterNormalMode ||
+            fake.lastRequest != kNormalModeRequest || fake.vendorWrites != 1U ||
+            !result.requiresUsbReset)
+        {
+            return false;
+        }
+        fake = newFake();
+        fake.state = kLoadedPatchState | kLoadedConfigurationState;
+        fake.revokeOnNormalModeWrite = true;
+        fake.failNormalModeWrite = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::EnterNormalMode ||
+            fake.vendorWrites != 1U || !result.requiresUsbReset)
+        {
+            return false;
+        }
+        fake = newFake();
+        fake.state = kLoadedNormalState;
+        fake.revokeOnSwitchIdentityWrite = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::SwitchIdentity ||
+            fake.lastRequest != kSwitchIdentityRequest ||
+            fake.vendorWrites != 1U || !result.requiresUsbReset ||
+            shouldReenumerateAth3k(result, false))
+        {
+            return false;
+        }
+        fake = newFake();
+        fake.state = kLoadedNormalState;
+        fake.revokeOnSwitchIdentityWrite = true;
+        fake.failSwitchIdentityWrite = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        if (result.result != Ath3kBootResult::IdentityLost ||
+            result.phase != Ath3kBootPhase::SwitchIdentity ||
+            fake.vendorWrites != 1U || !result.requiresUsbReset)
+        {
+            return false;
+        }
+        // With a retained live owner, a true USB failure remains a
+        // USB transfer error rather than a fabricated identity loss.
+        fake = newFake();
+        fake.state = kLoadedNormalState;
+        fake.failSwitchIdentityWrite = true;
+        result = bootstrapAth3kUsb(identity, usbIo(fake));
+        return result.result == Ath3kBootResult::UsbTransferFailed &&
+               result.phase == Ath3kBootPhase::SwitchIdentity &&
+               result.requiresUsbReset;
     }
 
     bool writeCommand(void *context, const uint8_t *packet, size_t bytes)
@@ -2316,6 +2400,11 @@ int main()
     {
         constexpr int kFirmwareOwnershipFailure = 10;
         return kFirmwareOwnershipFailure;
+    }
+    if (!testFirmwareFinalControlOwnership())
+    {
+        constexpr int kFirmwareFinalControlOwnershipFailure = 32;
+        return kFirmwareFinalControlOwnershipFailure;
     }
     if (!testReentrantPermitCannotAuthorizeStaleOwner())
     {
