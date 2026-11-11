@@ -230,3 +230,35 @@ traffic on the Dell. The P0 full-pipeline task remains open.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+## Driver-owned WPA2 controlled-port staging — 2026-11-10
+
+The native WCL V2 connect callback supplies a PMK to
+`WifiEngine::chooseNetworkForDriverSupplicant`, **not** to the separately
+retained OS-owned CCMP-key callback. The previous physical controlled-port
+callback only admitted Open station state and could never admit a completed
+native driver-owned WPA2 handshake. This is a real source integration mismatch,
+not a reason to claim an on-air handshake or bypass the RF gate.
+
+The native PCI owner's driver-owned PTK/GTK hardware installs now also bind
+software CCMP TX/RX sessions to the same physical epoch, AP/station identities
+and MIC-authenticated GTK RSC replay floor. Any failed mirror/install
+quarantines the keycache; key removal revokes the mirrors and readiness proofs.
+A deferred M4 is identified by its exact EDMA completion token, radio/join/key
+epoch and successful hardware TX status. A standalone source-used security
+predicate admits driver-owned WPA2 only with a complete keycache+software key
+set, that M4 completion, real CCMP MIC/PN-verified data RX, and every existing
+same-epoch RF, BSSID, beacon, queue, regulatory and TPC gate. Unsupported
+legacy/enterprise/WPA3 and incompatible OS-owned key states remain closed.
+
+The driver-owned receive route now checks protected MPDUs through the native
+software CCMP verifier rather than the engine's cleartext data parser. It
+never forwards protected EAPOL to a second supplicant. An authenticated CCMP
+Group1 rekey is currently **not** completed into a Group2 reply and causes a
+fail-closed link/key retirement instead of retaining an obsolete GTK. The
+AR9565 hardware keycache may already decrypt/transform RX frames; the native
+software verifier does **not** assume unmodified ciphertext and will refuse
+admission if it cannot independently verify the received MIC/PN. This device
+format/crypto-ownership interlock, atomic Group1/Group2 handling, real RF
+activation, country/channel/TPC authority, and exact Tahoe runtime remain
+P0 blockers. Source syntax/host fixtures cannot prove physical connectivity.

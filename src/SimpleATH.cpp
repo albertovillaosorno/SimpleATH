@@ -19,9 +19,11 @@
 #include "wifi/AwdlAction.hpp"
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
+#include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LegacyScanBridge.hpp"
 #include "wifi/LinkMonitor.hpp"
+#include "wifi/NativePortSecurityAdmission.hpp"
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/WifiEngine.hpp"
@@ -988,6 +990,9 @@ class SimpleATH final : public IOService
             deferredManagementBytes_ = 0;
             deferredManagementEpoch_ = 0;
             deferredJoinRequestId_ = 0;
+            pendingWpa2M4Token_ = 0;
+            wpa2M4TransmitConfirmed_ = false;
+            authenticatedProtectedRxObserved_ = false;
             controlledPortAuthorized_ = false;
         }
 
@@ -1020,6 +1025,9 @@ class SimpleATH final : public IOService
             self.deferredManagementBytes_ = 0;
             self.deferredManagementEpoch_ = 0;
             self.deferredJoinRequestId_ = 0;
+            self.pendingWpa2M4Token_ = 0;
+            self.wpa2M4TransmitConfirmed_ = false;
+            self.authenticatedProtectedRxObserved_ = false;
             self.controlledPortAuthorized_ = false;
             __builtin_memcpy(&self.joinBssid_[0], &request.bssid[0],
                              sizeof(self.joinBssid_));
@@ -1427,13 +1435,40 @@ class SimpleATH final : public IOService
                 return kIOReturnSuccess;
             }
             const auto link = self.engine_.linkStatus();
-            // V2 has exactly one handshake authority (this PCI owner).
-            // Open links can use the already implemented cleartext data
-            // serializer only after a physical, matching-BSSID association
-            // and a fresh validated AP beacon on the tuned channel. WPA2
-            // remains closed until the MAC/keycache TX and CCMP MIC/PN RX
-            // hardware datapath is complete; installed key slots alone must
-            // NEVER authorize plaintext Ethernet traffic.
+            // V2's native connect runs the DRIVER-owned PSK supplicant.
+            // A key-cache install does not prove completed M4 or authenticated
+            // CCMP RX. The separate security policy enforces those facts in
+            // addition to this exact RF, BSSID, beacon and PCI epoch gate.
+            simpleath::ieee80211::Bss selected {};
+            if (!self.engine_.copyAssociatedBss(selected) ||
+                !simpleath::ieee80211::sameMac(selected.beacon.bssid,
+                                               link.bssid) ||
+                selected.beacon.channel != self.verifiedReceiveChannel_)
+            {
+                return kIOReturnNotReady;
+            }
+            bool hardwareGroup = false;
+            for (const auto &slot : self.keyCache_.group)
+            {
+                hardwareGroup = slot.installed || hardwareGroup;
+            }
+            const simpleath::ieee80211::NativePortSecurityEvidence security {
+                selected.beacon.rsn.security,
+                self.engine_.stationState(),
+                self.engine_.osSupplicantOwnsWpa2(),
+                self.keyCache_.initialized &&
+                    self.keyCache_.ownerContext == &self.access_ &&
+                    self.keyCache_.ownerEpoch == self.epoch_,
+                self.keyCache_.requiresReset,
+                self.keyCache_.pairwiseInstalled,
+                hardwareGroup,
+                self.nativePairwiseTx_.installed(),
+                self.nativePairwiseRx_.installed(),
+                self.nativeGroupInstalled(),
+                self.nativePairwiseKeyRevoked_,
+                self.wpa2M4TransmitConfirmed_,
+                self.authenticatedProtectedRxObserved_,
+            };
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.board_.view(self.epoch_) == nullptr ||
@@ -1450,15 +1485,10 @@ class SimpleATH final : public IOService
                 !self.associatedBeaconObserved_ ||
                 memcmp(&link.bssid.bytes[0], &self.joinBssid_[0],
                        sizeof(self.joinBssid_)) != 0 ||
-                self.nativePairwiseKeyRevoked_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 link.networkInterfaceReady ||
-                self.engine_.stationState() !=
-                    simpleath::ieee80211::StationState::AssociatedOpen ||
-                self.engine_.osSupplicantOwnsWpa2() ||
-                self.nativePairwiseTx_.installed() ||
-                self.nativePairwiseRx_.installed() ||
-                self.nativeGroupInstalled())
+                !simpleath::ieee80211::nativeControlledPortSecurityReady(
+                    security))
             {
                 return kIOReturnNotReady;
             }
@@ -2033,6 +2063,9 @@ class SimpleATH final : public IOService
             // lease that has no successful key installation to finish it.
             if (link.state != simpleath::ieee80211::LinkState::Associated ||
                 self.engine_.osSupplicantOwnsWpa2() ||
+                self.nativePairwiseKeyRevoked_ ||
+                self.nativePairwiseTx_.installed() ||
+                self.nativePairwiseRx_.installed() ||
                 !simpleath::ieee80211::sameMac(link.bssid, ap) ||
                 !nativeKeyInstallPermit(context))
             {
@@ -2040,8 +2073,26 @@ class SimpleATH final : public IOService
             }
             const auto result = simpleath::installAr9565PairwiseKey(
                 self.liveKeyCacheBackend(), self.keyCache_, ap, key);
-            if (result.result != simpleath::KeyCacheResult::Ok)
+            // Bind the same authenticated driver-owned TK to the software
+            // CCMP MIC/PN verifier and TX sequencer. This does not assume
+            // that hardware RX hands us untouched ciphertext: an on-air
+            // protected MPDU must still pass independent MIC/PN verification.
+            const auto tx =
+                result.result == simpleath::KeyCacheResult::Ok
+                    ? self.nativePairwiseTx_.install(
+                          key, &link.station.bytes[0], 0, self.epoch_, 0, 0)
+                    : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
+            const auto rx =
+                tx == simpleath::ieee80211::crypto::CcmpResult::Ok
+                    ? self.nativePairwiseRx_.install(key, &ap.bytes[0], 0,
+                                                     self.epoch_, 0, 0)
+                    : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
+            if (result.result != simpleath::KeyCacheResult::Ok ||
+                tx != simpleath::ieee80211::crypto::CcmpResult::Ok ||
+                rx != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
+                self.nativePairwiseTx_.revoke();
+                self.nativePairwiseRx_.revoke();
                 // Once hardware key RAM may have been modified, an error is
                 // not a harmless handshake retry. The borrowed RX callback
                 // will unwind before NativeQueues tries to restart; denying
@@ -2052,7 +2103,9 @@ class SimpleATH final : public IOService
                 self.channelAuthorized_ = false;
                 self.txSafety_ = {};
             }
-            return result.result == simpleath::KeyCacheResult::Ok;
+            return result.result == simpleath::KeyCacheResult::Ok &&
+                   tx == simpleath::ieee80211::crypto::CcmpResult::Ok &&
+                   rx == simpleath::ieee80211::crypto::CcmpResult::Ok;
         }
 
         static bool nativeInstallGroup(void *context, uint8_t keyId,
@@ -2074,8 +2127,19 @@ class SimpleATH final : public IOService
             }
             const auto result = simpleath::installAr9565GroupKey(
                 self.liveKeyCacheBackend(), self.keyCache_, keyId, key, keyRsc);
-            if (result.result != simpleath::KeyCacheResult::Ok)
+            // The hardware keycache validated the MIC-authenticated RSC and
+            // retained its 48-bit PN floor. Mirrored GTK replay state must
+            // start at that exact floor, never an invented zero.
+            const auto mirrored =
+                result.result == simpleath::KeyCacheResult::Ok
+                    ? self.nativeGroupRx_[keyId].install(
+                          key, &link.bssid.bytes[0], keyId, self.epoch_, 0,
+                          self.keyCache_.group[keyId].receiveFloor)
+                    : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
+            if (result.result != simpleath::KeyCacheResult::Ok ||
+                mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
+                self.nativeGroupRx_[keyId].revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
                 // reset, even if the portable supplicant resets its state.
@@ -2085,7 +2149,8 @@ class SimpleATH final : public IOService
                 self.channelAuthorized_ = false;
                 self.txSafety_ = {};
             }
-            return result.result == simpleath::KeyCacheResult::Ok;
+            return result.result == simpleath::KeyCacheResult::Ok &&
+                   mirrored == simpleath::ieee80211::crypto::CcmpResult::Ok;
         }
 
         static void nativeRemoveKeys(void *context)
@@ -2096,6 +2161,15 @@ class SimpleATH final : public IOService
             }
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             self.controlledPortAuthorized_ = false;
+            self.pendingWpa2M4Token_ = 0;
+            self.wpa2M4TransmitConfirmed_ = false;
+            self.authenticatedProtectedRxObserved_ = false;
+            self.nativePairwiseTx_.revoke();
+            self.nativePairwiseRx_.revoke();
+            for (auto &slot : self.nativeGroupRx_)
+            {
+                slot.revoke();
+            }
             // A partial install is indistinguishable from a full one: do not
             // trust a previously authorized data port until the key slots are
             // truly erased or the silicon has undergone a full reset.
@@ -2325,6 +2399,12 @@ class SimpleATH final : public IOService
             // hardware status, FCS span, association and CCMP IV bounds.
             // The selected session then authenticates the MIC and replay PN.
             const auto link = engine_.linkStatus();
+            const bool driverOwned =
+                !engine_.osSupplicantOwnsWpa2() &&
+                engine_.stationState() ==
+                    simpleath::ieee80211::StationState::HardwareKeysInstalled &&
+                keyCache_.initialized && keyCache_.ownerEpoch == epoch_ &&
+                keyCache_.pairwiseInstalled && !keyCache_.requiresReset;
             if (frame == nullptr || bytes < kFcsBytes ||
                 bytes > simpleath::ieee80211::crypto::kCcmpMaximumMpduBytes ||
                 !status.frameValid || status.crcError || status.decryptError ||
@@ -2333,8 +2413,8 @@ class SimpleATH final : public IOService
                 queues_.phase() != simpleath::NativeQueuePhase::Running ||
                 queues_.epoch() != epoch_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
-                !engine_.osSupplicantOwnsWpa2() ||
-                !nativePairwiseTx_.installed() ||
+                (!driverOwned && !engine_.osSupplicantOwnsWpa2()) ||
+                nativePairwiseKeyRevoked_ || !nativePairwiseTx_.installed() ||
                 !nativePairwiseRx_.installed() || !nativeGroupInstalled())
             {
                 return;
@@ -2402,12 +2482,53 @@ class SimpleATH final : public IOService
                 &protectedRxScratch_[0], sizeof(protectedRxScratch_), msdu);
             setProperty("SimpleATHLastProtectedReceiveResult",
                         static_cast<uint32_t>(result), kRfPropertyWidthBits);
-            // Protected post-install Group1 EAPOL can reach the OS-owned
-            // supplicant before the data port opens. Ordinary IP/ARP remains
-            // blocked until the OS explicitly authorizes the controlled port.
             if (result == simpleath::ieee80211::DataPathResult::Ok)
             {
-                deliverNativeMsdu(msdu, true);
+                if (driverOwned)
+                {
+                    // The driver-owned EAPOL/GTK rekey belongs exclusively
+                    // to WifiEngine. Never forward it to a second supplicant
+                    // or treat an unhandled Group1 as evidence of readiness.
+                    if (msdu.etherType == kEtherTypeEapol)
+                    {
+                        simpleath::ieee80211::KeyFrame key {};
+                        if (simpleath::ieee80211::parseEapolKey(
+                                msdu.payload, msdu.payloadLength, key) ==
+                                simpleath::ieee80211::EapolResult::Ok &&
+                            key.message ==
+                                simpleath::ieee80211::KeyMessage::Group1)
+                        {
+                            // The current native path has no atomic Group2
+                            // reply/restart after Group1 GTK replacement.
+                            // A verified rekey must retire the connection
+                            // rather than keep publishing a stale GTK port.
+                            failNativeJoin(kIOReturnUnsupported);
+                            engine_.radioStopped(nowMicros(nullptr) /
+                                                     kMicrosPerMillisecond,
+                                                 false);
+                            notifyWirelessChange(false);
+                        }
+                    }
+                    else
+                    {
+                        authenticatedProtectedRxObserved_ = true;
+                        if (!controlledPortAuthorized_ &&
+                            wpa2M4TransmitConfirmed_ &&
+                            associatedBeaconObserved_)
+                        {
+                            bool requestOpen = true;
+                            (void)ownerAuthorizePortAction(
+                                this, &requestOpen, nullptr, nullptr, nullptr);
+                        }
+                        deliverNativeMsdu(msdu, false);
+                    }
+                }
+                else
+                {
+                    // OS-owned protected EAPOL may reach its single
+                    // supplicant before the OS opens the controlled port.
+                    deliverNativeMsdu(msdu, true);
+                }
             }
             // Scrub even malformed/authentication-failed partial plaintext.
             // Keep the borrowed Msdu strictly within this synchronous scope.
@@ -2467,6 +2588,9 @@ class SimpleATH final : public IOService
             associatedBeaconObserved_ = false;
             associatedSignalMeasured_ = false;
             associatedRssiDbm_ = 0;
+            pendingWpa2M4Token_ = 0;
+            wpa2M4TransmitConfirmed_ = false;
+            authenticatedProtectedRxObserved_ = false;
             if (joinEpoch_ != epoch_ || joinRequestId_ == 0 ||
                 memcmp(&joinBssid_[0], &engine_.linkStatus().bssid.bytes[0],
                        sizeof(joinBssid_)) != 0)
@@ -2534,9 +2658,9 @@ class SimpleATH final : public IOService
             }
         }
 
-        // The native OS supplicant has exclusive ownership of protected
-        // data. Do not pass its frames to the portable WPA2 engine as clear
-        // payloads; management and pre-key EAPOL remain separately admitted.
+        // Keep driver-owned and OS-owned protected data out of the clear
+        // WifiEngine RX parser. Only the selected CCMP MIC/PN session may
+        // verify an encrypted MPDU before any native packet delivery.
         bool routeNativeSecurityRx(const uint8_t *frame, size_t bytes,
                                    const simpleath::edma::RxStatus &status)
         {
@@ -2545,10 +2669,13 @@ class SimpleATH final : public IOService
             // use the matching native CCMP session, not the portable engine's
             // cleartext M1/M3 supplicant. Management frames may still feed the
             // scan/association state machine without granting data readiness.
-            if (self.engine_.osSupplicantOwnsWpa2() &&
-                (self.nativePairwiseTx_.installed() ||
-                 self.nativePairwiseRx_.installed() ||
-                 self.nativeGroupInstalled()))
+            if ((self.engine_.osSupplicantOwnsWpa2() &&
+                 (self.nativePairwiseTx_.installed() ||
+                  self.nativePairwiseRx_.installed() ||
+                  self.nativeGroupInstalled())) ||
+                (!self.engine_.osSupplicantOwnsWpa2() &&
+                 self.engine_.stationState() ==
+                     simpleath::ieee80211::StationState::HardwareKeysInstalled))
             {
                 simpleath::ieee80211::Frame header {};
                 if (frame == nullptr || bytes < kFcsBytes ||
@@ -2676,7 +2803,13 @@ class SimpleATH final : public IOService
                         // WPA2 remains closed until verified CCMP data RX/TX.
                         bool requestOpen = true;
                         if (self.engine_.stationState() ==
-                            simpleath::ieee80211::StationState::AssociatedOpen)
+                                simpleath::ieee80211::StationState::
+                                    AssociatedOpen ||
+                            (self.engine_.stationState() ==
+                                 simpleath::ieee80211::StationState::
+                                     HardwareKeysInstalled &&
+                             self.wpa2M4TransmitConfirmed_ &&
+                             self.authenticatedProtectedRxObserved_))
                         {
                             (void)ownerAuthorizePortAction(
                                 &self, &requestOpen, nullptr, nullptr, nullptr);
@@ -2879,10 +3012,41 @@ class SimpleATH final : public IOService
         }
 
         static void
-        queueTransmitted(void *context, uint64_t /*unused*/,
+        queueTransmitted(void *context, uint64_t token,
                          const simpleath::edma::TxCompletion &status)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (token != 0 && token == self.pendingWpa2M4Token_)
+            {
+                const bool confirmed =
+                    simpleath::ieee80211::nativeM4TransmitCompleted(
+                        {token, self.pendingWpa2M4Token_, self.joinEpoch_,
+                         self.epoch_, self.keyCache_.ownerEpoch,
+                         self.engine_.stationState(), status.frameTransmitOk,
+                         status.excessiveRetries, status.filtered});
+                self.pendingWpa2M4Token_ = 0;
+                if (confirmed)
+                {
+                    // EDMA reported a completed M4, not a synthetic key
+                    // installation. A verified protected RX is still needed
+                    // to prove peer traffic before opening the data port.
+                    self.wpa2M4TransmitConfirmed_ = true;
+                    if (self.associatedBeaconObserved_ &&
+                        self.authenticatedProtectedRxObserved_)
+                    {
+                        bool requestOpen = true;
+                        (void)ownerAuthorizePortAction(
+                            &self, &requestOpen, nullptr, nullptr, nullptr);
+                    }
+                }
+                else
+                {
+                    self.failNativeJoin(kIOReturnIOError);
+                    self.engine_.radioStopped(
+                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                    self.notifyWirelessChange(false);
+                }
+            }
             ++self.transmitCompletions_;
             self.setProperty("SimpleATHTransmitCompletions",
                              self.transmitCompletions_,
@@ -2980,10 +3144,22 @@ class SimpleATH final : public IOService
             self.deferredManagementBytes_ = 0;
             self.deferredManagementEpoch_ = 0;
             self.deferredJoinRequestId_ = 0;
+            const uint64_t submittedToken = self.nextTransmitToken_;
             const IOReturn result = stillOwned && self.canSubmitTransmit()
                                         ? self.submitPreparedTransmit(
                                               &self.managementReply_[0], bytes)
                                         : kIOReturnNotReady;
+            if (result == kIOReturnSuccess &&
+                !self.engine_.osSupplicantOwnsWpa2() && submittedToken != 0 &&
+                submittedToken != UINT64_MAX &&
+                self.nativePairwiseTx_.installed() &&
+                self.nativePairwiseRx_.installed() &&
+                self.nativeGroupInstalled())
+            {
+                // Only the deferred driver-owned M4 after verified M3 key
+                // installation can grant this exact TX completion token.
+                self.pendingWpa2M4Token_ = submittedToken;
+            }
             self.setProperty("SimpleATHManagementTransmitResult",
                              static_cast<uint32_t>(result),
                              kRfPropertyWidthBits);
@@ -3663,6 +3839,12 @@ class SimpleATH final : public IOService
         void (*wirelessReceive_)(void *, uint64_t, uint64_t, const uint8_t *,
                                  size_t) {nullptr};
         bool controlledPortAuthorized_ {false};
+        // Only the matching completed EDMA transmission of driver-owned M4
+        // and later authenticated, replay-checked data RX are WPA2 proofs.
+        // They are invalidated on every join/key/PCI owner revocation.
+        uint64_t pendingWpa2M4Token_ {0};
+        bool wpa2M4TransmitConfirmed_ {false};
+        bool authenticatedProtectedRxObserved_ {false};
         // Credential-free, epoch-bound WCL progress. Never retain a PMK or
         // borrowed join packet after the synchronous command-gate call.
         uint64_t joinEpoch_ {0};
