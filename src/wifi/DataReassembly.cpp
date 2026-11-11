@@ -52,7 +52,6 @@ namespace simpleath
             constexpr uint8_t kOrdinaryDataSubtype = 0U;
             constexpr uint8_t kQosDataSubtype = 8U;
             constexpr uint8_t kAmsduPresent = 0x80U;
-            constexpr uint8_t kProtected = 0x40U;
             constexpr uint8_t kOrdered = 0x80U;
             constexpr uint8_t kMaximumFragment = 15U;
             constexpr uint8_t kHighSequenceMask = 0xf0U;
@@ -156,19 +155,19 @@ namespace simpleath
                 clear();
                 return DataFragmentResult::Rejected;
             }
-            if (!parsed.moreFragments && parsed.fragment == 0U)
-            {
-                out = {frame, length};
-                return DataFragmentResult::Complete;
-            }
-            // A plaintext buffer following hardware CCMP decryption must not
-            // be mistaken for independently authenticated fragments. WPA2
-            // needs a per-fragment MIC/PN owner and is not accepted here.
-            if ((header[1] & kProtected) != 0U ||
+            // Even an unfragmented protected MPDU must never be surfaced by
+            // this strictly OPEN data owner. Per-fragment CCMP PN/MIC must be
+            // authorized by its distinct security/session owner instead.
+            if (parsed.protectedFrame ||
                 (parsed.moreFragments && parsed.fragment == kMaximumFragment))
             {
                 clear();
                 return DataFragmentResult::Rejected;
+            }
+            if (!parsed.moreFragments && parsed.fragment == 0U)
+            {
+                out = {frame, length};
+                return DataFragmentResult::Complete;
             }
             const auto sequence = static_cast<uint16_t>(
                 static_cast<uint32_t>(header[kSequenceOffset]) |

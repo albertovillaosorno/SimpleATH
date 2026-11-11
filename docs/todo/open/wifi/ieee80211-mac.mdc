@@ -202,3 +202,11 @@ fragmentation. For every emitted frame it verifies the reconstructed bounds,
 canonical data type, and absence of fragment bits; rejected and pending
 results must revoke the output view. This is a memory/protocol regression,
 not a proof that physical DMA/FCS, radio initialization or Tahoe IOKit works.
+
+## Protection-mode isolation at standalone reassembly ingress
+
+The reassembly primitive now rejects protected MPDUs before either a
+single-frame fast path or multi-fragment accumulation. This closes a
+standalone API gap where direct unfragmented input could previously bypass
+the protected-frame rejection; the WifiEngine already used this primitive
+only for fragmented open traffic. A regression exercises that explicit denial.

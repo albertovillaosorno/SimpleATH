@@ -99,6 +99,14 @@ namespace
         auto last = fragment(source, 5, 6, 1, false);
         DataReassembly receiver;
         DataFrameView view {};
+        auto protectedWhole = source;
+        protectedWhole[1] |= 0x40U;
+        if (receiver.ingest(protectedWhole.data(), protectedWhole.size(), 9U,
+                            view) != DataFragmentResult::Rejected ||
+            view.bytes != nullptr || view.length != 0U)
+        {
+            return __LINE__;
+        }
         if (receiver.ingest(first.data(), first.size(), 10, view) !=
                 DataFragmentResult::Pending ||
             view.bytes != nullptr || view.length != 0U)
