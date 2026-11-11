@@ -254,9 +254,16 @@ legacy/enterprise/WPA3 and incompatible OS-owned key states remain closed.
 The driver-owned receive route now checks protected MPDUs through the native
 software CCMP verifier rather than the engine's cleartext data parser. It
 never forwards protected EAPOL to a second supplicant. An authenticated CCMP
-Group1 rekey is currently **not** completed into a Group2 reply and causes a
-fail-closed link/key retirement instead of retaining an obsolete GTK. The
-AR9565 hardware keycache may already decrypt/transform RX frames; the native
+Group1 rekey now has a **source-wired driver-owned Group2 reply**:
+CCMP-verified Group1 is consumed only once, its GTK replacement enters a
+physically isolated native keycache lease, and a protected Group2 is deferred
+until RX DMA unwinds. Separate M4/Group2 EDMA completion tokens prevent rekey
+success from granting port readiness; failed Group2 submission/completion
+revokes the connection. A synthetic C++14/C++17 sanitized fixture tests
+Group2 MIC/sequence/replay. The integration is untested on real RF and does
+not claim an operational native rekey.
+
+The AR9565 hardware keycache may already decrypt/transform RX frames; the native
 software verifier does **not** assume unmodified ciphertext and will refuse
 admission if it cannot independently verify the received MIC/PN. This device
 format/crypto-ownership interlock, atomic Group1/Group2 handling, real RF

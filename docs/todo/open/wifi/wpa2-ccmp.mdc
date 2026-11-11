@@ -123,26 +123,39 @@ wrong-slot rejection and replay. This corrects group address/key selection
 only; it does not authorize RF, prove native OS key installation, or complete
 protected Group1/Group2 rekey integration.
 
-**The portable driver-owned rekey path is not bound to native Tahoe.**
-`WifiEngine::acceptProtectedGroupRekey` admits a CCMP-authenticated Group1
-only under an installed driver-owned association. It delegates EAPOL MIC,
-replay floor and GTK/KDE authentication to `Wpa2Supplicant`, then protects
-Group2 under a supplied same-epoch pairwise CCMP TX session. Failed
-post-install encryption revokes the association and keys; invalid replay or
-MIC does not produce Group2. This contract does not establish hardware TX
-submission, keycache installation or packet completion.
+**Driver-owned native Group1/Group2 source integration is now wired, but
+physical operation is unverified.** The existing portable
+`WifiEngine::acceptProtectedGroupRekey` still supports a complete single-call
+CCMP Group1/MIC/replay/GTK/Group2 exchange. A new
+`WifiEngine::finishAuthenticatedGroupRekey` accepts only the already-decoded,
+single-MIC/PN-verified Group1 `Msdu` from the native RX owner. It checks the
+live driver-owned association, selected AP, station destination, RX trust,
+replay/MIC and exact EAPOL Group1, then authenticates the GTK/RSC via the
+supplicant and emits a pairwise-CCMP-protected Group2 with the native owner's
+MAC sequence. This avoids decrypting the same Group1 twice or using a stale
+portable TX sequence. Native `SimpleATH::receiveNativeProtected` binds the
+verified borrowed plaintext to the real keycache callback, requires exclusive
+`NativeQueues::beginKeyUpdateGated()` isolation and defers Group2 until the
+receive DMA borrower unwinds and the same-epoch queues physically restart.
+Group2 is submitted with software-protected descriptor mode, tracked by its
+**own exact EDMA completion token**, never confused with the initial M4
+port-opening token. GTK/key/association state is revoked if preparation,
+restart/submission or Group2 completion fails. Existing WPA2 M2/M4 cannot
+transmit Group2 in cleartext.
 
-Native Tahoe instead selects OS-owned WPA2. Its source path separately
-checks the AP, CCMP MIC and replay in `receiveNativeProtected`, then delivers
-Group1 EAPOL to the OS owner. The native Ethernet TX path uses a live
-pairwise CCMP session for post-install Group2. Its native key installer also
-permits new GTK slots while the port is authorized. These are source paths,
-not evidence that RF, EDMA, actual OS Group2 submissions or controlled-port
-operation have succeeded. Never call the portable driver-owned rekey API
-from this OS-owned connection or start a second handshake. Complete and
-validate real native epoch/PN ownership, TX completion/failure rollback and
-radio startup before claiming operational network rekeying. The existing
-M2/M4 cleartext serializer must never emit Group2 in the clear.
+Driver-owned and OS-owned WPA2 remain mutually exclusive. The Tahoe WCL v2
+native connect selects the driver supplicant when supplied a private PMK;
+any OS-owned key path must retain its own supplicant and protected Group2
+handling, not invoke the new driver-owned completion API. The source also
+contains a separately scoped OS key installer and protected EAPOL routing;
+those source paths are **not** proof that macOS actually supplied a PMK, that
+RF and EDMA ran or that an AP accepted Group2. Hardware RX ciphertext versus
+automatic decrypt/keycache handling, same-epoch RF activation, regulatory/TPC
+authority, AP rekey timing and on-device retry/timeout validation still need
+independent evidence before declaring operational network rekeying. New
+synthetic C++14 and C++17 ASan/UBSan fixtures cover the double-decrypt
+avoidance, native-sequence Group2 success, replay, missing RX trust, output
+alias and failed encryption rollback. No new kext build or physical test.
 
 Connect the existing guarded AR9565 keycache programming/removal with the
 source-only CCMP packet engine under a single native epoch, then complete

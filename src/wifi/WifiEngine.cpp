@@ -1315,9 +1315,89 @@ namespace simpleath
             {
                 return EngineResult::InvalidReceivedFrame;
             }
+            const EngineResult prepared = finishAuthenticatedGroupRekey(
+                msdu, trust, receive, transmit, epoch, nextSequence_,
+                transmitScratch, transmitScratchBytes, out, capacity, action);
+            if (prepared == EngineResult::Ok)
+            {
+                nextSequence_ =
+                    static_cast<uint16_t>((nextSequence_ + 1U) & kSequenceMask);
+            }
+            return prepared;
+        }
+
+        EngineResult WifiEngine::finishAuthenticatedGroupRekey(
+            const Msdu &verified, const InputTrust &trust,
+            crypto::CcmpSession &receive, crypto::CcmpSession &transmit,
+            uint64_t epoch, uint16_t sequence, uint8_t *transmitScratch,
+            size_t transmitScratchBytes, uint8_t *out, size_t capacity,
+            EngineAction &action)
+        {
+            const MemoryRange ranges[] {
+                {this, sizeof(*this)},
+                {&verified, sizeof(verified)},
+                {verified.payload, verified.payloadLength},
+                {&trust, sizeof(trust)},
+                {&receive, sizeof(receive)},
+                {&transmit, sizeof(transmit)},
+                {transmitScratch, transmitScratchBytes},
+                {out, capacity},
+                {&action, sizeof(action)},
+            };
+            if (!disjointRanges(ranges))
+            {
+                return EngineResult::InvalidInput;
+            }
+            action = {};
+            if (verified.payload == nullptr || out == nullptr ||
+                transmitScratch == nullptr || sequence > kSequenceMask)
+            {
+                return EngineResult::InvalidInput;
+            }
+            constexpr size_t kGroup2PlainMpduBytes =
+                kDataHeaderBytes + kSnapHeaderBytes + kGroup2ReplyBytes;
+            constexpr size_t kProtectedGroup2Bytes =
+                kGroup2PlainMpduBytes + kCcmpOverheadBytes;
+            if (capacity < kProtectedGroup2Bytes ||
+                transmitScratchBytes < kGroup2PlainMpduBytes)
+            {
+                return EngineResult::BufferTooSmall;
+            }
+            const ScopedFrameClear txClear(transmitScratch,
+                                           transmitScratchBytes);
+            if (osSupplicantOwned_ || !keysConfigured_ ||
+                station_.state() != StationState::HardwareKeysInstalled ||
+                link_.status().state != LinkState::Associated ||
+                !supplicant_.keysInstalledFor(
+                    stationAddress_, station_.candidate().beacon.bssid))
+            {
+                return EngineResult::InvalidState;
+            }
+            if (!trust.radioReady || !trust.channelAuthorized ||
+                !trust.dmaAndFcsVerified || !trust.ccmpMicAndReplayVerified ||
+                !channelAuthorized_)
+            {
+                return EngineResult::RadioNotReady;
+            }
+            const Bss &candidate = station_.candidate();
+            if (!verified.protectedFrame ||
+                verified.etherType != kEtherTypeEapol ||
+                !sameMac(verified.destination, stationAddress_) ||
+                !sameMac(verified.source, candidate.beacon.bssid))
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            LinkContext link {};
+            link.station = stationAddress_;
+            link.bssid = candidate.beacon.bssid;
+            link.security = LinkSecurity::Wpa2Ccmp;
+            link.associated = true;
+            link.rfReady = trust.radioReady;
+            link.channelPermitted = trust.channelAuthorized;
+            link.pairwiseAndGroupKeysInstalled = true;
             KeyFrame group {};
-            if (parseEapolKey(msdu.payload, msdu.payloadLength, group) !=
-                    EapolResult::Ok ||
+            if (parseEapolKey(verified.payload, verified.payloadLength,
+                              group) != EapolResult::Ok ||
                 group.message != KeyMessage::Group1)
             {
                 return EngineResult::InvalidReceivedFrame;
@@ -1326,8 +1406,8 @@ namespace simpleath
             const ScopedFrameClear replyClear(&reply[0], sizeof(reply));
             size_t replyBytes = 0;
             const Wpa2Result security = supplicant_.onGroupMessage1(
-                msdu.payload, msdu.payloadLength, &reply[0], sizeof(reply),
-                replyBytes);
+                verified.payload, verified.payloadLength, &reply[0],
+                sizeof(reply), replyBytes);
             if (security != Wpa2Result::Ok)
             {
                 return EngineResult::CryptoFailure;
@@ -1346,7 +1426,7 @@ namespace simpleath
             copyBytes(&ethernet[kEthernetHeader], &reply[0], replyBytes);
             SerializedData packet {};
             const DataPathResult encoded = prepareProtectedStationTx(
-                link, &ethernet[0], kEthernetHeader + replyBytes, nextSequence_,
+                link, &ethernet[0], kEthernetHeader + replyBytes, sequence,
                 transmit, epoch, transmitScratch, transmitScratchBytes, out,
                 capacity, packet);
             if (encoded != DataPathResult::Ok)
@@ -1362,8 +1442,6 @@ namespace simpleath
                            ? EngineResult::BufferTooSmall
                            : EngineResult::CryptoFailure;
             }
-            nextSequence_ =
-                static_cast<uint16_t>((nextSequence_ + 1U) & kSequenceMask);
             return emitPrepared(ActionKind::TransmitEapol, packet.frameBytes,
                                 action);
         }

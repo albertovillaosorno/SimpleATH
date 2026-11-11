@@ -247,6 +247,24 @@ namespace simpleath
                     size_t transmitScratchBytes, uint8_t *out, size_t capacity,
                     EngineAction &action);
 
+                // Complete Group1 that the native owner has ALREADY
+                // authenticated and decoded exactly once with CCMP MIC/PN,
+                // EDMA/FCS and the selected AP. The borrowed Msdu must be
+                // consumed synchronously before its RX scratch is scrubbed.
+                // This avoids advancing the pairwise receive PN a second
+                // time just to produce Group2. The owner must isolate its
+                // physical keycache update and require actual Group2 EDMA
+                // completion, or revoke the new GTK/association on failure.
+                // Does not independently attest caller-supplied RX trust.
+                // sequence comes from the native TX sequencer, not the
+                // portable engine's independent management-frame sequence.
+                EngineResult finishAuthenticatedGroupRekey(
+                    const Msdu &verified, const InputTrust &trust,
+                    crypto::CcmpSession &receive, crypto::CcmpSession &transmit,
+                    uint64_t epoch, uint16_t sequence, uint8_t *transmitScratch,
+                    size_t transmitScratchBytes, uint8_t *out, size_t capacity,
+                    EngineAction &action);
+
                 EngineResult checkBeaconTimeout(uint64_t nowMs,
                                                 EngineAction &action);
                 // Caller must quiesce hardware before invalidating its key

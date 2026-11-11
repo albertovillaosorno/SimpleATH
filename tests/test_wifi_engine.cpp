@@ -1,6 +1,8 @@
 // Synthetic WPA2 M1-M4 and protected Group1/Group2 integration.
 // Wrapped GTK bytes were generated independently with OpenSSL AES-128-ECB
 // RFC3394 key-wrap for the deterministic PMK/nonces below. No kernel/RF I/O.
+#include "wifi/DataFrames.hpp"
+#include "wifi/DataPath.hpp"
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/Station.hpp"
@@ -459,9 +461,42 @@ namespace
             return (__LINE__ % kFailureModulo) + 1;
         }
         crypto::CcmpSession missingTx {};
-        if (engine.acceptProtectedGroupRekey(
-                encrypted.data(), encryptedBytes, false, kTrust, stationRx,
-                missingTx, kEpoch, rxScratch.data(), rxScratch.size(),
+        // Native RX authenticates Group1 once, then completes its GTK/Group2
+        // response from the borrowed verified MSDU. Do not decrypt again:
+        // the receive session's PN floor must advance only once.
+        const LinkContext link {
+            station, ap, LinkSecurity::Wpa2Ccmp, true, true, true, true};
+        Msdu verified {};
+        if (inspectProtectedStationRx(link, encrypted.data(), encryptedBytes,
+                                      false, true, stationRx, kEpoch,
+                                      rxScratch.data(), rxScratch.size(),
+                                      verified) != DataPathResult::Ok ||
+            stationRx.receiveFloor() != 3 || verified.etherType != 0x888e ||
+            !verified.protectedFrame)
+        {
+            return (__LINE__ % kFailureModulo) + 1;
+        }
+        InputTrust missingMicProof = kTrust;
+        missingMicProof.ccmpMicAndReplayVerified = false;
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, missingMicProof, stationRx, missingTx, kEpoch, 312,
+                txScratch.data(), txScratch.size(), output.data(),
+                output.size(), action) != EngineResult::RadioNotReady ||
+            provider.groups != 2 || stationRx.receiveFloor() != 3)
+        {
+            return (__LINE__ % kFailureModulo) + 1;
+        }
+        action.kind = ActionKind::ReceivedPayload;
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, kTrust, stationRx, missingTx, kEpoch, 312,
+                txScratch.data(), txScratch.size(), rxScratch.data(),
+                rxScratch.size(), action) != EngineResult::InvalidInput ||
+            action.kind != ActionKind::ReceivedPayload || provider.groups != 2)
+        {
+            return (__LINE__ % kFailureModulo) + 1;
+        }
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, kTrust, stationRx, missingTx, kEpoch, 312,
                 txScratch.data(), txScratch.size(), output.data(),
                 output.size(), action) != EngineResult::CryptoFailure ||
             provider.groups != 3 || provider.revocations != 1 ||
@@ -471,6 +506,124 @@ namespace
         {
             return (__LINE__ % kFailureModulo) + 1;
         }
+        rxScratch.fill(0U);
+        return 0;
+    }
+
+    // The native single-decrypt route succeeds with one verified CCMP RX,
+    // an explicit transmitter sequence and the matching GTK/Group2 reply.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    int verifiedNativeGroupExchange()
+    {
+        const std::array<uint8_t, 32> pmk {{1}};
+        std::array<uint8_t, 32> anonce {{7}};
+        std::array<uint8_t, 32> snonce {};
+        for (size_t index = 0; index < snonce.size(); ++index)
+        {
+            snonce.at(index) = static_cast<uint8_t>(index + 1U);
+        }
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, 48> ptk {};
+        if (crypto::derivePtk(pmk.data(), ap, station, anonce.data(),
+                              snonce.data(), ptk.data()) != crypto::Error::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        Provider provider {};
+        WifiEngine engine;
+        if (!joinAndInstall(engine, provider, ptk.data()))
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        crypto::CcmpSession apTx {};
+        crypto::CcmpSession stationRx {};
+        crypto::CcmpSession stationTx {};
+        crypto::CcmpSession apRx {};
+        if (apTx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0, 0) !=
+                crypto::CcmpResult::Ok ||
+            stationRx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0,
+                              0) != crypto::CcmpResult::Ok ||
+            stationTx.install(kPairwiseTk.data(), kStation.data(), 0, kEpoch, 0,
+                              0) != crypto::CcmpResult::Ok ||
+            apRx.install(kPairwiseTk.data(), kStation.data(), 0, kEpoch, 0,
+                         0) != crypto::CcmpResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        const auto group1 = cleartextApFrame(
+            makeSignedKey({0x82, 3}, kGroupWrapped, ptk.data()));
+        std::array<uint8_t, 512> encrypted {};
+        size_t encryptedBytes = 0;
+        if (apTx.protect(kEpoch, group1.data(), group1.size(), encrypted.data(),
+                         encrypted.size(),
+                         encryptedBytes) != crypto::CcmpResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 512> rxScratch {};
+        const LinkContext link {
+            station, ap, LinkSecurity::Wpa2Ccmp, true, true, true, true};
+        Msdu verified {};
+        if (inspectProtectedStationRx(link, encrypted.data(), encryptedBytes,
+                                      false, true, stationRx, kEpoch,
+                                      rxScratch.data(), rxScratch.size(),
+                                      verified) != DataPathResult::Ok ||
+            stationRx.receiveFloor() != 1)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 512> txScratch {};
+        std::array<uint8_t, 512> output {};
+        EngineAction action {};
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, kTrust, stationRx, stationTx, kEpoch, 4096,
+                txScratch.data(), txScratch.size(), output.data(),
+                output.size(), action) != EngineResult::InvalidInput ||
+            provider.groups != 1 || stationTx.lastTransmittedPn() != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        constexpr uint16_t kNativeSequence = 312;
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, kTrust, stationRx, stationTx, kEpoch, kNativeSequence,
+                txScratch.data(), txScratch.size(), output.data(),
+                output.size(), action) != EngineResult::Ok ||
+            action.kind != ActionKind::TransmitEapol || action.bytes == 0 ||
+            provider.groups != 2 || stationRx.receiveFloor() != 1 ||
+            stationTx.lastTransmittedPn() != 1)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 512> decoded {};
+        size_t decodedBytes = 0;
+        if (apRx.unprotect(kEpoch, output.data(), action.bytes, decoded.data(),
+                           decoded.size(),
+                           decodedBytes) != crypto::CcmpResult::Ok ||
+            decodedBytes != 32 + 99 ||
+            (static_cast<unsigned>(decoded.at(23)) * 16U +
+             static_cast<unsigned>(decoded.at(22)) / 16U) != kNativeSequence)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        KeyFrame group2 {};
+        if (parseEapolKey(&decoded.at(32), 99, group2) != EapolResult::Ok ||
+            group2.message != KeyMessage::Group2 || group2.replayCounter != 3)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Exact same Group1 MIC/replay cannot drive another GTK installation
+        // or consume another pairwise TX PN without a new authenticated AP
+        // Group1. The copied MSDU remains borrowed from rxScratch.
+        if (engine.finishAuthenticatedGroupRekey(
+                verified, kTrust, stationRx, stationTx, kEpoch, 313,
+                txScratch.data(), txScratch.size(), output.data(),
+                output.size(), action) != EngineResult::CryptoFailure ||
+            provider.groups != 2 || stationTx.lastTransmittedPn() != 1)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        rxScratch.fill(0U);
         return 0;
     }
 
@@ -479,5 +632,6 @@ namespace
 
 int main()
 {
-    return protectedGroupExchange();
+    const int baseline = protectedGroupExchange();
+    return baseline == 0 ? verifiedNativeGroupExchange() : baseline;
 }

@@ -167,7 +167,10 @@ class SimpleATH final : public IOService
         // Tahoe OSDefineDefaultStructors emits these allocation methods.
         // Keep the SDK-defined allocation/free implementation paired
         // with its declarations; this does not alter the vtable.
+        // Tahoe's metaclass allocation ABI requires these exact signatures.
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
         void *operator new(size_t size);
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
         void operator delete(void *memory, size_t size);
 
     protected:
@@ -991,6 +994,8 @@ class SimpleATH final : public IOService
             deferredManagementBytes_ = 0;
             deferredManagementEpoch_ = 0;
             deferredJoinRequestId_ = 0;
+            deferredGroup2_ = false;
+            pendingWpa2Group2Token_ = 0;
             pendingWpa2M4Token_ = 0;
             wpa2M4TransmitConfirmed_ = false;
             authenticatedProtectedRxObserved_ = false;
@@ -1026,6 +1031,8 @@ class SimpleATH final : public IOService
             self.deferredManagementBytes_ = 0;
             self.deferredManagementEpoch_ = 0;
             self.deferredJoinRequestId_ = 0;
+            self.deferredGroup2_ = false;
+            self.pendingWpa2Group2Token_ = 0;
             self.pendingWpa2M4Token_ = 0;
             self.wpa2M4TransmitConfirmed_ = false;
             self.authenticatedProtectedRxObserved_ = false;
@@ -1504,12 +1511,12 @@ class SimpleATH final : public IOService
                                                        void * /*unused2*/,
                                                        void * /*unused3*/)
         {
-            auto *typed = OSDynamicCast(SimpleATH, object);
+            const auto *typed = OSDynamicCast(SimpleATH, object);
             if (typed == nullptr || argument == nullptr)
             {
                 return kIOReturnBadArgument;
             }
-            auto &self = *typed;
+            const auto &self = *typed;
             const auto &request =
                 *static_cast<const simpleath::tahoe::NativePortRequest *>(
                     argument);
@@ -2166,13 +2173,17 @@ class SimpleATH final : public IOService
             // start at that exact floor, never an invented zero.
             const auto mirrored =
                 result.result == simpleath::KeyCacheResult::Ok
+                    // keyId was proven < kCcmpGroupSlots above.
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                     ? self.nativeGroupRx_[keyId].install(
                           key, &link.bssid.bytes[0], keyId, self.epoch_, 0,
+                          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                           self.keyCache_.group[keyId].receiveFloor)
                     : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
             if (result.result != simpleath::KeyCacheResult::Ok ||
                 mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                 self.nativeGroupRx_[keyId].revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
@@ -2196,6 +2207,8 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             self.controlledPortAuthorized_ = false;
             self.pendingWpa2M4Token_ = 0;
+            self.pendingWpa2Group2Token_ = 0;
+            self.deferredGroup2_ = false;
             self.wpa2M4TransmitConfirmed_ = false;
             self.authenticatedProtectedRxObserved_ = false;
             self.nativePairwiseTx_.revoke();
@@ -2426,6 +2439,87 @@ class SimpleATH final : public IOService
             IOLockUnlock(observerLock_);
         }
 
+        // Only a CCMP/PN-authenticated, borrowed Group1 may reach this
+        // driver-owned WPA2 GTK replacement. The native key callback takes
+        // a physical DMA/key-RAM lease; Group2 transmits after DMA release.
+        void finishNativeDriverGroup1(const simpleath::ieee80211::Msdu &msdu)
+        {
+            // CCMP MIC/PN was verified exactly once above.
+            // Do not re-decrypt the same Group1 and consume
+            // its replay PN twice. The GTK callback must
+            // isolate physical key RAM before any Group2 TX.
+            simpleath::ieee80211::EngineAction group2 {};
+            const simpleath::ieee80211::InputTrust trust {
+                true,
+                true,
+                true,
+                true,
+            };
+            const auto prepared =
+                pendingWpa2Group2Token_ == 0
+                    ? engine_.finishAuthenticatedGroupRekey(
+                          msdu, trust, nativePairwiseRx_, nativePairwiseTx_,
+                          epoch_, txSequence_, &protectedScratch_[0],
+                          sizeof(protectedScratch_), &managementReply_[0],
+                          sizeof(managementReply_), group2)
+                    : simpleath::ieee80211::EngineResult::InvalidState;
+            const bool ready =
+                prepared == simpleath::ieee80211::EngineResult::Ok &&
+                group2.kind ==
+                    simpleath::ieee80211::ActionKind::TransmitEapol &&
+                group2.bytes >= kMinimumMpduBytes &&
+                group2.bytes <= sizeof(managementReply_) &&
+                queues_.keyUpdateIsolatedGated();
+            if (ready)
+            {
+                deferredGroup2_ = true;
+                // Share the on-air MAC sequence with native
+                // data TX; portable engine sequence is
+                // separate.
+                txSequence_ =
+                    static_cast<uint16_t>((txSequence_ + 1U) & kSequenceMask);
+                // Defers transmission until RX DMA unpins
+                // and same-epoch MAC/EDMA physically restart.
+                (void)finishNativeRxKeyLease(prepared, group2);
+            }
+            else
+            {
+                // A new GTK with no protected, queued Group2
+                // is never a valid continuing association.
+                failNativeJoin(kIOReturnNotReady);
+                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                     false);
+                notifyWirelessChange(false);
+            }
+        }
+
+        void receiveNativeDriverMsdu(const simpleath::ieee80211::Msdu &msdu)
+        {
+            // EAPOL is never forwarded to a second supplicant. Only Group1
+            // may install GTK and produce a protected Group2 response.
+            if (msdu.etherType == kEtherTypeEapol)
+            {
+                simpleath::ieee80211::KeyFrame key {};
+                if (simpleath::ieee80211::parseEapolKey(
+                        msdu.payload, msdu.payloadLength, key) ==
+                        simpleath::ieee80211::EapolResult::Ok &&
+                    key.message == simpleath::ieee80211::KeyMessage::Group1)
+                {
+                    finishNativeDriverGroup1(msdu);
+                }
+                return;
+            }
+            authenticatedProtectedRxObserved_ = true;
+            if (!controlledPortAuthorized_ && wpa2M4TransmitConfirmed_ &&
+                associatedBeaconObserved_)
+            {
+                bool requestOpen = true;
+                (void)ownerAuthorizePortAction(this, &requestOpen, nullptr,
+                                               nullptr, nullptr);
+            }
+            deliverNativeMsdu(msdu, false);
+        }
+
         void receiveNativeProtected(const uint8_t *frame, size_t bytes,
                                     const simpleath::edma::RxStatus &status)
         {
@@ -2520,42 +2614,7 @@ class SimpleATH final : public IOService
             {
                 if (driverOwned)
                 {
-                    // The driver-owned EAPOL/GTK rekey belongs exclusively
-                    // to WifiEngine. Never forward it to a second supplicant
-                    // or treat an unhandled Group1 as evidence of readiness.
-                    if (msdu.etherType == kEtherTypeEapol)
-                    {
-                        simpleath::ieee80211::KeyFrame key {};
-                        if (simpleath::ieee80211::parseEapolKey(
-                                msdu.payload, msdu.payloadLength, key) ==
-                                simpleath::ieee80211::EapolResult::Ok &&
-                            key.message ==
-                                simpleath::ieee80211::KeyMessage::Group1)
-                        {
-                            // The current native path has no atomic Group2
-                            // reply/restart after Group1 GTK replacement.
-                            // A verified rekey must retire the connection
-                            // rather than keep publishing a stale GTK port.
-                            failNativeJoin(kIOReturnUnsupported);
-                            engine_.radioStopped(nowMicros(nullptr) /
-                                                     kMicrosPerMillisecond,
-                                                 false);
-                            notifyWirelessChange(false);
-                        }
-                    }
-                    else
-                    {
-                        authenticatedProtectedRxObserved_ = true;
-                        if (!controlledPortAuthorized_ &&
-                            wpa2M4TransmitConfirmed_ &&
-                            associatedBeaconObserved_)
-                        {
-                            bool requestOpen = true;
-                            (void)ownerAuthorizePortAction(
-                                this, &requestOpen, nullptr, nullptr, nullptr);
-                        }
-                        deliverNativeMsdu(msdu, false);
-                    }
+                    receiveNativeDriverMsdu(msdu);
                 }
                 else
                 {
@@ -3062,14 +3121,40 @@ class SimpleATH final : public IOService
                          const simpleath::edma::TxCompletion &status)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (token != 0 && token == self.pendingWpa2Group2Token_)
+            {
+                const bool complete =
+                    self.joinEpoch_ == self.epoch_ &&
+                    self.keyCache_.ownerEpoch == self.epoch_ &&
+                    self.engine_.stationState() ==
+                        simpleath::ieee80211::StationState::
+                            HardwareKeysInstalled &&
+                    self.controlledPortAuthorized_ &&
+                    !self.keyCache_.requiresReset && status.frameTransmitOk &&
+                    !status.excessiveRetries && !status.filtered;
+                self.pendingWpa2Group2Token_ = 0;
+                if (!complete)
+                {
+                    self.failNativeJoin(kIOReturnIOError);
+                    self.engine_.radioStopped(
+                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
+                    self.notifyWirelessChange(false);
+                }
+            }
             if (token != 0 && token == self.pendingWpa2M4Token_)
             {
                 const bool confirmed =
-                    simpleath::ieee80211::nativeM4TransmitCompleted(
-                        {token, self.pendingWpa2M4Token_, self.joinEpoch_,
-                         self.epoch_, self.keyCache_.ownerEpoch,
-                         self.engine_.stationState(), status.frameTransmitOk,
-                         status.excessiveRetries, status.filtered});
+                    simpleath::ieee80211::nativeM4TransmitCompleted({
+                        token,
+                        self.pendingWpa2M4Token_,
+                        self.joinEpoch_,
+                        self.epoch_,
+                        self.keyCache_.ownerEpoch,
+                        self.engine_.stationState(),
+                        status.frameTransmitOk,
+                        status.excessiveRetries,
+                        status.filtered,
+                    });
                 self.pendingWpa2M4Token_ = 0;
                 if (confirmed)
                 {
@@ -3171,6 +3256,7 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const size_t bytes = self.deferredManagementBytes_;
+            const bool group2 = self.deferredGroup2_;
             if (bytes == 0)
             {
                 return;
@@ -3190,11 +3276,14 @@ class SimpleATH final : public IOService
             self.deferredManagementBytes_ = 0;
             self.deferredManagementEpoch_ = 0;
             self.deferredJoinRequestId_ = 0;
+            self.deferredGroup2_ = false;
             const uint64_t submittedToken = self.nextTransmitToken_;
-            const IOReturn result = stillOwned && self.canSubmitTransmit()
-                                        ? self.submitPreparedTransmit(
-                                              &self.managementReply_[0], bytes)
-                                        : kIOReturnNotReady;
+            const IOReturn result =
+                stillOwned && self.canSubmitTransmit() &&
+                        (!group2 || self.controlledPortAuthorized_)
+                    ? self.submitPreparedTransmit(&self.managementReply_[0],
+                                                  bytes, group2)
+                    : kIOReturnNotReady;
             if (result == kIOReturnSuccess &&
                 !self.engine_.osSupplicantOwnsWpa2() && submittedToken != 0 &&
                 submittedToken != UINT64_MAX &&
@@ -3202,9 +3291,16 @@ class SimpleATH final : public IOService
                 self.nativePairwiseRx_.installed() &&
                 self.nativeGroupInstalled())
             {
-                // Only the deferred driver-owned M4 after verified M3 key
-                // installation can grant this exact TX completion token.
-                self.pendingWpa2M4Token_ = submittedToken;
+                // Group2 completion is not M4 confirmation; never grant
+                // controlled-port readiness for a rekey reply.
+                if (group2)
+                {
+                    self.pendingWpa2Group2Token_ = submittedToken;
+                }
+                else
+                {
+                    self.pendingWpa2M4Token_ = submittedToken;
+                }
             }
             self.setProperty("SimpleATHManagementTransmitResult",
                              static_cast<uint32_t>(result),
@@ -3961,6 +4057,7 @@ class SimpleATH final : public IOService
         // and later authenticated, replay-checked data RX are WPA2 proofs.
         // They are invalidated on every join/key/PCI owner revocation.
         uint64_t pendingWpa2M4Token_ {0};
+        uint64_t pendingWpa2Group2Token_ {0};
         bool wpa2M4TransmitConfirmed_ {false};
         bool authenticatedProtectedRxObserved_ {false};
         // Credential-free, epoch-bound WCL progress. Never retain a PMK or
@@ -3987,6 +4084,7 @@ class SimpleATH final : public IOService
         uint8_t verifiedReceiveChannel_ {0};
         bool scanTimerAttached_ {false};
         uint8_t managementReply_[kManagementReplyCapacity] {};
+        bool deferredGroup2_ {false};
         size_t deferredManagementBytes_ {0};
         uint64_t deferredManagementEpoch_ {0};
         uint64_t deferredJoinRequestId_ {0};
