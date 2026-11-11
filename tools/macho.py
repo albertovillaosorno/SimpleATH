@@ -1,11 +1,39 @@
 #!/usr/bin/env python3
+# Copyright:
+#   - Copyright © 2026 laobamac. All rights reserved.
+# SPDX-License-Identifier:
+#   - LicenseRef-SimpleBCM-All-Rights-Reserved
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-SIMPLEBCM
+# Provenance:
+#   - SimpleBCM v1.2.0, by laobamac; no public license grant identified
+#   - Originally authored by laobamac on 2026/9/6.
 #
-#  macho.py
-#  SimpleATH
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for macho.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for macho.
+# - Description:
+#   - Implements or verifies the macho source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
 #
-#  Created by laobamac on 2026/9/6.
-#  Copyright © 2026 laobamac. All rights reserved.
-#
+# Module: Host-side tooling for macho.
 
 """Read pinned Mach-O images for offline static ABI evidence only."""
 
@@ -19,7 +47,8 @@ from pathlib import Path
 import re
 import shutil
 import stat
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv and explicit shell=False.
+# Fixed argv and explicit shell=False.
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import sys
 
 if __package__:
@@ -848,7 +877,8 @@ class Image:
             message = "xcrun is required for offline disassembly"
             raise FileNotFoundError(message)
         self._require_original_image()
-        output = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argument vector without shell interpolation.
+        # Fixed argument vector without shell interpolation.
+        output = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
             [
                 xcrun,
                 "llvm-objdump",

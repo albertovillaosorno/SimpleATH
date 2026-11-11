@@ -1,11 +1,40 @@
 #!/usr/bin/env python3
+# Copyright:
+#   - Copyright © 2026 laobamac. All rights reserved.
+# SPDX-License-Identifier:
+#   - LicenseRef-SimpleBCM-All-Rights-Reserved
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-SIMPLEBCM
+# Provenance:
+#   - SimpleBCM v1.2.0, by laobamac; no public license grant identified
+#   - Originally authored by laobamac on 2026/11/2.
 #
-#  check.py
-#  SimpleATH
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for check.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for check.
+# - Description:
+#   - Implements or verifies the check source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
 #
-#  Created by laobamac on 2026/11/2.
-#  Copyright © 2026 laobamac. All rights reserved.
-#
+# Module: Host-side tooling for check.
+
 """Verify legacy package metadata without compiling, signing, or packaging."""
 
 from __future__ import annotations
@@ -17,7 +46,8 @@ import re
 import sys
 from typing import TYPE_CHECKING
 from typing import TypeIs
-import xml.etree.ElementTree as ET  # ruff: ignore[suspicious-xml-etree-import] - Parse only local Xcode scheme metadata.
+# Parse only local Xcode scheme metadata.
+import xml.etree.ElementTree as ET  # ruff: ignore[suspicious-xml-etree-import]
 
 from bootstrap import ROOT
 from build import fragment
@@ -106,7 +136,8 @@ def _check_project() -> None:
     project = ROOT / PROJECT_NAME
     for path in project.rglob("*.xcscheme"):
         # Schemes are local source-controlled build metadata, not network XML.
-        for reference in ET.parse(path).iter(  # ruff: ignore[suspicious-xml-element-tree-usage] - Parse local Xcode scheme source only.
+        # Parse local Xcode scheme source only.
+        for reference in ET.parse(path).iter(  # ruff: ignore[suspicious-xml-element-tree-usage]
             "BuildableReference"
         ):
             _ensure(

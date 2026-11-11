@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for scoped lint policy.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for scoped lint policy.
+# - Description:
+#   - Implements or verifies the test_scoped_lint_policy source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for scoped lint policy.
 """Guard meaningful lint isolation for production, fixtures and tooling."""
 
 from pathlib import Path
@@ -14,9 +47,9 @@ from tools import validate
 
 ROOT = Path(__file__).resolve().parent.parent
 TIDY_TOOL = "clang-tidy"
-SOURCE_POLICY = ".clang-tidy"
-TEST_POLICY = "tests/.clang-tidy"
-TOOL_POLICY = "tools/.clang-tidy"
+SOURCE_POLICY = ".jig/lint/src/.clang-tidy"
+TEST_POLICY = ".jig/lint/support/.clang-tidy"
+TOOL_POLICY = ".jig/lint/support/.clang-tidy"
 SAFETY_CHECK = "bugprone-use-after-move"
 ANALYZER_CHECK = "clang-analyzer-core.CallAndMessage"
 COSMETIC_CHECK = "modernize-use-auto"
@@ -76,6 +109,7 @@ class ScopedLintPolicy(unittest.TestCase):
             source.parent.mkdir(exist_ok=True)
             _ = source.write_text("void check() {}", encoding="utf-8")
             policy = root / TEST_POLICY
+            policy.parent.mkdir(parents=True, exist_ok=True)
             _ = policy.write_text(
                 "InheritParentConfig: true\n", encoding="utf-8"
             )
@@ -105,6 +139,7 @@ class ScopedLintPolicy(unittest.TestCase):
             _ = source.write_text("void check() {}", encoding="utf-8")
             (root / "tests").mkdir()
             policy = root / TEST_POLICY
+            policy.parent.mkdir(parents=True, exist_ok=True)
             _ = policy.write_text("Checks: '-readability-*'", encoding="utf-8")
             previous = validate.input_snapshot(root, [source])
             _ = policy.write_text("Checks: '-modernize-*'", encoding="utf-8")
@@ -125,7 +160,7 @@ class ScopedLintPolicy(unittest.TestCase):
                     ruff,
                     "check",
                     "--config",
-                    str(ROOT / "ruff.toml"),
+                    str(ROOT / ".jig/lint/ruff.toml"),
                     "--select",
                     "D,PLR2004",
                     "--stdin-filename",
@@ -145,7 +180,7 @@ class ScopedLintPolicy(unittest.TestCase):
                 ruff,
                 "check",
                 "--config",
-                str(ROOT / "ruff.toml"),
+                str(ROOT / ".jig/lint/ruff.toml"),
                 "--select",
                 "F821",
                 "--stdin-filename",
@@ -167,6 +202,7 @@ class ScopedLintPolicy(unittest.TestCase):
         """Absent scoped config must fall back to source policy."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            (root / SOURCE_POLICY).parent.mkdir(parents=True, exist_ok=True)
             _ = (root / SOURCE_POLICY).write_text("Checks: '*'\n")
             (root / "tests").mkdir()
             assert (
@@ -179,7 +215,7 @@ class ScopedLintPolicy(unittest.TestCase):
     @staticmethod
     def test_ruff_relaxes_style_only_outside_production() -> None:
         """Ruff syntax, bug and security rules stay active everywhere."""
-        with (ROOT / "ruff.toml").open("rb") as stream:
+        with (ROOT / ".jig/lint/ruff.toml").open("rb") as stream:
             config = cast("dict[str, dict[str, object]]", tomllib.load(stream))
         lint = config["lint"]
         overrides = cast("dict[str, list[str]]", lint["per-file-ignores"])

@@ -1,4 +1,37 @@
-# Copyright (c) 2026 Alberto Villa Osorno.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for validate.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for validate.
+# - Description:
+#   - Implements or verifies the test_validate source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for validate.
 """Exercise real validator failure paths and offline language execution."""
 
 from contextlib import redirect_stderr
@@ -75,6 +108,8 @@ def _root(directory: str) -> Path:
     (root / ".git").mkdir()
     (root / "src").mkdir()
     (root / "tests").mkdir()
+    (root / ".jig/lint/src").mkdir(parents=True)
+    (root / ".jig/lint/support").mkdir(parents=True)
     _ = (root / "tests/__init__.py").write_text("", encoding="utf-8")
     return root
 
@@ -94,6 +129,7 @@ def _lint_fingerprint(root: Path, file: Path, tool: str) -> str:
 
     """
     for config in validator.CONFIGS[tool]:
+        (root / config).parent.mkdir(parents=True, exist_ok=True)
         _ = (root / config).write_text("fixture", encoding="utf-8")
     cache_key = file.relative_to(root).as_posix() + "::" + tool
     with (
@@ -122,6 +158,7 @@ def _lint_failure_diagnostics(text: str) -> list[str]:
         source = root / "src/driver.cpp"
         _ = source.write_text("int driver;", encoding="utf-8")
         for config in validator.CONFIGS["clang-tidy"]:
+            (root / config).parent.mkdir(parents=True, exist_ok=True)
             _ = (root / config).write_text("fixture", encoding="utf-8")
         with (
             mock.patch.object(
@@ -802,7 +839,7 @@ class ClangTidyDatabase(unittest.TestCase):
 
     @staticmethod
     def test_usable_command_must_match_the_checked_source() -> None:
-        """Reject stale, relative-workdir and commandless source entries."""
+        """Accept repository-relative commands but reject stale entries."""
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
             file = root / "src/radio.cpp"
@@ -815,8 +852,12 @@ class ClangTidyDatabase(unittest.TestCase):
             }
             _ = database.write_text(json.dumps([command]), encoding="utf-8")
             assert validator.tidy_command_exists(root, file)
+            _ = database.write_text(
+                json.dumps([{**command, "directory": "."}]),
+                encoding="utf-8",
+            )
+            assert validator.tidy_command_exists(root, file)
             for replacement in (
-                {**command, "directory": "."},
                 {**command, "directory": str(root / "moved")},
                 {**command, "arguments": []},
                 {**command, "file": "src/other.cpp"},
@@ -838,6 +879,7 @@ class ClangTidyDatabase(unittest.TestCase):
                 "#include <IOKit/IOLib.h>\n", encoding="utf-8"
             )
             for config in validator.CONFIGS["clang-tidy"]:
+                (root / config).parent.mkdir(parents=True, exist_ok=True)
                 _ = (root / config).write_text("fixture", encoding="utf-8")
             missing = validator.Process(
                 1,
@@ -879,7 +921,8 @@ class ClangTidyDatabase(unittest.TestCase):
             _ = (root / "compile_commands.json").write_text(
                 "[]", encoding="utf-8"
             )
-            for config in (".clang-tidy", ".editorconfig"):
+            for config in validator.CONFIGS["clang-tidy"]:
+                (root / config).parent.mkdir(parents=True, exist_ok=True)
                 _ = (root / config).write_text("", encoding="utf-8")
             with (
                 mock.patch.object(
@@ -1237,7 +1280,7 @@ class FullRepositoryRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = _root(directory)
             source = root / "src/example.py"
-            rule = root / ".clang-tidy"
+            rule = root / ".jig/lint/src/.clang-tidy"
             manifest = root / "tests/test_native.sources"
             _ = source.write_text("before", encoding="utf-8")
             _ = rule.write_text("rule-1", encoding="utf-8")

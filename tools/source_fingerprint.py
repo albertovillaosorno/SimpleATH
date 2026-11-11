@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for source fingerprint.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for source fingerprint.
+# - Description:
+#   - Implements or verifies the source_fingerprint source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for source fingerprint.
 """Deterministic fingerprint of the current tracked-source layout.
 
 Only source, policies, tests, and checked-in documentation are inputs. Build
@@ -20,13 +53,15 @@ SOURCE_FILES = (
     "THIRD_PARTY_NOTICES.md",
     "licenses/GPL-2.0.txt",
     ".references/ledger.jsonl",
-    ".clang-format",
-    ".clang-tidy",
+    ".jig/lint/.clang-format",
+    ".jig/lint/src/.clang-tidy",
+    ".jig/lint/support/.clang-tidy",
     ".editorconfig",
     ".gitattributes",
     ".gitignore",
-    "pyrightconfig.json",
-    "ruff.toml",
+    ".jig/lint/src/pyrightconfig.json",
+    ".jig/lint/support/pyrightconfig.json",
+    ".jig/lint/ruff.toml",
 )
 IGNORED_NAMES = frozenset({"__pycache__", ".DS_Store"})
 MAX_SOURCE_FILES = 10_000

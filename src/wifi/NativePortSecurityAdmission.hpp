@@ -1,3 +1,42 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for native port security
+//     admission.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for native port security
+//     admission.
+// - Description:
+//   - Implements or verifies the NativePortSecurityAdmission source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: native port security admission.
+
 // Native controlled-port security policy. Physical RF/DMA, exact join, AP
 // beacon and country/TPC authorization are independent mandatory gates.
 #ifndef SIMPLEATH_WIFI_NATIVE_PORT_SECURITY_ADMISSION_HPP

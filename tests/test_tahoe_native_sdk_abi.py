@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for tahoe native sdk abi.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for tahoe native sdk abi.
+# - Description:
+#   - Implements or verifies the test_tahoe_native_sdk_abi source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for tahoe native sdk abi.
 """Guard native Tahoe networking vtable inheritance and Apple SDK syntax.
 
 The 2026-11-10 authorized Intel build failed because legacy reserved-slot

@@ -1,3 +1,41 @@
+// Copyright:
+//   - Original Atheros / Qualcomm Atheros copyright holders
+// SPDX-License-Identifier:
+//   - ISC
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-ISC
+// Provenance:
+//   - Linux ath9k-derived material; preserve original in-file notices and
+//     source hashes
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for ar9565 regulator.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for ar9565 regulator.
+// - Description:
+//   - Implements or verifies the Ar9565Regulator source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for ar9565 regulator.
+
 // Linux ath9k v6.12 ar9003_eeprom.c: ar9003_hw_internal_regulator_apply,
 // ar9003_phy.h: AR_PHY_PMU1(AR_SREV_9565) and AR_PHY_PMU1_PWD.
 /*

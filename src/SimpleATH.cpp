@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 laobamac. All rights reserved.
+// SPDX-License-Identifier:
+//   - LicenseRef-SimpleBCM-All-Rights-Reserved
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-SIMPLEBCM
+// Provenance:
+//   - SimpleBCM v1.2.0, by laobamac; no public license grant identified
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for simple ath.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for simple ath.
+// - Description:
+//   - Implements or verifies the SimpleATH source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for simple ath.
+
 // Native AR9565 PCI owner: power, BAR access, RTC reset and board acquisition.
 #include "diagnostics/NativeDiagnostics.hpp"
 #include "hardware/Ar9003Descriptors.hpp"
@@ -2175,16 +2212,16 @@ class SimpleATH final : public IOService
             const auto mirrored =
                 result.result == simpleath::KeyCacheResult::Ok
                     // keyId was proven < kCcmpGroupSlots above.
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                     ? self.nativeGroupRx_[keyId].install(
                           key, &link.bssid.bytes[0], keyId, self.epoch_, 0,
-                          // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                           self.keyCache_.group[keyId].receiveFloor)
                     : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
             if (result.result != simpleath::KeyCacheResult::Ok ||
                 mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                 self.nativeGroupRx_[keyId].revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
@@ -2646,7 +2683,7 @@ class SimpleATH final : public IOService
             volatile uint8_t *const clear = &protectedRxScratch_[0];
             for (size_t i = 0; i < sizeof(protectedRxScratch_); ++i)
             {
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 clear[i] = 0;
             }
         }

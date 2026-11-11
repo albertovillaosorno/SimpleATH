@@ -1,11 +1,39 @@
 #!/usr/bin/env python3
+# Copyright:
+#   - Copyright © 2026 laobamac. All rights reserved.
+# SPDX-License-Identifier:
+#   - LicenseRef-SimpleBCM-All-Rights-Reserved
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-SIMPLEBCM
+# Provenance:
+#   - SimpleBCM v1.2.0, by laobamac; no public license grant identified
+#   - Originally authored by laobamac on 2026/11/1.
 #
-#  embed.py
-#  SimpleATH
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for embed.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for embed.
+# - Description:
+#   - Implements or verifies the embed source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
 #
-#  Created by laobamac on 2026/11/1.
-#  Copyright © 2026 laobamac. All rights reserved.
-#
+# Module: Host-side tooling for embed.
 
 """Generate bounded offline legacy payload metadata for native verification."""
 
@@ -19,7 +47,8 @@ import plistlib
 import re
 import shutil
 import struct
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed argv for pinned offline disassembly.
+# Fixed argv for pinned offline disassembly.
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import sys
 from typing import TYPE_CHECKING
 from typing import TypeIs
@@ -488,7 +517,8 @@ def route_prefixes(image: Image, label: str) -> list[tuple[int, int]]:
         raise FileNotFoundError(message)
     result: list[tuple[int, int]] = []
     for name in ROUTE_SYMBOLS[label]:
-        text = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Explicit executable and fixed argv.
+        # Explicit executable and fixed argv.
+        text = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
             [
                 executable,
                 "llvm-objdump",

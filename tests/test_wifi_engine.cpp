@@ -1,3 +1,39 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Offline regression cases for wifi engine.
+// - Must-Not:
+//   - Require physical hardware, mutate installed drivers, or suppress
+//     failures.
+// - Allows:
+//   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+//   - Outputs: assertions and observable regression verdicts.
+//   - Side effects: test-local temporary files and bounded subprocesses only.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Offline regression cases for wifi engine.
+// - Description:
+//   - Implements or verifies the test_wifi_engine source boundary.
+// - Usage:
+//   - Executed by offline host test discovery or the native test harness.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Offline regression cases for wifi engine.
+
 // Synthetic WPA2 M1-M4 and protected Group1/Group2 integration.
 // Wrapped GTK bytes were generated independently with OpenSSL AES-128-ECB
 // RFC3394 key-wrap for the deterministic PMK/nonces below. No kernel/RF I/O.
@@ -21,7 +57,7 @@ namespace
     // This fixture builds literal IEEE 802.11/EAPOL wire octets and fixed
     // OpenSSL reference vectors, not production parameter policy. All such
     // numeric offsets and key sizes are deliberately exact on-air values.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     constexpr uint64_t kEpoch = 410U;
     constexpr int kFailureModulo = 250;
     constexpr std::array<uint8_t, 6> kAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
@@ -627,7 +663,7 @@ namespace
         return 0;
     }
 
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
 int main()

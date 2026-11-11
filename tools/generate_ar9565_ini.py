@@ -1,5 +1,38 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for generate ar9565 ini.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for generate ar9565 ini.
+# - Description:
+#   - Implements or verifies the generate_ar9565_ini source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for generate ar9565 ini.
 """Generate AR9565 2.4 GHz register presets from pinned Linux ath9k sources.
 
 These files are C++ data only. They MUST NOT be used for hardware writes before

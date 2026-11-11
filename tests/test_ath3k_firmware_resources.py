@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for ath3k firmware resources.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for ath3k firmware resources.
+# - Description:
+#   - Implements or verifies the test_ath3k_firmware_resources source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for ath3k firmware resources.
 """Source-only regression tests for exact licensed AR3012 DFU resources."""
 
 from __future__ import annotations
@@ -16,7 +49,7 @@ from tools.firmware import embed_ar3k
 
 ROOT = Path(__file__).resolve().parents[1]
 PLIST = ROOT / "src/Info.plist"
-MANIFEST = ROOT / "firmware/manifest.json"
+MANIFEST = ROOT / "src/firmware/manifest.json"
 BOOT_CLASS = "SimpleATHUsbBluetooth"
 HCI_CLASS = "SimpleATHUsbHciTransport"
 BOOT_VENDOR_IDS = {0x0CF3, 0x13D3}
@@ -109,7 +142,7 @@ class Ath3kFirmwareTests(TestCase):
             assert len(data) == asset["bytes"]
             assert hashlib.sha256(data).hexdigest() == asset["sha256"]
             license_name = cast("str", asset["license"])
-            assert (ROOT / "firmware" / license_name).is_file()
+            assert (ROOT / "src/firmware" / license_name).is_file()
 
     @staticmethod
     def test_missing_license_is_rejected() -> None:

@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for ccmp.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for ccmp.
+// - Description:
+//   - Implements or verifies the Ccmp source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for ccmp.
+
 // CCMP-128: IEEE 802.11 CCMP nonce/AAD/ExtIV and NIST SP 800-38C CCM.
 // FIPS 197 AES-128 forward cipher. No device, RF, entropy or OS I/O.
 #include "Ccmp.hpp"
@@ -15,7 +52,9 @@ namespace simpleath
             // IEEE byte indices and AES/CCM field masks are fixed wire-format
             // constants. Integer promotion of uint8_t to int is nonnegative,
             // and the C++14 kernel ABI intentionally exposes bounded C arrays.
-            // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,bugprone-signed-bitwise,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(bugprone-signed-bitwise)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
             namespace
             {
                 constexpr size_t kHeaderBytes = 24U;
@@ -55,7 +94,7 @@ namespace simpleath
                             {
                                 __builtin_trap();
                             }
-                            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                             return storage[index];
                         }
 
@@ -65,7 +104,7 @@ namespace simpleath
                             {
                                 __builtin_trap();
                             }
-                            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                             return storage[index];
                         }
 
@@ -83,24 +122,24 @@ namespace simpleath
                 uint8_t *byteAt(uint8_t *base, size_t offset)
                 {
                     // Caller validates byte capacity before this indexed view.
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                     return &base[offset];
                 }
 
                 const uint8_t *byteAt(const uint8_t *base, size_t offset)
                 {
                     // Callers validate the complete packet before offsets.
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                     return &base[offset];
                 }
 
                 void secureWipe(void *buffer, size_t bytes)
                 {
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
                     auto *cursor = static_cast<volatile uint8_t *>(buffer);
                     for (size_t i = 0U; i < bytes; ++i)
                     {
-                        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                         cursor[i] = 0U;
                     }
                 }
@@ -153,13 +192,13 @@ namespace simpleath
                         {
                             const uint8_t rotated = word.at(0U);
                             // AES S-box is indexed only by 8-bit values.
-                            // NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
                             word.at(0U) = static_cast<uint8_t>(
                                 kAesSbox[word.at(1U)] ^ rcon);
                             word.at(1U) = kAesSbox[word.at(2U)];
                             word.at(2U) = kAesSbox[word.at(3U)];
                             word.at(3U) = kAesSbox[rotated];
-                            // NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
                             rcon = xtime(rcon);
                         }
                         for (size_t i = 0U; i < 4U; ++i)
@@ -686,7 +725,9 @@ namespace simpleath
                 return authenticated ? CcmpResult::Ok : CcmpResult::MicMismatch;
             }
 
-            // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,bugprone-signed-bitwise,cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(bugprone-signed-bitwise)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
         } // namespace crypto
     } // namespace ieee80211
 } // namespace simpleath

@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for wpa2 primitives.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for wpa2 primitives.
+// - Description:
+//   - Implements or verifies the Wpa2Primitives source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for wpa2 primitives.
+
 // Portable WPA2-PSK cryptographic primitives. This is not an entropy source,
 // keychain, negotiated RSN policy, CCMP packet engine or hardware key backend.
 //

@@ -1,4 +1,38 @@
-// Copyright (c) 2026 Alberto Villa Osorno.
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Offline regression cases for scan bridge.
+// - Must-Not:
+//   - Require physical hardware, mutate installed drivers, or suppress
+//     failures.
+// - Allows:
+//   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+//   - Outputs: assertions and observable regression verdicts.
+//   - Side effects: test-local temporary files and bounded subprocesses only.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Offline regression cases for scan bridge.
+// - Description:
+//   - Implements or verifies the test_scan_bridge source boundary.
+// - Usage:
+//   - Executed by offline host test discovery or the native test harness.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Offline regression cases for scan bridge.
 // Offline portable scan pipeline; this is NOT Apple80211, RF or device I/O.
 #include "wifi/Frames.hpp"
 #include "wifi/LegacyScanBridge.hpp"

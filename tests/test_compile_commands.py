@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for compile commands.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for compile commands.
+# - Description:
+#   - Implements or verifies the test_compile_commands source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for compile commands.
 """Synthetic source-only compilation database generation regressions."""
 
 from pathlib import Path
@@ -61,7 +94,7 @@ class SourceOnlyCompileCommandsTests(TestCase):
             assert [entry["file"] for entry in commands] == sorted(names[:4])
             for command in commands:
                 arguments = command["arguments"]
-                assert command["directory"] == str(root.resolve())
+                assert command["directory"] == "."
                 standard = (
                     "-std=c++17"
                     if command["file"].startswith(("tests/", "tools/"))
@@ -104,11 +137,11 @@ class SourceOnlyCompileCommandsTests(TestCase):
                 "-target",
                 generator.DARWIN_TARGET,
                 "-isystem",
-                str(library),
+                ".cache/clang-tidy/libcxx",
                 "-isystem",
-                str(config),
+                ".cache/clang-tidy/libcxx-site",
                 "-isystem",
-                str(sdk),
+                ".references/MacKernelSDK/Headers",
             ]
             assert commands["src/SimpleATH.cpp"][4:-4] == expected_flags
             assert commands["src/platform/probe/main.mm"][4:-4] == []
@@ -129,9 +162,9 @@ class SourceOnlyCompileCommandsTests(TestCase):
             assert macos["src/SimpleATH.cpp"][4:-4] == [
                 "-DKERNEL=1",
                 "-isysroot",
-                str(native_sdk),
+                ".cache/clang-tidy/sdkroot",
                 "-isystem",
-                str(native_kernel),
+                ".cache/clang-tidy/sdkroot/System/Library/Frameworks/Kernel.framework/Headers",
             ]
             assert str(sdk) not in macos["src/SimpleATH.cpp"]
 

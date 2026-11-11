@@ -1,5 +1,38 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for embed ar3k.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for embed ar3k.
+# - Description:
+#   - Implements or verifies the embed_ar3k source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for embed ar3k.
 """Embed unchanged, licensed AR3012 DFU images as IOService OSData.
 
 This deterministic source-only transform embeds byte-preserved firmware in
@@ -20,7 +53,7 @@ from typing import cast
 
 ROOT = Path(__file__).resolve().parents[2]
 PLIST = ROOT / "src/Info.plist"
-ROOT_FIRMWARE = ROOT / "firmware"
+ROOT_FIRMWARE = ROOT / "src/firmware"
 MANIFEST = ROOT_FIRMWARE / "manifest.json"
 SCHEMA = "simpleath.ath3k.firmware.v1"
 BLUETOOTH_CLASS = "SimpleATHUsbBluetooth"

@@ -1,3 +1,41 @@
+// Copyright:
+//   - Original Atheros / Qualcomm Atheros copyright holders
+// SPDX-License-Identifier:
+//   - ISC
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-ISC
+// Provenance:
+//   - Linux ath9k-derived material; preserve original in-file notices and
+//     source hashes
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for ar9300 eeprom templates.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for ar9300 eeprom templates.
+// - Description:
+//   - Implements or verifies the Ar9300EepromTemplates source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: ar9300 eeprom templates.
+
 // Generated reconstruction dictionaries; NEVER use as board defaults.
 // linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c:
 // 9af461f68c73fdbe553619534f0474dca637a7c5191729251fa479af2ad75dc6

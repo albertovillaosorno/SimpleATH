@@ -1,3 +1,39 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Offline regression cases for ccmp.
+// - Must-Not:
+//   - Require physical hardware, mutate installed drivers, or suppress
+//     failures.
+// - Allows:
+//   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+//   - Outputs: assertions and observable regression verdicts.
+//   - Side effects: test-local temporary files and bounded subprocesses only.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Offline regression cases for ccmp.
+// - Description:
+//   - Implements or verifies the test_ccmp source boundary.
+// - Usage:
+//   - Executed by offline host test discovery or the native test harness.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Offline regression cases for ccmp.
+
 // Host-only CCMP-128 frame tests; no RF, kernel crypto or installed keys.
 // Known AES-CCM ciphertext/MIC independently checked against OpenSSL EVP.
 #include "wifi/crypto/Ccmp.hpp"
@@ -13,7 +49,7 @@ namespace
 {
     // Packet constants are exact published 802.11/CCM offsets and fixed
     // regression vector octets, rather than arbitrary numeric configuration.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
     constexpr uint64_t kEpoch = 9001U;
     constexpr size_t kProtectedHeader = 32U;
     constexpr int kDiagnosticModulo = 251;
@@ -573,7 +609,7 @@ namespace
     }
 
     // NOLINTEND(readability-suspicious-call-argument)
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
 int main()

@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for wpa2 primitives.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for wpa2 primitives.
+// - Description:
+//   - Implements or verifies the Wpa2Primitives source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for wpa2 primitives.
+
 // Original compact implementation of the published SHA-1, PBKDF2, WPA2
 // PRF-384, AES-128 inverse cipher and RFC3394 key unwrap algorithms.
 //
@@ -99,7 +136,7 @@ namespace simpleath
                     }
                     // The explicit capacity check is sufficient for the
                     // freestanding fixed-size crypto scratch arrays.
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
                     return array[index];
                 }
 
@@ -111,7 +148,7 @@ namespace simpleath
                 template <typename T> T &byteAt(T *span, size_t offset)
                 {
                     // Public call sites establish their buffer capacity.
-                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                     return span[offset];
                 }
 

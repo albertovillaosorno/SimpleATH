@@ -1,4 +1,40 @@
 #!/usr/bin/env python3
+# Copyright:
+#   - Original Atheros / Qualcomm Atheros copyright holders
+# SPDX-License-Identifier:
+#   - ISC
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-ISC
+# Provenance:
+#   - Linux ath9k-derived material; preserve original in-file notices and source
+#     hashes
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for generate ar9300 templates.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for generate ar9300 templates.
+# - Description:
+#   - Implements or verifies the generate_ar9300_templates source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for generate ar9300 templates.
+
 """Generate C++ source arrays from pinned permissive ath9k EEPROM templates.
 
 This restricted initializer reader does not compile/execute C, create binary
@@ -395,7 +431,8 @@ def _serialize_array(
         _serialize_array_members(layout, value, destination, offset=offset)
     else:
         message = "Array initializer count/type mismatch"
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error] - Legacy initializer errors are ValueError.
+        # Legacy initializer errors are ValueError.
+        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
 
 
 def _field_index(
@@ -426,7 +463,8 @@ def _serialize_struct(
 ) -> None:
     if not isinstance(value, list):
         message = "Structure initializer type mismatch"
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error] - Legacy initializer errors are ValueError.
+        # Legacy initializer errors are ValueError.
+        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
     cursor = 0
     written: set[int] = set()
     for field, item in value:
@@ -442,7 +480,8 @@ def _serialize_scalar(
 ) -> None:
     if not isinstance(value, int):
         message = "Expected scalar initializer"
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error] - Legacy initializer errors are ValueError.
+        # Legacy initializer errors are ValueError.
+        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
     bits = layout.size * 8
     low = -(1 << (bits - 1)) if layout.signed else 0
     high = (1 << (bits - (1 if layout.signed else 0))) - 1

@@ -1,11 +1,39 @@
 #!/usr/bin/env python3
+# Copyright:
+#   - Copyright © 2026 laobamac. All rights reserved.
+# SPDX-License-Identifier:
+#   - LicenseRef-SimpleBCM-All-Rights-Reserved
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-SIMPLEBCM
+# Provenance:
+#   - SimpleBCM v1.2.0, by laobamac; no public license grant identified
+#   - Originally authored by laobamac on 2026/11/3.
 #
-#  native_references.py
-#  SimpleATH
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for native references.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for native references.
+# - Description:
+#   - Implements or verifies the native_references source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
 #
-#  Created by laobamac on 2026/11/3.
-#  Copyright © 2026 laobamac. All rights reserved.
-#
+# Module: Host-side tooling for native references.
 
 """Checksum-validated, typed offline native ABI snapshot references.
 
@@ -25,7 +53,8 @@ import json
 import os
 from pathlib import Path
 import stat
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Export-only nm with a fixed argv and no shell.
+# Export-only nm with a fixed argv and no shell.
+import subprocess  # ruff: ignore[suspicious-subprocess-import]
 import sys
 from typing import Protocol
 from typing import TypeIs
@@ -930,7 +959,8 @@ def _export_inputs(
     manifest = _mapping(json_object((OUTPUT / "manifest.json").read_bytes()))
     required = set(_strings(manifest.get("nativeImports")))
     required.update(
-        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argv, export-only nm.
+        # Fixed argv, export-only nm.
+        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
             [NM_PROGRAM, "-u", "-j", str(binary)], text=True
         ).splitlines()
     )

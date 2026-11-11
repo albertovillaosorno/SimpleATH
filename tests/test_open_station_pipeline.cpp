@@ -1,4 +1,38 @@
-// Copyright (c) 2026 Alberto Villa Osorno.
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Offline regression cases for open station pipeline.
+// - Must-Not:
+//   - Require physical hardware, mutate installed drivers, or suppress
+//     failures.
+// - Allows:
+//   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+//   - Outputs: assertions and observable regression verdicts.
+//   - Side effects: test-local temporary files and bounded subprocesses only.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Offline regression cases for open station pipeline.
+// - Description:
+//   - Implements or verifies the test_open_station_pipeline source boundary.
+// - Usage:
+//   - Executed by offline host test discovery or the native test harness.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Offline regression cases for open station pipeline.
 // Portable synthetic open-BSS association; NO native Wi-Fi, RF, PCI or OS I/O.
 #include "wifi/DataFrames.hpp"
 #include "wifi/DataPath.hpp"
@@ -701,7 +735,10 @@ namespace
     // Synthetic wire-format literals and fixed-size packet buffers are
     // intentional in this regression fixture; production uses the checked
     // parser/serializer and bound CCMP key owner.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedWpa2Transmit()
     {
         // The MIC here is synthetic; only Wpa2Supplicant may authenticate
@@ -869,11 +906,17 @@ namespace
                tx.lastTransmittedPn() == 2U;
     }
 
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     // A synthetic authenticated AP MPDU must cross CCMP and the ordinary
     // station receiver together. No DMA or native network stack is involved.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedWpa2Receive()
     {
         constexpr uint64_t kEpoch = 992U;
@@ -1073,12 +1116,18 @@ namespace
         return std::memcmp(scratch, zero, sizeof(scratch)) == 0;
     }
 
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     // Regression against independently generated OpenSSL AES-CCM group
     // ciphertext/MIC (same vector as standalone test_ccmp.cpp). Exercise
     // both CCMP and native-bound LLC/MSDU admission, not just decryption.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedGtkMulticastReceive()
     {
         constexpr uint64_t kEpoch = 995U;
@@ -1146,12 +1195,18 @@ namespace
         return true;
     }
 
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     // The native owner must have already verified CCMP MIC/PN and stripped
     // ExtIV/MIC; the fixture feeds the resulting plaintext MPDU with its
     // protected-frame bit preserved. This does not prove hardware RX.
-    // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedGroup1RxAdmission()
     {
         constexpr size_t kGroup1Bytes = 139U;
@@ -1242,7 +1297,10 @@ namespace
                parsed.payload == nullptr;
     }
 
-    // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers,cppcoreguidelines-pro-bounds-pointer-arithmetic,cppcoreguidelines-pro-bounds-array-to-pointer-decay,readability-function-cognitive-complexity)
+// NOLINTEND(readability-function-cognitive-complexity)
+// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
 
     bool rejectUnboundWpa2Eapol()
     {

@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for ar9565 pll.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for ar9565 pll.
+// - Description:
+//   - Implements or verifies the Ar9565Pll source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for ar9565 pll.
+
 #include "Ar9565Pll.hpp"
 #include "Ar9565Channel.hpp"
 #include "Ar9565Core.hpp"
@@ -11,7 +48,7 @@ namespace simpleath
     {
         // Linux ath9k hw.c: ath9k_hw_init_pll(), AR_SREV_9565 branch;
         // reg.h: AR_CH0_BB_DPLL1/2/3, AR_RTC_PLL_CONTROL, SLEEP_CLK.
-        // https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.c
+// Linux reference: drivers/net/wireless/ath/ath9k/hw.c
         constexpr uint32_t kBbDpll1 = 0x16180;
         constexpr uint32_t kBbDpll2 = 0x16184;
         constexpr uint32_t kBbDpll3 = 0x16188;

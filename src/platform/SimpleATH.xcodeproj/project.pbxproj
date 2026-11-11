@@ -1,11 +1,4 @@
 // !$*UTF8*$!
-//
-//  project.pbxproj
-//  SimpleATH
-//
-//  Created by laobamac on 2026/11/1.
-//  Copyright © 2026 laobamac. All rights reserved.
-//
 {
 	archiveVersion = 1;
 	classes = {

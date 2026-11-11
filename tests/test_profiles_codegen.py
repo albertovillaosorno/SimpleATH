@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Offline regression cases for profiles codegen.
+# - Must-Not:
+#   - Require physical hardware, mutate installed drivers, or suppress failures.
+# - Allows:
+#   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+#   - Outputs: assertions and observable regression verdicts.
+#   - Side effects: test-local temporary files and bounded subprocesses only.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Offline regression cases for profiles codegen.
+# - Description:
+#   - Implements or verifies the test_profiles_codegen source boundary.
+# - Usage:
+#   - Executed by offline host test discovery or the native test harness.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Offline regression cases for profiles codegen.
 """Pure synthetic regression for pinned profile codegen and guard choices."""
 
 from pathlib import Path
@@ -7,11 +40,16 @@ from unittest import TestCase
 from tools import macho
 
 # These pure internals are intentionally tested without invoking the generator.
-from tools.profiles import _ProfileImage  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name] - Synthetic byte model only.
-from tools.profiles import _copy_sites  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name] - Check safety gate directly.
-from tools.profiles import _guard_mismatch  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name] - Test mask behavior directly.
-from tools.profiles import _profile_header  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name] - Check C++ layout directly.
-from tools.profiles import _profile_lines  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name] - Synthetic codegen only.
+# Synthetic byte model only.
+from tools.profiles import _ProfileImage  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+# Check safety gate directly.
+from tools.profiles import _copy_sites  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+# Test mask behavior directly.
+from tools.profiles import _guard_mismatch  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+# Check C++ layout directly.
+from tools.profiles import _profile_header  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+# Synthetic codegen only.
+from tools.profiles import _profile_lines  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
 
 ADDRESS = 0x1000
 GUARD_BYTES = 32

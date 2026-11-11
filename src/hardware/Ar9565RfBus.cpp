@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for ar9565 rf bus.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for ar9565 rf bus.
+// - Description:
+//   - Implements or verifies the Ar9565RfBus source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for ar9565 rf bus.
+
 #include "Ar9565RfBus.hpp"
 #include "Ar9565Channel.hpp"
 #include "Ar9565RfIni.hpp"
@@ -9,7 +46,7 @@ namespace simpleath
     namespace
     {
         // Linux ath9k ar9003_phy.c: ar9003_hw_rfbus_req/done
-        // https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_phy.c
+// Linux reference: drivers/net/wireless/ath/ath9k/ar9003_phy.c
         constexpr uint32_t kRfBusRequest = 0xa23c;
         constexpr uint32_t kRfBusGrant = 0xa240;
         constexpr uint32_t kPhyRxDelay = 0xa254;

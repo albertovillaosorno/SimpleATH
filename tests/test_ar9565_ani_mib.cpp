@@ -1,3 +1,39 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Offline regression cases for ar9565 ani mib.
+// - Must-Not:
+//   - Require physical hardware, mutate installed drivers, or suppress
+//     failures.
+// - Allows:
+//   - Inputs: isolated fixtures and reproducible source-under-test inputs.
+//   - Outputs: assertions and observable regression verdicts.
+//   - Side effects: test-local temporary files and bounded subprocesses only.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Offline regression cases for ar9565 ani mib.
+// - Description:
+//   - Implements or verifies the test_ar9565_ani_mib source boundary.
+// - Usage:
+//   - Executed by offline host test discovery or the native test harness.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Offline regression cases for ar9565 ani mib.
+
 // Synthetic PCI MMIO for the physical ANI/MIB collector. Never touches RF.
 #include "hardware/Ar9565Ani.hpp"
 #include "hardware/Ar9565AniMib.hpp"

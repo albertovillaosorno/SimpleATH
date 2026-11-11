@@ -1,5 +1,38 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 Alberto Villa Osorno.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for validate.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for validate.
+# - Description:
+#   - Implements or verifies the validate source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for validate.
 """Check source with installed linters and default-on offline host tests."""
 
 import argparse
@@ -165,11 +198,19 @@ class Options:
 
 
 CONFIGS = {
-    "clang-format": (".clang-format", ".editorconfig"),
-    "clang-tidy": (".clang-tidy", ".editorconfig", "compile_commands.json"),
-    "ruff-check": ("ruff.toml", ".editorconfig"),
-    "ruff-format": ("ruff.toml", ".editorconfig"),
-    "basedpyright": ("pyrightconfig.json",),
+    "clang-format": (".jig/lint/.clang-format", ".editorconfig"),
+    "clang-tidy": (
+        ".jig/lint/src/.clang-tidy",
+        ".jig/lint/support/.clang-tidy",
+        ".editorconfig",
+        "compile_commands.json",
+    ),
+    "ruff-check": (".jig/lint/ruff.toml", ".editorconfig"),
+    "ruff-format": (".jig/lint/ruff.toml", ".editorconfig"),
+    "basedpyright": (
+        ".jig/lint/src/pyrightconfig.json",
+        ".jig/lint/support/pyrightconfig.json",
+    ),
 }
 EXECUTABLE = {
     "clang-format": "clang-format",
@@ -422,11 +463,15 @@ def _tidy_config(root: Path, file: Path) -> Path:
 
     """
     relative = file.relative_to(root).parts
-    scoped = root / relative[0] / ".clang-tidy" if relative else root
+    scoped = (
+        root / ".jig/lint/support/.clang-tidy"
+        if relative and relative[0] in ("tests", "tools")
+        else root / ".jig/lint/src/.clang-tidy"
+    )
     if scoped.is_symlink():
         message = f"Linked Clang-Tidy policy: {scoped}"
         raise ValueError(message)
-    return scoped if scoped.is_file() else root / ".clang-tidy"
+    return scoped if scoped.is_file() else root / ".jig/lint/src/.clang-tidy"
 
 
 def _command(tool: str, file: Path, root: Path) -> list[str] | None:
@@ -435,7 +480,7 @@ def _command(tool: str, file: Path, root: Path) -> list[str] | None:
         return None
     flags = {
         "clang-format": [
-            f"--style=file:{root / ".clang-format"}",
+            f"--style=file:{root / ".jig/lint/.clang-format"}",
             "--dry-run",
             "--Werror",
             "--ferror-limit=1",
@@ -449,7 +494,7 @@ def _command(tool: str, file: Path, root: Path) -> list[str] | None:
         "ruff-check": [
             "check",
             "--config",
-            str(root / "ruff.toml"),
+            str(root / ".jig/lint/ruff.toml"),
             "--output-format",
             "concise",
         ],
@@ -457,11 +502,15 @@ def _command(tool: str, file: Path, root: Path) -> list[str] | None:
             "format",
             "--check",
             "--config",
-            str(root / "ruff.toml"),
+            str(root / ".jig/lint/ruff.toml"),
         ],
         "basedpyright": [
             "-p",
-            str(root / "pyrightconfig.json"),
+            str(root / (
+                ".jig/lint/src/pyrightconfig.json"
+                if file.is_relative_to(root / "src")
+                else ".jig/lint/support/pyrightconfig.json"
+            )),
             "--outputjson",
         ],
     }
@@ -806,7 +855,9 @@ def input_snapshot(root: Path, sources: list[Path]) -> bytes:
     return digest.digest()
 
 
-def _compile_entry_target(entry: object) -> Path | None:
+def _compile_entry_target(
+    entry: object, root: Path | None = None
+) -> Path | None:
     """Resolve only a usable, absolute-workdir compile command entry.
 
     Returns:
@@ -822,6 +873,8 @@ def _compile_entry_target(entry: object) -> Path | None:
         )
         if isinstance(directory, str) and isinstance(filename, str) and usable:
             base = Path(directory)
+            if not base.is_absolute() and root is not None:
+                base = root / base
             if base.is_absolute():
                 candidate = Path(filename)
                 target = (
@@ -847,7 +900,7 @@ def tidy_command_exists(root: Path, file: Path) -> bool:
     except OSError, ValueError, UnicodeError, RecursionError:
         return False
     return _object_list(entries) and any(
-        _compile_entry_target(entry) == file.resolve() for entry in entries
+        _compile_entry_target(entry, root) == file.resolve() for entry in entries
     )
 
 

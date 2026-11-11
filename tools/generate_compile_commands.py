@@ -1,4 +1,37 @@
-# Copyright (c) 2026 SimpleATH contributors.
+# Copyright:
+#   - Copyright © 2026 Alberto Villa Osorno
+# SPDX-License-Identifier:
+#   - MIT
+# Confidential:
+#   - false
+# License-File:
+#   - LICENSE-MIT
+# Provenance:
+#   - SimpleATH original; independently developed or locally authored
+#
+# Boundary-Contract:
+# - Owns:
+#   - Host-side tooling for generate compile commands.
+# - Must-Not:
+#   - Read unrelated user files, hide failures, or bypass explicit tool inputs.
+# - Allows:
+#   - Inputs: explicit command-line, repository, or fixture inputs.
+#   - Outputs: deterministic reports, generated artifacts, or error codes.
+#   - Side effects: bounded local source-analysis or developer-command activity.
+# - Split-When:
+#   - A separate protocol stage needs independent validation and ownership.
+# - Merge-When:
+#   - The caller directly owns this narrow contract without reuse.
+# - Summary:
+#   - Host-side tooling for generate compile commands.
+# - Description:
+#   - Implements or verifies the generate_compile_commands source boundary.
+# - Usage:
+#   - Invoked by developers or CI with an explicit checkout context.
+# - Defaults:
+#   - Missing evidence, invalid input, or unsupported states fail closed.
+#
+# Module: Host-side tooling for generate compile commands.
 """Write host-only Clang-Tidy parse commands without compiling a kext.
 
 These commands are source-analysis fixtures, not captured Xcode build actions.
@@ -23,7 +56,25 @@ TAHOE_IOCTL_SOURCES = (
 )
 
 
-def _native_macos_flags() -> list[str]:
+def _host_alias(root: Path, name: str, destination: Path) -> str:
+    """Map host-only SDK directories via untracked checkout-relative links.
+
+    No absolute home, SDK or toolchain paths are written into Git.
+    """
+    relative = Path('.cache/clang-tidy') / name
+    alias = root / relative
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    destination = destination.resolve()
+    if alias.is_symlink() and alias.resolve() != destination:
+        alias.unlink()
+    if alias.exists() and not alias.is_symlink():
+        raise ValueError(f'Host SDK alias is not a symlink: {relative}')
+    if not alias.is_symlink():
+        alias.symlink_to(destination, target_is_directory=True)
+    return relative.as_posix()
+
+
+def _native_macos_flags(root: Path) -> list[str]:
     """Use only Apple SDK headers when analyzing macOS kernel sources.
 
     Returns:
@@ -33,8 +84,11 @@ def _native_macos_flags() -> list[str]:
     sdk = os.environ.get("SDKROOT")
     if not sdk:
         return ["-DKERNEL=1"]
-    kernel = Path(sdk) / "System/Library/Frameworks/Kernel.framework/Headers"
-    return ["-DKERNEL=1", "-isysroot", sdk, "-isystem", str(kernel)]
+    alias = _host_alias(root, 'sdkroot', Path(sdk))
+    return [
+        "-DKERNEL=1", "-isysroot", alias, "-isystem",
+        f"{alias}/System/Library/Frameworks/Kernel.framework/Headers",
+    ]
 
 
 def _reference_parse_flags(root: Path) -> list[str]:
@@ -56,9 +110,9 @@ def _reference_parse_flags(root: Path) -> list[str]:
             library = toolchain / "c++/v1"
             sites = sorted(toolchain.glob("*/c++/v1/__config_site"))
             if library.is_dir() and len(sites) == 1:
-                flags.extend(("-isystem", str(library)))
-                flags.extend(("-isystem", str(sites[0].parent)))
-    flags.extend(("-isystem", str(headers)))
+                flags.extend(("-isystem", _host_alias(root, "libcxx", library)))
+                flags.extend(("-isystem", _host_alias(root, "libcxx-site", sites[0].parent)))
+    flags.extend(("-isystem", ".references/MacKernelSDK/Headers"))
     return flags
 
 
@@ -70,7 +124,7 @@ def _kernel_parse_flags(root: Path) -> list[str]:
 
     """
     if sys.platform == DARWIN_PLATFORM:
-        return _native_macos_flags()
+        return _native_macos_flags(root)
     return _reference_parse_flags(root)
 
 
@@ -86,7 +140,7 @@ def source_commands(root: Path) -> list[CompileCommand]:
     """Enumerate source, fixture and tool translation units without binaries.
 
     Returns:
-        Stable absolute-root Clang parse commands for existing source files.
+        Stable checkout-relative Clang parse commands for existing source files.
 
     """
     root = root.resolve()
@@ -109,7 +163,7 @@ def source_commands(root: Path) -> list[CompileCommand]:
             "objective-c++" if path.suffix == OBJCXX_SUFFIX else CXX_LANGUAGE
         )
         result.append({
-            "directory": str(root),
+            "directory": ".",  # Repository root; portable across checkouts.
             "file": relative,
             "arguments": [
                 "clang++",
@@ -150,7 +204,7 @@ def write_database(root: Path) -> Path:
 
 
 def main() -> None:
-    """Refresh absolute checkout paths after moving or cloning the source."""
+    """Write portable relative paths; host SDK aliases stay ignored."""
     _ = write_database(Path(__file__).resolve().parent.parent)
 
 

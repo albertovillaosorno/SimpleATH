@@ -1,3 +1,40 @@
+// Copyright:
+//   - Copyright © 2026 Alberto Villa Osorno
+// SPDX-License-Identifier:
+//   - MIT
+// Confidential:
+//   - false
+// License-File:
+//   - LICENSE-MIT
+// Provenance:
+//   - SimpleATH original; independently developed or locally authored
+//
+// Boundary-Contract:
+// - Owns:
+//   - Native driver contracts and implementation for tahoe join codec.
+// - Must-Not:
+//   - Invent hardware readiness, weaken buffer bounds, or assume ABI
+//     compatibility.
+// - Allows:
+//   - Inputs: validated register, protocol, platform, or device state from
+//     callers.
+//   - Outputs: bounded native transitions, messages, or explicit errors.
+//   - Side effects: only the device and kernel operations owned by this module.
+// - Split-When:
+//   - A separate protocol stage needs independent validation and ownership.
+// - Merge-When:
+//   - The caller directly owns this narrow contract without reuse.
+// - Summary:
+//   - Native driver contracts and implementation for tahoe join codec.
+// - Description:
+//   - Implements or verifies the TahoeJoinCodec source boundary.
+// - Usage:
+//   - Called through the native driver interface with explicit lifecycle state.
+// - Defaults:
+//   - Missing evidence, invalid input, or unsupported states fail closed.
+//
+// Module: Native driver contracts and implementation for tahoe join codec.
+
 // Bounded, source-derived modern WCL join-request decoding for the AR9565.
 // The native owner must confirm PCI/RF/channel authority and securely retire
 // each copied credential; decoding is never association authorization.
@@ -106,7 +143,7 @@ namespace simpleath
             inline uint8_t readByte(const uint8_t *bytes, size_t offset)
             {
                 // A fixed native WCL byte-envelope, bounded at decode entry.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 return bytes[offset];
             }
 
@@ -114,7 +151,7 @@ namespace simpleath
                                   void *destination, size_t length)
             {
                 // The decode contract bounds each fixed field in 0x2cc.
-                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
                 __builtin_memcpy(destination, bytes + offset, length);
             }
 
