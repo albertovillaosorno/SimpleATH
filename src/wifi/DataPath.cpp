@@ -36,6 +36,7 @@
 // Module: Native driver contracts and implementation for data path.
 
 #include "DataPath.hpp"
+#include "DataReassembly.hpp"
 #include "Eapol.hpp"
 #include "crypto/Ccmp.hpp"
 #include "wifi/DataFrames.hpp"
@@ -771,7 +772,7 @@ namespace simpleath
             uint8_t iv[4] {};
             __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
                              sizeof(iv));
-            const uint8_t keyId = static_cast<uint8_t>(iv[3] >> kKeyIdShift);
+            const auto keyId = static_cast<uint8_t>(iv[3] >> kKeyIdShift);
             if (!group && keyId != 0U)
             {
                 return DataPathResult::UnverifiedDecryption;
@@ -789,21 +790,21 @@ namespace simpleath
             if (header.fragment == 0U)
             {
                 fragments.clear();
-                fragments.epoch = epoch;
-                fragments.keyId = keyId;
-                fragments.group = group;
+                fragments.epoch_ = epoch;
+                fragments.keyId_ = keyId;
+                fragments.group_ = group;
             }
-            else if (!fragments.pending || fragments.epoch != epoch ||
-                     fragments.keyId != keyId || fragments.group != group)
+            else if (!fragments.pending_ || fragments.epoch_ != epoch ||
+                     fragments.keyId_ != keyId || fragments.group_ != group)
             {
                 return DataPathResult::MalformedFrame;
             }
             DataFrameView whole {};
             const auto reassembled =
-                fragments.reassembly.ingest(scratch, plainBytes, nowMs, whole);
+                fragments.reassembly_.ingest(scratch, plainBytes, nowMs, whole);
             if (reassembled == DataFragmentResult::Pending)
             {
-                fragments.pending = true;
+                fragments.pending_ = true;
                 return DataPathResult::PendingFragments;
             }
             if (reassembled != DataFragmentResult::Complete ||

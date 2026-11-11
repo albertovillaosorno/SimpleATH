@@ -244,7 +244,7 @@ namespace
         }
         if (ingest(fragments, rx, firstWire, 103U, output, msdu) !=
                 DataPathResult::UnverifiedDecryption ||
-            msdu.payload != nullptr || fragments.pending)
+            msdu.payload != nullptr || fragments.hasPending())
         {
             return __LINE__;
         }
@@ -320,8 +320,8 @@ namespace
                 DataPathResult::PendingFragments ||
             ingest(fragments, groupTwo, last, 11U, scratch, msdu) !=
                 DataPathResult::MalformedFrame ||
-            msdu.payload != nullptr || !fragments.pending ||
-            fragments.keyId != 1U)
+            msdu.payload != nullptr || !fragments.hasPending() ||
+            fragments.pendingKeyId() != 1U)
         {
             return __LINE__;
         }
@@ -334,7 +334,7 @@ namespace
                        msdu.payloadLength == kData.size() &&
                        std::memcmp(msdu.payload, kData.data(), kData.size()) ==
                            0 &&
-                       !fragments.pending
+                       !fragments.hasPending()
                    ? 0
                    : __LINE__;
     }
@@ -360,7 +360,7 @@ namespace
                 DataPathResult::PendingFragments ||
             ingest(fragments, rx, last, 11U, scratch, msdu, false) !=
                 DataPathResult::InvalidRxStatus ||
-            fragments.pending ||
+            fragments.hasPending() ||
             ingest(fragments, rx, last, 12U, scratch, msdu) !=
                 DataPathResult::MalformedFrame ||
             msdu.payload != nullptr)
@@ -407,7 +407,7 @@ namespace
                 DataPathResult::UnverifiedDecryption ||
             ingest(fragments, rx, changedIndex, 102U, scratch, msdu) !=
                 DataPathResult::UnverifiedDecryption ||
-            rx.receiveFloor() != 1U || !fragments.pending ||
+            rx.receiveFloor() != 1U || !fragments.hasPending() ||
             ingest(fragments, rx, last, 103U, scratch, msdu) !=
                 DataPathResult::Ok ||
             !validMsdu(msdu) || rx.receiveFloor() != 2U)
@@ -434,7 +434,7 @@ namespace
                 DataPathResult::PendingFragments ||
             ingest(fragments, lateRx, lateLast, 701U, scratch, msdu) !=
                 DataPathResult::MalformedFrame ||
-            msdu.payload != nullptr || fragments.pending)
+            msdu.payload != nullptr || fragments.hasPending())
         {
             return __LINE__;
         }

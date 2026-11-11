@@ -164,22 +164,46 @@ namespace simpleath
         // A single pending CCMP MSDU must never span key IDs, group/unicast
         // security classes, or physical association epochs. This is only a
         // plaintext reassembly slot; CcmpSession owns the actual MIC/PN proof.
-        struct ProtectedFragmentStream
+        class ProtectedFragmentStream final
         {
-                DataReassembly reassembly;
-                uint64_t epoch {};
-                uint8_t keyId {};
-                bool group {};
-                bool pending {};
+            public:
+                // Diagnostics only. These values never grant CCMP MIC/PN
+                // authority and cannot mutate the protected fragment lease.
+                bool hasPending() const
+                {
+                    return pending_;
+                }
+
+                uint8_t pendingKeyId() const
+                {
+                    return pending_ ? keyId_ : 0U;
+                }
 
                 void clear()
                 {
-                    reassembly.clear();
-                    epoch = 0U;
-                    keyId = 0U;
-                    group = false;
-                    pending = false;
+                    reassembly_.clear();
+                    epoch_ = 0U;
+                    keyId_ = 0U;
+                    group_ = false;
+                    pending_ = false;
                 }
+
+            private:
+                // Only the checked per-fragment CCMP receive owner may
+                // advance the key-class and association lifetime state.
+                friend DataPathResult inspectProtectedFragmentStationRx(
+                    const LinkContext &link, const uint8_t *encrypted,
+                    size_t encryptedBytes, bool containsFcs,
+                    bool fcsAndDmaValidated, crypto::CcmpSession &receive,
+                    uint64_t epoch, ProtectedFragmentStream &fragments,
+                    uint64_t nowMs, uint8_t *scratch, size_t scratchCapacity,
+                    Msdu &result);
+
+                DataReassembly reassembly_;
+                uint64_t epoch_ {};
+                uint8_t keyId_ {};
+                bool group_ {};
+                bool pending_ {};
         };
 
         // Authenticate *each* encrypted fragment with its own PN/MIC before
