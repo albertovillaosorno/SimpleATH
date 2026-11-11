@@ -1,4 +1,4 @@
-name: SimpleATH Tahoe Intel source validation
+name: Continuous Integration (CI)
 
 # Strict source validation, invoked ONLY by ci tags or a release workflow.
 # Build tags do not run CI, and no failure is ever reclassified as a pass.

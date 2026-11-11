@@ -1,4 +1,4 @@
-name: SimpleATH Tahoe Intel authorized kernel build
+name: Build
 
 # Only a user-authorized build-v* tag may compile the kext.
 on:

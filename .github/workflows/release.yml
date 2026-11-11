@@ -1,4 +1,4 @@
-name: SimpleATH strict CI-gated release
+name: Continuous Deployment (Release)
 
 # Release tags validate exactly their tagged commit. No kernel compilation.
 on:
