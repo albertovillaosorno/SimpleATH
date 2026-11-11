@@ -48,6 +48,82 @@ namespace simpleath
     {
         namespace crypto
         {
+            // These arithmetic substitutes avoid secret-indexed table reads.
+            // Multiplication has exactly eight iterations and uses masks,
+            // never a branch on either key- or plaintext-derived operands.
+            inline uint8_t aesGfMultiply(uint8_t left, uint8_t right)
+            {
+                uint8_t product = 0U;
+                for (unsigned bit = 0U; bit < 8U; ++bit)
+                {
+                    product ^= static_cast<uint8_t>(
+                        left & static_cast<uint8_t>(0U - (right & 1U)));
+                    left = static_cast<uint8_t>(
+                        (static_cast<unsigned>(left) << 1U) ^
+                        (0x1bU & (0U - (left >> 7U))));
+                    right >>= 1U;
+                }
+                return product;
+            }
+
+            inline uint8_t aesGfSquare(uint8_t value)
+            {
+                // Fixed linear GF(2^8) square basis, reduced modulo
+                // x^8 + x^4 + x^3 + x + 1 (FIPS 197).
+                return static_cast<uint8_t>(
+                    (0x01U & (0U - (value & 1U))) ^
+                    (0x04U & (0U - ((value >> 1U) & 1U))) ^
+                    (0x10U & (0U - ((value >> 2U) & 1U))) ^
+                    (0x40U & (0U - ((value >> 3U) & 1U))) ^
+                    (0x1bU & (0U - ((value >> 4U) & 1U))) ^
+                    (0x6cU & (0U - ((value >> 5U) & 1U))) ^
+                    (0xabU & (0U - ((value >> 6U) & 1U))) ^
+                    (0x9aU & (0U - ((value >> 7U) & 1U))));
+            }
+
+            inline uint8_t aesGfInverse(uint8_t value)
+            {
+                // Fixed addition chain for x^254 in GF(2^8), with 0 -> 0.
+                const uint8_t x2 = aesGfSquare(value);
+                const uint8_t x3 = aesGfMultiply(x2, value);
+                const uint8_t x6 = aesGfSquare(x3);
+                const uint8_t x12 = aesGfSquare(x6);
+                const uint8_t x15 = aesGfMultiply(x12, x3);
+                const uint8_t x30 = aesGfSquare(x15);
+                const uint8_t x60 = aesGfSquare(x30);
+                const uint8_t x120 = aesGfSquare(x60);
+                const uint8_t x240 = aesGfSquare(x120);
+                const uint8_t x252 = aesGfMultiply(x240, x12);
+                return aesGfMultiply(x252, x2);
+            }
+
+            inline uint8_t aesRotateByte(uint8_t value, unsigned count)
+            {
+                // Internal callers use only the public constants 1..6.
+                return static_cast<uint8_t>(
+                    (static_cast<unsigned>(value) << count) |
+                    (static_cast<unsigned>(value) >> (8U - count)));
+            }
+
+            inline uint8_t aesSubstitute(uint8_t value)
+            {
+                const uint8_t inverse = aesGfInverse(value);
+                return static_cast<uint8_t>(
+                    inverse ^ aesRotateByte(inverse, 1U) ^
+                    aesRotateByte(inverse, 2U) ^ aesRotateByte(inverse, 3U) ^
+                    aesRotateByte(inverse, 4U) ^ 0x63U);
+            }
+
+            inline uint8_t aesInverseSubstitute(uint8_t value)
+            {
+                const uint8_t preimage = static_cast<uint8_t>(
+                    aesRotateByte(value, 1U) ^ aesRotateByte(value, 3U) ^
+                    aesRotateByte(value, 6U) ^ 0x05U);
+                return aesGfInverse(preimage);
+            }
+
+            // Retain independently generated reference tables for host
+            // differential verification, not production secret lookup.
             static const uint8_t kAesSbox[256] = {
                 0x63U, 0x7cU, 0x77U, 0x7bU, 0xf2U, 0x6bU, 0x6fU, 0xc5U, 0x30U,
                 0x01U, 0x67U, 0x2bU, 0xfeU, 0xd7U, 0xabU, 0x76U, 0xcaU, 0x82U,

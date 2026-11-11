@@ -100,9 +100,11 @@ state. It erases ephemeral round keys and private session key on
 revoke/destruction. Offline tests include independent OpenSSL AES-CCM non-QoS
 and QoS ciphertext/MIC vectors, QoS out-of-order TIDs, tampering/replay,
 masked mutable QoS controls and long-payload round trips. The
-software AES lookup-table implementation is **not timing-audited** and must
-not be enabled on an exposed shared kernel without cryptographic side-channel
-review or a constant-time native/hardware alternative. The portable data path
+software AES implementation now substitutes with fixed-work GF(2^8)
+arithmetic rather than secret-indexed tables, but it remains **not timing-
+audited** and must not be enabled on an exposed shared kernel without
+cryptographic side-channel review or a verified constant-time native/hardware
+alternative. The portable data path
 now has an explicit CCMP-protected transmit API for ordinary WPA2 Ethernet-II
 traffic and supplicant-authenticated Group2; the existing cleartext serializer
 still refuses Group2. The native PCI owner now calls the protected TX
@@ -318,3 +320,21 @@ the real OS-owned and driver-owned native key installers **do not** enable SPP
 without negotiation evidence, so a physical aggregate still fails closed.
 SPP negotiation, native key-install linkage and hardware operation remain
 open. An authenticated MIC alone does not authorize unsupported A-MPDU/BA.
+
+## Source progress — 2026-11-11: AES substitution access pattern
+
+Portable CCMP encryption and WPA2 RFC3394 unwrap now use fixed-work GF(2^8)
+S-box substitutions, fixed bit-mask multiplication and a linear squaring
+basis. The two production AES sources no longer access lookup tables using
+key- or plaintext-derived indices. The original generated tables remain
+only as reference arrays for an exhaustive 256-octet forward/inverse
+substitution test, alongside independent OpenSSL CCM and RFC3394 vectors.
+
+The replacement is deliberately **not declared constant-time**: the compiler,
+host CPU, caches and all other cryptographic paths need independent timing
+and side-channel audit. One unpinned Clang `-O2` host comparison of 128
+synthetic 1,424-byte CCMP frames measured roughly 7–9 ms with the former
+lookup and 221 ms with fixed-work arithmetic (identical ciphertext
+checksum). This is a performance warning, not a reproducible radio rate or
+kernel benchmark. Prefer a separately verified hardware/native AES backend
+before permitting operational traffic, and keep the WPA2 TODO open.

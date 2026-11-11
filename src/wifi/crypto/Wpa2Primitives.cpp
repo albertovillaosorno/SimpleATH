@@ -112,8 +112,6 @@ namespace simpleath
                 constexpr size_t kAesRounds = 10U;
                 constexpr int kAesLastInverseRound = 9;
                 constexpr unsigned kAesRconStep = 2U;
-                constexpr uint8_t kGfHighBit = 0x80U;
-                constexpr uint8_t kGfReduction = 0x1bU;
                 constexpr uint8_t kMix09 = 9U;
                 constexpr uint8_t kMix11 = 11U;
                 constexpr uint8_t kMix13 = 13U;
@@ -390,22 +388,8 @@ namespace simpleath
 
                 uint8_t gfMultiply(const GfFactors &factors)
                 {
-                    uint8_t a = factors.multiplicand;
-                    uint8_t b = factors.multiplier;
-                    uint8_t product = 0;
-                    for (unsigned i = 0; i < kByteBits; ++i)
-                    {
-                        if ((b & 1U) != 0U)
-                        {
-                            product ^= a;
-                        }
-                        const bool high = (a & kGfHighBit) != 0;
-                        a = static_cast<uint8_t>(
-                            (static_cast<unsigned>(a) << 1U) ^
-                            (high ? kGfReduction : 0U));
-                        b >>= 1U;
-                    }
-                    return product;
+                    return aesGfMultiply(factors.multiplicand,
+                                         factors.multiplier);
                 }
 
                 void expandAes128(const uint8_t key[kAesBlockBytes],
@@ -426,12 +410,12 @@ namespace simpleath
                         {
                             const uint8_t first = elementAt(tmp, 0);
                             elementAt(tmp, 0) =
-                                elementAt(kAesSbox, elementAt(tmp, 1)) ^ rcon;
+                                aesSubstitute(elementAt(tmp, 1)) ^ rcon;
                             elementAt(tmp, 1) =
-                                elementAt(kAesSbox, elementAt(tmp, 2));
+                                aesSubstitute(elementAt(tmp, 2));
                             elementAt(tmp, 2) =
-                                elementAt(kAesSbox, elementAt(tmp, 3));
-                            elementAt(tmp, 3) = elementAt(kAesSbox, first);
+                                aesSubstitute(elementAt(tmp, 3));
+                            elementAt(tmp, 3) = aesSubstitute(first);
                             rcon = gfMultiply({rcon, kAesRconStep});
                         }
                         for (const unsigned char k : tmp)
@@ -523,7 +507,7 @@ namespace simpleath
                         inverseShiftRows(arrayData(state));
                         for (uint8_t &v : state)
                         {
-                            v = elementAt(kAesInverseSbox, v);
+                            v = aesInverseSubstitute(v);
                         }
                         addRoundKey(arrayData(state), expanded,
                                     static_cast<size_t>(round));
@@ -532,7 +516,7 @@ namespace simpleath
                     inverseShiftRows(arrayData(state));
                     for (uint8_t &v : state)
                     {
-                        v = elementAt(kAesInverseSbox, v);
+                        v = aesInverseSubstitute(v);
                     }
                     addRoundKey(arrayData(state), expanded, 0);
                     bytesCopy(plain, arrayData(state), sizeof(state));

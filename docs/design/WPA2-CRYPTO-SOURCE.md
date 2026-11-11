@@ -54,8 +54,10 @@ this translation unit only; it is not a repository-wide lint result.
 - Wpa2Primitives.cpp: SHA-1/HMAC-SHA1-128 for EAPOL-Key version 2 MIC.
 - Wpa2Primitives.cpp: AES-128 inverse cipher and RFC3394 AES key unwrap,
   requiring the standard key-wrap integrity check before output.
-- AesTables.hpp: generated substitution tables calculated from Rijndael
-  finite-field and affine formulas, not copied from third-party tables.
+- AesTables.hpp: generated reference substitution tables calculated from
+  Rijndael finite-field and affine formulas, not copied from third-party
+  tables. Production CCMP and key unwrap now call fixed-work GF(2^8)
+  arithmetic rather than indexing these tables with secret-derived octets.
 - Wpa2CryptoAdapter.cpp: real primitive callback wiring to the existing
   Wpa2Supplicant. Random nonces, CCMP pairwise/group hardware keycache
   programming and key removal require a separate native platform backend.
@@ -296,3 +298,25 @@ References:
   on every post-copy failure or completion path. Changing the original
   DMA image after the copy cannot substitute unauthenticated key data.
   This is a source-level guarantee, not proof of native DMA ownership.
+
+
+## AES substitution memory-access hardening (2026-11-11)
+
+Both `Ccmp.cpp` AES encrypt and `Wpa2Primitives.cpp` AES unwrap now call
+`aesSubstitute` / `aesInverseSubstitute` in `AesTables.hpp` instead of a
+secret-indexed 256-byte table. They use public fixed iteration counts,
+mask-based GF multiplication, a fixed linear squaring transform and an
+inversion addition chain, with no input-indexed table access. The legacy
+reference arrays are used only by a public-index exhaustive differential
+regression in `tests/test_ccmp.cpp`. The test also checks all 256 linear
+squares against multiplication and the known FIPS field product; independent
+OpenSSL AES-CCM and RFC3394 unwrap vectors remain unchanged.
+
+A rough single-host, unpinned Clang `-O2` comparison of 128 synthetic
+1,424-byte MPDUs took about 7–9 ms for the old lookup implementation versus
+221 ms for the arithmetic replacement. That large regression is not a
+physical throughput measurement. The source-level access-pattern improvement
+has **not** been independently assessed for compiler-introduced branches,
+execution-time leakage, cache behavior or cryptographic certification.
+Native AES acceleration and measured performance must be reviewed before
+production use. No kext, hardware or RF validation is implied.

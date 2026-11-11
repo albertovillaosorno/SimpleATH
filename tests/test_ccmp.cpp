@@ -36,6 +36,7 @@
 
 // Host-only CCMP-128 frame tests; no RF, kernel crypto or installed keys.
 // Known AES-CCM ciphertext/MIC independently checked against OpenSSL EVP.
+#include "wifi/crypto/AesTables.hpp"
 #include "wifi/crypto/Ccmp.hpp"
 
 #include <array>
@@ -100,6 +101,28 @@ namespace
     // Test the input byte count and output byte count separately. Their
     // identical size_t types are required by the C++14 byte-buffer ABI.
     // NOLINTBEGIN(readability-suspicious-call-argument)
+    int testConstantWorkAesSubstitution()
+    {
+        // The canonical FIPS 197 GF and S-box reference octets are retained
+        // only for this public-index exhaustive differential regression.
+        if (aesGfMultiply(0x57U, 0x13U) != 0xfeU)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        for (size_t index = 0U; index < 256U; ++index)
+        {
+            const uint8_t octet = static_cast<uint8_t>(index);
+            if (aesGfSquare(octet) != aesGfMultiply(octet, octet) ||
+                aesSubstitute(octet) != kAesSbox[index] ||
+                aesInverseSubstitute(octet) != kAesInverseSbox[index] ||
+                aesInverseSubstitute(aesSubstitute(octet)) != octet)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+        }
+        return 0;
+    }
+
     int testIndependentVector()
     {
         CcmpSession tx {};
@@ -614,6 +637,10 @@ namespace
 
 int main()
 {
+    if (const int result = testConstantWorkAesSubstitution())
+    {
+        return result;
+    }
     if (const int result = testIndependentVector())
     {
         return result;

@@ -171,7 +171,8 @@ namespace simpleath
                 uint8_t xtime(uint8_t value)
                 {
                     return static_cast<uint8_t>(
-                        (value << 1U) ^ ((value & 0x80U) != 0U ? 0x1bU : 0U));
+                        (static_cast<unsigned>(value) << 1U) ^
+                        (0x1bU & (0U - (value >> 7U))));
                 }
 
                 void expandKey(const uint8_t key[kCcmpTemporalKeyBytes],
@@ -191,14 +192,11 @@ namespace simpleath
                         if ((offset % kCcmpTemporalKeyBytes) == 0U)
                         {
                             const uint8_t rotated = word.at(0U);
-                            // AES S-box is indexed only by 8-bit values.
-                            // NOLINTBEGIN(*bounds-constant-array-index)
                             word.at(0U) = static_cast<uint8_t>(
-                                kAesSbox[word.at(1U)] ^ rcon);
-                            word.at(1U) = kAesSbox[word.at(2U)];
-                            word.at(2U) = kAesSbox[word.at(3U)];
-                            word.at(3U) = kAesSbox[rotated];
-                            // NOLINTEND(*bounds-constant-array-index)
+                                aesSubstitute(word.at(1U)) ^ rcon);
+                            word.at(1U) = aesSubstitute(word.at(2U));
+                            word.at(2U) = aesSubstitute(word.at(3U));
+                            word.at(3U) = aesSubstitute(rotated);
                             rcon = xtime(rcon);
                         }
                         for (size_t i = 0U; i < 4U; ++i)
@@ -230,9 +228,10 @@ namespace simpleath
                             {
                                 const size_t sboxIndex =
                                     (((column + row) % 4U) * 4U) + row;
-                                // AES state is one octet, always within Sbox.
+                                // A fixed-work byte substitution keeps
+                                // the secret state out of lookup addresses.
                                 const uint8_t substituted =
-                                    *byteAt(&kAesSbox[0U], state.at(sboxIndex));
+                                    aesSubstitute(state.at(sboxIndex));
                                 shifted.at((column * 4U) + row) = substituted;
                             }
                         }
