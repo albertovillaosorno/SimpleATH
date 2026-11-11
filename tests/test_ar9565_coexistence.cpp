@@ -815,7 +815,7 @@ namespace
                 return false;
             }
         }
-        for (size_t scenario = 0U; scenario < 5U; ++scenario)
+        for (size_t scenario = 0U; scenario < 6U; ++scenario)
         {
             Mock mock {};
             MciGpmCursor cursor {};
@@ -842,9 +842,16 @@ namespace
                 {
                     mock.skipWrite = 1U;
                 }
-                else
+                else if (scenario == 4U)
                 {
                     mock.revokeAfter = 1U;
+                }
+                else
+                {
+                    // Acknowledge RX_MSG successfully, then fail the RAW
+                    // status acknowledgement. Never leak the first event.
+                    find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
+                    mock.failWrite = 2U;
                 }
             }
             const auto result =
@@ -853,7 +860,8 @@ namespace
                 scenario < 2U    ? CoexistenceResult::ReadbackMismatch
                 : scenario == 2U ? CoexistenceResult::WriteFailed
                 : scenario == 3U ? CoexistenceResult::ReadbackMismatch
-                                 : CoexistenceResult::OwnershipLost;
+                : scenario == 4U ? CoexistenceResult::OwnershipLost
+                                 : CoexistenceResult::WriteFailed;
             if (result.progress.result != expected ||
                 (scenario < 2U && mock.writes != 0U) ||
                 (scenario >= 2U && !result.progress.requiresReset) ||
