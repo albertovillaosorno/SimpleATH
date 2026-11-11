@@ -1,5 +1,6 @@
 #include "Ar9565RadioSequence.hpp"
 #include "Ar9565Ani.hpp"
+#include "Ar9565AniMib.hpp"
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"
 #include "Ar9565Channel.hpp"
@@ -82,7 +83,7 @@ namespace simpleath
         TxGainProfile txGain, RxGainProfile rxGain,
         BoardModalDiversity diversity,
         const CalibrationAndRegulatory &authorization,
-        const RadioSequenceBackends &backends)
+        const RadioSequenceBackends &backends, uint64_t monotonicMilliseconds)
     {
         RadioSequenceProgress progress {};
         // Snapshot every descriptor before calling untrusted owner callbacks.
@@ -91,6 +92,7 @@ namespace simpleath
         const EepromImage verifiedBoard = physicalBoard;
         const CalibrationAndRegulatory allowed = authorization;
         const RfIniBackend &io = stable.baseband.io;
+        const AniMibBackend &mib = stable.mib;
         if (!validBackend(stable.rfBus) || !validBackend(stable.tuning) ||
             io.context == nullptr || io.ownerEpoch == 0 ||
             io.barLengthBytes == 0 || io.permitWrite == nullptr ||
@@ -98,11 +100,20 @@ namespace simpleath
             stable.baseband.read32 == nullptr ||
             stable.rfBus.read32 != stable.baseband.read32 ||
             stable.tuning.read32 != stable.baseband.read32 ||
-            !sameOwner(stable.rfBus.io, io) || !sameOwner(stable.tuning.io, io))
+            !sameOwner(stable.rfBus.io, io) ||
+            !sameOwner(stable.tuning.io, io) || mib.context != io.context ||
+            mib.ownerEpoch != io.ownerEpoch ||
+            mib.barLengthBytes != io.barLengthBytes || mib.permit == nullptr ||
+            mib.read32 != stable.baseband.read32 || mib.write32 != io.write32)
         {
             return progress;
         }
 
+        progress.result = RadioSequenceResult::InvalidCaptureTime;
+        if (monotonicMilliseconds == 0U)
+        {
+            return progress;
+        }
         progress.result = RadioSequenceResult::InvalidChannel;
         if (!validChannel(channel) ||
             (channel.control.number == kJapanChannel &&
@@ -222,10 +233,28 @@ namespace simpleath
         {
             return progress;
         }
+        // Initialize real PHY/MIB error counters only after the exact physical
+        // ANI INI defaults were read back. Do not fabricate a counter window
+        // from elapsed time or promote a PHY without counter ownership.
+        progress.stage = RadioSequenceStage::AniMibCounters;
+        progress.mib =
+            initializeAr9565AniMib(progress.aniState, allowed, mib,
+                                   monotonicMilliseconds, progress.mibState);
+        if (progress.mib.result != AniMibResult::Ok)
+        {
+            return progress;
+        }
         // A lost owner immediately after the last calibration poll is NOT a
         // completed sequence; no readiness may escape from a stale epoch.
         if (!io.permitWrite(io.context, io.ownerEpoch))
         {
+            // Counter initialization may have succeeded before the final
+            // owner revocation. Its state must not escape as a reusable live
+            // hardware counter session in a failed RF sequence.
+            progress.aniState.initialized = false;
+            progress.mibState.initialized = false;
+            progress.mibState.requiresReset = true;
+            progress.requiresReset = true;
             progress.result = RadioSequenceResult::OwnershipLost;
             return progress;
         }

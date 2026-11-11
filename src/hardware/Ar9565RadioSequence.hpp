@@ -2,6 +2,7 @@
 #define SIMPLEATH_AR9565_RADIO_SEQUENCE_HPP
 
 #include "Ar9565Ani.hpp"
+#include "Ar9565AniMib.hpp"
 #include "Ar9565BoardModal.hpp"
 #include "Ar9565Calibration.hpp"
 #include "Ar9565OfdmTiming.hpp"
@@ -25,6 +26,7 @@ namespace simpleath
         OfdmTiming,
         ReceiverCalibration,
         AniBaseline,
+        AniMibCounters,
         Completed,
     };
 
@@ -37,17 +39,21 @@ namespace simpleath
         MissingAuthorization,
         StageFailed,
         OwnershipLost,
+        InvalidCaptureTime,
     };
 
     struct RadioSequenceBackends
     {
             // Bus acquisition/release gate: live D0/epoch and MAC quiescence.
-            RfChannelBackend rfBus;
+            RfChannelBackend rfBus {};
             // PLL/synth gate: additionally checks the *live* RF bus grant.
-            RfChannelBackend tuning;
+            RfChannelBackend tuning {};
             // INI/board/OFDM/calibration gate: requires quiescent live PHY,
             // and is valid after RF bus release (never requires its grant).
-            RxAgcBackend baseband;
+            RxAgcBackend baseband {};
+            // Exact same BAR/epoch transport. The MIB permit additionally
+            // attests exclusive ownership of MIB counters across all users.
+            AniMibBackend mib {};
     };
 
     struct RadioSequenceProgress
@@ -64,6 +70,8 @@ namespace simpleath
             RxCalibrationWorkflowProgress calibration {};
             Ar9565AniState aniState {};
             AniProgress ani {};
+            AniMibProgress mib {};
+            AniMibState mibState {};
             bool requiresReset {};
     };
 
@@ -74,8 +82,11 @@ namespace simpleath
     // throughout this serialized epoch. This function never enables RX, TX,
     // automatic MAC responses, or claims dynamic ANI/board/radio readiness.
     //
-    // The three backends MUST refer to the same physical BAR and epoch;
+    // All four backends MUST refer to the same physical BAR and epoch;
     // distinct permitWrite callbacks implement the lease-specific gates.
+    // The real owner supplies a nonzero monotonic millisecond timestamp and
+    // exclusive MIB-counter lease, for an initialized PHY counter baseline.
+    // It must retain the counter epoch for periodic physical observations.
     // A failure after ANY successful physical write requires a hardware
     // reset; in particular, never retry/release an ambiguous RF bus lease.
     RadioSequenceProgress runAr9565ReceiveOnlyRadioSequence(
@@ -83,6 +94,6 @@ namespace simpleath
         TxGainProfile txGain, RxGainProfile rxGain,
         BoardModalDiversity diversity,
         const CalibrationAndRegulatory &authorization,
-        const RadioSequenceBackends &backends);
+        const RadioSequenceBackends &backends, uint64_t monotonicMilliseconds);
 } // namespace simpleath
 #endif

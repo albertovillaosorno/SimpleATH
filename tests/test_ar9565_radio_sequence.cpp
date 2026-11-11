@@ -1,5 +1,6 @@
 // Full synthetic RX-only RF epoch: no native IOKit, PCI, radio, or USB.
 #include "hardware/Ar9565Ani.hpp"
+#include "hardware/Ar9565AniMib.hpp"
 #include "hardware/Ar9565BoardModal.hpp"
 #include "hardware/Ar9565Calibration.hpp"
 #include "hardware/Ar9565Channel.hpp"
@@ -41,6 +42,10 @@ namespace
         BoardSnapshot = 16,
         Ani = 17,
         SplitBackend = 18,
+        Mib = 19,
+        MibTimestamp = 20,
+        FinalMibRevocation = 21,
+        MibWriteFailure = 22,
     };
 
     constexpr uint64_t kEpoch = 69;
@@ -56,6 +61,12 @@ namespace
     constexpr uint32_t kBbDpll2 = 0x16184;
     constexpr uint32_t kPhyGenControl = 0xa204;
     constexpr uint32_t kAniFirstStepRegister = 0x9e10U;
+    constexpr uint32_t kAniMibControl = 0x40U;
+    constexpr uint32_t kAniMibMaskOfdm = 0x8130U;
+    constexpr uint32_t kAniMibMaskCck = 0x8138U;
+    constexpr uint32_t kAniMibOfdmTiming = 0x00020000U;
+    constexpr uint32_t kAniMibCckTiming = 0x02000000U;
+    constexpr uint64_t kCounterEpochStartMs = 100U;
     constexpr uint32_t kJoinedMacCca = 0x8318;
     constexpr uint32_t kPhyHt = 0x40;
     constexpr uint32_t kPhyDynamic40 = 4;
@@ -86,6 +97,7 @@ namespace
             size_t permits {};
             size_t failedWriteAt {};
             size_t revokeAfterWrite {};
+            size_t revokeAfterPermit {};
             uint32_t failedWriteOffset {};
             uint32_t failedReadOffset {};
             bool powered {true};
@@ -100,6 +112,11 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.permits;
+        if (fake.revokeAfterPermit != 0 &&
+            fake.permits == fake.revokeAfterPermit)
+        {
+            fake.powered = false;
+        }
         return fake.powered && epoch == kEpoch;
     }
 
@@ -229,7 +246,10 @@ namespace
         const RfIniBackend withLease {
             &fake, kEpoch, kBar, tunerPermit, write, delay,
         };
-        return {{normal, read}, {withLease, read}, {normal, read}};
+        const AniMibBackend mib {
+            &fake, kEpoch, kBar, basePermit, read, write,
+        };
+        return {{normal, read}, {withLease, read}, {normal, read}, mib};
     }
 
     CalibrationAndRegulatory authorized()
@@ -300,12 +320,13 @@ namespace
     {
         return runAr9565ReceiveOnlyRadioSequence(
             image, request, TxGainProfile::LowOb, RxGainProfile::Standard,
-            BoardModalDiversity::WlanOnly, permission, backends(fake));
+            BoardModalDiversity::WlanOnly, permission, backends(fake),
+            kCounterEpochStartMs);
     }
 
     int checkSplitBackendTransport()
     {
-        constexpr int kVariants = 3;
+        constexpr int kVariants = 6;
         for (int variant = 0; variant < kVariants; ++variant)
         {
             Fake fake {};
@@ -318,14 +339,26 @@ namespace
             {
                 mixed.rfBus.read32 = alternateRead;
             }
-            else
+            else if (variant == 2)
             {
                 mixed.baseband.io.delayMicros = alternateDelay;
+            }
+            else if (variant == 3)
+            {
+                mixed.mib.read32 = alternateRead;
+            }
+            else if (variant == 4)
+            {
+                mixed.mib.write32 = alternateWrite;
+            }
+            else
+            {
+                ++mixed.mib.ownerEpoch;
             }
             const auto result = runAr9565ReceiveOnlyRadioSequence(
                 board(), channel(), TxGainProfile::LowOb,
                 RxGainProfile::Standard, BoardModalDiversity::WlanOnly,
-                authorized(), mixed);
+                authorized(), mixed, kCounterEpochStartMs);
             if (result.result != RadioSequenceResult::InvalidBackend ||
                 result.stage != RadioSequenceStage::Preflight ||
                 result.requiresReset || fake.writes != 0U || fake.reads != 0U ||
@@ -365,7 +398,8 @@ namespace
         wrong.tuning.io.ownerEpoch++;
         const auto mismatch = runAr9565ReceiveOnlyRadioSequence(
             board(), channel(), TxGainProfile::LowOb, RxGainProfile::Standard,
-            BoardModalDiversity::WlanOnly, authorized(), wrong);
+            BoardModalDiversity::WlanOnly, authorized(), wrong,
+            kCounterEpochStartMs);
         if (mismatch.result != RadioSequenceResult::InvalidBackend ||
             invalid.writes != 0)
         {
@@ -431,10 +465,65 @@ int main()
         ok.ofdm.result != OfdmTimingResult::Ok ||
         ok.calibration.phase != RxCalibrationPhase::Completed ||
         ok.ani.result != AniResult::Ok || !ok.aniState.initialized ||
+        ok.mib.result != AniMibResult::Ok || !ok.mibState.initialized ||
+        ok.mibState.ownerEpoch != kEpoch ||
+        ok.mibState.lastCaptureMs != kCounterEpochStartMs ||
+        ok.mib.completedWrites != 11U ||
+        good.registers.at(kAniMibControl / sizeof(uint32_t)) != 0U ||
+        good.registers.at(kAniMibMaskOfdm / sizeof(uint32_t)) !=
+            kAniMibOfdmTiming ||
+        good.registers.at(kAniMibMaskCck / sizeof(uint32_t)) !=
+            kAniMibCckTiming ||
         good.rfGranted || !good.delayChecked ||
         good.registers.at(kSelfgenMask / sizeof(uint32_t)) != 0)
     {
         return static_cast<int>(TestExit::Success);
+    }
+    // Refuse unverified time before even requesting live MMIO permission.
+    Fake missingTime {};
+    const auto noClock = runAr9565ReceiveOnlyRadioSequence(
+        board(), channel(), TxGainProfile::LowOb, RxGainProfile::Standard,
+        BoardModalDiversity::WlanOnly, authorized(), backends(missingTime), 0U);
+    if (noClock.result != RadioSequenceResult::InvalidCaptureTime ||
+        noClock.stage != RadioSequenceStage::Preflight ||
+        noClock.requiresReset || missingTime.permits != 0U ||
+        missingTime.writes != 0U)
+    {
+        return static_cast<int>(TestExit::MibTimestamp);
+    }
+    // A counter mask readback fault cannot leave a completed radio epoch;
+    // the INI/calibration writes have already made PHY reset mandatory.
+    Fake mibFailure {};
+    mibFailure.failedReadOffset = kAniMibMaskCck;
+    const auto failedMib = run(mibFailure);
+    if (failedMib.stage != RadioSequenceStage::AniMibCounters ||
+        failedMib.mib.result != AniMibResult::ReadFailed ||
+        failedMib.mibState.initialized || !failedMib.mibState.requiresReset ||
+        !failedMib.requiresReset || mibFailure.rfGranted)
+    {
+        return static_cast<int>(TestExit::Mib);
+    }
+    Fake mibWriteFailure {};
+    mibWriteFailure.failedWriteAt = good.writes - ok.mib.completedWrites + 1U;
+    const auto failedMibWrite = run(mibWriteFailure);
+    if (failedMibWrite.stage != RadioSequenceStage::AniMibCounters ||
+        failedMibWrite.mib.result != AniMibResult::WriteFailed ||
+        !failedMibWrite.requiresReset ||
+        !failedMibWrite.mibState.requiresReset ||
+        failedMibWrite.mibState.initialized)
+    {
+        return static_cast<int>(TestExit::MibWriteFailure);
+    }
+    Fake ownerGoneAtCommit {};
+    ownerGoneAtCommit.revokeAfterPermit = good.permits;
+    const auto finalRevoked = run(ownerGoneAtCommit);
+    if (finalRevoked.result != RadioSequenceResult::OwnershipLost ||
+        finalRevoked.stage != RadioSequenceStage::AniMibCounters ||
+        !finalRevoked.requiresReset || finalRevoked.aniState.initialized ||
+        finalRevoked.mibState.initialized ||
+        !finalRevoked.mibState.requiresReset)
+    {
+        return static_cast<int>(TestExit::FinalMibRevocation);
     }
     Fake aniReadFailure {};
     aniReadFailure.failedReadOffset = kAniFirstStepRegister;

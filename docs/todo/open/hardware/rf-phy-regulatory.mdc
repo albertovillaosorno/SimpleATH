@@ -402,8 +402,30 @@ restart cannot erase its reset obligation. C++14/C++17 offline sanitized PCI
 fixtures cover paired captures, malformed geometry, missing radio permission,
 read/write faults, callback revocation, MIB drift and reinitialization.
 
-**Still required:** the live native PCI owner does not yet call the new
-sampler, claim and serialize actual MIB ownership against all other consumers,
-or feed a work-loop scheduler and safe ANI register adaptation. Physical
-channel/RF/BT/country and receiver proofs are still absent. Host fixtures
-cannot verify macOS kernel MMIO, real RF behaviour or AirDrop operation.
+### Receive-only RF sequence initializes physical ANI counters
+
+`Ar9565RadioSequence` now invokes `initializeAr9565AniMib` after the
+successful receiver AGC/IQ/noise calibration and verified ANI INI-register
+baseline. The caller supplies a real monotonic-millisecond starting time and
+an independently authorized exclusive MIB lease. Preflight requires the MIB
+read/write callbacks, BAR length, context and epoch to match the physical
+radio backends, so a different register transport cannot silently supply a
+synthetic counter baseline. The zero-time and mismatched-backend checks occur
+before hardware writes. MIB initialization failures retain the existing
+full-PHY-reset obligation, and a lost final owner invalidates both ANI and
+MIB state instead of publishing a reusable stale counter session.
+
+The existing RF workflow fixture now compiles the production MIB collector
+and verifies zeroed counters, actual OFDM/CCK mask register writes, combined
+PHY/MIB completion, wrong-transport/epoch rejection, zero timestamp, failed
+mask readback, ambiguous MIB writes and final owner revocation. Its focused
+C++14/C++17 ASan+UBSan runs, direct strict Clang-Tidy and Clang-Format pass.
+No physical radio operations were performed.
+
+**Still required:** `SimpleATH` must call the receive-only RF sequence only
+after independent board/reference-crystal, country/channel, antenna and
+Bluetooth coexistence evidence exists; it currently does not invoke it.
+The native owner must claim exclusive MIB counter ownership across all users,
+retain the resulting ANI/MIB epoch, schedule and attest paired counter
+captures, then safely apply PHY-error adaptation. Physical radio activation,
+macOS kernel MMIO and AirDrop operation remain unverified by host fixtures.
