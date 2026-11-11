@@ -201,3 +201,41 @@ and denial of management/data/automatic TX before board and country approval.
 - Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+## Next native RF evidence boundary (source audit, 2026-11-10)
+
+The normal native PCI owner already produces a same-epoch `NvmBoardSelection`
+with valid AR9565 gain profiles and completes PMU/XTAL capacitor writes.
+`Ar9565RadioSequence` can consume that board and run the ordered receive-only
+INI, PHY, modal, RF-bus, PLL, synthesizer, OFDM, RX calibration and ANI stages,
+but `SimpleATH` does **not** invoke it yet because the following physical
+inputs have no authorized producer:
+
+- **Reference crystal identity:** Linux v6.12 `ar9003_phy.c`
+  (`ar9003_hw_set_channel`) chooses distinct fractional synth divisors for
+  `ah->is_clk_25mhz` (75 for 25 MHz, 120 for 40 MHz) on AR9565. Its reset,
+  PLL and radio table paths also branch on that field. The physical PCI ID
+  and EEPROM capacitor setting do not, by themselves, prove 25 vs 40 MHz.
+  Preserve `RfReferenceClock` as unverified until a real same-board firmware,
+  ACPI/platform or other physical clock authority establishes it; do not
+  default to either branch or reuse an earlier reset epoch.
+- **Antenna/BT coexistence ownership:** `ar9003_phy.c` includes explicit
+  AR9565 antenna-diversity programming; `ar9003_mci.c` has separate AR9565
+  coexistence branches. The physical USB firmware-loader personality does
+  not prove that BT is absent, permanently quiesced, or has negotiated an
+  antenna/MCI lease. Native post-bootstrap USB/HCI status and independent
+  physical antenna arbitration are still needed before setting the
+  `coexistenceConfigurationVerified` and antenna proof bits.
+- **Receive channel permission:** an EEPROM-supported frequency and a user
+  scan request are not the same as independent platform-regulatory approval.
+  Implement one same-epoch 2.4 GHz receive-channel lease with a real country
+  policy, then run the sequence and read back its actual completion before
+  setting `radioOperational_`, `channelAuthorized_` or
+  `verifiedReceiveChannel_`. Retain stricter TX country/CTL/TPC proof before
+  *any* data, management or automatic response is enabled.
+
+Commits `8edfbe0` and `e7bbcf9` now connect a correctly gated initial EDMA
+queue start and interrupt-time RF-kill revocation once RF evidence exists.
+These do not establish the missing proofs, do not make scan operational, and
+must not be bypassed by setting readiness flags optimistically. No change to
+owner-controlled safe boot, USB/EFI installation or hardware testing.
