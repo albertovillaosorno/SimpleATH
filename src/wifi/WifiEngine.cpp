@@ -1431,6 +1431,65 @@ namespace simpleath
             return EngineResult::Ok;
         }
 
+        EngineResult WifiEngine::acceptVerifiedProtectedAmsduRx(
+            const uint8_t *frame, size_t length, const InputTrust &trust,
+            AmsduPayload &out)
+        {
+            // Native CCMP owns the decrypted scratch until the subframes
+            // have been copied into OS-owned storage. Refuse aliased outputs
+            // before any write or sequence-window transition.
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), frame, length) ||
+                overlaps(&out, sizeof(out), &trust, sizeof(trust)) ||
+                overlaps(frame, length, this, sizeof(*this)) ||
+                overlaps(frame, length, &trust, sizeof(trust)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            out = {};
+            const StationState state = station_.state();
+            const bool osInstalled =
+                osSupplicantOwned_ && state == StationState::WaitingForWpa2Keys;
+            const bool driverInstalled =
+                !osSupplicantOwned_ &&
+                state == StationState::HardwareKeysInstalled &&
+                supplicant_.keysInstalled();
+            if (frame == nullptr || !trust.radioReady ||
+                !trust.channelAuthorized || !trust.dmaAndFcsVerified ||
+                !trust.ccmpMicAndReplayVerified || trust.rxFrameIncludesFcs ||
+                (!osInstalled && !driverInstalled) ||
+                link_.status().state != LinkState::Associated ||
+                station_.candidate().beacon.rsn.security !=
+                    Security::Wpa2Personal)
+            {
+                return EngineResult::InvalidState;
+            }
+            LinkContext link {};
+            link.station = stationAddress_;
+            link.bssid = station_.candidate().beacon.bssid;
+            link.security = LinkSecurity::Wpa2Ccmp;
+            link.associated = true;
+            link.rfReady = trust.radioReady;
+            link.channelPermitted = trust.channelAuthorized;
+            // OS-owned keys live in the native controller, not supplicant_.
+            // This claim is only admitted after native MIC/PN verification.
+            link.pairwiseAndGroupKeysInstalled = true;
+            AmsduPayload accepted {};
+            if (inspectStationAmsduRx(link, frame, length, false,
+                                      trust.dmaAndFcsVerified,
+                                      trust.ccmpMicAndReplayVerified,
+                                      accepted) != DataPathResult::Ok)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            if (!acceptDataSequence(frame, true))
+            {
+                return EngineResult::NoAction;
+            }
+            out = accepted;
+            return EngineResult::Ok;
+        }
+
         EngineResult WifiEngine::acceptProtectedGroupRekey(
             const uint8_t *encrypted, size_t encryptedBytes, bool includesFcs,
             const InputTrust &trust, crypto::CcmpSession &receive,

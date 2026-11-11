@@ -663,11 +663,163 @@ namespace
         return 0;
     }
 
+    // Two Ethernet-II MSDUs inside one CCMP-authenticated QoS MPDU.
+    // The source and protected A-MSDU selector are included in the SPP MIC.
+    std::array<uint8_t, 73> protectedAggregatePlain()
+    {
+        std::array<uint8_t, 73> frame {};
+        frame.at(0) = 0x88;
+        frame.at(1) = 0x02;
+        std::memcpy(&frame.at(4), kStation.data(), kStation.size());
+        std::memcpy(&frame.at(10), kAp.data(), kAp.size());
+        std::memcpy(&frame.at(16), kAp.data(), kAp.size());
+        frame.at(22) = 0x30; // QoS sequence 3.
+        frame.at(24) = 0x80; // QoS TID 0, A-MSDU Present.
+        for (const size_t start : {26U, 50U})
+        {
+            std::memcpy(&frame.at(start), kStation.data(), kStation.size());
+            std::memcpy(&frame.at(start + 6), kAp.data(), kAp.size());
+            frame.at(start + 13) = 9; // LLC/SNAP(8) plus one byte.
+            frame.at(start + 14) = 0xaa;
+            frame.at(start + 15) = 0xaa;
+            frame.at(start + 16) = 0x03;
+            frame.at(start + 20) = 0x08; // EtherType IPv4.
+        }
+        frame.at(48) = 'A';
+        frame.at(72) = 'B';
+        return frame;
+    }
+
+    // One decrypt, two borrowed subframes, one QoS sequence admission.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    int verifiedNativeAggregateRx()
+    {
+        const std::array<uint8_t, 32> pmk {{1}};
+        std::array<uint8_t, 32> anonce {{7}};
+        std::array<uint8_t, 32> snonce {};
+        for (size_t i = 0; i < snonce.size(); ++i)
+        {
+            snonce.at(i) = static_cast<uint8_t>(i + 1U);
+        }
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, 48> ptk {};
+        Provider provider {};
+        WifiEngine engine;
+        if (crypto::derivePtk(pmk.data(), ap, station, anonce.data(),
+                              snonce.data(), ptk.data()) != crypto::Error::Ok ||
+            !joinAndInstall(engine, provider, ptk.data()))
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        crypto::CcmpSession apTx {};
+        crypto::CcmpSession stationRx {};
+        crypto::CcmpSession unnegotiated {};
+        if (apTx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0, 0,
+                         true) != crypto::CcmpResult::Ok ||
+            stationRx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0, 0,
+                              true) != crypto::CcmpResult::Ok ||
+            unnegotiated.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0,
+                                 0) != crypto::CcmpResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        auto plain = protectedAggregatePlain();
+        std::array<uint8_t, 256> wire {};
+        size_t wireBytes = 0;
+        if (apTx.protect(kEpoch, plain.data(), plain.size(), wire.data(),
+                         wire.size(), wireBytes) != crypto::CcmpResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        const LinkContext link {
+            station, ap, LinkSecurity::Wpa2Ccmp, true, true, true, true};
+        std::array<uint8_t, 256> scratch {};
+        AmsduPayload decoded {};
+        if (inspectProtectedStationAmsduRx(
+                link, wire.data(), wireBytes, false, true, unnegotiated, kEpoch,
+                scratch.data(), scratch.size(),
+                decoded) != DataPathResult::UnverifiedDecryption ||
+            unnegotiated.receiveFloor() != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Physical DMA supplies the FCS layout; the portable parser strips
+        // it only after the caller attests its independent FCS validation.
+        if (inspectProtectedStationAmsduRx(link, wire.data(), wireBytes + 4U,
+                                           true, true, stationRx, kEpoch,
+                                           scratch.data(), scratch.size(),
+                                           decoded) != DataPathResult::Ok ||
+            stationRx.receiveFloor() != 1 || decoded.count != 2)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        const size_t plainBytes = wireBytes - 16U;
+        AmsduPayload accepted {};
+        InputTrust noMic = kTrust;
+        noMic.ccmpMicAndReplayVerified = false;
+        if (engine.acceptVerifiedProtectedAmsduRx(scratch.data(), plainBytes,
+                                                  noMic, accepted) !=
+                EngineResult::InvalidState ||
+            accepted.count != 0 ||
+            engine.acceptVerifiedProtectedAmsduRx(scratch.data(), plainBytes,
+                                                  kTrust, accepted) !=
+                EngineResult::Ok ||
+            accepted.count != 2 || accepted.subframes[0].payload[0] != 'A' ||
+            accepted.subframes[1].payload[0] != 'B')
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // A new authenticated PN but the same QoS sequence must not publish
+        // another copy, even when the retry bit is absent.
+        if (apTx.protect(kEpoch, plain.data(), plain.size(), wire.data(),
+                         wire.size(), wireBytes) != crypto::CcmpResult::Ok ||
+            inspectProtectedStationAmsduRx(link, wire.data(), wireBytes, false,
+                                           true, stationRx, kEpoch,
+                                           scratch.data(), scratch.size(),
+                                           decoded) != DataPathResult::Ok ||
+            stationRx.receiveFloor() != 2 ||
+            engine.acceptVerifiedProtectedAmsduRx(scratch.data(), plainBytes,
+                                                  kTrust, accepted) !=
+                EngineResult::NoAction ||
+            accepted.count != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Changing the QoS sequence starts a fresh delivery, but a cleared
+        // or lost association must never retain the old delivery lease.
+        plain.at(22) = 0x40;
+        if (apTx.protect(kEpoch, plain.data(), plain.size(), wire.data(),
+                         wire.size(), wireBytes) != crypto::CcmpResult::Ok ||
+            inspectProtectedStationAmsduRx(link, wire.data(), wireBytes, false,
+                                           true, stationRx, kEpoch,
+                                           scratch.data(), scratch.size(),
+                                           decoded) != DataPathResult::Ok ||
+            engine.acceptVerifiedProtectedAmsduRx(scratch.data(), plainBytes,
+                                                  kTrust,
+                                                  accepted) != EngineResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        engine.clear();
+        return engine.acceptVerifiedProtectedAmsduRx(scratch.data(), plainBytes,
+                                                     kTrust, accepted) ==
+                           EngineResult::InvalidState &&
+                       accepted.count == 0
+                   ? 0
+                   : __LINE__ % kFailureModulo + 1;
+    }
+
     // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
 int main()
 {
     const int baseline = protectedGroupExchange();
-    return baseline == 0 ? verifiedNativeGroupExchange() : baseline;
+    if (baseline != 0)
+    {
+        return baseline;
+    }
+    const int native = verifiedNativeGroupExchange();
+    return native == 0 ? verifiedNativeAggregateRx() : native;
 }

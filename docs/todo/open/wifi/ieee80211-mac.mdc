@@ -213,3 +213,25 @@ single-frame fast path or multi-fragment accumulation. This closes a
 standalone API gap where direct unfragmented input could previously bypass
 the protected-frame rejection; the WifiEngine already used this primitive
 only for fragmented open traffic. A regression exercises that explicit denial.
+
+## Native protected QoS A-MSDU receive admission (source-only)
+
+`SimpleATH::receiveNativeProtected` now selects the bounded QoS A-MSDU
+receiver only after the normal EDMA/FCS, radio, queue and selected-link gates.
+The native pairwise `CcmpSession` must verify the aggregate's MIC/PN and the
+A-MSDU selector under **separately negotiated SPP A-MSDU** before any decoded
+subframe reaches `WifiEngine::acceptVerifiedProtectedAmsduRx`. That engine
+revalidates station/security/port trust and consumes one QoS sequence using
+its ordinary per-TID duplicate window. The native mailbox copies each approved
+Ethernet-II subframe synchronously before the decrypted scratch is scrubbed.
+Wrong trust, malformed aggregates, forbidden EAPOL, duplicate sequences,
+invalid association and aggregate fragments fail without delivery. Synthetic
+C++14/C++17 ASan+UBSan tests cover the actual CCMP->engine handoff, duplicate
+suppression, FCS layout and reset denial.
+
+**Not a live WPA2 A-MSDU path yet:** the native key installer currently keeps
+`verifiedSppAmsdu=false`, deliberately refusing all protected aggregates
+until authenticated association capabilities and SPP policy are negotiated
+and plumbed into the key owner. This change is a safe source integration, not
+proof of RF traffic, actual OS packet delivery, SPP negotiation, A-MPDU/BA
+reordering or tested Tahoe compatibility. Keep this task open.

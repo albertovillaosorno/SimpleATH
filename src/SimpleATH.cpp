@@ -2589,6 +2589,55 @@ class SimpleATH final : public IOService
             deliverNativeMsdu(msdu, false);
         }
 
+        // This is the one native path for protected QoS A-MSDUs. The CCMP
+        // session itself rejects aggregation unless SPP was independently
+        // negotiated at key installation. Every member of the aggregate
+        // borrows decrypted scratch only until this RX callback returns.
+        void receiveNativeProtectedAmsdu(
+            const simpleath::ieee80211::LinkContext &connection,
+            const uint8_t *frame, size_t bytes, size_t mpduBytes,
+            simpleath::ieee80211::crypto::CcmpSession &receive)
+        {
+            if (!controlledPortAuthorized_ || !associatedBeaconObserved_ ||
+                joinEpoch_ != epoch_)
+            {
+                return;
+            }
+            simpleath::ieee80211::AmsduPayload decoded {};
+            const auto result =
+                simpleath::ieee80211::inspectProtectedStationAmsduRx(
+                    connection, frame, bytes, true, true, receive, epoch_,
+                    &protectedRxScratch_[0], sizeof(protectedRxScratch_),
+                    decoded);
+            setProperty("SimpleATHLastProtectedReceiveResult",
+                        static_cast<uint32_t>(result), kRfPropertyWidthBits);
+            if (result != simpleath::ieee80211::DataPathResult::Ok)
+            {
+                return;
+            }
+            // ExtIV and MIC are authenticated by the CCMP decoder. The FCS
+            // was independently verified by the DMA owner and stripped.
+            const size_t plainBytes =
+                mpduBytes - kCcmpExtIvBytes - kCcmpMicBytes;
+            const simpleath::ieee80211::InputTrust trust {
+                true, channelAuthorized_, true, true, false};
+            simpleath::ieee80211::AmsduPayload accepted {};
+            const auto admitted = engine_.acceptVerifiedProtectedAmsduRx(
+                &protectedRxScratch_[0], plainBytes, trust, accepted);
+            setProperty("SimpleATHLastAmsduReceiveResult",
+                        static_cast<uint32_t>(admitted), kRfPropertyWidthBits);
+            if (admitted == simpleath::ieee80211::EngineResult::Ok)
+            {
+                for (size_t i = 0; i < accepted.count; ++i)
+                {
+                    deliverNativeMsdu(accepted.subframes[i], false);
+                }
+                ++receivedFrames_;
+                setProperty("SimpleATHReceivedFrames", receivedFrames_,
+                            kCounterPropertyWidthBits);
+            }
+        }
+
         void receiveNativeProtected(const uint8_t *frame, size_t bytes,
                                     const simpleath::edma::RxStatus &status)
         {
@@ -2681,31 +2730,54 @@ class SimpleATH final : public IOService
             // strictly nonfragmented path and PN/replay lifetime.
             const bool fragmented =
                 header.moreFragments || header.fragment != 0U;
-            const auto result =
-                fragmented
-                    ? simpleath::ieee80211::inspectProtectedFragmentStationRx(
-                          connection, frame, bytes, true, true, *receive,
-                          epoch_, nativeProtectedFragments_,
-                          nowMicros(nullptr) / kMicrosPerMillisecond,
-                          &protectedRxScratch_[0], sizeof(protectedRxScratch_),
-                          msdu)
-                    : simpleath::ieee80211::inspectProtectedStationRx(
-                          connection, frame, bytes, true, true, *receive,
-                          epoch_, &protectedRxScratch_[0],
-                          sizeof(protectedRxScratch_), msdu);
-            setProperty("SimpleATHLastProtectedReceiveResult",
-                        static_cast<uint32_t>(result), kRfPropertyWidthBits);
-            if (result == simpleath::ieee80211::DataPathResult::Ok)
+            // The untrusted QoS bit selects only a candidate decoder. The
+            // CCMP SPP A-MSDU AAD and MIC must authenticate it before use.
+            // Fragmented aggregates are not admitted by this RX contract.
+            uint8_t qosControl = 0U;
+            if (header.subtype == 8U && header.headerLength == 26U)
             {
-                if (driverOwned)
+                // parseFrame already validated these two QoS octets.
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
+                __builtin_memcpy(&qosControl, frame + 24U, sizeof(qosControl));
+            }
+            if ((qosControl & 0x80U) != 0U)
+            {
+                if (!fragmented)
                 {
-                    receiveNativeDriverMsdu(msdu);
+                    receiveNativeProtectedAmsdu(connection, frame, bytes,
+                                                mpduBytes, *receive);
                 }
-                else
+            }
+            else
+            {
+                const auto result =
+                    fragmented
+                        ? simpleath::ieee80211::
+                              inspectProtectedFragmentStationRx(
+                                  connection, frame, bytes, true, true,
+                                  *receive, epoch_, nativeProtectedFragments_,
+                                  nowMicros(nullptr) / kMicrosPerMillisecond,
+                                  &protectedRxScratch_[0],
+                                  sizeof(protectedRxScratch_), msdu)
+                        : simpleath::ieee80211::inspectProtectedStationRx(
+                              connection, frame, bytes, true, true, *receive,
+                              epoch_, &protectedRxScratch_[0],
+                              sizeof(protectedRxScratch_), msdu);
+                setProperty("SimpleATHLastProtectedReceiveResult",
+                            static_cast<uint32_t>(result),
+                            kRfPropertyWidthBits);
+                if (result == simpleath::ieee80211::DataPathResult::Ok)
                 {
-                    // OS-owned protected EAPOL may reach its single
-                    // supplicant before the OS opens the controlled port.
-                    deliverNativeMsdu(msdu, true);
+                    if (driverOwned)
+                    {
+                        receiveNativeDriverMsdu(msdu);
+                    }
+                    else
+                    {
+                        // OS-owned protected EAPOL may reach its single
+                        // supplicant before the OS opens the controlled port.
+                        deliverNativeMsdu(msdu, true);
+                    }
                 }
             }
             // Scrub even malformed/authentication-failed partial plaintext.

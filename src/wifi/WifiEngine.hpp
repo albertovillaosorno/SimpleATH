@@ -283,6 +283,14 @@ namespace simpleath
                                                const InputTrust &trust,
                                                AmsduPayload &out);
 
+                // Native CCMP RX must first verify negotiated SPP A-MSDU,
+                // pairwise MIC and replay PN. This stage checks decrypted
+                // station identity and shares the QoS duplicate history.
+                // All returned subframes borrow the caller-owned scratch.
+                EngineResult acceptVerifiedProtectedAmsduRx(
+                    const uint8_t *frame, size_t length,
+                    const InputTrust &trust, AmsduPayload &out);
+
                 // Driver-owned WPA2 only: authenticate a protected AP
                 // Group1 using the live pairwise RX CCMP session, update the
                 // GTK via the supplicant, then protect its Group2 response

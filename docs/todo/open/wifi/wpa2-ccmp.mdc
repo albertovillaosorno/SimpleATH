@@ -303,3 +303,18 @@ regressions (mutated PMK, ANonce and SNonce) pass after the fix under both
 C++14 and C++17 ASan+UBSan; neither the original M1 nor caller PMK is
 modified. This is an offline provider-contract test, not proof of real
 hardware keycache, RF readiness or native supplicant integration.
+
+## Native SPP A-MSDU CCMP receive boundary (source-only)
+
+The native RX dispatcher now uses `inspectProtectedStationAmsduRx` for
+unfragmented QoS aggregates, which checks the on-air pairwise key and per-TID
+CCMP MIC/PN and rejects a non-SPP-installed `CcmpSession`. The decrypted
+aggregate is then independently admitted through WifiEngine's selected WPA2
+association and shared QoS duplicate history before bounded subframes enter
+the existing native Ethernet copy path. No separate CCMP decrypt/replay ledger
+is created. The final synchronous RX callback scrubs the private plaintext.
+The offline WPA2 engine fixture uses explicit synthetic SPP-enabled sessions;
+the real OS-owned and driver-owned native key installers **do not** enable SPP
+without negotiation evidence, so a physical aggregate still fails closed.
+SPP negotiation, native key-install linkage and hardware operation remain
+open. An authenticated MIC alone does not authorize unsupported A-MPDU/BA.
