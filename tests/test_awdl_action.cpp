@@ -1450,6 +1450,58 @@ namespace
                AwdlRendezvousStatus::InvalidInput;
     }
 
+    bool rejectRendezvousTimeWrap()
+    {
+        // The phase is valid but the complete TX would cross the maximum
+        // monotonic microsecond value. Neither planner may grant airtime.
+        constexpr uint64_t kUsecPerMs = 1000U;
+        constexpr uint16_t kEawTu = 64U;
+        constexpr uint32_t kOverflowAirtimeUsec = 2000U;
+        constexpr uint32_t kSafeAirtimeUsec = 512U;
+        AwdlNeighbor peer {};
+        peer.source = kNeighborBaseSource;
+        peer.awPeriodTu = 16U;
+        peer.txDownCounterTu = kEawTu;
+        peer.channelSixSlots = 1U;
+        AwdlRendezvousRequest request {
+            UINT64_MAX - 9000U,
+            UINT64_MAX - 1000U,
+            kOverflowAirtimeUsec,
+        };
+        peer.lastMifMs = request.mifRxUsec / kUsecPerMs;
+        AwdlRendezvousWindow window {};
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            window.waitUsec != 0U)
+        {
+            return false;
+        }
+        request.frameAirtimeUsec = kSafeAirtimeUsec;
+        if (planAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate ||
+            planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::Candidate)
+        {
+            return false;
+        }
+        // A future start fits the clock, but its complete frame does not.
+        request.mifRxUsec = UINT64_MAX - 4000U;
+        peer.lastMifMs = request.mifRxUsec / kUsecPerMs;
+        request.frameAirtimeUsec = 1000U;
+        if (planNextAwdlChannelSixRendezvous(peer, request, window) !=
+                AwdlRendezvousStatus::StaleSync ||
+            window.waitUsec != 0U)
+        {
+            return false;
+        }
+        request.frameAirtimeUsec = kSafeAirtimeUsec;
+        return planNextAwdlChannelSixRendezvous(peer, request, window) ==
+                   AwdlRendezvousStatus::Candidate &&
+               window.waitUsec != 0U;
+    }
+
     bool sharedChannelSixOverlap()
     {
         constexpr uint64_t kUsecPerMs = 1000U;
@@ -2303,6 +2355,11 @@ int main()
     {
         constexpr int kFutureRendezvousFailure = 15;
         return kFutureRendezvousFailure;
+    }
+    if (!rejectRendezvousTimeWrap())
+    {
+        constexpr int kTimeWrapFailure = 21;
+        return kTimeWrapFailure;
     }
     if (!sharedChannelSixOverlap())
     {

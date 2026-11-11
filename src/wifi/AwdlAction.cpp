@@ -1166,7 +1166,8 @@ namespace simpleath
             }
             const uint64_t ageUsec = request.nowUsec - request.mifRxUsec;
             if (ageUsec >= kAwdlPeerExpiryUsec ||
-                request.frameAirtimeUsec >= kAwdlPeerExpiryUsec - ageUsec)
+                request.frameAirtimeUsec >= kAwdlPeerExpiryUsec - ageUsec ||
+                request.frameAirtimeUsec > UINT64_MAX - request.nowUsec)
             {
                 return AwdlRendezvousStatus::StaleSync;
             }
@@ -1286,7 +1287,9 @@ namespace simpleath
                 // The MIF phase is trusted only for the current five-second
                 // anchor; do not schedule a frame finishing at its expiry.
                 if (waitUsec + request.frameAirtimeUsec >= syncRemaining ||
-                    request.nowUsec > UINT64_MAX - waitUsec)
+                    request.nowUsec > UINT64_MAX - waitUsec ||
+                    request.frameAirtimeUsec >
+                        UINT64_MAX - request.nowUsec - waitUsec)
                 {
                     return AwdlRendezvousStatus::StaleSync;
                 }

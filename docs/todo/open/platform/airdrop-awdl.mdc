@@ -436,3 +436,18 @@ C++14/C++17 ASan+UBSan host regressions, strict Clang-Tidy and formatting
 pass. A native host must still provide the callback and separately evaluate
 Apple contact/privacy authorization, physical Bluetooth and AWDL policy;
 this source hook alone is not macOS AirDrop or peer discovery completion.
+
+## Source progress — 2026-11-10: monotonic time ceiling for AWDL TX hints
+
+Both single-peer channel-six rendezvous planners now reject a candidate
+whose requested airtime would extend past the 64-bit monotonic microsecond
+clock ceiling. The future-window calculation also accounts for its initial
+wait before checking the complete frame's end, not just the window start.
+Without this bound the owner could receive a `Candidate` for time that cannot
+be represented. The added synthetic fixture first failed against the prior
+source (exit 21); C++14/C++17 ASan+UBSan and freestanding syntax, direct
+strict Clang-Tidy, formatting and diff checks pass after the correction.
+
+These are local scheduling hints, not a working native AWDL radio scheduler.
+No actual channel-tune, BLE discovery, AirDrop peer trust, RF TX or macOS
+AWDL host integration is established. The P0 acceptance task stays open.
