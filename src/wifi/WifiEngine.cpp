@@ -41,6 +41,7 @@
 #include "wifi/Eapol.hpp"
 #include "wifi/Frames.hpp"
 #include "wifi/LinkMonitor.hpp"
+#include "wifi/ManagementReassembly.hpp"
 #include "wifi/ScanCache.hpp"
 #include "wifi/Station.hpp"
 #include "wifi/Wpa2Supplicant.hpp"
@@ -76,6 +77,7 @@ namespace simpleath
             constexpr size_t kRxCopiedHeaderBytes = 26U;
             constexpr size_t kRxQosControlOffset = 24U;
             constexpr uint8_t kRxTidMask = 0x0fU;
+            constexpr uint8_t kManagementVersionTypeMask = 0x0fU;
             constexpr uint16_t kMinimumPassiveDwellMs = 10;
             constexpr uint16_t kMaximumPassiveDwellMs = 1000;
             constexpr size_t kEthernetHeader = 14U;
@@ -1256,7 +1258,13 @@ namespace simpleath
             // serialized engine and is consumed before the next RX call.
             const uint8_t *complete = frame;
             size_t completeBytes = macBytes;
-            if (macBytes >= 2U && (frame[0] & 0x0fU) == 0U)
+            uint8_t frameControl = 0U;
+            if (macBytes >= 2U)
+            {
+                __builtin_memcpy(&frameControl, frame, sizeof(frameControl));
+            }
+            if (macBytes >= 2U &&
+                (frameControl & kManagementVersionTypeMask) == 0U)
             {
                 ManagementFrameView view {};
                 const auto assembly =
