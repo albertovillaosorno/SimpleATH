@@ -167,6 +167,22 @@ MCI RX reset/IRQ service, Bluetooth host handshake, antenna lease or
 bounded-producer-wrap guarantee is wired yet. It cannot establish shared
 coexistence, RX/TX permission or functional Bluetooth.
 
+The source now also stages AR9565-specific **shared-MCI antenna
+arbitration registers** after verifying that the same-epoch coherent DMA
+addresses, ring length, MCI disable, interrupt masks and automatic-response
+mask remain physically staged. Separate one-shared-PA/LNA and two-independent
+antenna values follow the pinned Linux `ar9003_mci.c` and `reg_mci.h`.
+Both require independently verified board/topology and a live Bluetooth/
+antenna ownership lease. Readback mismatches fail before writes; ambiguous
+partial writes require reset. C++14 sanitized host tests cover both topologies,
+changed GPM write pointer, missing lease, tampered registers, ownership loss
+and failed MMIO. **No native PCI owner calls this source stage yet**, and it
+deliberately leaves MCI mode, MCI interrupts and autonomous Wi-Fi replies
+OFF. Physical DMA allocation, antenna topology evidence, TX/RX MCI reset,
+Bluetooth GPM handshake, IRQ processing, coexistence calibration and active
+radio authority still need end-to-end source integration; this step does
+not establish functional Bluetooth, scanning or Wi-Fi readiness.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.

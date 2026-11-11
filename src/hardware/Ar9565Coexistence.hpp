@@ -83,6 +83,35 @@ namespace simpleath
         const BoardDataSummary &board, const SharedMciEvidence &evidence,
         const SharedMciDmaBuffers &buffers, const RxAgcBackend &backend);
 
+    enum class SharedMciAntennaTopology : uint8_t
+    {
+        Unknown,
+        OneSharedPaAndLna,
+        TwoIndependent,
+    };
+
+    struct SharedMciAntennaSelection
+    {
+            // Physically established by the platform/board/BT lease owner,
+            // never guessed from the EEPROM BT flags or the USB VID/PID.
+            SharedMciAntennaTopology topology {};
+            bool physicallyVerifiedTopology {};
+    };
+
+    // Stage AR9565-only antenna arbitration registers after the coherent
+    // shared MCI rings have been programmed in this same serialized epoch.
+    // First re-read DMA addresses, ring size, masked interrupts, disabled MCI
+    // mode and disabled automatic responses; reject any divergence before
+    // writing. One- and two-antenna values follow ath9k ar9003_mci.c.
+    // MCI remains OFF, interrupts stay masked and the WLAN auto-response mask
+    // stays zero. This does NOT reset MCI RX/TX, exchange Bluetooth messages,
+    // establish the actual antenna lease or authorize RF traffic. An error
+    // after the first write requires controller reset before retry.
+    CoexistenceProgress stageAr9565SharedMciAntenna(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers,
+        const SharedMciAntennaSelection &antenna, const RxAgcBackend &backend);
+
     enum class MciGpmResult : uint8_t
     {
         Message,

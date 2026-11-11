@@ -14,8 +14,9 @@ namespace
     constexpr uint32_t kBar = 0x24000;
     constexpr uint32_t kSeed = 0xffffffffU;
     constexpr size_t kSteps = 10;
-    constexpr size_t kTotalRegisters = 13;
+    constexpr size_t kTotalRegisters = 17;
     constexpr size_t kSharedMciStageSteps = 8;
+    constexpr size_t kSharedAntennaStageSteps = 8;
     constexpr uint32_t kMciScheduleAddress = 0x1818;
     constexpr uint32_t kMciGpmAddress = 0x1820;
     constexpr uint32_t kMciGpmEntries = 0x1824;
@@ -33,6 +34,18 @@ namespace
     constexpr uint32_t kMciMessageInterrupt = 0x183c;
     constexpr uint32_t kMciRemoteInterrupt = 0x1834;
     constexpr uint32_t kBtControl2 = 0x1948;
+    constexpr uint32_t kBtControl3 = 0x1a60;
+    constexpr uint32_t kPcuMisc = 0x8120;
+    constexpr uint32_t kLnaTimeout = 0x1940;
+    constexpr uint32_t kMciAttributes = 0x1814;
+    constexpr uint32_t kOneAntennaMode = 0x29bU;
+    constexpr uint32_t kTwoAntennaMode = 0x303U;
+    constexpr uint32_t kOneAntennaTxChain = 0x00080000U;
+    constexpr uint32_t kTxChainAndRxDeweight = 0x00780000U;
+    constexpr uint32_t kAntennaPreventsRx = 0x00100000U;
+    constexpr uint32_t kLnaTimeoutMask = 0x003fffffU;
+    constexpr uint32_t kLnaTimeoutValue = 0x0003d090U;
+    constexpr uint32_t kMciAttributeValue = 0xe8010000U;
     constexpr uint32_t kMciTransmitControl = 0x1810;
     constexpr uint32_t kBtLnaControl = 0x1a64;
     constexpr uint32_t kPhyRestart = 0x9e24;
@@ -48,6 +61,7 @@ namespace
     constexpr int kFailedErrorPaths = 4;
     constexpr int kFailedSharedMci = 5;
     constexpr int kFailedGpm = 6;
+    constexpr int kFailedAntenna = 7;
 
     struct Register
     {
@@ -72,6 +86,10 @@ namespace
                     {kMciScheduleAddress, kSeed},
                     {kMciGpmAddress, kSeed},
                     {kMciGpmEntries, kSeed},
+                    {kBtControl3, kSeed},
+                    {kPcuMisc, kSeed},
+                    {kLnaTimeout, kSeed},
+                    {kMciAttributes, kSeed},
                 },
             };
             std::array<uint32_t, kTotalRegisters> writeOrder {};
@@ -313,6 +331,206 @@ namespace
         return true;
     }
 
+    bool sharedAntennaTests()
+    {
+        const auto physicalBoard = board();
+        const auto physicalDma = sharedBuffers();
+        const auto evidence = sharedAuthorized();
+        const SharedMciAntennaSelection one {
+            SharedMciAntennaTopology::OneSharedPaAndLna,
+            true,
+        };
+        const SharedMciAntennaSelection two {
+            SharedMciAntennaTopology::TwoIndependent,
+            true,
+        };
+        const std::array<uint32_t, kSharedAntennaStageSteps> expectedOrder {
+            kBtControl2, kMciControl, kGlobal,        kBtControl3,
+            kPcuMisc,    kLnaTimeout, kMciAttributes, kMciTransmitControl,
+        };
+        for (const auto &topology : {one, two})
+        {
+            Mock mock {};
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                    .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            // The hardware owns the upper write-pointer half of GPM_1.
+            // It is not an MCI ring-size mismatch after DMA staging.
+            find(mock, kMciGpmEntries)->bits |= 0x00020000U;
+            mock.writes = mock.reads = mock.permits = 0U;
+            const auto result = stageAr9565SharedMciAntenna(
+                physicalBoard, evidence, physicalDma, topology, io(mock));
+            if (result.result != CoexistenceResult::Ok ||
+                result.requiresReset ||
+                result.completedWrites != kSharedAntennaStageSteps ||
+                result.completedReads !=
+                    kSharedMciStageSteps + kSharedAntennaStageSteps * 2U ||
+                mock.writes != kSharedAntennaStageSteps ||
+                find(mock, kMciInterrupt)->bits != 0U ||
+                find(mock, kSelfGen)->bits != 0U ||
+                find(mock, kGlobal)->bits != kSeed ||
+                find(mock, kPcuMisc)->bits != (kSeed & ~kAntennaPreventsRx) ||
+                find(mock, kLnaTimeout)->bits !=
+                    ((kSeed & ~kLnaTimeoutMask) | kLnaTimeoutValue) ||
+                find(mock, kBtControl3)->bits != ((kSeed & ~0xfffU) | 20U) ||
+                find(mock, kMciAttributes)->bits != kMciAttributeValue)
+            {
+                return false;
+            }
+            for (size_t index = 0; index < expectedOrder.size(); ++index)
+            {
+                if (mock.writeOrder.at(index) != expectedOrder.at(index))
+                {
+                    return false;
+                }
+            }
+            const bool shared = topology.topology ==
+                                SharedMciAntennaTopology::OneSharedPaAndLna;
+            if (find(mock, kMciControl)->bits !=
+                    (shared ? kOneAntennaMode : kTwoAntennaMode) ||
+                find(mock, kBtControl2)->bits !=
+                    ((kSeed & ~kTxChainAndRxDeweight) |
+                     (shared ? kOneAntennaTxChain : 0U)) ||
+                find(mock, kMciTransmitControl)->bits !=
+                    (shared ? (kSeed & ~kDisableLnaUpdate) : kSeed))
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            // Without a complete staged ring, or with a stale DMA address,
+            // no part of the live antenna configuration may be published.
+            if (stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, one, io(mock))
+                        .result != CoexistenceResult::ReadbackMismatch ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                    .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = 0;
+            auto badDma = physicalDma;
+            badDma.gpmBusAddress += kInvalidGpmOffset;
+            if (stageAr9565SharedMciAntenna(physicalBoard, evidence, badDma,
+                                            one, io(mock))
+                        .result != CoexistenceResult::InvalidDma ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            auto unsupported = one;
+            unsupported.physicallyVerifiedTopology = false;
+            if (stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, unsupported, io(mock))
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            unsupported = one;
+            unsupported.topology = SharedMciAntennaTopology::Unknown;
+            if (stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, unsupported, io(mock))
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            auto stale = evidence;
+            stale.coexistenceAndAntennaLease = false;
+            if (stageAr9565SharedMciAntenna(physicalBoard, stale, physicalDma,
+                                            one, io(mock))
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            auto shortBar = io(mock);
+            shortBar.io.barLengthBytes = kGlobal;
+            if (stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, one, shortBar)
+                        .result != CoexistenceResult::InvalidBar ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+        }
+        for (size_t changed = 0; changed < 3U; ++changed)
+        {
+            Mock mock {};
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                    .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = mock.reads = mock.permits = 0U;
+            const uint32_t offset = changed == 0U   ? kSelfGen
+                                    : changed == 1U ? kMciInterrupt
+                                                    : kMciScheduleAddress;
+            find(mock, offset)->bits ^= 0x1U;
+            const auto result = stageAr9565SharedMciAntenna(
+                physicalBoard, evidence, physicalDma, one, io(mock));
+            if (result.result != CoexistenceResult::ReadbackMismatch ||
+                result.requiresReset || mock.writes != 0U)
+            {
+                return false;
+            }
+        }
+        for (size_t scenario = 0; scenario < 4U; ++scenario)
+        {
+            Mock mock {};
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                    .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = mock.reads = mock.permits = 0U;
+            if (scenario == 0U)
+            {
+                mock.failRead = 1U; // Preflight cannot modify hardware.
+            }
+            else if (scenario == 1U)
+            {
+                mock.failRead = 12U; // Second register readback failed.
+            }
+            else if (scenario == 2U)
+            {
+                mock.failWrite = 2U;
+            }
+            else
+            {
+                mock.revokeAfter = 3U;
+            }
+            const auto result = stageAr9565SharedMciAntenna(
+                physicalBoard, evidence, physicalDma, one, io(mock));
+            const auto expected = scenario < 2U ? CoexistenceResult::ReadFailed
+                                  : scenario == 2U
+                                      ? CoexistenceResult::WriteFailed
+                                      : CoexistenceResult::OwnershipLost;
+            if (result.result != expected ||
+                result.requiresReset != (scenario != 0U) ||
+                mock.writes != (scenario == 0U   ? 0U
+                                : scenario == 1U ? 2U
+                                : scenario == 2U ? 2U
+                                                 : 3U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool sharedGpmTests()
     {
         constexpr uint32_t kRingEntries = 16U;
@@ -511,6 +729,10 @@ int main()
     if (!sharedMciTests())
     {
         return kFailedSharedMci;
+    }
+    if (!sharedAntennaTests())
+    {
+        return kFailedAntenna;
     }
     if (!sharedGpmTests())
     {

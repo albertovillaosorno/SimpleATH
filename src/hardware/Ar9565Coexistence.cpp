@@ -44,6 +44,24 @@ namespace simpleath
         constexpr uint32_t kMciDisableLnaUpdate = 0x4;
         constexpr uint32_t kBtCoexistenceControl = 0x18ac;
         constexpr uint32_t kBtCoexistenceControl2 = 0x1948;
+        constexpr uint32_t kBtCoexistenceControl3 = 0x1a60;
+        constexpr uint32_t kPcuMisc = 0x8120;
+        constexpr uint32_t kBtLnaTimeout = 0x1940;
+        constexpr uint32_t kMciMessageAttributes = 0x1814;
+        constexpr uint32_t kMciGpmConfiguredLengthMask = 0x0000ffffU;
+        constexpr uint32_t kBtTxChainMask = 0x00380000U;
+        constexpr uint32_t kBtAntennaPreventsRx = 0x00100000U;
+        constexpr uint32_t kBtLnaTimeoutMask = 0x003fffffU;
+        constexpr uint32_t kBtContInfoTimeoutMask = 0x00000fffU;
+        constexpr uint32_t kMciMessageAttributesValue = 0xe8010000U;
+        constexpr uint32_t kBtSharedRxChain = 0x00000200U;
+        constexpr uint32_t kBtMciBaseMode = 0x00000003U;
+        constexpr uint32_t kBtSharedPaAndLna = 0x00000018U;
+        constexpr uint32_t kBtOneAntenna = 0x00000080U;
+        constexpr uint32_t kBtTwoAntennas = 0x00000100U;
+        constexpr uint32_t kBtOneTxChain = 0x00080000U;
+        constexpr uint32_t kBtLnaTimeoutValue = 0x0003d090U;
+        constexpr uint32_t kBtContInfoTimeoutValue = 20U;
         constexpr uint32_t kBtTransmitChainMask = 0x00380000;
         constexpr uint32_t kBtRxDeweight = 0x00400000;
         constexpr uint32_t kGlobalControl = 0x20044;
@@ -60,6 +78,20 @@ namespace simpleath
                 uint32_t mask;
                 uint32_t value;
         };
+
+        bool validSharedDma(const SharedMciDmaBuffers &buffers)
+        {
+            return buffers.scheduleBytes == kAr9565MciScheduleBytes &&
+                   buffers.gpmBytes == kAr9565MciGpmBytes &&
+                   buffers.gpmEntries == kAr9565MciGpmEntries &&
+                   buffers.scheduleBusAddress != 0U &&
+                   (buffers.scheduleBusAddress & kMciDmaAlignmentMask) == 0U &&
+                   buffers.scheduleBusAddress <=
+                       UINT32_MAX -
+                           (kAr9565MciScheduleBytes + kAr9565MciGpmBytes) &&
+                   buffers.gpmBusAddress ==
+                       buffers.scheduleBusAddress + kAr9565MciScheduleBytes;
+        }
 
         bool permit(const RfIniBackend &io, CoexistenceProgress &status)
         {
@@ -155,15 +187,7 @@ namespace simpleath
         // Require those exact physical lengths/ordering; never publish
         // guessed IOVAs or the CPU's virtual addresses to the silicon.
         progress.result = CoexistenceResult::InvalidDma;
-        if (buffers.scheduleBytes != kAr9565MciScheduleBytes ||
-            buffers.gpmBytes != kAr9565MciGpmBytes ||
-            buffers.gpmEntries != kAr9565MciGpmEntries ||
-            buffers.scheduleBusAddress == 0 ||
-            (buffers.scheduleBusAddress & kMciDmaAlignmentMask) != 0 ||
-            buffers.scheduleBusAddress >
-                UINT32_MAX - (kAr9565MciScheduleBytes + kAr9565MciGpmBytes) ||
-            buffers.gpmBusAddress !=
-                buffers.scheduleBusAddress + kAr9565MciScheduleBytes)
+        if (!validSharedDma(buffers))
         {
             return progress;
         }
@@ -187,6 +211,143 @@ namespace simpleath
             {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
         };
         progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &operation : operations)
+        {
+            if (!apply(stable, progress, operation))
+            {
+                return progress;
+            }
+        }
+        if (!permit(io, progress))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::Ok;
+        progress.requiresReset = false;
+        return progress;
+    }
+
+    CoexistenceProgress stageAr9565SharedMciAntenna(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers,
+        const SharedMciAntennaSelection &antenna, const RxAgcBackend &backend)
+    {
+        CoexistenceProgress progress {
+            CoexistenceResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0U ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBoard;
+        if (board.eepromVersion != 2 || board.txChainMask != kSingleChain ||
+            board.rxChainMask != kSingleChain ||
+            !board.calibrationPierBinsPlausible)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::MissingIsolation;
+        if (!evidence.physicallyVerifiedBoard || !evidence.bluetoothHostOwned ||
+            !evidence.coexistenceAndAntennaLease ||
+            !evidence.macAndAutoResponsesQuiesced ||
+            !evidence.mciEngineQuiesced || !evidence.initializedCoherentDma ||
+            !antenna.physicallyVerifiedTopology ||
+            antenna.topology == SharedMciAntennaTopology::Unknown)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidDma;
+        if (!validSharedDma(buffers))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBar;
+        if (io.barLengthBytes < kGlobalControl + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        // The same live owner must still observe exactly the disabled,
+        // DMA-staged controller. A prior successful stage return is not a
+        // substitute for checking the actual registers in this epoch.
+        const RegisterOperation staged[] {
+            {kSelfGeneratedMask, 0xffffffffU, 0U},
+            {kMciInterruptEnable, 0xffffffffU, 0U},
+            {kMciReceiveMessageEnable, 0xffffffffU, 0U},
+            {kMciRemoteCpuInterruptEnable, 0xffffffffU, 0U},
+            {kBtCoexistenceControl, kMciModeEnable, 0U},
+            {kMciGpmAddress, 0xffffffffU, buffers.gpmBusAddress},
+            {kMciGpmEntries, kMciGpmConfiguredLengthMask, buffers.gpmEntries},
+            {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
+        };
+        progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &expected : staged)
+        {
+            progress.lastOffset = expected.offset;
+            if (!permit(io, progress))
+            {
+                return progress;
+            }
+            uint32_t actual = 0U;
+            if (!stable.read32(io.context, expected.offset, &actual))
+            {
+                progress.result = CoexistenceResult::ReadFailed;
+                return progress;
+            }
+            ++progress.completedReads;
+            if ((actual & expected.mask) != (expected.value & expected.mask))
+            {
+                progress.result = CoexistenceResult::ReadbackMismatch;
+                return progress;
+            }
+        }
+        const bool oneShared =
+            antenna.topology == SharedMciAntennaTopology::OneSharedPaAndLna;
+        if (!oneShared &&
+            antenna.topology != SharedMciAntennaTopology::TwoIndependent)
+        {
+            progress.result = CoexistenceResult::MissingIsolation;
+            return progress;
+        }
+        // Pinned Linux ath9k ar9003_mci_set_btcoex_ctrl_9565_{1,2}ANT
+        // and ar9003_mci_reset. Do not enable MCI mode or interrupts here:
+        // RX/TX reset, Bluetooth GPM negotiation and power-policy ownership
+        // must occur later, under the same independently verified lease.
+        const RegisterOperation operations[] {
+            {
+                kBtCoexistenceControl2,
+                kBtTxChainMask | kBtRxDeweight,
+                oneShared ? kBtOneTxChain : 0U,
+            },
+            {
+                kBtCoexistenceControl,
+                0xffffffffU,
+                kBtMciBaseMode | kBtSharedRxChain |
+                    (oneShared ? kBtSharedPaAndLna | kBtOneAntenna
+                               : kBtTwoAntennas),
+            },
+            {kGlobalControl, 0x1U, 0x1U},
+            {
+                kBtCoexistenceControl3,
+                kBtContInfoTimeoutMask,
+                kBtContInfoTimeoutValue,
+            },
+            {kPcuMisc, kBtAntennaPreventsRx, 0U},
+            {kBtLnaTimeout, kBtLnaTimeoutMask, kBtLnaTimeoutValue},
+            {
+                kMciMessageAttributes,
+                0xffffffffU,
+                kMciMessageAttributesValue,
+            },
+            {
+                kMciTransmitControl,
+                kMciDisableLnaUpdate,
+                oneShared ? 0U : kMciDisableLnaUpdate,
+            },
+        };
         for (const RegisterOperation &operation : operations)
         {
             if (!apply(stable, progress, operation))
