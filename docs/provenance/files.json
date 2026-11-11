@@ -1,0 +1,3671 @@
+{
+  "schema": "simpleath.file-provenance.v1",
+  "files": [
+    {
+      "path": ".editorconfig",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".gitattributes",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".github/workflows/build.yml",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".gitignore",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/README.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/.clang-format",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/ruff.toml",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/src/.clang-tidy",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/src/pyrightconfig.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/support/.clang-tidy",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".jig/lint/support/pyrightconfig.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": ".references/ledger.jsonl",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "AGENTS.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "LICENSE-GPL",
+      "license": "GPL-2.0-only",
+      "license_file": "LICENSE-GPL",
+      "copyright": "Free Software Foundation license text",
+      "provenance": "GNU GPL version 2 license document",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "LICENSE-ISC",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Respective ISC-licensed source contributors",
+      "provenance": "ISC license notice text",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "LICENSE-MIT",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH maintainer-authored MIT license",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "README.md",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "SECURITY.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "TODO.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/ABI.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/Build.md",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/Control-Codecs.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/Native-Universal.md",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/ABI-EVIDENCE-ACQUISITION.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/AR9565-BRINGUP.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/EEPROM-PORT.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/LINUX-PORT-LEDGER.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/MACOS-INTEGRATION.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/NATIVE-DMA-BUFFERS.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/NATIVE-PCI-TRANSPORT.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/NATIVE-SCAN-CONTROL.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/NVM-READ-PROTOCOL.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/POWER-LIMITS.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/RTC-RESET-SOURCE.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/STATUS-AND-RECOVERY.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/TAHOE-25G332-KDK.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/WIFI-ENGINE-SOURCE.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/WIFI-MAC-AND-DMA.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/design/WPA2-CRYPTO-SOURCE.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/NATIVE-DMA-API-CANDIDATES.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/TAHOE-25G332-KDK-ACQUISITION.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/TAHOE-25G332-KDK-SYMBOLS.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/TAHOE-25G332-KERNEL-DMA-TYPES.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/TAHOE-25G332-PCI-DWARF-TYPES.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/evidence/TAHOE-ABI-SYMBOL-INVENTORY.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/completed/README.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/completed/integration/upstream-code-reuse.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/abi/exact-tahoe-abi.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/governance/linux-reference-retirement.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/governance/source-hardening.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/governance/validator-findings.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/hardware/eeprom-otp.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/integration/full-wifi-pipeline.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/integration/production-implementation.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/owner/owner-controlled-device-acceptance.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/platform/airdrop-awdl.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/platform/bluetooth-usb.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/platform/native-pci.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/platform/native-tahoe-airport.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/wifi/ieee80211-mac.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/todo/open/wifi/wpa2-ccmp.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "firmware/LICENCE.atheros_firmware",
+      "license": "NOASSERTION",
+      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Respective Qualcomm/Atheros rights holders",
+      "provenance": "linux-firmware notices and manifest (unmodified)",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "firmware/LICENSE.QualcommAtheros_ar3k",
+      "license": "NOASSERTION",
+      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Respective Qualcomm/Atheros rights holders",
+      "provenance": "linux-firmware notices and manifest (unmodified)",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x01020001.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "24844c16de86a54b44d34c83c78b67ef561c09a228769d8cb6975a0a8db455db"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x01020200.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "c064839aea2f8c5ea11da08ed1814adf26c0b74f0da5c7b92f9576bf1b43773b"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x01020201.dfu",
+      "license": "LicenseRef-QualcommAtheros-AR3K",
+      "license_file": "firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Copyright (c) 2015 Qualcomm Atheros, Inc.",
+      "provenance": "linux-firmware: Qualcomm AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "b7dad005c0d019f2785b302e470df7f483879af971a3dde16c4993eada4d4a26"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x11020000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "a15ce5593f65a3c099a70efed1238f7e0f87ca374d70c72fbdfe397dd1ab3bb3"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x11020100.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "0504043d9d17ce09ac829e5ae7dba6af739e136160c842e76d772d5fcb02a019"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x31010000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d0bc433c0ff69e53c54cb728f6852dd5467f417c615813b2e72b5b7dd556439d"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x31010100.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d0e20e32c84b42684829743475a53225e7116089393ac4c4970be136b8f3a2f6"
+    },
+    {
+      "path": "firmware/ar3k/AthrBT_0x41020000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "0807e12526dc8e0d6e0655710afb245ea7b097cd5b25495c86b7100429a703a3"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x01020001_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "515e51ac2b21afba8ba9a87ac8b53713b72f6461f316f1da0eb405f580e36ead"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x01020200_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "57a67ed2e45b4c826b7a3cafcee5328d511d25643105f15f82f310071ba339e3"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x01020200_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "162f381675f859e75e79a3d0327167e87f4c6e326a85972a12abefd569ed2ea4"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x01020201_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x01020201_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x11020000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "7e776dab8b7f74f830cb2b19629751717b5316c05a160a6430ee842d4dc666f6"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x11020100_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d10b989e90b1b18fa015df3c88d3beac6dba04c586663c0a7132e1fa2feb3f59"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x31010000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "c8404e5abc29ab8adb310fb13109009ca744f6145e3e7c9bd49b84680c5db615"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x31010100_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "a2f99c2d9565d55040c6956427d0662911c6c9dd6f12965f1470169b75b274ae"
+    },
+    {
+      "path": "firmware/ar3k/ramps_0x41020000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "4c20a37cb8af73948c2247eb1947bce127a0956c6b91b446104a413e4151c546"
+    },
+    {
+      "path": "firmware/manifest.json",
+      "license": "NOASSERTION",
+      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Respective Qualcomm/Atheros rights holders",
+      "provenance": "linux-firmware notices and manifest (unmodified)",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "licenses/GPL-2.0.txt",
+      "license": "GPL-2.0-only",
+      "license_file": "LICENSE-GPL",
+      "copyright": "Free Software Foundation license text",
+      "provenance": "GNU GPL version 2 license document",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "provenance/files.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "provenance/files.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "Generated file-level repository inventory; self-entry intentionally unhashed",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/Bridge.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Bridge.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/HardwareIdentity.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Info.plist",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/Loader.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Loader.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/NativeProfile.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/NativeSkywalk.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/NativeSkywalk.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/NativeUserClient.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/NativeUserClient.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Patcher.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Patcher.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Payload.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Profiles.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/Relocate.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/SimpleATH.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/UserClient.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/UserClient.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/WirelessABI.hpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/Ath3kUsb.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/Ath3kUsb.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/LeAdvertising.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/LeAdvertising.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/LeDiscovery.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/LeDiscovery.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/UsbBytes.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/UsbHci.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/UsbHci.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/UsbHciEndpointSelector.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/bluetooth/UsbHciEndpointSelector.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/diagnostics/DiagnosticPolicy.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/diagnostics/NativeDiagnostics.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003Descriptors.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003Descriptors.hpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003Dma.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003Dma.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003TxControl.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9003TxControl.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Ani.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Ani.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565AniMib.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565AniMib.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565BoardModal.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565BoardModal.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Calibration.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Calibration.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Channel.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Channel.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Coexistence.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Coexistence.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Core.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Core.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Eeprom.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Eeprom.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565InitCatalog.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565InitCatalog.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565KeyCache.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565KeyCache.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565MacControl.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565MacControl.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565NvmReader.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565NvmReader.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565OfdmTiming.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565OfdmTiming.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565PhyMode.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565PhyMode.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Pll.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Pll.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Power.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Power.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RadioSequence.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RadioSequence.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Regulator.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565Regulator.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RfBus.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RfBus.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RfIni.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RfIni.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RtcPower.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RtcPower.hpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RxTsf.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/Ar9565RxTsf.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/generated/Ar9300EepromTemplates.hpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/hardware/generated/Ar9565InitTables.hpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativeDma.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativeDma.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativePci.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativePci.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativeQueues.cpp",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565NativeQueues.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565PciSession.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Ar9565PciSession.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/Kernel.xcconfig",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/KernelPlacementNew.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/SimpleATH.xcodeproj/project.pbxproj",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/SimpleATH.xcodeproj/xcshareddata/xcschemes/SimpleATH.xcscheme",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/SimpleATH.xcodeproj/xcshareddata/xcschemes/athprobe.xcscheme",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/abi/Sequoia.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/abi/Sonoma.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/abi/Tahoe.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/abi/manifest.json",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/platform/bluetooth/NativeAth3kIo.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/bluetooth/NativeAth3kIo.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/bluetooth/SimpleATHUsbBluetooth.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/bluetooth/SimpleATHUsbBluetooth.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/probe/main.mm",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/NativeWirelessEpoch.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/NativeWirelessOwner.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/SimpleATHInfraProtocol.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/SimpleATHInfraProtocol.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/SimpleATHTahoeController.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/SimpleATHTahoeController.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeApple80211Values.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeCapabilities.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeCapture.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeCapture.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeControllerABI.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeDataPathAdmission.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeInfraOperations.inc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeInterfaceABI.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeJoinCodec.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeJoinEvents.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeJoinSession.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoePacketPath.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoePacketPath.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeScanCodec.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeWirelessTransport.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/platform/tahoe/TahoeWirelessTransport.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/AwdlAction.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/AwdlAction.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/DataFrames.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/DataFrames.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/DataPath.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/DataPath.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Eapol.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Eapol.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Frames.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Frames.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/LegacyScanBridge.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/LegacyScanBridge.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/LinkMonitor.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/LinkMonitor.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/NativePortSecurityAdmission.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/ScanCache.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/ScanCache.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Station.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Station.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/WifiEngine.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/WifiEngine.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Wpa2Supplicant.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/Wpa2Supplicant.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/AesTables.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Ccmp.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Ccmp.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Wpa2CryptoAdapter.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Wpa2CryptoAdapter.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Wpa2Primitives.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/crypto/Wpa2Primitives.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/.clang-tidy",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/README.md",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/__init__.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/fixtures/patcher_route/route_test.cpp.in",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9300_templates.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_ani.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_ani.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_ani_mib.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_ani_mib.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_board_modal.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_board_modal.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_calibration.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_calibration.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_channel.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_channel.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_coexistence.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_coexistence.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_core.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_core.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_keycache.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_keycache.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_ofdm_timing.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_ofdm_timing.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_phy_mode.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_phy_mode.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_pll.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_pll.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_radio_sequence.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_radio_sequence.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_regulator.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_regulator.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_rfbus.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_rfbus.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ar9565_rx_tsf.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ar9565_rx_tsf.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ath3k_firmware_resources.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_audit_codecs_blocks.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_awdl_action.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_awdl_action.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_awdl_rx_tsf_integration.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_awdl_rx_tsf_integration.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_bluetooth_advertising.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_bluetooth_advertising.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_bluetooth_endpoints.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_bluetooth_endpoints.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_bluetooth_hci_poll.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_bluetooth_hci_poll.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_bluetooth_le.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_bluetooth_le.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_bluetooth_usb.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_bluetooth_usb.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_build_contract.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ccmp.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ccmp.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_ci_workflow.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_code_reuse.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_collect_platform_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_compile_commands.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_data_frames.mm",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_data_frames.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_diagnostic_policy.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_disassociation.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_disassociation.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_dma_ring.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_dma_ring.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_edma_codec.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_edma_codec.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_eeprom_piers.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_eeprom_piers.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_embed_generation.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_embed_parser.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_embed_payload_delta.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_embed_relocations.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_embed_route_prefix.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ethernet_delivery.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_ethernet_delivery.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_init_catalog.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_init_catalog.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_inspect_kdk_inventory.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_inspect_macho_inventory.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_inspect_platform_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_inspect_platform_abi_contract.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_inspect_reference_inventory.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_kernel_collection.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_kernel_headers.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_mac_quiesce.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_mac_quiesce.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_macho_bounded_streams.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_macho_header.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_macho_relocations.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_management_admission.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_management_admission.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_manual_debug.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_abi_macho.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_abi_model.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_abi_vtable.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_apple_kernel_headers.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_bundle_dependencies.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_metaclass_allocation.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_payload_contract.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_payload_guards.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_payload_patches.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_port_security.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_reference_exports.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_reference_manifest.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_reference_snapshots.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_references_cli.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_wireless_epoch.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_nvm_contract.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_nvm_contract.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_nvm_discovery.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_nvm_discovery.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_open_station_pipeline.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_open_station_pipeline.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_patcher_route.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_pci_session.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_pci_session.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_power_candidates.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_power_candidates.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_profiles_codegen.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_profiles_helpers.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_publish.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_release_guard.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_relocate_safety.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_relocate_safety.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_rf_ini.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_rf_ini.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_rtc_power.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_rtc_power.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_scan_bridge.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_scan_bridge.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_scoped_lint_policy.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_source_fingerprint.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_station_amsdu.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_station_amsdu.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_station_mac.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_station_mac.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_tahoe_apple80211_sdk_headers.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_apple80211_values.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_capabilities.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_join_codec.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_join_codec.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_tahoe_join_pipeline.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_join_pipeline.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_tahoe_join_session.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_native_boot_trace.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_native_sdk_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_tahoe_scan_codec.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_validate.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_verification_runtime.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_verify_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_verify_native.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wifi_engine.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wifi_engine.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_wireless_abi_bounds.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wpa2_adapter_entropy.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wpa2_adapter_entropy.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_wpa2_public_alias.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wpa2_public_alias.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_wpa2_supplicant_alias.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_wpa2_supplicant_alias.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tools/.clang-tidy",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tools/__init__.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/abi_types.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/abi_validation_host.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/audit_codecs.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/bootstrap.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/bootstrap_sdk.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/build.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/build_tag.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/check.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/collect.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/collect_platform_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/debug/.gitignore",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tools/debug/SimpleATH-debug.command",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/debug/__init__.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/debug/simpleath_debug.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/embed.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/embed_macho_parser.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/embed_payload_codec.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/firmware/embed_ar3k.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/forwarding_validation_host.cpp",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/generate_ar9300_templates.py",
+      "license": "ISC",
+      "license_file": "LICENSE-ISC",
+      "copyright": "Original Atheros / Qualcomm Atheros copyright holders",
+      "provenance": "Linux ath9k-derived material; preserve original in-file notices and source hashes",
+      "kind": "code"
+    },
+    {
+      "path": "tools/generate_ar9565_ini.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/generate_compile_commands.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/inspect_platform_abi.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/kernel_collection.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/macho.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_abi.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_apple_kernel_headers.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_forwarding_probe.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_invariants.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_payload.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_payload_strings.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/native_references.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/profiles.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/publish.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/references/download.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/release_guard.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/source_fingerprint.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/system_profiles.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/validate.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/verification_runtime.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tools/verify.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    },
+    {
+      "path": "tools/verify_native.py",
+      "license": "NOASSERTION",
+      "license_file": "THIRD_PARTY_NOTICES.md",
+      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
+      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "kind": "code"
+    }
+  ]
+}
