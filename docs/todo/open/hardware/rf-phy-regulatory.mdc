@@ -299,3 +299,14 @@ does **not** establish Bluetooth negotiation, physical coexistence, active
 RF, Wi-Fi, scanning or AirDrop readiness. The RF/PHY/regulatory TODO remains
 open until native board/clock/regulatory proof and complete RF + BT leases
 are actually implemented.
+
+A follow-up fail-closed transaction audit additionally revokes the attached
+MCI GPM cursor on a partial command write, unreadable or ambiguous RAW status,
+controller-rejected query, 500-us timeout, or same-epoch owner replacement
+inside a synchronous command callback. Even a caller that ignores the
+`requiresReset` result can no longer resend with the stale cursor; only
+the independently gated physical reset path can reattach it. Clean preflight
+denials leave the cursor attached and perform no writes. Synthetic regression
+coverage includes rejected second sends, stale callbacks and unreadable
+status before transmission. These are owner-safety constraints, **not**
+proof of a live Bluetooth host handshake or physical MCI bus arbitration.

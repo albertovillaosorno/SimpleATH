@@ -195,11 +195,12 @@ namespace simpleath
     // attached the epoch's ring cursor and independently leased awake BT.
     // This never grants antenna/RF readiness or interprets the response.
     // The native owner must eventually consume the matching GPM response.
-    // Ambiguous writes, timeout or failed status acknowledgement require
-    // a full owner reset before another MCI command.
+    // Ambiguous writes, timeout or failed status acknowledgement revoke
+    // the live GPM cursor: a full owner reset/reattach is required before
+    // any further MCI command. A successful query preserves the cursor.
     CoexistenceProgress sendAr9565MciCoexQuery(
         const BoardDataSummary &board, const SharedMciEvidence &evidence,
-        const SharedMciDmaBuffers &buffers, const MciGpmCursor &cursor,
+        const SharedMciDmaBuffers &buffers, MciGpmCursor &cursor,
         const MciCoexTransmitEvidence &transmit, MciCoexQuery query,
         const RxAgcBackend &backend);
 

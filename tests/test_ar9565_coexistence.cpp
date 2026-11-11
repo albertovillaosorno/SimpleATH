@@ -130,6 +130,7 @@ namespace
             bool finishMciCommand {true};
             bool failMciCommand {};
             bool bluetoothSleepsAfterCommand {};
+            MciGpmCursor *revokeCursorAtCommand {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -217,6 +218,10 @@ namespace
             if (mock.bluetoothSleepsAfterCommand)
             {
                 find(mock, kMciReceiveStatus)->bits |= kMciBtAsleep;
+            }
+            if (mock.revokeCursorAtCommand != nullptr)
+            {
+                mock.revokeCursorAtCommand->attached = false;
             }
         }
         if (mock.invalidateGpmAfterReset && address == kMciCommand2 &&
@@ -893,12 +898,12 @@ namespace
                 : scenario == 7U ? CoexistenceResult::ReadbackMismatch
                                  : CoexistenceResult::InvalidGpm;
             if (result.result != expected || result.requiresReset ||
-                mock.writes != 0U)
+                !cursor.attached || mock.writes != 0U)
             {
                 return false;
             }
         }
-        for (size_t scenario = 0U; scenario < 9U; ++scenario)
+        for (size_t scenario = 0U; scenario < 10U; ++scenario)
         {
             Mock mock {};
             MciGpmCursor cursor {};
@@ -942,11 +947,17 @@ namespace
                 find(mock, kMciInterruptRaw)->bits = kMciCommandDone;
                 mock.skipWrite = 1U;
             }
-            else
+            else if (scenario == 8U)
             {
                 // Refuse TX if the posted nonzero GPM type/opcode word did
                 // not really reach hardware; never issue COMMAND0.
                 mock.skipWrite = 2U;
+            }
+            else
+            {
+                // The hardware send completes, but the MCI/GPM owner is
+                // synchronously replaced while handling COMMAND0.
+                mock.revokeCursorAtCommand = &cursor;
             }
             const auto result = sendAr9565MciCoexQuery(
                 physicalBoard, evidence, dma, cursor, transmitLease,
@@ -959,11 +970,59 @@ namespace
                 : scenario == 4U ? CoexistenceResult::MissingIsolation
                 : scenario == 5U ? CoexistenceResult::ReadbackMismatch
                 : scenario == 6U ? CoexistenceResult::ReadFailed
+                : scenario == 9U ? CoexistenceResult::OwnershipLost
                                  : CoexistenceResult::ReadbackMismatch;
             if (result.result != expected || !result.requiresReset ||
-                (scenario == 7U && mock.writes != 1U) ||
+                cursor.attached || (scenario == 7U && mock.writes != 1U) ||
                 (scenario == 0U && mock.delays != 500U) ||
                 (scenario == 8U && find(mock, kMciCommand0)->bits != 0U))
+            {
+                return false;
+            }
+            // Even if callers ignore requiresReset, detachment must deny
+            // another command without any new MMIO or hidden send.
+            const size_t priorWrites = mock.writes;
+            const auto rejected = sendAr9565MciCoexQuery(
+                physicalBoard, evidence, dma, cursor, transmitLease,
+                MciCoexQuery::Version, io(mock));
+            if (rejected.result != CoexistenceResult::MissingIsolation ||
+                rejected.requiresReset || mock.writes != priorWrites)
+            {
+                return false;
+            }
+        }
+        // Fail-closed RAW status reads revoke a cursor; observing BT sleep
+        // is a clean preflight denial and preserves it.
+        for (size_t scenario = 0U; scenario < 3U; ++scenario)
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            if (scenario == 0U)
+            {
+                mock.failRead = 9U;
+            }
+            else if (scenario == 1U)
+            {
+                find(mock, kMciInterruptRaw)->bits = 0xdeadbeefU;
+            }
+            else
+            {
+                find(mock, kMciReceiveStatus)->bits = kMciBtAsleep;
+            }
+            const auto result = sendAr9565MciCoexQuery(
+                physicalBoard, evidence, dma, cursor, transmitLease,
+                MciCoexQuery::Version, io(mock));
+            const auto expected = scenario == 0U ? CoexistenceResult::ReadFailed
+                                  : scenario == 1U
+                                      ? CoexistenceResult::ReadbackMismatch
+                                      : CoexistenceResult::MissingIsolation;
+            if (result.result != expected || mock.writes != 0U ||
+                result.requiresReset != (scenario != 2U) ||
+                cursor.attached != (scenario == 2U))
             {
                 return false;
             }

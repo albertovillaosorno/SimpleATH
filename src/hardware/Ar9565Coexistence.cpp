@@ -455,6 +455,64 @@ namespace simpleath
             return false;
         }
 
+        bool readMciOrRevoke(const RxAgcBackend &backend,
+                             CoexistenceProgress &progress,
+                             MciGpmCursor &cursor, uint32_t address,
+                             uint32_t &value)
+        {
+            if (readMciPendingRaw(backend, progress, address, value))
+            {
+                return true;
+            }
+            if (progress.requiresReset)
+            {
+                cursor.attached = false;
+            }
+            return false;
+        }
+
+        bool acknowledgeMciOrRevoke(const RxAgcBackend &backend,
+                                    CoexistenceProgress &progress,
+                                    MciGpmCursor &cursor, uint32_t mask)
+        {
+            if (acknowledgeMciPendingRaw(backend, progress, kMciInterruptRaw,
+                                         mask))
+            {
+                return true;
+            }
+            if (progress.requiresReset)
+            {
+                cursor.attached = false;
+            }
+            return false;
+        }
+
+        bool submitMciOrRevoke(const RxAgcBackend &backend,
+                               CoexistenceProgress &progress,
+                               MciGpmCursor &cursor, MciCoexQuery query)
+        {
+            if (writeMciCoexCommand(backend, progress, query) &&
+                waitMciCoexCommand(backend, progress))
+            {
+                // Synchronous MMIO/BT callbacks may revoke the cursor during
+                // command completion without changing the owner epoch. Never
+                // publish success for a detached or replaced GPM owner.
+                if (cursor.attached &&
+                    cursor.ownerEpoch == backend.io.ownerEpoch)
+                {
+                    return true;
+                }
+                progress.result = CoexistenceResult::OwnershipLost;
+                progress.requiresReset = true;
+            }
+            if (progress.requiresReset)
+            {
+                // A caller ignoring requiresReset cannot reuse this cursor.
+                cursor.attached = false;
+            }
+            return false;
+        }
+
     } // namespace
 
     CoexistenceProgress stageAr9565SharedMciDma(
@@ -790,7 +848,7 @@ namespace simpleath
 
     CoexistenceProgress sendAr9565MciCoexQuery(
         const BoardDataSummary &board, const SharedMciEvidence &evidence,
-        const SharedMciDmaBuffers &buffers, const MciGpmCursor &cursor,
+        const SharedMciDmaBuffers &buffers, MciGpmCursor &cursor,
         const MciCoexTransmitEvidence &transmit, MciCoexQuery query,
         const RxAgcBackend &backend)
     {
@@ -852,8 +910,8 @@ namespace simpleath
             }
         }
         uint32_t receiveStatus = 0U;
-        if (!readMciPendingRaw(stable, progress, kMciReceiveStatus,
-                               receiveStatus))
+        if (!readMciOrRevoke(stable, progress, cursor, kMciReceiveStatus,
+                             receiveStatus))
         {
             return progress;
         }
@@ -863,7 +921,8 @@ namespace simpleath
             return progress;
         }
         uint32_t currentGpm = 0U;
-        if (!readMciPendingRaw(stable, progress, kMciGpmEntries, currentGpm))
+        if (!readMciOrRevoke(stable, progress, cursor, kMciGpmEntries,
+                             currentGpm))
         {
             return progress;
         }
@@ -874,19 +933,18 @@ namespace simpleath
             return progress;
         }
         uint32_t raw = 0U;
-        if (!readMciPendingRaw(stable, progress, kMciInterruptRaw, raw))
+        if (!readMciOrRevoke(stable, progress, cursor, kMciInterruptRaw, raw))
         {
             return progress;
         }
         // Clear ONLY old command completion/failure W1C bits. Any other
         // interrupt remains pending for the independent RX/MCI consumer.
-        if (!acknowledgeMciPendingRaw(stable, progress, kMciInterruptRaw,
-                                      raw & kMciTransmitStatusMask))
+        if (!acknowledgeMciOrRevoke(stable, progress, cursor,
+                                    raw & kMciTransmitStatusMask))
         {
             return progress;
         }
-        if (!writeMciCoexCommand(stable, progress, query) ||
-            !waitMciCoexCommand(stable, progress))
+        if (!submitMciOrRevoke(stable, progress, cursor, query))
         {
             return progress;
         }
