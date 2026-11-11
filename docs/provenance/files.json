@@ -442,6 +442,14 @@
       "kind": "data-or-document"
     },
     {
+      "path": "docs/todo/completed/governance/validator-findings.mdc",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "Original SimpleATH validation task and completion record.",
+      "kind": "data-or-document"
+    },
+    {
       "path": "docs/todo/completed/integration/upstream-code-reuse.mdc",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -467,14 +475,6 @@
     },
     {
       "path": "docs/todo/open/governance/source-hardening.mdc",
-      "license": "MIT",
-      "license_file": "LICENSE-MIT",
-      "copyright": "Copyright © 2026 Alberto Villa Osorno",
-      "provenance": "SimpleATH original; independently developed or locally authored",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "docs/todo/open/governance/validator-findings.mdc",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
