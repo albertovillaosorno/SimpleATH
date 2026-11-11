@@ -231,6 +231,73 @@ namespace
         return 0;
     }
 
+    uint32_t nextMalformedByte(uint32_t &seed)
+    {
+        // Reproducible, bounded byte-stream fuzzing; not a cryptographic RNG.
+        seed ^= seed << 13U;
+        seed ^= seed >> 17U;
+        seed ^= seed << 5U;
+        return seed;
+    }
+
+    int malformedFuzzContract()
+    {
+        DataReassembly receiver;
+        DataFrameView view {};
+        uint32_t seed = 0x9565a55aU;
+        uint64_t time = 0U;
+        // Include truncated, maximal and over-limit lengths, both ordinary
+        // and QoS data framing, arbitrary address/sequence flags, and random
+        // payloads. Every output must remain bounded and all rejected/pending
+        // states must revoke borrowed payload views.
+        for (size_t trial = 0; trial < 20000U; ++trial)
+        {
+            const size_t length =
+                static_cast<size_t>(nextMalformedByte(seed) % 2400U);
+            std::vector<uint8_t> frame(length, 0U);
+            for (auto &octet : frame)
+            {
+                octet = static_cast<uint8_t>(nextMalformedByte(seed));
+            }
+            if (length >= 2U && trial % 3U != 0U)
+            {
+                frame[0] = trial % 2U == 0U ? 0x08U : 0x88U;
+                frame[1] = static_cast<uint8_t>(frame[1] &
+                                                static_cast<uint8_t>(0x4eU));
+                frame[1] |= 0x02U; // FromDS infrastructure data.
+            }
+            if (trial % 11U == 0U && time != 0U)
+            {
+                --time; // Reject a backwards fragment clock.
+            }
+            else
+            {
+                time += static_cast<uint64_t>(trial % 7U);
+            }
+            const auto result =
+                receiver.ingest(frame.data(), frame.size(), time, view);
+            if (result == DataFragmentResult::Complete)
+            {
+                Frame canonical {};
+                if (view.bytes == nullptr || view.length == 0U ||
+                    view.length > kDataReassembledBytes ||
+                    parseFrame(view.bytes, view.length, canonical) !=
+                        Result::Ok ||
+                    canonical.type != FrameType::Data ||
+                    canonical.moreFragments || canonical.fragment != 0U)
+                {
+                    return __LINE__;
+                }
+            }
+            else if (view.bytes != nullptr || view.length != 0U)
+            {
+                return __LINE__;
+            }
+        }
+        receiver.clear();
+        return 0;
+    }
+
     std::array<uint8_t, 49> beacon()
     {
         std::array<uint8_t, 49> frame {};
@@ -452,5 +519,10 @@ namespace
 int main()
 {
     const int data = dataContract();
-    return data != 0 ? data : engineContract();
+    if (data != 0)
+    {
+        return data;
+    }
+    const int fuzz = malformedFuzzContract();
+    return fuzz != 0 ? fuzz : engineContract();
 }
