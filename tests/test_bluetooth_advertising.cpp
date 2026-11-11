@@ -76,6 +76,8 @@ namespace
             bool reenterOnAuthorization {};
             bool reenterOnPermit {};
             bool revokeStateOnPermit {};
+            bool replaceSamePhaseOnPermit {};
+            LeAdvertisingResult (*replaceSamePhase)(void *) {};
             bool stopOnAuthorization {};
             bool revokeStateOnAuthorization {};
             void *reentryContext {};
@@ -98,6 +100,11 @@ namespace
         {
             fake.revokeStateOnPermit = false;
             fake.revokeState(fake.reentryContext);
+        }
+        if (fake.replaceSamePhaseOnPermit && fake.replaceSamePhase != nullptr)
+        {
+            fake.replaceSamePhaseOnPermit = false;
+            fake.reentryResult = fake.replaceSamePhase(fake.reentryContext);
         }
         if (fake.reenterOnPermit && fake.reenter != nullptr)
         {
@@ -232,6 +239,23 @@ namespace
                 return static_cast<Fixture *>(context)->begin();
             }
 
+            static LeAdvertisingResult replaceAwaitParameters(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                // Retire the advertising producer without resetting USB.
+                // Then consume its old command response and start a new
+                // operation on the SAME physical epoch and pending phase.
+                fixture.revoke();
+                if (receiveUsbHciEvent(fixture.transport_, fixture.host(),
+                                       kParametersComplete.data(),
+                                       kParametersComplete.size()) !=
+                    UsbHciStatus::Ok)
+                {
+                    return LeAdvertisingResult::Faulted;
+                }
+                return fixture.begin();
+            }
+
             static LeAdvertisingResult stopDuringAuthorization(void *context)
             {
                 return static_cast<Fixture *>(context)->stop();
@@ -276,6 +300,11 @@ namespace
             uint64_t epoch() const
             {
                 return advertising_.epoch;
+            }
+
+            void exhaustGeneration()
+            {
+                advertising_.generation = UINT64_MAX;
             }
 
             LeAdvertisingOwner owner()
@@ -713,6 +742,51 @@ namespace
         return 0;
     }
 
+    int exhaustedSessionGeneration()
+    {
+        Fixture fixture {};
+        if (!fixture.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        fixture.exhaustGeneration();
+        if (fixture.begin() != LeAdvertisingResult::Faulted ||
+            fixture.fake().commandCount != 0U ||
+            fixture.phase() != LeAdvertisingPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        fixture.revoke();
+        return fixture.begin() == LeAdvertisingResult::Faulted &&
+                       fixture.fake().commandCount == 0U
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
+    int sameEpochPhaseReplacement()
+    {
+        Fixture fixture {};
+        if (!fixture.attach() || fixture.begin() != LeAdvertisingResult::Ok ||
+            fixture.phase() != LeAdvertisingPhase::AwaitParameters)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        fixture.fake().replaceSamePhaseOnPermit = true;
+        fixture.fake().replaceSamePhase = Fixture::replaceAwaitParameters;
+        fixture.fake().reentryContext = &fixture;
+        // Phase and physical epoch match the old operation after reentry.
+        // A stale outer stop must NOT cancel the successor's live setup.
+        return fixture.stop() == LeAdvertisingResult::OwnershipLost &&
+                       fixture.fake().reentryResult ==
+                           LeAdvertisingResult::Ok &&
+                       fixture.phase() == LeAdvertisingPhase::AwaitParameters &&
+                       fixture.epoch() == kOwnerEpoch &&
+                       !fixture.stopRequested() &&
+                       fixture.fake().commandCount == 2U
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
     int errorsAndOwnership()
     {
         Fixture failed {};
@@ -797,6 +871,14 @@ int main()
     if (const int revoked = revokedInsidePermit())
     {
         return revoked;
+    }
+    if (const int exhausted = exhaustedSessionGeneration())
+    {
+        return exhausted;
+    }
+    if (const int replaced = sameEpochPhaseReplacement())
+    {
+        return replaced;
     }
     if (const int inlineResult = inlineControllerResponses())
     {

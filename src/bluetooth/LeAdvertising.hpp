@@ -60,6 +60,10 @@ namespace simpleath
     {
             UsbBytes<uint8_t, kLeAdvertisingDataBytes> data {};
             uint64_t epoch {};
+            // Monotonic within this state object's lifetime. A host callback
+            // may revoke and restart advertising in the SAME physical epoch.
+            // Never reuse an exhausted generation for a fresh session.
+            uint64_t generation {};
             size_t dataBytes {};
             uint16_t interval {};
             LeAdvertisingPhase phase {LeAdvertisingPhase::Idle};

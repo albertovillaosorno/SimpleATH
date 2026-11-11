@@ -33,6 +33,15 @@ namespace simpleath
             return result;
         }
 
+        void clearAdvertising(LeAdvertisingState &state)
+        {
+            const uint64_t next = state.generation == UINT64_MAX
+                                      ? UINT64_MAX
+                                      : state.generation + 1U;
+            state = {};
+            state.generation = next;
+        }
+
         bool ownerValid(const LeAdvertisingOwner &owner)
         {
             return owner.context != nullptr && owner.epoch != 0U &&
@@ -52,23 +61,28 @@ namespace simpleath
                 return false;
             }
             const LeAdvertisingPhase phase = state.phase;
-            const uint64_t generation = transport.generation;
+            const uint64_t sessionGeneration = state.generation;
+            const uint64_t transportGeneration = transport.generation;
             // Host permission may synchronously revoke advertising or
             // replace the HCI transport before returning true.
             const bool permitted = owner.permit(owner.context, owner.epoch);
             return permitted && state.phase == phase &&
+                   state.generation == sessionGeneration &&
                    state.epoch == owner.epoch && transport.attached &&
                    !transport.faulted && transport.epoch == owner.epoch &&
-                   transport.generation == generation;
+                   transport.generation == transportGeneration;
         }
 
         LeAdvertisingResult lostAuthorization(LeAdvertisingState &state,
                                               LeAdvertisingPhase previousPhase,
-                                              uint64_t previousEpoch)
+                                              uint64_t previousEpoch,
+                                              uint64_t previousGeneration)
         {
             // Preserve a session already retired or replaced inside the
             // borrowed callback; never corrupt it with an old caller's fault.
-            return state.phase != previousPhase || state.epoch != previousEpoch
+            return state.phase != previousPhase ||
+                           state.epoch != previousEpoch ||
+                           state.generation != previousGeneration
                        ? LeAdvertisingResult::OwnershipLost
                        : fault(state, LeAdvertisingResult::OwnershipLost);
         }
@@ -181,7 +195,7 @@ namespace simpleath
                  (state.phase == LeAdvertisingPhase::AwaitParameters ||
                   state.phase == LeAdvertisingPhase::AwaitData)))
             {
-                state = {};
+                clearAdvertising(state);
                 return LeAdvertisingResult::Ok;
             }
             bool sent = false;
@@ -270,6 +284,10 @@ namespace simpleath
         {
             return LeAdvertisingResult::Busy;
         }
+        if (state.generation == UINT64_MAX)
+        {
+            return LeAdvertisingResult::Faulted;
+        }
         if (!ownerValid(owner) || !wellFormedAdvertisingData(data, bytes) ||
             interval < kMinimumInterval || interval > kMaximumInterval)
         {
@@ -289,40 +307,41 @@ namespace simpleath
         {
             approved.at(index) = *usbByteOffset(data, index);
         }
-        state = {};
+        clearAdvertising(state);
+        const uint64_t activeGeneration = state.generation;
         state.epoch = owner.epoch;
         state.phase = LeAdvertisingPhase::Authorizing;
         const bool permitted = owner.permit(owner.context, owner.epoch);
         if (state.phase != LeAdvertisingPhase::Authorizing ||
-            state.epoch != owner.epoch)
+            state.epoch != owner.epoch || state.generation != activeGeneration)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
         if (!permitted)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::OwnershipLost;
         }
         if (state.stopRequested)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::Ignored;
         }
         const bool approvedByHost = owner.authorize(
             owner.context, owner.epoch, approved.data(), bytes, interval);
         if (state.phase != LeAdvertisingPhase::Authorizing ||
-            state.epoch != owner.epoch)
+            state.epoch != owner.epoch || state.generation != activeGeneration)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
         if (!approvedByHost)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::Unauthorized;
         }
         if (state.stopRequested)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::Ignored;
         }
         // Recheck physical transport and both callbacks after authorization.
@@ -334,18 +353,18 @@ namespace simpleath
         const bool stillPermitted =
             transportLive && owner.permit(owner.context, owner.epoch);
         if (state.phase != LeAdvertisingPhase::Authorizing ||
-            state.epoch != owner.epoch)
+            state.epoch != owner.epoch || state.generation != activeGeneration)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
         if (!stillPermitted)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::OwnershipLost;
         }
         if (state.stopRequested)
         {
-            state = {};
+            clearAdvertising(state);
             return LeAdvertisingResult::Ignored;
         }
         state.interval = interval;
@@ -366,9 +385,11 @@ namespace simpleath
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
             if (!authorized(state, transport, host, owner))
             {
-                return lostAuthorization(state, previousPhase, previousEpoch);
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
             }
         }
         return LeAdvertisingResult::Ok;
@@ -390,9 +411,11 @@ namespace simpleath
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
             if (!authorized(state, transport, host, owner))
             {
-                return lostAuthorization(state, previousPhase, previousEpoch);
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
             }
         }
         if (state.phase == LeAdvertisingPhase::AwaitDisable)
@@ -422,9 +445,11 @@ namespace simpleath
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
             if (!authorized(state, transport, host, owner))
             {
-                return lostAuthorization(state, previousPhase, previousEpoch);
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
             }
         }
         return LeAdvertisingResult::Ok;
@@ -447,9 +472,11 @@ namespace simpleath
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
             if (!authorized(state, transport, host, owner))
             {
-                return lostAuthorization(state, previousPhase, previousEpoch);
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
             }
         }
         if (event == nullptr || bytes < kHciEventHeaderBytes ||
@@ -470,9 +497,11 @@ namespace simpleath
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
             if (!authorized(state, transport, host, owner))
             {
-                return lostAuthorization(state, previousPhase, previousEpoch);
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
             }
         }
         return result;
@@ -480,6 +509,6 @@ namespace simpleath
 
     void revokeLeAdvertising(LeAdvertisingState &state)
     {
-        state = {};
+        clearAdvertising(state);
     }
 } // namespace simpleath
