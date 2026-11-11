@@ -57,6 +57,18 @@ namespace
         Readback = 16,
         InvalidChip = 17,
         RevokedAfterWrite = 18,
+        MonitorUntrusted = 19,
+        MonitorWindow = 20,
+        MonitorOfdmHigh = 21,
+        MonitorCckHigh = 22,
+        MonitorLow = 23,
+        MonitorCaps = 24,
+        MonitorRevoked = 25,
+        MonitorFailure = 26,
+        MonitorOverflow = 27,
+        MonitorStale = 28,
+        MonitorReplay = 29,
+        MonitorBadCounter = 30,
     };
     constexpr uint32_t kBar = 0xa000U;
     constexpr uint32_t kFirstStep = 0x9e10U;
@@ -435,6 +447,179 @@ static int checkReadWriteFailures()
     return 0;
 }
 
+static int checkAdaptiveMonitor()
+{
+    Fake fake {};
+    setIni(fake);
+    Ar9565AniState state {};
+    if (cacheAr9565AniIniDefaults(channel(), permitted(), backend(fake), state)
+            .result != AniResult::Ok)
+    {
+        return static_cast<int>(TestExit::MonitorUntrusted);
+    }
+    uint64_t nextCounterSequence = 1U;
+    const auto monitor = [&](AniErrorWindow sample)
+    {
+        sample.counterSequence = nextCounterSequence++;
+        return adaptAr9565AniToPhyErrors(channel(), permitted(), backend(fake),
+                                         sample, state);
+    };
+    const size_t initialReads = fake.reads;
+    AniErrorWindow window {kEpoch, 1U, 1000U, 4000U, 0U, false, false};
+    if (monitor(window).result != AniResult::InvalidErrorWindow ||
+        fake.writes != 0U || fake.reads != initialReads ||
+        state.ofdmImmunityLevel != 3U)
+    {
+        return static_cast<int>(TestExit::MonitorUntrusted);
+    }
+    window.hardwareCountersVerified = true;
+    window.listenedMilliseconds = 0U;
+    if (monitor(window).result != AniResult::InvalidErrorWindow)
+    {
+        return static_cast<int>(TestExit::MonitorUntrusted);
+    }
+    window.listenedMilliseconds = 300U;
+    if (monitor(window).result != AniResult::Ok || fake.writes != 0U)
+    {
+        return static_cast<int>(TestExit::MonitorWindow);
+    }
+    window.listenedMilliseconds = 1000U;
+    window.scanning = true;
+    if (monitor(window).result != AniResult::Ok || fake.writes != 0U)
+    {
+        return static_cast<int>(TestExit::MonitorWindow);
+    }
+    window.scanning = false;
+    // The OFDM threshold is strict: equality must not raise immunity.
+    window.ofdmTimingErrors = 3500U;
+    if (monitor(window).adjusted || fake.writes != 0U)
+    {
+        return static_cast<int>(TestExit::MonitorWindow);
+    }
+    window.ofdmTimingErrors = 3501U;
+    const auto raised = monitor(window);
+    if (raised.result != AniResult::Ok || !raised.adjusted ||
+        !raised.registerProgrammed ||
+        raised.programming.completedWrites != 4U ||
+        state.ofdmImmunityLevel != 4U || state.cckImmunityLevel != 2U ||
+        state.firstStepLevel != 3U || state.spurLevel != 4U ||
+        !matches(fake, 12U, 13U, 14U, 15U))
+    {
+        return static_cast<int>(TestExit::MonitorOfdmHigh);
+    }
+    // A second call for an already-consumed counter sample may not
+    // progressively tune the PHY again under the same physical epoch.
+    const size_t beforeReplay = fake.writes;
+    AniErrorWindow replay = window;
+    replay.counterSequence = state.lastCounterSequence;
+    const auto repeated = adaptAr9565AniToPhyErrors(
+        channel(), permitted(), backend(fake), replay, state);
+    if (repeated.result != AniResult::StaleErrorWindow ||
+        state.ofdmImmunityLevel != 4U || fake.writes != beforeReplay)
+    {
+        return static_cast<int>(TestExit::MonitorReplay);
+    }
+    // The event window must also match the real PCI/PHY epoch and bound the
+    // 24-bit hardware counters before any register write or state transition.
+    replay.ownerEpoch = kEpoch + 1U;
+    replay.counterSequence = nextCounterSequence + 10U;
+    if (adaptAr9565AniToPhyErrors(channel(), permitted(), backend(fake), replay,
+                                  state)
+            .result != AniResult::StaleErrorWindow)
+    {
+        return static_cast<int>(TestExit::MonitorReplay);
+    }
+    replay.ownerEpoch = kEpoch;
+    replay.ofdmTimingErrors = 0x00ffffffU;
+    if (adaptAr9565AniToPhyErrors(channel(), permitted(), backend(fake), replay,
+                                  state)
+                .result != AniResult::InvalidErrorWindow ||
+        fake.writes != beforeReplay)
+    {
+        return static_cast<int>(TestExit::MonitorBadCounter);
+    }
+    // CCK may advance without a redundant register write when OFDM already
+    // sets a stronger first-step; keep their policy levels independent.
+    window.ofdmTimingErrors = 950U;
+    window.cckTimingErrors = 601U;
+    const size_t afterOfdm = fake.writes;
+    const auto cckRaised = monitor(window);
+    if (cckRaised.result != AniResult::Ok || !cckRaised.adjusted ||
+        cckRaised.registerProgrammed || fake.writes != afterOfdm ||
+        state.ofdmImmunityLevel != 4U || state.cckImmunityLevel != 3U ||
+        !state.ofdmTurn)
+    {
+        return static_cast<int>(TestExit::MonitorCckHigh);
+    }
+    window.cckTimingErrors = 0U;
+    window.ofdmTimingErrors = 0U;
+    const auto loweredOfdm = monitor(window);
+    const auto loweredCck = monitor(window);
+    if (loweredOfdm.result != AniResult::Ok || !loweredOfdm.adjusted ||
+        !loweredOfdm.registerProgrammed || loweredCck.result != AniResult::Ok ||
+        !loweredCck.adjusted || !loweredCck.registerProgrammed ||
+        state.ofdmImmunityLevel != 3U || state.cckImmunityLevel != 2U ||
+        !state.ofdmTurn || state.firstStepLevel != 2U ||
+        state.spurLevel != 3U || fake.writes != afterOfdm + 8U)
+    {
+        return static_cast<int>(TestExit::MonitorLow);
+    }
+    // Without verified per-BSSID RSSI, the AR9565 is limited to the
+    // conservative low-signal CCK range from ath9k, never levels 7 or 8.
+    window.ofdmTimingErrors = 950U;
+    window.cckTimingErrors = 700U;
+    for (size_t i = 0U; i < 12U; ++i)
+    {
+        if (monitor(window).result != AniResult::Ok)
+        {
+            return static_cast<int>(TestExit::MonitorCaps);
+        }
+    }
+    if (state.cckImmunityLevel != 6U || state.ofdmImmunityLevel != 3U ||
+        state.firstStepLevel != 6U || !state.initialized)
+    {
+        return static_cast<int>(TestExit::MonitorCaps);
+    }
+    // Scaling a near-overflow 24-bit PHY counter must not wrap uint32.
+    window.ofdmTimingErrors = 0x00fffffeU;
+    window.cckTimingErrors = 0U;
+    if (monitor(window).result != AniResult::Ok ||
+        state.ofdmImmunityLevel != 4U)
+    {
+        return static_cast<int>(TestExit::MonitorOverflow);
+    }
+    const auto older = state;
+    fake.live = false;
+    const size_t oldWrites = fake.writes;
+    if (monitor(window).result != AniResult::OwnershipLost ||
+        fake.writes != oldWrites ||
+        state.ofdmImmunityLevel != older.ofdmImmunityLevel)
+    {
+        return static_cast<int>(TestExit::MonitorRevoked);
+    }
+    fake.live = true;
+    if (adaptAr9565AniToPhyErrors(channel(kOtherChannel), permitted(),
+                                  backend(fake), window, state)
+                .result != AniResult::NotInitialized ||
+        state.initialized != older.initialized)
+    {
+        return static_cast<int>(TestExit::MonitorStale);
+    }
+    // A posted first-step MMIO failure destroys the baseline; no caller can
+    // interpret the uncommitted monitor policy as a working register state.
+    fake.failedWrite = kFirstStep;
+    window.ofdmTimingErrors = 0U;
+    window.cckTimingErrors = 0U;
+    const auto failed = monitor(window);
+    if (failed.result != AniResult::WriteFailed ||
+        !failed.programming.requiresReset || failed.adjusted ||
+        state.initialized || state.ofdmImmunityLevel != older.ofdmImmunityLevel)
+    {
+        return static_cast<int>(TestExit::MonitorFailure);
+    }
+    return 0;
+}
+
 int main()
 {
     Fake fake {};
@@ -449,5 +634,10 @@ int main()
     {
         return safety;
     }
-    return checkReadWriteFailures();
+    const int readWrite = checkReadWriteFailures();
+    if (readWrite != 0)
+    {
+        return readWrite;
+    }
+    return checkAdaptiveMonitor();
 }

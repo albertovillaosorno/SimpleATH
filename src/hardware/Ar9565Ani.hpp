@@ -21,6 +21,8 @@ namespace simpleath
         ReadFailed,
         WriteFailed,
         ReadbackMismatch,
+        InvalidErrorWindow,
+        StaleErrorWindow,
     };
 
     // ath9k AR9003 ANI first-step and spur-immunity defaults are read from
@@ -35,6 +37,14 @@ namespace simpleath
             ChannelWidth width {ChannelWidth::Ht20};
             uint8_t secondary {};
             RfReferenceClock referenceClock {RfReferenceClock::Crystal25Mhz};
+            // Linux ath9k ANI monitor starts at OFDM=3, CCK=2. These are
+            // independent PHY-error policies; first-step is their maximum.
+            // AR9565 single-chain CCK is conservatively capped at level 6
+            // until a trustworthy per-BSSID RSSI lease is available.
+            uint8_t ofdmImmunityLevel {3U};
+            uint8_t cckImmunityLevel {2U};
+            bool ofdmTurn {true};
+            uint64_t lastCounterSequence {};
             uint8_t firstStepLevel {2U};
             uint8_t spurLevel {3U};
             uint8_t firstStepDefault {};
@@ -74,6 +84,54 @@ namespace simpleath
                            const CalibrationAndRegulatory &authorization,
                            const RxAgcBackend &backend, Ar9565AniState &state,
                            uint8_t firstStepLevel, uint8_t spurLevel);
+
+    // A FINISHED PHY-error observation from one real hardware counter epoch.
+    // The native owner must derive listenedMilliseconds from awake/receive
+    // cycle counters, NOT wall clock, and obtain the OFDM/CCK timing error
+    // counts from AR_PHY_ERR_1/2 after enabling their masks. Counter wrap,
+    // a reset/re-tune, or uncertain sleep/RF-kill ownership invalidates the
+    // whole window; never infer it from EDMA packet errors or passive scans.
+    struct AniErrorWindow
+    {
+            // Must be a new, complete window from the current PHY epoch.
+            uint64_t ownerEpoch {};
+            uint64_t counterSequence {};
+            uint32_t listenedMilliseconds {};
+            uint32_t ofdmTimingErrors {};
+            uint32_t cckTimingErrors {};
+            bool hardwareCountersVerified {};
+            bool scanning {};
+    };
+
+    struct AniMonitorProgress
+    {
+            AniResult result {AniResult::NotInitialized};
+            AniProgress programming {};
+            uint8_t ofdmImmunityLevel {};
+            uint8_t cckImmunityLevel {};
+            bool adjusted {};
+            bool registerProgrammed {};
+    };
+
+    // Adapt the AR9003 first-step and spur registers from ath9k's OFDM/CCK
+    // timing-error trigger logic, bound to the already-cached PHY baseline.
+    // Only complete >300-ms *listen-time* windows with separately verified
+    // physical counter provenance are considered; scanning is read-only.
+    // Counter sequence is monotonic and never recycled within an owner epoch;
+    // a consumed observation cannot tune ANI twice, even if the old counter
+    // bytes are supplied again. This gate does not itself prove physical
+    // counter provenance: the native owner must still collect and validate it.
+    // This conservative single-chain subset does not alter OFDM weak-signal
+    // detection or CCK MRC (unsupported on AR9565) and caps CCK immunity at 6
+    // without trusted BSSID RSSI. Its success is NOT a receiver-ready lease.
+    // The caller must serialize this with reset, channel changes and radio
+    // power, and must not run it during an RF/PHY calibration transaction.
+    AniMonitorProgress
+    adaptAr9565AniToPhyErrors(const RfChannelRequest &request,
+                              const CalibrationAndRegulatory &authorization,
+                              const RxAgcBackend &backend,
+                              const AniErrorWindow &window,
+                              Ar9565AniState &state);
 } // namespace simpleath
 
 #endif // SIMPLEATH_AR9565_ANI_HPP

@@ -333,3 +333,34 @@ reset. Sanitized tests cover both exact same-epoch mutation intervals.
 **This does not detect an ABA reattach that restores the same index**:
 the eventual native owner must additionally enforce unique reset generation
 and exclusive serialization across Bluetooth, GPM DMA, reset and commands.
+
+## Source progress — 2026-11-10: bounded ath9k ANI timing-error adaptation
+
+The production-target `Ar9565Ani.{hpp,cpp}` now has a separately callable
+AR9003 timing-error monitor (`adaptAr9565AniToPhyErrors`) above the already
+implemented physical INI first-step/spur register writer. Using *completed*,
+independently verified same-epoch OFDM/CCK PHY-error windows and **PHY listen
+time** (not wall time or EDMA drops), it implements ath9k's >300-ms
+threshold/hysteresis: OFDM high/low thresholds depend on the current OFDM
+level, CCK has its own thresholds, low-error decisions alternate, and the
+most restrictive OFDM/CCK first-step is applied with ath9k's 0..8 OFDM
+level-to-first-step/spur table. A hardware callback must authorize every
+MMIO access; a failed program/readback invalidates the baseline and requires
+reset. Each observed window is scoped to the current owner epoch and a strictly
+increasing counter sequence, preventing the same PHY-error window from being
+applied twice. Saturated 24-bit counters and unknown provenance fail closed.
+
+The level-9 OFDM branch (which also changes weak-signal detection) and AR9565
+unsupported CCK MRC are intentionally **not** activated; until a reliable
+per-associated-BSSID RSSI lease exists, CCK immunity caps at the ath9k
+low-RSSI-safe level 6. The synthetic `tests/test_ar9565_ani.cpp` now exercises
+OFDM/CCK rise/fall, no-op tuning, full threshold boundaries, replayed/cross-
+epoch counter rejection, 24-bit saturation, 64-bit rate scaling, bad MMIO,
+owner revocation and stale channel state under C++14 and C++17 ASan+UBSan.
+Focused strict Clang-Tidy and Clang-Format on changed units pass. This is an
+offline source-only adapter, **not** a physical ANI poller or a radio-enable
+path. The native PCI owner must still initialize PHY-error masks, read and
+validate MIB cycle/PHY counters over bounded hardware listen-time windows,
+provide independently authorized per-channel epochs, schedule the observations,
+and wire the resulting policy into the real receiver after RF/country/BT
+arbitration. The P1 source TODO and P0 full integration remain open.

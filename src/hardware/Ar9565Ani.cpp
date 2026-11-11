@@ -34,6 +34,30 @@ namespace simpleath
         constexpr uint8_t kDefaultSpurLevel = 3U;
         constexpr uint8_t kMaxFirstStepValue = 20U;
         constexpr uint8_t kMaxSpurValue = 22U;
+        constexpr uint32_t kMinimumAniWindowMilliseconds = 300U;
+        constexpr uint32_t kOfdmHighAboveDefault = 3500U;
+        constexpr uint32_t kOfdmHighBelowDefault = 1000U;
+        constexpr uint32_t kOfdmLowAboveDefault = 900U;
+        constexpr uint32_t kOfdmLowBelowDefault = 400U;
+        constexpr uint32_t kCckHigh = 600U;
+        constexpr uint32_t kCckLow = 300U;
+        constexpr uint8_t kMaxOfdmImmunity = 8U;
+        constexpr uint8_t kMaxCckWithoutRssi = 6U;
+        constexpr uint32_t kAniPhyCounterSaturated = 0x00ffffffU;
+
+        // First-step/spur-level pairs for ath9k OFDM ANI 0..8. Level 9
+        // additionally disables weak-signal detection, which this receive-
+        // only subset does not implement and therefore never selects.
+        struct OfdmImmunity
+        {
+                uint8_t firstStep;
+                uint8_t spur;
+        };
+
+        constexpr OfdmImmunity kOfdmImmunity[] {
+            {0U, 0U}, {1U, 1U}, {2U, 2U}, {2U, 3U}, {3U, 4U},
+            {4U, 5U}, {5U, 6U}, {6U, 7U}, {7U, 7U},
+        };
 
         enum class AniField : uint8_t
         {
@@ -59,6 +83,84 @@ namespace simpleath
             {AniField::Spur, 0x9810U, 0x000000feU, 1U, kMaxSpurValue},
             {AniField::SpurExt, 0x9830U, 0x0000fe00U, 9U, kMaxSpurValue},
         };
+
+        struct AniChoice
+        {
+                uint8_t ofdm;
+                uint8_t cck;
+                bool ofdmTurn;
+                bool triggered;
+        };
+
+        AniChoice chooseAniImmunity(const Ar9565AniState &state,
+                                    const AniErrorWindow &window)
+        {
+            const uint64_t ofdmRate =
+                static_cast<uint64_t>(window.ofdmTimingErrors) * 1000U /
+                window.listenedMilliseconds;
+            const uint64_t cckRate =
+                static_cast<uint64_t>(window.cckTimingErrors) * 1000U /
+                window.listenedMilliseconds;
+            const uint32_t ofdmHigh = state.ofdmImmunityLevel >= 3U
+                                          ? kOfdmHighAboveDefault
+                                          : kOfdmHighBelowDefault;
+            const uint32_t ofdmLow = state.ofdmImmunityLevel >= 3U
+                                         ? kOfdmLowAboveDefault
+                                         : kOfdmLowBelowDefault;
+            AniChoice next {
+                state.ofdmImmunityLevel,
+                state.cckImmunityLevel,
+                state.ofdmTurn,
+                false,
+            };
+            if (cckRate < kCckLow && ofdmRate < ofdmLow)
+            {
+                if (next.ofdm > 0U && (next.ofdmTurn || next.cck == 0U))
+                {
+                    --next.ofdm;
+                }
+                else if (next.cck > 0U)
+                {
+                    --next.cck;
+                }
+                next.ofdmTurn = !next.ofdmTurn;
+            }
+            else if (ofdmRate > ofdmHigh)
+            {
+                if (next.ofdm < kMaxOfdmImmunity)
+                {
+                    ++next.ofdm;
+                }
+                next.ofdmTurn = false;
+            }
+            else if (cckRate > kCckHigh)
+            {
+                if (next.cck < kMaxCckWithoutRssi)
+                {
+                    ++next.cck;
+                }
+                next.ofdmTurn = true;
+            }
+            else
+            {
+                return next;
+            }
+            next.triggered = true;
+            return next;
+        }
+
+        OfdmImmunity ofdmImmunity(uint8_t level)
+        {
+            for (const OfdmImmunity &entry : kOfdmImmunity)
+            {
+                if (level == 0U)
+                {
+                    return entry;
+                }
+                --level;
+            }
+            __builtin_trap(); // Already validated 0..8 before this call.
+        }
 
         bool validRequest(const RfChannelRequest &channel)
         {
@@ -329,4 +431,121 @@ namespace simpleath
         progress.result = AniResult::Ok;
         return progress;
     }
+
+    AniMonitorProgress
+    adaptAr9565AniToPhyErrors(const RfChannelRequest &request,
+                              const CalibrationAndRegulatory &authorization,
+                              const RxAgcBackend &backend,
+                              const AniErrorWindow &window,
+                              Ar9565AniState &state)
+    {
+        AniMonitorProgress progress {};
+        // Snapshot caller-owned inputs before invoking any owner callback.
+        const RfChannelRequest channel = request;
+        const CalibrationAndRegulatory evidence = authorization;
+        const RxAgcBackend stable = backend;
+        const AniErrorWindow observed = window;
+        const Ar9565AniState before = state;
+
+        progress.result = preflight(channel, evidence, stable);
+        if (progress.result != AniResult::Ok)
+        {
+            return progress;
+        }
+        progress.result = AniResult::NotInitialized;
+        if (!before.initialized || before.ownerEpoch != stable.io.ownerEpoch ||
+            before.silicon != channel.silicon ||
+            before.channel != channel.control.number ||
+            before.width != channel.width ||
+            before.secondary != channel.secondary ||
+            before.referenceClock != channel.referenceClock ||
+            before.ofdmImmunityLevel > kMaxOfdmImmunity ||
+            before.cckImmunityLevel > kMaxCckWithoutRssi)
+        {
+            return progress;
+        }
+        progress.result = AniResult::InvalidErrorWindow;
+        if (!observed.hardwareCountersVerified ||
+            observed.listenedMilliseconds == 0U ||
+            observed.counterSequence == 0U ||
+            observed.ofdmTimingErrors >= kAniPhyCounterSaturated ||
+            observed.cckTimingErrors >= kAniPhyCounterSaturated)
+        {
+            return progress;
+        }
+        progress.result = AniResult::StaleErrorWindow;
+        if (observed.ownerEpoch != before.ownerEpoch ||
+            observed.counterSequence <= before.lastCounterSequence)
+        {
+            return progress;
+        }
+        progress.result = AniResult::OwnershipLost;
+        if (!stable.io.permitWrite(stable.io.context, stable.io.ownerEpoch))
+        {
+            return progress;
+        }
+        progress.ofdmImmunityLevel = before.ofdmImmunityLevel;
+        progress.cckImmunityLevel = before.cckImmunityLevel;
+        progress.result = AniResult::Ok;
+        if (observed.scanning ||
+            observed.listenedMilliseconds <= kMinimumAniWindowMilliseconds)
+        {
+            state.lastCounterSequence = observed.counterSequence;
+            return progress;
+        }
+
+        const AniChoice next = chooseAniImmunity(before, observed);
+        if (!next.triggered)
+        {
+            state.lastCounterSequence = observed.counterSequence;
+            return progress;
+        }
+        if (!stable.io.permitWrite(stable.io.context, stable.io.ownerEpoch))
+        {
+            progress.result = AniResult::OwnershipLost;
+            return progress;
+        }
+        if (next.ofdm == before.ofdmImmunityLevel &&
+            next.cck == before.cckImmunityLevel &&
+            next.ofdmTurn == before.ofdmTurn)
+        {
+            state.lastCounterSequence = observed.counterSequence;
+            return progress;
+        }
+        const OfdmImmunity ofdm = ofdmImmunity(next.ofdm);
+        const uint8_t nextFirstStep =
+            ofdm.firstStep > next.cck ? ofdm.firstStep : next.cck;
+        const uint8_t nextSpur = ofdm.spur;
+        if (nextFirstStep != before.firstStepLevel ||
+            nextSpur != before.spurLevel)
+        {
+            progress.programming = programAr9565AniLevels(
+                channel, evidence, stable, state, nextFirstStep, nextSpur);
+            progress.result = progress.programming.result;
+            if (progress.result != AniResult::Ok)
+            {
+                return progress;
+            }
+            progress.registerProgrammed = true;
+        }
+        // A callback may revoke the epoch at the final readback. Never
+        // publish a successfully adapted policy for a revoked physical owner.
+        if (!stable.io.permitWrite(stable.io.context, stable.io.ownerEpoch))
+        {
+            state.initialized = false;
+            progress.result = AniResult::OwnershipLost;
+            progress.programming.requiresReset = progress.registerProgrammed;
+            return progress;
+        }
+        state.lastCounterSequence = observed.counterSequence;
+        state.ofdmImmunityLevel = next.ofdm;
+        state.cckImmunityLevel = next.cck;
+        state.ofdmTurn = next.ofdmTurn;
+        progress.ofdmImmunityLevel = next.ofdm;
+        progress.cckImmunityLevel = next.cck;
+        progress.adjusted = next.ofdm != before.ofdmImmunityLevel ||
+                            next.cck != before.cckImmunityLevel;
+        return progress;
+    }
+
 } // namespace simpleath
