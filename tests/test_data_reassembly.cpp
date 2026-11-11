@@ -321,6 +321,43 @@ namespace
         {
             return __LINE__;
         }
+        // Native queueReceived must publish the Ethernet identities from
+        // the completed and address-checked MSDU, not parse the final DMA
+        // fragment as a stand-alone 802.11 data frame (which is invalid).
+        if (std::memcmp(action.receivedDestination.bytes, kSta.data(),
+                        kSta.size()) != 0 ||
+            std::memcmp(action.receivedSource.bytes, kAp.data(), kAp.size()) !=
+                0)
+        {
+            return __LINE__;
+        }
+        Msdu accepted {};
+        accepted.destination = action.receivedDestination;
+        accepted.source = action.receivedSource;
+        accepted.etherType = action.etherType;
+        accepted.payload = action.receivedPayload;
+        accepted.payloadLength = action.receivedPayloadBytes;
+        std::array<uint8_t, 32> ethernet {};
+        size_t written = 0;
+        if (encodeReceivedEthernet(accepted, ethernet.data(), ethernet.size(),
+                                   written) != Result::Ok ||
+            written != 17U ||
+            std::memcmp(ethernet.data(), kSta.data(), kSta.size()) != 0 ||
+            std::memcmp(ethernet.data() + 6U, kAp.data(), kAp.size()) != 0 ||
+            ethernet[12] != 0x08U || ethernet[13] != 0x00U ||
+            std::memcmp(ethernet.data() + 14U, canonical.data() + 32U, 3U) != 0)
+        {
+            return __LINE__;
+        }
+        // The source frame supplied at completion contained only the LAST
+        // fragment and cannot itself be interpreted as an LLC/SNAP MSDU.
+        Msdu forbidden {};
+        if (decodeLlcData(last.data(), last.size(), false, false, forbidden) ==
+            Result::Ok)
+        {
+            return __LINE__;
+        }
+
         // The reconstructed MPDU consumes one sequence number only once.
         if (engine.acceptRx(first.data(), first.size(), trust, {-40, 132}, out,
                             sizeof(out), action) != EngineResult::NoAction ||

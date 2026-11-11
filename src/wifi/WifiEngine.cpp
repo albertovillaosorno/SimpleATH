@@ -1132,6 +1132,8 @@ namespace simpleath
                 result.etherType = msdu.etherType;
                 result.receivedPayload = msdu.payload;
                 result.receivedPayloadBytes = msdu.payloadLength;
+                result.receivedDestination = msdu.destination;
+                result.receivedSource = msdu.source;
                 result.nativeInterfaceUsable = false;
                 action = result;
                 return EngineResult::Ok;

@@ -94,14 +94,20 @@ namespace simpleath
         // malformed aliases return InvalidInput before any write or transition.
         struct EngineAction
         {
-                ActionKind kind;
-                size_t bytes;
-                uint16_t etherType;
-                const uint8_t
-                    *receivedPayload; // Borrowed, only valid during callback.
-                size_t receivedPayloadBytes;
-                bool nativeInterfaceUsable; // Always false until actual OS
-                                            // integration.
+                ActionKind kind {ActionKind::None};
+                size_t bytes {};
+                uint16_t etherType {};
+                const uint8_t *
+                    receivedPayload {}; // Borrowed, only valid during callback.
+                size_t receivedPayloadBytes {};
+                bool nativeInterfaceUsable {}; // Always false until actual OS
+                                               // integration.
+                // Copied from an inspectStationRx-validated canonical MPDU.
+                // Native RX must use these identities for reassembled data:
+                // the original DMA fragment is NOT the full Ethernet MSDU.
+                // These are meaningful only for ReceivedPayload actions.
+                Mac receivedDestination {};
+                Mac receivedSource {};
         };
 
         struct InputTrust

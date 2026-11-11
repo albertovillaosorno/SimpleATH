@@ -3249,17 +3249,29 @@ class SimpleATH final : public IOService
             {
                 return;
             }
-            simpleath::ieee80211::Msdu msdu {};
-            if (simpleath::ieee80211::decodeLlcData(
-                    frame, bytes, trust.rxFrameIncludesFcs,
-                    trust.ccmpMicAndReplayVerified,
-                    msdu) != simpleath::ieee80211::Result::Ok ||
-                msdu.payload != action.receivedPayload ||
-                msdu.payloadLength != action.receivedPayloadBytes ||
-                msdu.etherType != action.etherType)
+            // The decoder may have assembled an open data MSDU from several
+            // individually FCS-verified fragments. Re-parsing the *last DMA
+            // fragment* would reject that valid complete MSDU. The engine
+            // instead publishes borrowed payload + copied Ethernet identities
+            // only after full association, address, LLC and duplicate checks.
+            // Do not cache its pointer across another acceptRx or IRQ.
+            if (self.engine_.stationState() !=
+                    simpleath::ieee80211::StationState::AssociatedOpen ||
+                self.joinEpoch_ != self.epoch_ ||
+                self.queues_.epoch() != self.epoch_ ||
+                !self.associatedBeaconObserved_ ||
+                action.receivedPayload == nullptr ||
+                action.etherType == kEtherTypeEapol ||
+                !simpleath::ieee80211::validStationMac(action.receivedSource))
             {
                 return;
             }
+            simpleath::ieee80211::Msdu msdu {};
+            msdu.destination = action.receivedDestination;
+            msdu.source = action.receivedSource;
+            msdu.etherType = action.etherType;
+            msdu.payload = action.receivedPayload;
+            msdu.payloadLength = action.receivedPayloadBytes;
             self.deliverNativeMsdu(msdu, false);
         }
 
