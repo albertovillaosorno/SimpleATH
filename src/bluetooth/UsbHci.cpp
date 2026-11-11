@@ -881,7 +881,7 @@ namespace simpleath
 
     UsbHciStatus classifyUsbHciRead(bool ownerCurrent, bool completed,
                                     bool timedOut, size_t transferred,
-                                    size_t capacity)
+                                    size_t capacity, bool partialFrame)
     {
         if (!ownerCurrent)
         {
@@ -893,7 +893,8 @@ namespace simpleath
         }
         if (timedOut && transferred == 0U)
         {
-            return UsbHciStatus::Idle;
+            return partialFrame ? UsbHciStatus::TransferFailed
+                                : UsbHciStatus::Idle;
         }
         if (!completed || transferred == 0U || transferred > capacity)
         {

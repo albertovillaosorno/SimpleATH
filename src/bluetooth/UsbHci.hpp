@@ -155,9 +155,13 @@ namespace simpleath
     // This pure check does NOT establish USB lifetime or HCI readiness:
     // the native owner must serialize I/O with provider detach, and latch a
     // TransferFailed result as a transport fault before any packet delivery.
+    // A timed-out native poll is idle only between complete HCI frames.
+    // A partially reassembled Event/ACL frame cannot remain pending without
+    // a finite bound: after one full native poll timeout the transport must
+    // discard the USB session, not concatenate arbitrary later bytes.
     UsbHciStatus classifyUsbHciRead(bool ownerCurrent, bool completed,
                                     bool timedOut, size_t transferred,
-                                    size_t capacity);
+                                    size_t capacity, bool partialFrame = false);
 
     // Host-issued HCI commands use USB class control transfer (0x20, req 0)
     // at interface 0. The native callback supplies that exact USB setup.

@@ -349,9 +349,9 @@ namespace simpleath
             void *const policyContext = native.policyContext;
             const auto permit = native.permit;
             const auto deliver = native.deliver;
-            const auto stillOwned =
-                [&native, &issued, interface, device, eventPipe, aclRead,
-                 aclWrite, policyContext, permit, deliver, &identity]()
+            const auto stillOwned = [&native, &issued, interface, device,
+                                     eventPipe, aclRead, aclWrite,
+                                     policyContext, permit, deliver, &identity]
             {
                 const UsbHciOwnerLease current {
                     native.epoch,
@@ -451,6 +451,16 @@ namespace simpleath
             {
                 return UsbHciStatus::OwnershipLost;
             }
+            // Once a USB fault has invalidated the stream, no further bus
+            // reads may be issued until the physical owner reattaches.
+            if (native.stream.faulted)
+            {
+                return UsbHciStatus::Faulted;
+            }
+            if (!native.stream.attached)
+            {
+                return UsbHciStatus::NotAttached;
+            }
             IOUSBHostPipe *pipe =
                 kind == UsbHciPacketKind::Event ? native.eventIn : native.aclIn;
             if (pipe == nullptr)
@@ -481,9 +491,13 @@ namespace simpleath
             // Interrupt IN can be silent for an arbitrary period. A finite
             // timeout makes shutdown bounded, while partial/ambiguous I/O
             // failures still require a fresh controller transport session.
+            const bool partialFrame = kind == UsbHciPacketKind::Event
+                                          ? native.stream.events.used != 0U
+                                          : native.stream.acl.used != 0U;
             const UsbHciStatus read = classifyUsbHciRead(
                 hciPermit(&native, native.epoch), status == kIOReturnSuccess,
-                status == kIOReturnTimeout, transferred, sizeof(buffer));
+                status == kIOReturnTimeout, transferred, sizeof(buffer),
+                partialFrame);
             if (read == UsbHciStatus::TransferFailed)
             {
                 native.stream.faulted = true;

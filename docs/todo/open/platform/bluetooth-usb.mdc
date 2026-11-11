@@ -470,3 +470,21 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   under C++14/C++17 ASan+UBSan. Focused Clang-Tidy, freestanding C++14
   syntax, Clang-Format and diff checks passed. This is not firmware operation
   on a physical device, HCI host attachment or Bluetooth/AirDrop completion.
+
+## Source progress — bounded native HCI frame timeout and faulted-poll gate
+
+The native interrupt/bulk-IN pump now distinguishes an ordinary idle timeout
+from the end of a five-second poll that left an earlier HCI Event or ACL frame
+partly assembled. The latter faults the transport instead of retaining its
+stale prefix indefinitely and concatenating future controller bytes to it.
+The physical owner also refuses subsequent USB polls after the HCI stream
+has faulted or detached, pending a new transport attachment/owner epoch.
+
+`classifyUsbHciRead` retains ordinary zero-byte idle polls when no frame is
+pending; a completed short read can still append the remainder of a split
+frame. A synthetic C++14/C++17 host fixture covers incomplete-frame timeouts,
+valid segmented transfers, owner revocation, short/ambiguous timeouts and idle
+behavior. This is **source-only** USB transport recovery, not native macOS
+Bluetooth host registration, a successful physical re-enumeration, BLE pairing
+or AirDrop availability. Firmware identity and native host integration remain
+open requirements.

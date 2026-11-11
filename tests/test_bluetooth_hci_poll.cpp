@@ -190,5 +190,23 @@ int main()
             return 1;
         }
     }
+    // Both Event and ACL reassembly can span multiple successful USB reads.
+    // A full native poll timeout with an unfinished frame must poison that
+    // stream; otherwise stale prefix bytes can be spliced to a later frame.
+    if (simpleath::classifyUsbHciRead(true, false, true, 0U, kTransferCapacity,
+                                      true) != UsbHciStatus::TransferFailed ||
+        simpleath::classifyUsbHciRead(true, true, false, kShortTransfer,
+                                      kTransferCapacity,
+                                      true) != UsbHciStatus::Ok ||
+        simpleath::classifyUsbHciRead(false, false, true, 0U, kTransferCapacity,
+                                      true) != UsbHciStatus::OwnershipLost ||
+        simpleath::classifyUsbHciRead(true, false, true, kShortTransfer,
+                                      kTransferCapacity,
+                                      true) != UsbHciStatus::TransferFailed ||
+        simpleath::classifyUsbHciRead(true, false, true, 0U,
+                                      kTransferCapacity) != UsbHciStatus::Idle)
+    {
+        return 18;
+    }
     return 0;
 }
