@@ -205,6 +205,35 @@ namespace
         {
             return __LINE__;
         }
+        // Every fragment arrival must advance monotonically, not merely
+        // stay within the first fragment's lifetime. An out-of-order clock
+        // invalidates the stream, and a later final fragment cannot revive it.
+        auto threeFirst = fragment(original, 24, 8, 0, true);
+        auto threeMiddle = fragment(original, 32, 8, 1, true);
+        auto threeLast = fragment(original, 40, original.size() - 40, 2, false);
+        if (receiver.ingest(threeFirst.data(), threeFirst.size(), 640,
+                            complete) != ManagementFragmentResult::Pending ||
+            receiver.ingest(threeMiddle.data(), threeMiddle.size(), 645,
+                            complete) != ManagementFragmentResult::Pending ||
+            receiver.ingest(threeLast.data(), threeLast.size(), 643,
+                            complete) != ManagementFragmentResult::Rejected ||
+            complete.bytes != nullptr ||
+            receiver.ingest(threeLast.data(), threeLast.size(), 646,
+                            complete) != ManagementFragmentResult::Rejected)
+        {
+            return __LINE__;
+        }
+        if (receiver.ingest(threeFirst.data(), threeFirst.size(), 650,
+                            complete) != ManagementFragmentResult::Pending ||
+            receiver.ingest(threeMiddle.data(), threeMiddle.size(), 650,
+                            complete) != ManagementFragmentResult::Pending ||
+            receiver.ingest(threeLast.data(), threeLast.size(), 650,
+                            complete) != ManagementFragmentResult::Complete ||
+            complete.length != original.size() ||
+            std::memcmp(complete.bytes, original.data(), original.size()) != 0)
+        {
+            return __LINE__;
+        }
         // Total reassembly cannot exceed an FCS-free legacy MPDU, even if
         // individual input fragments fit the hardware length limit.
         std::array<uint8_t, kManagementReassembledBytes> huge {};

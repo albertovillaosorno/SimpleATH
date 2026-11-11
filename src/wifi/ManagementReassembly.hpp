@@ -84,6 +84,7 @@ namespace simpleath
                 uint8_t packet_[kManagementReassembledBytes] {};
                 size_t used_ {};
                 uint64_t startedMs_ {};
+                uint64_t lastMs_ {};
                 uint16_t sequence_ {};
                 uint8_t nextFragment_ {};
                 bool pending_ {};

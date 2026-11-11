@@ -105,6 +105,7 @@ namespace simpleath
             __builtin_memset(&packet_[0], 0, sizeof(packet_));
             used_ = 0;
             startedMs_ = 0;
+            lastMs_ = 0;
             sequence_ = 0;
             nextFragment_ = 0;
             pending_ = false;
@@ -186,13 +187,15 @@ namespace simpleath
                 __builtin_memcpy(&packet_[0], frame, length);
                 used_ = length;
                 startedMs_ = nowMs;
+                lastMs_ = nowMs;
                 sequence_ = static_cast<uint16_t>(
                     static_cast<uint32_t>(control) & kSequenceIdentityMask);
                 nextFragment_ = 1U;
                 pending_ = true;
                 return ManagementFragmentResult::Pending;
             }
-            if (!pending_ || fragment != nextFragment_ || nowMs < startedMs_ ||
+            if (!pending_ || fragment != nextFragment_ || nowMs < lastMs_ ||
+                nowMs < startedMs_ ||
                 nowMs - startedMs_ > kManagementFragmentTimeoutMs ||
                 header[0] != packet_[0] ||
                 ((static_cast<uint32_t>(header[1]) ^
@@ -210,6 +213,7 @@ namespace simpleath
             }
             const size_t payload = length - kHeaderBytes;
             appendPayload(byteAt(frame, kHeaderBytes), payload);
+            lastMs_ = nowMs;
             ++nextFragment_;
             if (more)
             {
