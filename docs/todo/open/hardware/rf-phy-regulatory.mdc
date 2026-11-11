@@ -364,3 +364,19 @@ validate MIB cycle/PHY counters over bounded hardware listen-time windows,
 provide independently authorized per-channel epochs, schedule the observations,
 and wire the resulting policy into the real receiver after RF/country/BT
 arbitration. The P1 source TODO and P0 full integration remain open.
+
+## Follow-up: physical MIB counter window derivation (source only)
+
+`deriveAr9565AniErrorWindow` now accepts two explicitly sourced, same-channel
+AR_CCCNT / AR_RFCNT / AR_TFCNT and AR_PHY_ERR_1/2 snapshot values. It computes
+PHY listen time from the original Linux ath9k 2.4-GHz OFDM MAC rates (44 MHz
+HT20, 88 MHz HT40), subtracts RX/TX frame cycles, validates monotonically
+increasing snapshots, 24-bit PHY counters, owner epoch, capture sequence,
+channel/width, and a <=5-second monotonic elapsed-time upper bound. It rejects
+counter regressions, saturation, impossible busy-cycle sums and absent
+hardware/MMIO/mask evidence. The output feeds the new OFDM/CCK ANI adapter,
+and C++14/C++17 sanitized fixtures cover HT20/HT40 conversion and invalid
+windows. It is not a collector: a real native MIB owner must still own and
+sample the counters, ensure no concurrent MIB clear/wrap or channel change,
+configure timing-error masks, schedule measured windows, and run adaptation
+under a valid receive-only radio policy. No change here enables RF.

@@ -44,6 +44,9 @@ namespace simpleath
         constexpr uint8_t kMaxOfdmImmunity = 8U;
         constexpr uint8_t kMaxCckWithoutRssi = 6U;
         constexpr uint32_t kAniPhyCounterSaturated = 0x00ffffffU;
+        constexpr uint32_t kMacClockCyclesPerMsHt20 = 44000U;
+        constexpr uint32_t kMacClockCyclesPerMsHt40 = 88000U;
+        constexpr uint32_t kMaxAniObservationMs = 5000U;
 
         // First-step/spur-level pairs for ath9k OFDM ANI 0..8. Level 9
         // additionally disables weak-signal detection, which this receive-
@@ -430,6 +433,81 @@ namespace simpleath
         progress.requiresReset = false;
         progress.result = AniResult::Ok;
         return progress;
+    }
+
+    AniResult deriveAr9565AniErrorWindow(const RfChannelRequest &request,
+                                         const AniHardwareSample &begin,
+                                         const AniHardwareSample &end,
+                                         uint32_t elapsedMilliseconds,
+                                         bool scanning, AniErrorWindow &out)
+    {
+        // Local input snapshots guard against caller-owned sample mutation.
+        const RfChannelRequest channel = request;
+        const AniHardwareSample first = begin;
+        const AniHardwareSample last = end;
+        out = {};
+        if (!validRequest(channel))
+        {
+            return AniResult::InvalidChannel;
+        }
+        if (first.ownerEpoch == 0U || first.ownerEpoch != last.ownerEpoch ||
+            first.captureSequence == 0U ||
+            last.captureSequence <= first.captureSequence ||
+            first.channel != channel.control.number ||
+            last.channel != channel.control.number ||
+            first.width != channel.width || last.width != channel.width ||
+            first.secondary != channel.secondary ||
+            last.secondary != channel.secondary)
+        {
+            return AniResult::StaleErrorWindow;
+        }
+        if (!first.mmioAndMasksVerified || !last.mmioAndMasksVerified ||
+            elapsedMilliseconds == 0U ||
+            elapsedMilliseconds > kMaxAniObservationMs ||
+            first.ofdmTimingErrors >= kAniPhyCounterSaturated ||
+            last.ofdmTimingErrors >= kAniPhyCounterSaturated ||
+            first.cckTimingErrors >= kAniPhyCounterSaturated ||
+            last.cckTimingErrors >= kAniPhyCounterSaturated ||
+            last.cycleCount <= first.cycleCount ||
+            last.receiveFrameCycles < first.receiveFrameCycles ||
+            last.transmitFrameCycles < first.transmitFrameCycles ||
+            last.ofdmTimingErrors < first.ofdmTimingErrors ||
+            last.cckTimingErrors < first.cckTimingErrors)
+        {
+            return AniResult::InvalidErrorWindow;
+        }
+        const uint64_t cycles =
+            static_cast<uint64_t>(last.cycleCount) - first.cycleCount;
+        const uint64_t receive =
+            static_cast<uint64_t>(last.receiveFrameCycles) -
+            first.receiveFrameCycles;
+        const uint64_t transmit =
+            static_cast<uint64_t>(last.transmitFrameCycles) -
+            first.transmitFrameCycles;
+        const uint32_t cyclesPerMs = channel.width == ChannelWidth::Ht40
+                                         ? kMacClockCyclesPerMsHt40
+                                         : kMacClockCyclesPerMsHt20;
+        // Two independent sanity conditions catch unsafe byte-order and MIB
+        // snapshots taken after a hardware counter clear. The MIB owner must
+        // separately guarantee that no full wrap occurred between samples.
+        if (receive + transmit >= cycles ||
+            cycles > static_cast<uint64_t>(cyclesPerMs) * elapsedMilliseconds)
+        {
+            return AniResult::InvalidErrorWindow;
+        }
+        const uint64_t listened = (cycles - receive - transmit) / cyclesPerMs;
+        if (listened == 0U || listened > elapsedMilliseconds)
+        {
+            return AniResult::InvalidErrorWindow;
+        }
+        out.ownerEpoch = last.ownerEpoch;
+        out.counterSequence = last.captureSequence;
+        out.listenedMilliseconds = static_cast<uint32_t>(listened);
+        out.ofdmTimingErrors = last.ofdmTimingErrors - first.ofdmTimingErrors;
+        out.cckTimingErrors = last.cckTimingErrors - first.cckTimingErrors;
+        out.hardwareCountersVerified = true;
+        out.scanning = scanning;
+        return AniResult::Ok;
     }
 
     AniMonitorProgress

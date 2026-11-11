@@ -69,6 +69,10 @@ namespace
         MonitorStale = 28,
         MonitorReplay = 29,
         MonitorBadCounter = 30,
+        HardwareWindow = 31,
+        HardwareWindowPolicy = 32,
+        HardwareWindowReject = 33,
+        HardwareWindowHt40 = 34,
     };
     constexpr uint32_t kBar = 0xa000U;
     constexpr uint32_t kFirstStep = 0x9e10U;
@@ -447,6 +451,140 @@ static int checkReadWriteFailures()
     return 0;
 }
 
+static int checkHardwareWindowDerivation()
+{
+    constexpr uint32_t kSampleElapsed = 1000U;
+    constexpr uint32_t kSampleCycles = 44000000U;
+    AniHardwareSample begin {};
+    begin.ownerEpoch = kEpoch;
+    begin.captureSequence = 3U;
+    begin.channel = kTestChannel;
+    begin.width = ChannelWidth::Ht20;
+    begin.cycleCount = 500U;
+    begin.receiveFrameCycles = 100U;
+    begin.transmitFrameCycles = 100U;
+    begin.ofdmTimingErrors = 2U;
+    begin.cckTimingErrors = 8U;
+    begin.mmioAndMasksVerified = true;
+    AniHardwareSample end = begin;
+    end.captureSequence = 4U;
+    end.cycleCount += kSampleCycles;
+    end.receiveFrameCycles += 2200000U;
+    end.transmitFrameCycles += 1100000U;
+    end.ofdmTimingErrors += 3501U;
+    end.cckTimingErrors += 601U;
+    AniErrorWindow window {};
+    const auto result = deriveAr9565AniErrorWindow(
+        channel(), begin, end, kSampleElapsed, false, window);
+    if (result != AniResult::Ok || !window.hardwareCountersVerified ||
+        window.listenedMilliseconds != 925U || window.counterSequence != 4U ||
+        window.ownerEpoch != kEpoch || window.ofdmTimingErrors != 3501U ||
+        window.cckTimingErrors != 601U || window.scanning)
+    {
+        return static_cast<int>(TestExit::HardwareWindow);
+    }
+    // The derived real-clock window can drive the ANI writer, but does not
+    // create its PHY/BT/country or native-queue ownership on its own.
+    Fake fake {};
+    setIni(fake);
+    Ar9565AniState state {};
+    if (cacheAr9565AniIniDefaults(channel(), permitted(), backend(fake), state)
+                .result != AniResult::Ok ||
+        adaptAr9565AniToPhyErrors(channel(), permitted(), backend(fake), window,
+                                  state)
+                .result != AniResult::Ok ||
+        state.ofdmImmunityLevel != 4U ||
+        state.lastCounterSequence != window.counterSequence)
+    {
+        return static_cast<int>(TestExit::HardwareWindowPolicy);
+    }
+    // Every malformed physical sample must wipe any prior produced window.
+    const auto rejects = [&](const AniHardwareSample &start,
+                             const AniHardwareSample &finish, uint32_t elapsed,
+                             AniResult expected)
+    {
+        AniErrorWindow output = window;
+        const auto error = deriveAr9565AniErrorWindow(channel(), start, finish,
+                                                      elapsed, false, output);
+        return error == expected && !output.hardwareCountersVerified &&
+               output.ownerEpoch == 0U && output.counterSequence == 0U;
+    };
+    AniHardwareSample bad = end;
+    bad.mmioAndMasksVerified = false;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.ownerEpoch = kEpoch + 1U;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::StaleErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.captureSequence = begin.captureSequence;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::StaleErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.channel = kOtherChannel;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::StaleErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.cycleCount = begin.cycleCount;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.receiveFrameCycles = begin.receiveFrameCycles - 1U;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.ofdmTimingErrors = 0x00ffffffU;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    bad = end;
+    bad.receiveFrameCycles = bad.cycleCount;
+    if (!rejects(begin, bad, kSampleElapsed, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    if (!rejects(begin, end, 5001U, AniResult::InvalidErrorWindow) ||
+        !rejects(begin, end, 10U, AniResult::InvalidErrorWindow))
+    {
+        return static_cast<int>(TestExit::HardwareWindowReject);
+    }
+    // HT40 uses 88 MHz MAC reference; reusing HT20 timing would incorrectly
+    // double the observed listen time and trigger a false ANI policy window.
+    auto ht40 = channel();
+    ht40.width = ChannelWidth::Ht40;
+    ht40.secondary = kHt40SecondaryChannel;
+    AniHardwareSample wideBefore = begin;
+    AniHardwareSample wideAfter = end;
+    wideBefore.width = ChannelWidth::Ht40;
+    wideAfter.width = ChannelWidth::Ht40;
+    wideBefore.secondary = kHt40SecondaryChannel;
+    wideAfter.secondary = kHt40SecondaryChannel;
+    wideAfter.cycleCount = wideBefore.cycleCount + 88000000U;
+    wideAfter.receiveFrameCycles = wideBefore.receiveFrameCycles + 8800000U;
+    wideAfter.transmitFrameCycles = wideBefore.transmitFrameCycles + 8800000U;
+    if (deriveAr9565AniErrorWindow(ht40, wideBefore, wideAfter, kSampleElapsed,
+                                   true, window) != AniResult::Ok ||
+        !window.scanning || window.listenedMilliseconds != 800U)
+    {
+        return static_cast<int>(TestExit::HardwareWindowHt40);
+    }
+    return 0;
+}
+
 static int checkAdaptiveMonitor()
 {
     Fake fake {};
@@ -638,6 +776,11 @@ int main()
     if (readWrite != 0)
     {
         return readWrite;
+    }
+    const int physicalCounters = checkHardwareWindowDerivation();
+    if (physicalCounters != 0)
+    {
+        return physicalCounters;
     }
     return checkAdaptiveMonitor();
 }

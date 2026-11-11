@@ -103,6 +103,41 @@ namespace simpleath
             bool scanning {};
     };
 
+    // Immutable copies of AR_CCCNT, AR_RFCNT, AR_TFCNT and the two 24-bit
+    // AR_PHY_ERR_{1,2} timing counters. The native MIB owner must sample each
+    // set under one owned, same-channel epoch, with both PHY timing masks
+    // configured, without an intervening MIB clear, wrap, sleep, or retune.
+    // Capture sequence counts hardware samples, not scheduler callbacks.
+    struct AniHardwareSample
+    {
+            uint64_t ownerEpoch {};
+            uint64_t captureSequence {};
+            uint8_t channel {};
+            ChannelWidth width {ChannelWidth::Ht20};
+            uint8_t secondary {};
+            uint32_t cycleCount {};
+            uint32_t receiveFrameCycles {};
+            uint32_t transmitFrameCycles {};
+            uint32_t ofdmTimingErrors {};
+            uint32_t cckTimingErrors {};
+            bool mmioAndMasksVerified {};
+    };
+
+    // Convert two actual hardware MIB snapshots into one bounded ANI policy
+    // window. Use 44 MHz 2.4 GHz AR9565 MAC cycles (88 MHz HT40), matching
+    // upstream ath9k_hw_set_clockrate/ath_hw_get_listen_time. The elapsed
+    // monotonic owner duration is an upper sanity bound, NOT a substitute
+    // for derived PHY listen time. Reject wrap, saturation, resets, channel
+    // change, unavailable masks and nonmonotonic capture sequences. No
+    // actual MMIO occurs here: the native PCI owner must still acquire both
+    // real samples and independently verify no concurrent counter reset.
+    // Ordinary failure zeroes output; success does not authorize RX or TX.
+    AniResult deriveAr9565AniErrorWindow(const RfChannelRequest &request,
+                                         const AniHardwareSample &begin,
+                                         const AniHardwareSample &end,
+                                         uint32_t elapsedMilliseconds,
+                                         bool scanning, AniErrorWindow &out);
+
     struct AniMonitorProgress
     {
             AniResult result {AniResult::NotInitialized};
