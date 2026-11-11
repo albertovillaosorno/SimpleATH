@@ -14,13 +14,19 @@ namespace
     constexpr uint32_t kBar = 0x24000;
     constexpr uint32_t kSeed = 0xffffffffU;
     constexpr size_t kSteps = 10;
-    constexpr size_t kTotalRegisters = 18;
+    constexpr size_t kTotalRegisters = 20;
     constexpr size_t kSharedMciStageSteps = 8;
     constexpr size_t kSharedAntennaStageSteps = 8;
     constexpr uint32_t kMciScheduleAddress = 0x1818;
     constexpr uint32_t kMciGpmAddress = 0x1820;
     constexpr uint32_t kMciGpmEntries = 0x1824;
     constexpr uint32_t kMciCommand2 = 0x1808;
+    constexpr uint32_t kMciInterruptRaw = 0x1828;
+    constexpr uint32_t kMciReceiveMessageRaw = 0x1838;
+    constexpr uint32_t kMciGpmReceived = 0x00000100U;
+    constexpr uint32_t kMciRxMessageInterrupt = 0x00000200U;
+    constexpr uint32_t kMciRemoteReset = 0x00000001U;
+    constexpr uint32_t kMciHardwareFault = 0x00000100U;
     constexpr uint32_t kResetTx = 1U;
     constexpr uint32_t kResetRx = 2U;
     constexpr uint32_t kFinalWritePointer = 5U;
@@ -67,6 +73,7 @@ namespace
     constexpr int kFailedGpm = 6;
     constexpr int kFailedAntenna = 7;
     constexpr int kFailedMciReset = 8;
+    constexpr int kFailedMciInterrupt = 9;
 
     struct Register
     {
@@ -96,6 +103,8 @@ namespace
                     {kLnaTimeout, kSeed},
                     {kMciAttributes, kSeed},
                     {kMciCommand2, 0U},
+                    {kMciInterruptRaw, 0U},
+                    {kMciReceiveMessageRaw, 0U},
                 },
             };
             std::array<uint32_t, kTotalRegisters> writeOrder {};
@@ -170,7 +179,14 @@ namespace
         }
         if (mock.writes != mock.skipWrite)
         {
-            reg->bits = bits;
+            if (address == kMciInterruptRaw || address == kMciReceiveMessageRaw)
+            {
+                reg->bits &= ~bits; // Device W1C, not a normal register.
+            }
+            else
+            {
+                reg->bits = bits;
+            }
         }
         if (mock.invalidateGpmAfterReset && address == kMciCommand2 &&
             bits == 0U && mock.writes == 5U)
@@ -709,6 +725,146 @@ namespace
         return true;
     }
 
+    bool sharedMciInterruptTests()
+    {
+        const auto physicalBoard = board();
+        const auto evidence = sharedAuthorized();
+        const auto dma = sharedBuffers();
+        const SharedMciAntennaSelection topology {
+            SharedMciAntennaTopology::OneSharedPaAndLna,
+            true,
+        };
+        const SharedMciResetEvidence btQuiesced {true, true};
+        const auto prepare = [&](Mock &mock, MciGpmCursor &cursor)
+        {
+            const auto stage =
+                stageAr9565SharedMciDma(physicalBoard, evidence, dma, io(mock));
+            const auto antennas = stageAr9565SharedMciAntenna(
+                physicalBoard, evidence, dma, topology, io(mock));
+            const auto reset =
+                resetAr9565SharedMciRxTx(physicalBoard, evidence, dma, topology,
+                                         btQuiesced, io(mock), cursor);
+            mock.writes = mock.reads = mock.permits = 0U;
+            return stage.result == CoexistenceResult::Ok &&
+                   antennas.result == CoexistenceResult::Ok &&
+                   reset.result == CoexistenceResult::Ok;
+        };
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            find(mock, kMciReceiveMessageRaw)->bits =
+                kMciGpmReceived | kMciRemoteReset;
+            find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
+            const auto result =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            if (result.progress.result != CoexistenceResult::Ok ||
+                result.progress.requiresReset ||
+                result.progress.completedWrites != 2U ||
+                !result.gpmNotification ||
+                !result.bluetoothRenegotiationRequired ||
+                result.hardwareFault ||
+                result.rawInterrupt != kMciRxMessageInterrupt ||
+                result.rawMessageInterrupt !=
+                    (kMciGpmReceived | kMciRemoteReset) ||
+                mock.writes != 2U ||
+                mock.writeOrder.at(0) != kMciReceiveMessageRaw ||
+                mock.writeOrder.at(1) != kMciInterruptRaw ||
+                find(mock, kMciReceiveMessageRaw)->bits != 0U ||
+                find(mock, kMciInterruptRaw)->bits != 0U ||
+                find(mock, kMciInterrupt)->bits != 0U ||
+                find(mock, kSelfGen)->bits != 0U || !cursor.attached ||
+                cursor.ownerEpoch != kEpoch)
+            {
+                return false;
+            }
+            const auto idle =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            if (idle.progress.result != CoexistenceResult::Ok ||
+                idle.progress.completedWrites != 0U || idle.gpmNotification ||
+                idle.hardwareFault || idle.bluetoothRenegotiationRequired)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
+            find(mock, kMciInterruptRaw)->bits = kMciHardwareFault;
+            const auto result =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            if (result.progress.result != CoexistenceResult::Ok ||
+                !result.hardwareFault || !result.progress.requiresReset ||
+                result.gpmNotification || result.bluetoothRenegotiationRequired)
+            {
+                return false;
+            }
+            auto stale = cursor;
+            stale.ownerEpoch = kEpoch + 1U;
+            if (pollAr9565MciPendingInterrupts(evidence, dma, stale, io(mock))
+                    .progress.result != CoexistenceResult::MissingIsolation)
+            {
+                return false;
+            }
+        }
+        for (size_t scenario = 0U; scenario < 5U; ++scenario)
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            if (scenario == 0U)
+            {
+                find(mock, kMciReceiveMessageRaw)->bits = 0xdeadbeefU;
+            }
+            else if (scenario == 1U)
+            {
+                find(mock, kMciInterrupt)->bits = 0x1U;
+            }
+            else
+            {
+                find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
+                if (scenario == 2U)
+                {
+                    mock.failWrite = 1U;
+                }
+                else if (scenario == 3U)
+                {
+                    mock.skipWrite = 1U;
+                }
+                else
+                {
+                    mock.revokeAfter = 1U;
+                }
+            }
+            const auto result =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            const auto expected =
+                scenario < 2U    ? CoexistenceResult::ReadbackMismatch
+                : scenario == 2U ? CoexistenceResult::WriteFailed
+                : scenario == 3U ? CoexistenceResult::ReadbackMismatch
+                                 : CoexistenceResult::OwnershipLost;
+            if (result.progress.result != expected ||
+                (scenario < 2U && mock.writes != 0U) ||
+                (scenario >= 2U && !result.progress.requiresReset) ||
+                !cursor.attached || cursor.ownerEpoch != kEpoch)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool sharedGpmTests()
     {
         constexpr uint32_t kRingEntries = 16U;
@@ -915,6 +1071,10 @@ int main()
     if (!sharedMciResetTests())
     {
         return kFailedMciReset;
+    }
+    if (!sharedMciInterruptTests())
+    {
+        return kFailedMciInterrupt;
     }
     if (!sharedGpmTests())
     {

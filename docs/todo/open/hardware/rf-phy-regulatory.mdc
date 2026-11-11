@@ -195,6 +195,16 @@ leases, invalid head and partial reset errors. **The native PCI owner still
 does not invoke this stage**; no MCI IRQ or GPM handshake is armed and
 coexistence, native radio and Bluetooth runtime remain incomplete.
 
+The source-level MCI follow-up now also polls and W1C-acknowledges the
+hardware's RAW and RX_MSG interrupt status only while both interrupt ENABLE
+registers remain masked and the physical MCI reset, DMA and epoch-bound GPM
+cursor are still valid. It distinguishes pending GPM, remote-BT reset/wakeup
+renegotiation and hardware-fault conditions; ambiguous registers, lost owner,
+failed acknowledgements and unreadable status fail closed. This does NOT
+register an interrupt handler, enable MCI IRQs, service coherent DMA, handle
+Bluetooth messages or establish radio readiness. Those are separate native
+work-loop and Bluetooth handshake integration requirements.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.

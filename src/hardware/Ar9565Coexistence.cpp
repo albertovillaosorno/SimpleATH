@@ -49,6 +49,14 @@ namespace simpleath
         constexpr uint32_t kBtLnaTimeout = 0x1940;
         constexpr uint32_t kMciMessageAttributes = 0x1814;
         constexpr uint32_t kMciCommand2 = 0x1808;
+        constexpr uint32_t kMciInterruptRaw = 0x1828;
+        constexpr uint32_t kMciReceiveMessageRaw = 0x1838;
+        constexpr uint32_t kMciInterruptRxMessage = 0x00000200U;
+        constexpr uint32_t kMciReceiveGpmMessage = 0x00000100U;
+        constexpr uint32_t kMciReceiveRemoteReset = 0x00000001U;
+        constexpr uint32_t kMciReceiveReqWake = 0x00001000U;
+        constexpr uint32_t kMciErrorMask = 0x800001bcU;
+        constexpr uint32_t kMciInvalidReadValue = 0xdeadbeefU;
         constexpr uint32_t kMciResetTx = 0x1U;
         constexpr uint32_t kMciResetRx = 0x2U;
         constexpr uint32_t kMciGpmConfiguredLengthMask = 0x0000ffffU;
@@ -122,6 +130,69 @@ namespace simpleath
             }
             ++status.completedReads;
             if ((actual & expected.mask) != (expected.value & expected.mask))
+            {
+                status.result = CoexistenceResult::ReadbackMismatch;
+                return false;
+            }
+            return true;
+        }
+
+        bool readMciPendingRaw(const RxAgcBackend &backend,
+                               CoexistenceProgress &status, uint32_t address,
+                               uint32_t &value)
+        {
+            status.lastOffset = address;
+            if (!permit(backend.io, status))
+            {
+                return false;
+            }
+            if (!backend.read32(backend.io.context, address, &value))
+            {
+                status.result = CoexistenceResult::ReadFailed;
+                return false;
+            }
+            ++status.completedReads;
+            if (value == kMciInvalidReadValue || value == UINT32_MAX)
+            {
+                status.result = CoexistenceResult::ReadbackMismatch;
+                return false;
+            }
+            return true;
+        }
+
+        bool acknowledgeMciPendingRaw(const RxAgcBackend &backend,
+                                      CoexistenceProgress &status,
+                                      uint32_t address, uint32_t bits)
+        {
+            if (bits == 0U)
+            {
+                return true;
+            }
+            const RfIniBackend &io = backend.io;
+            status.lastOffset = address;
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            status.requiresReset = true;
+            if (!io.write32(io.context, address, bits))
+            {
+                status.result = CoexistenceResult::WriteFailed;
+                return false;
+            }
+            ++status.completedWrites;
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            uint32_t after = 0U;
+            if (!backend.read32(io.context, address, &after))
+            {
+                status.result = CoexistenceResult::ReadFailed;
+                return false;
+            }
+            ++status.completedReads;
+            if ((after & bits) != 0U)
             {
                 status.result = CoexistenceResult::ReadbackMismatch;
                 return false;
@@ -558,6 +629,91 @@ namespace simpleath
         progress.result = CoexistenceResult::Ok;
         progress.requiresReset = false;
         return progress;
+    }
+
+    MciPendingInterrupts pollAr9565MciPendingInterrupts(
+        const SharedMciEvidence &evidence, const SharedMciDmaBuffers &buffers,
+        const MciGpmCursor &cursor, const RxAgcBackend &backend)
+    {
+        MciPendingInterrupts result {};
+        result.progress.result = CoexistenceResult::InvalidBackend;
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0U ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            stable.read32 == nullptr)
+        {
+            return result;
+        }
+        result.progress.result = CoexistenceResult::MissingIsolation;
+        if (!evidence.physicallyVerifiedBoard || !evidence.bluetoothHostOwned ||
+            !evidence.coexistenceAndAntennaLease ||
+            !evidence.macAndAutoResponsesQuiesced ||
+            !evidence.initializedCoherentDma || !cursor.attached ||
+            cursor.ownerEpoch != io.ownerEpoch ||
+            cursor.nextIndex >= kAr9565MciGpmEntries)
+        {
+            return result;
+        }
+        result.progress.result = CoexistenceResult::InvalidDma;
+        if (!validSharedDma(buffers))
+        {
+            return result;
+        }
+        result.progress.result = CoexistenceResult::InvalidBar;
+        if (io.barLengthBytes < kSelfGeneratedMask + sizeof(uint32_t))
+        {
+            return result;
+        }
+        const RegisterOperation expected[] {
+            {kSelfGeneratedMask, 0xffffffffU, 0U},
+            {kMciInterruptEnable, 0xffffffffU, 0U},
+            {kMciReceiveMessageEnable, 0xffffffffU, 0U},
+            {kMciRemoteCpuInterruptEnable, 0xffffffffU, 0U},
+            {kBtCoexistenceControl, kMciModeEnable, kMciModeEnable},
+            {kMciGpmAddress, 0xffffffffU, buffers.gpmBusAddress},
+            {kMciGpmEntries, kMciGpmConfiguredLengthMask, buffers.gpmEntries},
+            {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
+        };
+        result.progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &item : expected)
+        {
+            if (!observe(stable, result.progress, item))
+            {
+                return result;
+            }
+        }
+        uint32_t rawMessage = 0U;
+        uint32_t rawInterrupt = 0U;
+        if (!readMciPendingRaw(stable, result.progress, kMciReceiveMessageRaw,
+                               rawMessage) ||
+            !readMciPendingRaw(stable, result.progress, kMciInterruptRaw,
+                               rawInterrupt))
+        {
+            return result;
+        }
+        // Once the initial snapshot has been validated, expose only copied
+        // status, never a borrowed DMA slot or permission derived from it.
+        result.rawMessageInterrupt = rawMessage;
+        result.rawInterrupt = rawInterrupt;
+        result.gpmNotification = (rawMessage & kMciReceiveGpmMessage) != 0U &&
+                                 (rawInterrupt & kMciInterruptRxMessage) != 0U;
+        result.bluetoothRenegotiationRequired =
+            (rawMessage & (kMciReceiveRemoteReset | kMciReceiveReqWake)) != 0U;
+        result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
+        // Device RAW registers are W1C, never RMW. The owner checks each
+        // acknowledgement and readback before declaring the snapshot valid.
+        if (!acknowledgeMciPendingRaw(stable, result.progress,
+                                      kMciReceiveMessageRaw, rawMessage) ||
+            !acknowledgeMciPendingRaw(stable, result.progress, kMciInterruptRaw,
+                                      rawInterrupt) ||
+            !permit(io, result.progress))
+        {
+            return result;
+        }
+        result.progress.result = CoexistenceResult::Ok;
+        result.progress.requiresReset = result.hardwareFault;
+        return result;
     }
 
     namespace

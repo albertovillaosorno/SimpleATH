@@ -172,6 +172,28 @@ namespace simpleath
                              const SharedMciResetEvidence &resetEvidence,
                              const RxAgcBackend &backend, MciGpmCursor &cursor);
 
+    struct MciPendingInterrupts
+    {
+            CoexistenceProgress progress {};
+            uint32_t rawInterrupt {};
+            uint32_t rawMessageInterrupt {};
+            bool gpmNotification {};
+            bool bluetoothRenegotiationRequired {};
+            bool hardwareFault {};
+    };
+
+    // Poll and W1C-ack the MCI IRQ status after a physically proved RX/TX
+    // reset and epoch-bound GPM cursor attachment, while the MCI interrupt
+    // ENABLE registers are still masked. Each MMIO action validates the
+    // live owner and readback; a missed/ambiguous acknowledge requires reset.
+    // This is NOT an armed interrupt source or Bluetooth IRQ service. The
+    // caller must separately synchronize coherent GPM DMA and negotiate
+    // remote resets, calibration and channel/antenna arbitration. No received
+    // interrupt or status bit can itself grant WLAN/BT/radio readiness.
+    MciPendingInterrupts pollAr9565MciPendingInterrupts(
+        const SharedMciEvidence &evidence, const SharedMciDmaBuffers &buffers,
+        const MciGpmCursor &cursor, const RxAgcBackend &backend);
+
     // Consume the oldest previously unconsumed GPM slot in ring order,
     // skipping the ath9k 0xfe reserved slots. The caller MUST synchronize
     // the coherent CPU DMA view, serialize the live PCI/MCI owner epoch,
