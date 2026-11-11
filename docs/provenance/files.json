@@ -19,10 +19,10 @@
     },
     {
       "path": ".github/workflows/build.yml",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -43,10 +43,10 @@
     },
     {
       "path": ".gitignore",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -154,11 +154,19 @@
       "kind": "data-or-document"
     },
     {
+      "path": "LICENSE-SIMPLEBCM",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH document or third-party license notice",
+      "kind": "data-or-document"
+    },
+    {
       "path": "README.md",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -186,35 +194,43 @@
       "kind": "data-or-document"
     },
     {
+      "path": "compile_commands.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Source-only portable compile commands generated from tools/generate_compile_commands.py; machine-specific paths excluded",
+      "kind": "data-or-document"
+    },
+    {
       "path": "docs/ABI.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "docs/Build.md",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "docs/Control-Codecs.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "docs/Native-Universal.md",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -402,6 +418,22 @@
       "kind": "data-or-document"
     },
     {
+      "path": "docs/evidence/external_source_urls.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Preserves exact URLs from reference documentation reflowed to 80 columns",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "docs/provenance/files.json",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH file-level license and provenance catalog",
+      "kind": "data-or-document"
+    },
+    {
       "path": "docs/todo/completed/README.md",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -546,373 +578,163 @@
       "kind": "data-or-document"
     },
     {
-      "path": "firmware/LICENCE.atheros_firmware",
-      "license": "NOASSERTION",
-      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
-      "copyright": "Respective Qualcomm/Atheros rights holders",
-      "provenance": "linux-firmware notices and manifest (unmodified)",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "firmware/LICENSE.QualcommAtheros_ar3k",
-      "license": "NOASSERTION",
-      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
-      "copyright": "Respective Qualcomm/Atheros rights holders",
-      "provenance": "linux-firmware notices and manifest (unmodified)",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x01020001.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "24844c16de86a54b44d34c83c78b67ef561c09a228769d8cb6975a0a8db455db"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x01020200.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "c064839aea2f8c5ea11da08ed1814adf26c0b74f0da5c7b92f9576bf1b43773b"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x01020201.dfu",
-      "license": "LicenseRef-QualcommAtheros-AR3K",
-      "license_file": "firmware/LICENSE.QualcommAtheros_ar3k",
-      "copyright": "Copyright (c) 2015 Qualcomm Atheros, Inc.",
-      "provenance": "linux-firmware: Qualcomm AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "b7dad005c0d019f2785b302e470df7f483879af971a3dde16c4993eada4d4a26"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x11020000.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "a15ce5593f65a3c099a70efed1238f7e0f87ca374d70c72fbdfe397dd1ab3bb3"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x11020100.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "0504043d9d17ce09ac829e5ae7dba6af739e136160c842e76d772d5fcb02a019"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x31010000.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "d0bc433c0ff69e53c54cb728f6852dd5467f417c615813b2e72b5b7dd556439d"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x31010100.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "d0e20e32c84b42684829743475a53225e7116089393ac4c4970be136b8f3a2f6"
-    },
-    {
-      "path": "firmware/ar3k/AthrBT_0x41020000.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "0807e12526dc8e0d6e0655710afb245ea7b097cd5b25495c86b7100429a703a3"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x01020001_26.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "515e51ac2b21afba8ba9a87ac8b53713b72f6461f316f1da0eb405f580e36ead"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x01020200_26.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "57a67ed2e45b4c826b7a3cafcee5328d511d25643105f15f82f310071ba339e3"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x01020200_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "162f381675f859e75e79a3d0327167e87f4c6e326a85972a12abefd569ed2ea4"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x01020201_26.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x01020201_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x11020000_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "7e776dab8b7f74f830cb2b19629751717b5316c05a160a6430ee842d4dc666f6"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x11020100_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "d10b989e90b1b18fa015df3c88d3beac6dba04c586663c0a7132e1fa2feb3f59"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x31010000_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "c8404e5abc29ab8adb310fb13109009ca744f6145e3e7c9bd49b84680c5db615"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x31010100_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "a2f99c2d9565d55040c6956427d0662911c6c9dd6f12965f1470169b75b274ae"
-    },
-    {
-      "path": "firmware/ar3k/ramps_0x41020000_40.dfu",
-      "license": "LicenseRef-Atheros-Firmware",
-      "license_file": "firmware/LICENCE.atheros_firmware",
-      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
-      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
-      "kind": "binary",
-      "sha256": "4c20a37cb8af73948c2247eb1947bce127a0956c6b91b446104a413e4151c546"
-    },
-    {
-      "path": "firmware/manifest.json",
-      "license": "NOASSERTION",
-      "license_file": "firmware/LICENCE.atheros_firmware; firmware/LICENSE.QualcommAtheros_ar3k",
-      "copyright": "Respective Qualcomm/Atheros rights holders",
-      "provenance": "linux-firmware notices and manifest (unmodified)",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "licenses/GPL-2.0.txt",
-      "license": "GPL-2.0-only",
-      "license_file": "LICENSE-GPL",
-      "copyright": "Free Software Foundation license text",
-      "provenance": "GNU GPL version 2 license document",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "provenance/files.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
-      "kind": "data-or-document"
-    },
-    {
-      "path": "provenance/files.json",
-      "license": "MIT",
-      "license_file": "LICENSE-MIT",
-      "copyright": "Copyright © 2026 Alberto Villa Osorno",
-      "provenance": "Generated file-level repository inventory; self-entry intentionally unhashed",
-      "kind": "data-or-document"
-    },
-    {
       "path": "src/Bridge.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Bridge.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/HardwareIdentity.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Info.plist",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "src/Loader.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Loader.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/NativeProfile.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/NativeSkywalk.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/NativeSkywalk.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/NativeUserClient.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/NativeUserClient.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Patcher.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Patcher.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Payload.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Profiles.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/Relocate.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/SimpleATH.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/UserClient.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/UserClient.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "src/WirelessABI.hpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -1018,6 +840,192 @@
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
       "provenance": "SimpleATH original; independently developed or locally authored",
       "kind": "code"
+    },
+    {
+      "path": "src/firmware/LICENCE.atheros_firmware",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware; src/firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Atheros / Qualcomm Atheros rights holders",
+      "provenance": "Original AR3012 upstream firmware notice and SHA-256 catalog",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/firmware/LICENSE.QualcommAtheros_ar3k",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware; src/firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Atheros / Qualcomm Atheros rights holders",
+      "provenance": "Original AR3012 upstream firmware notice and SHA-256 catalog",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x01020001.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "24844c16de86a54b44d34c83c78b67ef561c09a228769d8cb6975a0a8db455db"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x01020200.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "c064839aea2f8c5ea11da08ed1814adf26c0b74f0da5c7b92f9576bf1b43773b"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x01020201.dfu",
+      "license": "LicenseRef-QualcommAtheros-AR3K",
+      "license_file": "src/firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Copyright (c) 2015 Qualcomm Atheros, Inc.",
+      "provenance": "linux-firmware: Qualcomm AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "b7dad005c0d019f2785b302e470df7f483879af971a3dde16c4993eada4d4a26"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x11020000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "a15ce5593f65a3c099a70efed1238f7e0f87ca374d70c72fbdfe397dd1ab3bb3"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x11020100.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "0504043d9d17ce09ac829e5ae7dba6af739e136160c842e76d772d5fcb02a019"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x31010000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d0bc433c0ff69e53c54cb728f6852dd5467f417c615813b2e72b5b7dd556439d"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x31010100.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d0e20e32c84b42684829743475a53225e7116089393ac4c4970be136b8f3a2f6"
+    },
+    {
+      "path": "src/firmware/ar3k/AthrBT_0x41020000.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "0807e12526dc8e0d6e0655710afb245ea7b097cd5b25495c86b7100429a703a3"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x01020001_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "515e51ac2b21afba8ba9a87ac8b53713b72f6461f316f1da0eb405f580e36ead"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x01020200_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "57a67ed2e45b4c826b7a3cafcee5328d511d25643105f15f82f310071ba339e3"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x01020200_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "162f381675f859e75e79a3d0327167e87f4c6e326a85972a12abefd569ed2ea4"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x01020201_26.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x01020201_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "871b701f2734a8bb9a45c4c369a60719252bea01f3eb8108699fa8ea8f16fafd"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x11020000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "7e776dab8b7f74f830cb2b19629751717b5316c05a160a6430ee842d4dc666f6"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x11020100_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "d10b989e90b1b18fa015df3c88d3beac6dba04c586663c0a7132e1fa2feb3f59"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x31010000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "c8404e5abc29ab8adb310fb13109009ca744f6145e3e7c9bd49b84680c5db615"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x31010100_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "a2f99c2d9565d55040c6956427d0662911c6c9dd6f12965f1470169b75b274ae"
+    },
+    {
+      "path": "src/firmware/ar3k/ramps_0x41020000_40.dfu",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware",
+      "copyright": "Copyright (c) 2008-2010 Atheros Communications, Inc.",
+      "provenance": "linux-firmware: Atheros AR3012 firmware; see firmware/manifest.json",
+      "kind": "binary",
+      "sha256": "4c20a37cb8af73948c2247eb1947bce127a0956c6b91b446104a413e4151c546"
+    },
+    {
+      "path": "src/firmware/manifest.json",
+      "license": "LicenseRef-Atheros-Firmware",
+      "license_file": "src/firmware/LICENCE.atheros_firmware; src/firmware/LICENSE.QualcommAtheros_ar3k",
+      "copyright": "Atheros / Qualcomm Atheros rights holders",
+      "provenance": "Original AR3012 upstream firmware notice and SHA-256 catalog",
+      "kind": "data-or-document"
     },
     {
       "path": "src/hardware/Ar9003Descriptors.cpp",
@@ -1501,10 +1509,10 @@
     },
     {
       "path": "src/platform/Kernel.xcconfig",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -1517,18 +1525,18 @@
     },
     {
       "path": "src/platform/SimpleATH.xcodeproj/project.pbxproj",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "src/platform/SimpleATH.xcodeproj/xcshareddata/xcschemes/SimpleATH.xcscheme",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -1541,34 +1549,34 @@
     },
     {
       "path": "src/platform/abi/Sequoia.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "src/platform/abi/Sonoma.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "src/platform/abi/Tahoe.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
       "path": "src/platform/abi/manifest.json",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "data-or-document"
     },
     {
@@ -1605,10 +1613,10 @@
     },
     {
       "path": "src/platform/probe/main.mm",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -2026,14 +2034,6 @@
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
       "provenance": "SimpleATH original; independently developed or locally authored",
       "kind": "code"
-    },
-    {
-      "path": "tests/.clang-tidy",
-      "license": "MIT",
-      "license_file": "LICENSE-MIT",
-      "copyright": "Copyright © 2026 Alberto Villa Osorno",
-      "provenance": "SimpleATH original; independently developed or locally authored",
-      "kind": "data-or-document"
     },
     {
       "path": "tests/README.md",
@@ -2708,6 +2708,14 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_line_width.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH document or third-party license notice",
+      "kind": "code"
+    },
+    {
       "path": "tests/test_mac_quiesce.cpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -2993,6 +3001,14 @@
       "license_file": "LICENSE-MIT",
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
       "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_public_contract.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH document or third-party license notice",
       "kind": "code"
     },
     {
@@ -3316,14 +3332,6 @@
       "kind": "data-or-document"
     },
     {
-      "path": "tools/.clang-tidy",
-      "license": "MIT",
-      "license_file": "LICENSE-MIT",
-      "copyright": "Copyright © 2026 Alberto Villa Osorno",
-      "provenance": "SimpleATH original; independently developed or locally authored",
-      "kind": "data-or-document"
-    },
-    {
       "path": "tools/__init__.py",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -3341,26 +3349,26 @@
     },
     {
       "path": "tools/abi_validation_host.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/audit_codecs.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/bootstrap.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3373,10 +3381,10 @@
     },
     {
       "path": "tools/build.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3389,18 +3397,26 @@
     },
     {
       "path": "tools/check.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
+      "kind": "code"
+    },
+    {
+      "path": "tools/check_line_width.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH document or third-party license notice",
       "kind": "code"
     },
     {
       "path": "tools/collect.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3445,10 +3461,10 @@
     },
     {
       "path": "tools/embed.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3477,10 +3493,10 @@
     },
     {
       "path": "tools/forwarding_validation_host.cpp",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3517,26 +3533,26 @@
     },
     {
       "path": "tools/kernel_collection.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/macho.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/native_abi.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3565,10 +3581,10 @@
     },
     {
       "path": "tools/native_payload.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3581,26 +3597,34 @@
     },
     {
       "path": "tools/native_references.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/profiles.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
+      "kind": "code"
+    },
+    {
+      "path": "tools/public_contract.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno.",
+      "provenance": "Original SimpleATH document or third-party license notice",
       "kind": "code"
     },
     {
       "path": "tools/publish.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3629,10 +3653,10 @@
     },
     {
       "path": "tools/system_profiles.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
@@ -3653,18 +3677,18 @@
     },
     {
       "path": "tools/verify.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     },
     {
       "path": "tools/verify_native.py",
-      "license": "NOASSERTION",
-      "license_file": "THIRD_PARTY_NOTICES.md",
-      "copyright": "Copyright © 2026 laobamac (upstream SimpleBCM) and other upstream owners as applicable",
-      "provenance": "SimpleBCM v1.2.0 imported/adapted; upstream license grant not established",
+      "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
+      "license_file": "LICENSE-SIMPLEBCM",
+      "copyright": "Copyright © 2026 laobamac. All rights reserved.",
+      "provenance": "SimpleBCM v1.2.0, by laobamac; no public license grant identified",
       "kind": "code"
     }
   ]

@@ -1,0 +1,206 @@
+{
+  "schema": "simpleath.external-source-links.v1",
+  "note": "Original target URLs and long ABI snippets retained for audit.",
+  "entries": {
+    "R0001": {
+      "source": "docs/Build.md",
+      "url": "source-text: <SIMPLEATH_REFERENCE_ROOT>/<Sonoma|Sequoia|Tahoe>/System/Library/CoreServices/SystemVersion.plist"
+    },
+    "R0002": {
+      "source": "docs/Build.md",
+      "url": "source-text: <SIMPLEATH_REFERENCE_ROOT>/<Sonoma|Sequoia|Tahoe>/System/Library/KernelCollections/BootKernelExtensions.kc"
+    },
+    "R0003": {
+      "source": "docs/design/ABI-EVIDENCE-ACQUISITION.md",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h"
+    },
+    "R0004": {
+      "source": "docs/design/ABI-EVIDENCE-ACQUISITION.md",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/nlist.h"
+    },
+    "R0005": {
+      "source": "docs/design/MACOS-INTEGRATION.md",
+      "url": "https://developer.apple.com/documentation/pcidriverkit/connecting-a-network-driver"
+    },
+    "R0006": {
+      "source": "docs/design/MACOS-INTEGRATION.md",
+      "url": "https://developer.apple.com/documentation/networkingdriverkit"
+    },
+    "R0007": {
+      "source": "docs/design/MACOS-INTEGRATION.md",
+      "url": "https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/pci/IOPCIDevice.h"
+    },
+    "R0008": {
+      "source": "docs/design/MACOS-INTEGRATION.md",
+      "url": "https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp"
+    },
+    "R0009": {
+      "source": "docs/design/NATIVE-DMA-BUFFERS.md",
+      "url": "https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/IODMACommand.h"
+    },
+    "R0010": {
+      "source": "docs/design/NATIVE-DMA-BUFFERS.md",
+      "url": "https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/IOBufferMemoryDescriptor.h"
+    },
+    "R0011": {
+      "source": "docs/design/NATIVE-DMA-BUFFERS.md",
+      "url": "https://developer.apple.com/documentation/kernel/iodmacommand/1547719-synchronize"
+    },
+    "R0012": {
+      "source": "docs/design/NATIVE-DMA-BUFFERS.md",
+      "url": "https://developer.apple.com/documentation/kernel/iodmacommand/1811081-complete"
+    },
+    "R0013": {
+      "source": "docs/design/NATIVE-PCI-TRANSPORT.md",
+      "url": "https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp"
+    },
+    "R0014": {
+      "source": "docs/design/TAHOE-25G332-KDK.md",
+      "url": "https://raw.githubusercontent.com/dortania/KdkSupportPkg/gh-pages/manifest.json"
+    },
+    "R0015": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88AirportLegacy.cpp"
+    },
+    "R0016": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88AirportLegacyInterface.cpp"
+    },
+    "R0017": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88TahoeNetworkABI.cpp"
+    },
+    "R0018": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "https://github.com/FolKc9/AirportRtw88/blob/main/AirportRtw88Legacy.kext/Contents/Info.plist"
+    },
+    "R0019": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "source-text: `__ZN23IO80211SkywalkInterface11inputPacketEP20IO80211NetworkPacketP15packet_info_tagP12ether_headerPbb`."
+    },
+    "R0020": {
+      "source": "docs/design/TAHOE-NATIVE-IO80211-REFERENCE.md",
+      "url": "https://github.com/Arxusion/AirportMtkWlan/tree/37aa87eecf9fd2246c0f4ef9879416afa396a105"
+    },
+    "R0021": {
+      "source": "docs/design/WPA2-CRYPTO-SOURCE.md",
+      "url": "https://chromium.googlesource.com/chromiumos/third_party/hostap/+/refs/heads/firmware-R130-16032.B-wpa_supplicant-2.10.0/src/rsn_supp/wpa.c"
+    },
+    "R0022": {
+      "source": "docs/design/WPA2-CRYPTO-SOURCE.md",
+      "url": "https://fuchsia.googlesource.com/third_party/hostap/+/3aed10f3b7f643f288f6aa1c5aef223c5c679b9e/wlantest/rx_eapol.c"
+    },
+    "R0023": {
+      "source": "docs/design/WPA2-CRYPTO-SOURCE.md",
+      "url": "https://www.normsplash.com/Samples/ISO/914742298/ISO-IEC-8802-11-2005-Amd-6-2006-en-2.pdf"
+    },
+    "R0024": {
+      "source": "docs/todo/completed/integration/upstream-code-reuse.mdc",
+      "url": "https://github.com/FranciumOS-org/AirPort_RTW89/tree/90b6cfc5a69c271688fad188857cfaeb58053dc5"
+    },
+    "R0025": {
+      "source": "docs/todo/completed/integration/upstream-code-reuse.mdc",
+      "url": "https://github.com/Ersiter/AirportItlwm-BE200/tree/ff82f3e5647ce3885f5d48417b6356a6a23d2163"
+    },
+    "R0026": {
+      "source": "docs/todo/completed/integration/upstream-code-reuse.mdc",
+      "url": "https://github.com/nullmoth/nvidia-macos-driver/tree/7412cdde81447f78da0ebb64216dc258d8beaedb"
+    },
+    "R0027": {
+      "source": "docs/todo/open/abi/exact-tahoe-abi.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IODMACommand.cpp"
+    },
+    "R0028": {
+      "source": "docs/todo/open/abi/exact-tahoe-abi.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.h"
+    },
+    "R0029": {
+      "source": "docs/todo/open/abi/exact-tahoe-abi.mdc",
+      "url": "https://github.com/dortania/OpenCore-Legacy-Patcher/blob/main/opencore_legacy_patcher/datasets/pci_data.py"
+    },
+    "R0030": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/Kernel/IODMACommand.cpp"
+    },
+    "R0031": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mac.c"
+    },
+    "R0032": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/recv.c"
+    },
+    "R0033": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/xmit.c"
+    },
+    "R0034": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h"
+    },
+    "R0035": {
+      "source": "docs/todo/open/hardware/edma-interrupts.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOCommandGate.h"
+    },
+    "R0036": {
+      "source": "docs/todo/open/hardware/eeprom-otp.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c"
+    },
+    "R0037": {
+      "source": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.c"
+    },
+    "R0038": {
+      "source": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_hw.c"
+    },
+    "R0039": {
+      "source": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_calib.c"
+    },
+    "R0040": {
+      "source": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mci.c"
+    },
+    "R0041": {
+      "source": "docs/todo/open/hardware/rf-phy-regulatory.mdc",
+      "url": "https://wireless.docs.kernel.org/en/latest/en/developers/regulatory/processing_rules.html"
+    },
+    "R0042": {
+      "source": "docs/todo/open/integration/full-wifi-pipeline.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOCommandGate.h"
+    },
+    "R0043": {
+      "source": "docs/todo/open/integration/full-wifi-pipeline.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h"
+    },
+    "R0044": {
+      "source": "docs/todo/open/integration/full-wifi-pipeline.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h"
+    },
+    "R0045": {
+      "source": "docs/todo/open/platform/native-pci.mdc",
+      "url": "https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp"
+    },
+    "R0046": {
+      "source": "docs/todo/open/platform/native-pci.mdc",
+      "url": "https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h"
+    },
+    "R0047": {
+      "source": "docs/todo/open/platform/native-tahoe-airport.mdc",
+      "url": "https://developer.apple.com/documentation/networkingdriverkit"
+    },
+    "R0048": {
+      "source": "docs/todo/open/wifi/ieee80211-mac.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/net/mac80211/agg-rx.c"
+    },
+    "R0049": {
+      "source": "docs/todo/open/wifi/ieee80211-mac.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/net/mac80211/agg-tx.c"
+    },
+    "R0050": {
+      "source": "docs/todo/open/wifi/wpa2-ccmp.mdc",
+      "url": "https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/key.c"
+    }
+  }
+}

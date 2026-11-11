@@ -1,0 +1,19 @@
+SimpleBCM upstream copyright and permission status
+
+Upstream project: https://github.com/laobamac/SimpleBCM
+Imported version: v1.2.0
+Copyright © 2026 laobamac. All rights reserved.
+
+The inspected upstream v1.2.0 snapshot, its NOTICE.md, and the GitHub
+repository license API do not contain an MIT, BSD, GPL, or other grant for
+the SimpleBCM-authored source. Those files are subject to the copyright
+holder's reserved rights. This notice is NOT an open-source license and does
+not grant additional permissions to copy, modify, or redistribute upstream
+SimpleBCM code. Request an explicit license grant from the copyright holder
+or replace that source before claiming the entire repository is open source.
+
+SPDX identifier used for file-level identification:
+LicenseRef-SimpleBCM-All-Rights-Reserved
+
+This notice preserves upstream provenance and does not change licenses of
+independent third-party libraries, reference sources or firmware.

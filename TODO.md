@@ -21,7 +21,8 @@ installed-tool validator tools/validate.py and its local .cache/ report.
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -68,7 +69,8 @@ before the first notebook test. Do not polish one component indefinitely while
 the rest is absent. The goal is to expose interactions across the whole driver,
 then debug real failures from the owner's logs. A failed launch or crash in an
 authorized test is a failure to diagnose and fix, not grounds for replacing
-required behavior with a disabled path. First-run perfection is not a prerequisite;
+required behavior with a disabled path. First-run perfection is not a
+prerequisite;
 complete source implementation is. CI remains advisory and findings must
 still be fixed rather than concealed. Never manufacture success.
 
@@ -113,7 +115,8 @@ successful. Record which checks actually ran.
 After the implementation and zero-failure validation milestones, the owner
 must be able to request compilation of the exact
 reviewed commit in GitHub Actions using ONE expressly authorized `build-v*`
-tag. Do not create a tag, dispatch CI, compile a kext locally, install or experiment
+tag. Do not create a tag, dispatch CI, compile a kext locally, install or
+experiment
 without the corresponding explicit authorization. No exact tag is authorized
 by this roadmap. Source readiness must not depend on a prior build or test.
 
@@ -132,21 +135,21 @@ before starting the zero-failure lint milestone. This umbrella TODO drives
 all required ABI, PCI, NVM, radio, DMA, Wi-Fi and full-pipeline deliverables
 below. It remains open while any required runtime path is absent or disabled.
 
-[docs/todo/open/integration/production-implementation.mdc](docs/todo/open/integration/production-implementation.mdc)
+[source](docs/todo/open/integration/production-implementation.mdc)
 
 ### TODO - QCA9565 Bluetooth USB/BLE implementation
 
 Implement the combo chip's actual Bluetooth USB HCI/firmware, native macOS
 stack integration, power lifecycle and Wi-Fi coexistence in source.
 
-[docs/todo/open/platform/bluetooth-usb.mdc](docs/todo/open/platform/bluetooth-usb.mdc)
+[bluetooth usb](docs/todo/open/platform/bluetooth-usb.mdc)
 
 ### TODO - AirDrop Wi-Fi/BLE implementation
 
 Integrate native AWDL/peer-to-peer Wi-Fi, BLE discovery and the required
 macOS AirDrop packet/event behavior; ordinary WLAN connectivity is insufficient.
 
-[docs/todo/open/platform/airdrop-awdl.mdc](docs/todo/open/platform/airdrop-awdl.mdc)
+[airdrop awdl](docs/todo/open/platform/airdrop-awdl.mdc)
 
 ### TODO - Tahoe ABI
 
@@ -183,7 +186,7 @@ selection, ANI/noise handling, RF-kill, calibration and legal per-channel TX
 power constraints. Source must reject unknown board or country states. **No
 live signal or transmission tests.**
 
-[docs/todo/open/hardware/rf-phy-regulatory.mdc](docs/todo/open/hardware/rf-phy-regulatory.mdc)
+[rf phy regulatory](docs/todo/open/hardware/rf-phy-regulatory.mdc)
 
 ### TODO - EDMA/interrupts
 
@@ -192,7 +195,7 @@ completion, interrupt handling, memory safety, sleep and fault recovery in
 source. Consult public ath9k and IOKit documentation. **No physical packet
 transfer required.**
 
-[docs/todo/open/hardware/edma-interrupts.mdc](docs/todo/open/hardware/edma-interrupts.mdc)
+[edma interrupts](docs/todo/open/hardware/edma-interrupts.mdc)
 
 ## P2 — Source-only
 
@@ -221,7 +224,7 @@ contracts. Research public code and documentation without copying incompatible
 proprietary or third-party ABI code. **No live Wi-Fi UI acceptance
 prerequisite.**
 
-[docs/todo/open/platform/native-tahoe-airport.mdc](docs/todo/open/platform/native-tahoe-airport.mdc)
+[native tahoe airport](docs/todo/open/platform/native-tahoe-airport.mdc)
 
 ## P3 — Source-only
 
@@ -232,7 +235,7 @@ state/locking ownership, data movement, failures, cleanup, suspend/resume and
 reconnection in code. Remove placeholders and invented readiness indicators.
 **Source completeness only; not physical connectivity.**
 
-[docs/todo/open/integration/full-wifi-pipeline.mdc](docs/todo/open/integration/full-wifi-pipeline.mdc)
+[full wifi pipeline](docs/todo/open/integration/full-wifi-pipeline.mdc)
 
 ## Validation milestone — after 100% implementation
 
@@ -244,7 +247,7 @@ behavior and obtain a fresh full validator
 report with no unresolved findings. Necessary offline host tests are allowed;
 kext builds, CI and hardware experiments remain unauthorized.
 
-[docs/todo/open/governance/validator-findings.mdc](docs/todo/open/governance/validator-findings.mdc)
+[validator findings](docs/todo/open/governance/validator-findings.mdc)
 
 ## P4 — Continuous hardening and remaining source work
 
@@ -256,7 +259,7 @@ README/AGENTS/TODO accurate. Use tools/validate.py for installed Clang, Ruff
 and BasedPyright checks plus necessary offline host tests; no Jig, new
 frameworks, kext compilation, CI or hardware diagnostics.
 
-[docs/todo/open/governance/source-hardening.mdc](docs/todo/open/governance/source-hardening.mdc)
+[source hardening](docs/todo/open/governance/source-hardening.mdc)
 
 ### TODO - Complete the AR9565 Linux ledger and retire local references
 
@@ -267,7 +270,7 @@ notices are sufficient; do not add an archive or provenance infrastructure.
 Unrelated Linux features and chipsets require a justified out-of-scope record,
 not an unnecessary port. The deletion conditions are not satisfied today.
 
-[docs/todo/open/governance/linux-reference-retirement.mdc](docs/todo/open/governance/linux-reference-retirement.mdc)
+[source](docs/todo/open/governance/linux-reference-retirement.mdc)
 
 ## Continuous hardening alongside notebook testing
 
@@ -295,4 +298,4 @@ agent-guided bug fixes until the requested result is reached.
 This task NEVER closes unless the owner explicitly asks to close it, even
 after successful experiments. Without that request it remains open.
 
-[docs/todo/open/owner/owner-controlled-device-acceptance.mdc](docs/todo/open/owner/owner-controlled-device-acceptance.mdc)
+[device acceptance](docs/todo/open/owner/owner-controlled-device-acceptance.mdc)

@@ -1,9 +1,12 @@
 # Third-party notices
 
 The following external projects supply retained references or attributed source.
-They are not relicensed by this file. SimpleATH has no repository-wide license
-grant for its independently authored source. Third-party terms remain intact.
-The GPLv2 text for components requiring it is retained in licenses/GPL-2.0.txt.
+They are not relicensed by this file. Original SimpleATH code under Alberto
+Villa Osorno's copyright is now offered
+under MIT. This does not relicense inherited, adapted,
+generated or binary third-party assets. Each file's provenance and SPDX terms
+are recorded in `docs/provenance/files.json`. The GPLv2 text is available at
+`LICENSE-GPL` and `licenses/GPL-2.0.txt`.
 
 ## Linux kernel (ath9k, mac80211, cfg80211, PCI and Bluetooth)
 
@@ -13,7 +16,8 @@ Copyright belongs to the respective Linux kernel contributors.
 The Linux kernel is provided under GPL-2.0-only with the Linux syscall
 exception where applicable; individual source files have their own SPDX
 identifiers and may carry different or dual licenses. The project retains
-original source-level notices. The `.references/linux/` directory is reference material;
+original source-level notices. The `.references/linux/` directory is reference
+material;
 Linux kernel modules cannot be directly linked into the macOS kext.
 
 ## SimpleBCM
@@ -25,8 +29,11 @@ copyright notices and source material. The prior loader architecture and ABI
 references informed this research, but the current stage-one SimpleATH kext
 contains no embedded SimpleBCM payload or Broadcom runtime.
 
-Independently authored SimpleATH glue and diagnostics have no general license
-grant. Original third-party permissions and obligations remain unchanged.
+Independently authored SimpleATH glue and diagnostics may use the MIT license
+only if independently owned. SimpleBCM-derived files with no identified public
+license grant are marked `LicenseRef-SimpleBCM-All-Rights-Reserved` and are
+**not** offered under MIT.
+Their distribution and modification rights must be resolved separately.
 
 
 ## AirPort_RTW89
@@ -68,7 +75,8 @@ The repository's kernel extensions, plugin, build and package code use
 PolyForm Noncommercial 1.0.0, Copyright (c) 2026 NullMoth Systems
 (https://nullmothsystems.com). The translator and Mesa changes have separate
 licenses described upstream. Its noncommercial restriction is not replaced
-by SimpleATH's personal/research purpose or absence of a general license. Current use is architectural research
+by SimpleATH's choice of license for independently authored code. Current use is
+architectural research
 only; no NullMoth code, firmware, binaries or headers are redistributed.
 
 
@@ -103,3 +111,33 @@ The kext probes each actual USB device descriptor and exact published
 AR3012 product before initiating a firmware transfer; the WLAN PCI identity
 is not a substitute for USB identification. This source packaging does not
 prove Tahoe Bluetooth host attachment, firmware execution or BLE/AirDrop.
+
+## Licensing and provenance decision rules
+
+* **Original SimpleATH** source: `MIT` when owned by the
+  named copyright holder. MIT is GPLv2-compatible; this is a choice of
+  license for the original source, not a right to relicense upstream material.
+* **Atheros/Qualcomm Linux-derived tables and adaptations:** the original
+  permissive ISC notices in each applicable source file are preserved; use
+  `ISC` where the original permission text is present. The general GNU GPLv2
+  license of Linux does not automatically make every individually ISC-licensed
+  component GPL-only. Pinned SHA-256 references remain source evidence.
+* **SimpleBCM initial import:** https://github.com/laobamac/SimpleBCM ,
+  revision `v1.2.0`, has no upstream LICENSE identified at time of audit.
+  Files with retained SimpleBCM copyright are
+  `LicenseRef-SimpleBCM-All-Rights-Reserved`, without an
+  inferred MIT grant. No rights are asserted beyond those demonstrably
+  granted by the original author. Replacement or explicit permission remains
+  a separate task before treating the whole tree as redistributable under an
+  open-source license. The original upstream copyright notices are retained. See
+  LICENSE-SIMPLEBCM for the status of that upstream material.
+* **Firmware:** the unmodified `.dfu` assets retain their original
+  binary-only Atheros/Qualcomm permissions and restrictions. No SPDX license
+  identifier is invented for these custom terms. License text and SHA-256
+  hashes remain in `src/firmware/` and the manifest.
+* **Structured data and configurations:** where embedding comments would
+  break the format, the file-level license and origin are recorded in
+  `docs/provenance/files.json` instead.
+
+The inventory is generated from the tracked source tree. For legal certainty
+on non-original materials, consult the exact upstream rights holder.
