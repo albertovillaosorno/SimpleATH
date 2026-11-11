@@ -5,6 +5,7 @@
 int main()
 {
     using simpleath::tahoe::acceptWirelessJoinCommit;
+    using simpleath::tahoe::acceptWirelessPortIdentity;
     using simpleath::tahoe::acceptWirelessReceiveIdentity;
     using simpleath::tahoe::acceptWirelessSnapshot;
     constexpr uint64_t first = 1U;
@@ -70,6 +71,19 @@ int main()
     {
         constexpr int kJoinCompletionRaceFailure = 7;
         return kJoinCompletionRaceFailure;
+    }
+    if (!acceptWirelessPortIdentity(first, first, first, first, first, first) ||
+        !acceptWirelessPortIdentity(latest, latest, latest, latest, latest,
+                                    latest) ||
+        acceptWirelessPortIdentity(0, first, first, first, first, first) ||
+        acceptWirelessPortIdentity(first, 0, first, first, first, first) ||
+        acceptWirelessPortIdentity(first, first, 0, first, first, first) ||
+        acceptWirelessPortIdentity(first, first, first, second, first, first) ||
+        acceptWirelessPortIdentity(first, first, first, first, second, first) ||
+        acceptWirelessPortIdentity(first, first, first, first, first, second))
+    {
+        constexpr int kPortGenerationRaceFailure = 8;
+        return kPortGenerationRaceFailure;
     }
     return 0;
 }

@@ -63,10 +63,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV3 &owner)
+            bool validContract(const WirelessOwnerV4 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV3) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV4) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -191,7 +191,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV3 candidate {};
+            WirelessOwnerV4 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -576,38 +576,48 @@ namespace simpleath
 
         IOReturn TahoeWirelessTransport::authorizePort(bool open)
         {
-            if (!bound())
+            WirelessSnapshot state {};
+            const IOReturn observed = snapshot(state);
+            if (observed != kIOReturnSuccess)
+            {
+                return observed;
+            }
+            if (state.epoch == 0 || state.joinRequestId == 0 ||
+                state.associationGeneration == 0 ||
+                (open && (!state.associated || !state.powered ||
+                          !state.radioAvailable || state.rfKillBlocked)))
             {
                 return kIOReturnNotReady;
             }
-            if (open)
-            {
-                WirelessSnapshot state {};
-                const IOReturn result = snapshot(state);
-                if (result != kIOReturnSuccess)
-                {
-                    return result;
-                }
-                if (!state.associated || !state.powered ||
-                    !state.radioAvailable || state.rfKillBlocked)
-                {
-                    return kIOReturnNotReady;
-                }
-            }
-            const IOReturn result = owner_.authorizePort(owner_.context, open);
+            const NativePortRequest request {
+                state.epoch,
+                state.joinRequestId,
+                state.associationGeneration,
+                open,
+            };
+            // The PCI owner validates this exact identity on its own gate,
+            // after any intervening reset, disconnection or next join.
+            const IOReturn result =
+                owner_.authorizePort(owner_.context, &request);
             if (result == kIOReturnSuccess && open)
             {
-                // The provider's port-change notification revokes prior
-                // mailbox grants; refresh from the acknowledged live owner
-                // before reporting an opened data port to this controller.
                 WirelessSnapshot confirmed {};
                 const IOReturn refreshed = snapshot(confirmed);
-                if (refreshed != kIOReturnSuccess ||
-                    !confirmed.controlledPortOpen)
+                const bool samePort =
+                    refreshed == kIOReturnSuccess &&
+                    acceptWirelessPortIdentity(
+                        request.epoch, request.joinRequestId,
+                        request.associationGeneration, confirmed.epoch,
+                        confirmed.joinRequestId,
+                        confirmed.associationGeneration);
+                if (!samePort || !confirmed.controlledPortOpen)
                 {
-                    // An epoch change or provider stop cannot leave a
-                    // successful but unobservable network authorization.
-                    owner_.authorizePort(owner_.context, false);
+                    // A callback raced the confirmation. Roll back only the
+                    // ORIGINAL association. Never close a successor's port
+                    // after its own independent security authorization.
+                    NativePortRequest revoke = request;
+                    revoke.open = false;
+                    (void)owner_.authorizePort(owner_.context, &revoke);
                     return refreshed == kIOReturnSuccess ? kIOReturnNotReady
                                                          : refreshed;
                 }

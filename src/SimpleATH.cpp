@@ -14,6 +14,7 @@
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/Ar9565PciSession.hpp"
+#include "platform/tahoe/NativeWirelessEpoch.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeJoinSession.hpp"
 #include "wifi/AwdlAction.hpp"
@@ -350,7 +351,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV3 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV4 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
             {
@@ -385,10 +386,10 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV3 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV3 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV4 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV4 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV3),
+                sizeof(simpleath::tahoe::WirelessOwnerV4),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -1497,9 +1498,41 @@ class SimpleATH final : public IOService
             return kIOReturnSuccess;
         }
 
-        static IOReturn ownerAuthorizePort(void *context, bool open)
+        static IOReturn ownerAuthorizePortScopedAction(OSObject *object,
+                                                       void *argument,
+                                                       void * /*unused1*/,
+                                                       void * /*unused2*/,
+                                                       void * /*unused3*/)
         {
-            if (context == nullptr)
+            auto *typed = OSDynamicCast(SimpleATH, object);
+            if (typed == nullptr || argument == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
+            const auto &request =
+                *static_cast<const simpleath::tahoe::NativePortRequest *>(
+                    argument);
+            if (!simpleath::tahoe::acceptWirelessPortIdentity(
+                    request.epoch, request.joinRequestId,
+                    request.associationGeneration, self.epoch_,
+                    self.joinEpoch_ == self.epoch_ ? self.joinRequestId_ : 0U,
+                    self.associationGeneration_))
+            {
+                return kIOReturnNotReady;
+            }
+            // Reuse the physical owner's existing security predicate while
+            // staying on its single gate; do not reenter the work loop.
+            bool open = request.open;
+            return ownerAuthorizePortAction(object, &open, nullptr, nullptr,
+                                            nullptr);
+        }
+
+        static IOReturn
+        ownerAuthorizePort(void *context,
+                           const simpleath::tahoe::NativePortRequest *request)
+        {
+            if (context == nullptr || request == nullptr)
             {
                 return kIOReturnBadArgument;
             }
@@ -1508,8 +1541,9 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            bool requested = open;
-            return self.gate_->runAction(ownerAuthorizePortAction, &requested);
+            simpleath::tahoe::NativePortRequest stable = *request;
+            return self.gate_->runAction(ownerAuthorizePortScopedAction,
+                                         &stable);
         }
 
         simpleath::ieee80211::crypto::CcmpSession *nativeGroupSlot(uint8_t id)

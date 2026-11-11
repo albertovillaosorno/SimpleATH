@@ -303,7 +303,8 @@ The production WCL associate slot now decodes the fixed 0x2cc native request,
 including exact BSSID/SSID/channel and either a supplied PMK or bounded
 passphrase-to-PMK derivation. `NativeConnectRequest` carries a provider epoch,
 monotonic request ID and an owned 32-byte PMK. `SimpleATHWirelessOwnerV3`
-negotiates this changed shape explicitly. Transport and physical provider
+originally negotiated this changed shape explicitly (later superseded by V4
+for association-scoped port authorization). Transport and physical provider
 make short-lived copies and erase them after their gates return. The provider
 uses the driver-owned `WifiEngine` open/WPA2 selection paths; a macOS-owned
 four-way handshake is no longer assumed for this modern request.
@@ -389,7 +390,8 @@ coexistence remain separate P0 implementation work.
 ## Epoch-bound native receive callbacks — 2026-11-10
 
 The physical PCI owner and Tahoe wireless transport now negotiate the internal
-`SimpleATHWirelessOwnerV3` provider function and version 3 callback table.
+`SimpleATHWirelessOwnerV3` provider function and version 3 callback table
+(at the time; subsequently superseded by V4).
 A copied Ethernet receive callback carries both the physical-owner epoch and
 association generation. The transport checks both against its most recently
 verified live snapshot under the mailbox lock *before* accepting payload bytes.
@@ -415,3 +417,23 @@ snapshot instead of rolling back its association or RF authorization. The
 revision never wraps into a potentially trusted value; exhausting it revokes
 the transport. The host fixture covers both stale-epoch and intervening-event
 snapshot rejection; physical execution remains unverified.
+
+## Scoped physical controlled-port requests — 2026-11-10
+
+`WirelessOwnerV4` replaces the prior unscoped `authorizePort(bool)` callback
+with `NativePortRequest { epoch, joinRequestId, associationGeneration, open }`.
+The Tahoe native transport takes one verified provider snapshot before
+submitting the command; the PCI provider checks all three identity fields
+*inside its own serialized IOCommandGate* before opening or closing a port.
+After a successful open, the transport rechecks the same identity and
+controlled-port state. If this confirmation fails, it may revoke only the
+*original* association; its rollback cannot close a replacement join in the
+same PCI epoch. Existing internal security predicates (verified protected RX,
+WPA2 M4 TX, keycache, RF kill and channel/queue admission) are unchanged.
+
+The portable epoch fixture now checks same-epoch association replacement,
+join request replacement, PCI epoch changes, zero and maximum 64-bit
+identities. Native source syntax and portable sanitizer tests are source-only
+checks; they do not constitute a physical RF/Wi-Fi test or proof of Tahoe ABI
+runtime compatibility. The older V3 records above describe their historical
+implementation, now superseded by V4.

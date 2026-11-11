@@ -16,8 +16,8 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV3";
-        constexpr uint32_t kWirelessOwnerAbi = 3;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV4";
+        constexpr uint32_t kWirelessOwnerAbi = 4;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
@@ -93,7 +93,18 @@ namespace simpleath
                 bool remove;
         };
 
-        struct WirelessOwnerV3
+        // An authorization applies to exactly one physical association, not
+        // whatever join happens to own the same PCI device when the owner gate
+        // finally executes. Even a rollback is scoped to this identity.
+        struct NativePortRequest
+        {
+                uint64_t epoch;
+                uint64_t joinRequestId;
+                uint64_t associationGeneration;
+                bool open;
+        };
+
+        struct WirelessOwnerV4
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;
@@ -111,7 +122,7 @@ namespace simpleath
                 IOReturn (*connect)(void *, const NativeConnectRequest *);
                 IOReturn (*disconnect)(void *, uint16_t reason);
                 IOReturn (*installKey)(void *, const NativeCcmpKey *);
-                IOReturn (*authorizePort)(void *, bool open);
+                IOReturn (*authorizePort)(void *, const NativePortRequest *);
                 // Borrowed packet bytes are copied before returning success;
                 // caller retains its OS packet on queue-full/error.
                 IOReturn (*transmitEthernet)(void *, const uint8_t *, size_t);

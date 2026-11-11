@@ -88,7 +88,7 @@ namespace simpleath
 
                 // Lifecycle methods run only on the controller's own gate;
                 // the mailbox lock is never held across provider callbacks.
-                WirelessOwnerV3 owner_ {};
+                WirelessOwnerV4 owner_ {};
                 IOService *provider_ {nullptr};
                 IOLock *mailboxLock_ {nullptr};
                 uint64_t epoch_ {0};

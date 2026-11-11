@@ -37,6 +37,22 @@ namespace simpleath
                    requestedEpoch == observedEpoch && requestedId == observedId;
         }
 
+        // An authorization submitted from a native work loop must not open or
+        // roll back a successor's controlled port on the PCI provider gate.
+        inline bool acceptWirelessPortIdentity(uint64_t requestedEpoch,
+                                               uint64_t requestedJoinId,
+                                               uint64_t requestedAssociation,
+                                               uint64_t observedEpoch,
+                                               uint64_t observedJoinId,
+                                               uint64_t observedAssociation)
+        {
+            return requestedEpoch != 0U && requestedJoinId != 0U &&
+                   requestedAssociation != 0U &&
+                   requestedEpoch == observedEpoch &&
+                   requestedJoinId == observedJoinId &&
+                   requestedAssociation == observedAssociation;
+        }
+
         inline bool acceptWirelessReceiveIdentity(uint64_t callbackEpoch,
                                                   uint64_t activeEpoch,
                                                   uint64_t callbackAssociation,
