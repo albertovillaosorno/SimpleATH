@@ -2108,6 +2108,113 @@ namespace
                peers.find(fixture.source, kNeighborExpiredMs, neighbor);
     }
 
+    bool neighborIpv6NativeDestinationAdmission()
+    {
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        AwdlNeighbors peers {};
+        if (peers.observeMif(kNeighborFirstSeenMs, fixture.frame.data(),
+                             fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        constexpr uint64_t kTick = 1U;
+        const Mac local {{0x02U, 0x66U, 0x77U, 0x88U, 0x99U, 0xaaU}};
+        const Mac other {{0x02U, 0x66U, 0x77U, 0x88U, 0x99U, 0xbbU}};
+        const Mac multicast {{0x33U, 0x33U, 0U, 0U, 0U, 1U}};
+        std::array<uint8_t, kNeighborIpv6Bytes> ipv6 {};
+        ipv6.at(0U) = kNeighborIpv6Version;
+        constexpr size_t kIpv6Destination = 24U;
+        constexpr size_t kIpv6LastOctet = 39U;
+        ipv6.at(kIpv6Destination) = 0xffU;
+        ipv6.at(kIpv6LastOctet) = 1U;
+        AwdlIpv6Tx tx {
+            fixture.source, multicast, 0U, 1U, false, ipv6.data(), ipv6.size(),
+        };
+        std::array<uint8_t, kNeighborDataBytes> packet {};
+        size_t written = 0U;
+        const auto make = [&]
+        {
+            return makeAwdlIpv6Data(tx, packet.data(), packet.size(),
+                                    written) == Result::Ok;
+        };
+        AwdlNeighbor observed {};
+        if (!make() ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + kTick, local,
+                                      packet.data(), written) != Result::Ok ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 2U * kTick, local,
+                                      packet.data(),
+                                      written) != Result::InvalidFrame)
+        {
+            return false;
+        }
+        // A forged 33:33 group must not consume a sequence number or
+        // prolong the MIF observer's physical receive lease.
+        tx.awdlSequence = 2U;
+        tx.destination.bytes[5] = 2U;
+        if (!make() ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 3U * kTick, local,
+                                      packet.data(),
+                                      written) != Result::UnsupportedFrame ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 3U * kTick,
+                        observed) ||
+            observed.lastHeardMs != kNeighborFirstSeenMs + kTick)
+        {
+            return false;
+        }
+        tx.destination = multicast;
+        if (!make() ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 4U * kTick, local,
+                                      packet.data(), written) != Result::Ok)
+        {
+            return false;
+        }
+        // Frames for unrelated unicast listeners must not refresh this
+        // device's observed peer. A packet for our own MAC is admissible,
+        // including an IPv6 multicast destination (RFC 6085).
+        tx.awdlSequence = 3U;
+        tx.destination = other;
+        if (!make() || peers.observeIpv6ForLocal(
+                           kNeighborFirstSeenMs + 5U * kTick, local,
+                           packet.data(), written) != Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        tx.destination = local;
+        if (!make() ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 6U * kTick, local,
+                                      packet.data(), written) != Result::Ok)
+        {
+            return false;
+        }
+        // A 33:33 destination cannot stand in for a unicast IPv6 address.
+        tx.awdlSequence = 4U;
+        tx.destination = multicast;
+        ipv6.at(kIpv6Destination) = 0x20U;
+        if (!make() || peers.observeIpv6ForLocal(
+                           kNeighborFirstSeenMs + 7U * kTick, local,
+                           packet.data(), written) != Result::UnsupportedFrame)
+        {
+            return false;
+        }
+        tx.destination = local;
+        if (!make() ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 8U * kTick, local,
+                                      packet.data(), written) != Result::Ok ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 9U * kTick,
+                                      fixture.source, packet.data(),
+                                      written) != Result::InvalidAddress ||
+            peers.observeIpv6ForLocal(kNeighborFirstSeenMs + 10U * kTick,
+                                      Mac {}, packet.data(),
+                                      written) != Result::InvalidAddress ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 10U * kTick,
+                        observed) ||
+            observed.lastHeardMs != kNeighborFirstSeenMs + 8U * kTick)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool neighborIpv6Refresh()
     {
         NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
@@ -2330,6 +2437,11 @@ int main()
     {
         constexpr int kNeighborCapacityFailure = 11;
         return kNeighborCapacityFailure;
+    }
+    if (!neighborIpv6NativeDestinationAdmission())
+    {
+        constexpr int kIpv6DestinationAdmissionFailure = 22;
+        return kIpv6DestinationAdmissionFailure;
     }
     if (!neighborIpv6Refresh())
     {

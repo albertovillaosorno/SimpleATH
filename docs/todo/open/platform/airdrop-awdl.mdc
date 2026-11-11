@@ -451,3 +451,26 @@ strict Clang-Tidy, formatting and diff checks pass after the correction.
 These are local scheduling hints, not a working native AWDL radio scheduler.
 No actual channel-tune, BLE discovery, AirDrop peer trust, RF TX or macOS
 AWDL host integration is established. The P0 acceptance task stays open.
+
+## Source progress — 2026-11-10: native AWDL IPv6 destination admission
+
+The existing PCI EDMA AWDL observer now passes the current physical NVM
+station MAC, only after it is programmed in the active PCI epoch, to
+`AwdlNeighbors::observeIpv6ForLocal`. The portable ingress still requires
+FCS-valid single-MPDU reception and a previously observed complete MIF,
+but only data addressed to the local station or to a matching IPv6 `33:33`
+multicast destination may renew the peer. IPv6 multicast sent to the actual
+unicast MAC remains valid (RFC 6085); a forged multicast mapping or unicast
+frame for another station cannot advance AWDL data sequence or refresh the
+peer clock. Multicast MAC mapping follows RFC 2464 section 7. Fresh replay
+sequence acceptance remains the existing bounded policy, and MIF election
+clock expiry is never extended by data.
+
+The synthetic `test_awdl_action.cpp` fixture covers matching and mismatching
+IPv6 multicast groups, unrelated unicast destinations, local unicast carrying
+multicast IPv6, stale replay, malformed local identity and unchanged peer
+presence on rejection. C++14/C++17 ASan+UBSan checks pass. This is native
+read-only *packet admission*, not IPv6 delivery to a macOS AWDL interface,
+a completed BLE handoff, RF channel/timing authorization, peer trust or an
+AirDrop transfer. The production RF path remains incomplete; this P0 TODO
+stays open.

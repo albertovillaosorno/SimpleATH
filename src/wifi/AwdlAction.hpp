@@ -193,6 +193,15 @@ namespace simpleath
                                   size_t bytes);
                 Result observeIpv6(uint64_t nowMs, const uint8_t *frame,
                                    size_t bytes);
+                // Native RX admission: an AWDL IPv6 MPDU may refresh a
+                // peer only if its unicast destination is this physical
+                // station or its 33:33 multicast MAC matches the IPv6
+                // destination's low 32 bits (RFC 2464). IPv6 multicast
+                // tunneled to the local unicast MAC is also permitted by
+                // RFC 6085. Neither this check nor a valid MIF authenticates
+                // the peer or delivers an IPv6 packet to macOS.
+                Result observeIpv6ForLocal(uint64_t nowMs, const Mac &local,
+                                           const uint8_t *frame, size_t bytes);
                 bool find(const Mac &source, uint64_t nowMs,
                           AwdlNeighbor &out) const;
                 // Select the strongest currently observed DIRECT

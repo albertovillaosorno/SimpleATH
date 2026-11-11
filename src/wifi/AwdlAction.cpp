@@ -1042,6 +1042,65 @@ namespace simpleath
             return Result::UnsupportedFrame;
         }
 
+        Result AwdlNeighbors::observeIpv6ForLocal(uint64_t nowMs,
+                                                  const Mac &local,
+                                                  const uint8_t *frame,
+                                                  size_t bytes)
+        {
+            if (overlaps(&local, sizeof(local), this, sizeof(*this)) ||
+                overlaps(frame, bytes, this, sizeof(*this)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (!validStationMac(local))
+            {
+                return Result::InvalidAddress;
+            }
+            AwdlIpv6Data data {};
+            const Result parsed = parseAwdlIpv6Data(frame, bytes, data);
+            if (parsed != Result::Ok)
+            {
+                return parsed;
+            }
+            if (sameMac(local, data.header.source))
+            {
+                return Result::InvalidAddress;
+            }
+            if (!sameMac(local, data.header.destination))
+            {
+                // Only 33:33 IPv6 multicast frames addressed to the
+                // matching group may be observed in addition to our own
+                // unicast destination (RFC 2464 section 7). A mismatch
+                // cannot refresh a peer's clock or replay sequence.
+                const uint8_t *const ipv6 =
+                    usbByteOffset(frame, data.ipv6Offset);
+                constexpr size_t kIpv6DestinationOffset = 24U;
+                constexpr size_t kIpv6DestinationLastFour = 12U;
+                const uint8_t *const destination =
+                    usbByteOffset(ipv6, kIpv6DestinationOffset);
+                constexpr uint8_t kMacIpv6MulticastPrefix = 0x33U;
+                constexpr uint8_t kIpv6MulticastPrefix = 0xffU;
+                constexpr size_t kMacGroupPrefixBytes = 2U;
+                constexpr size_t kMulticastSuffixBytes = 4U;
+                const auto *const mac = &data.header.destination.bytes[0];
+                const uint8_t groupPrefix[kMacGroupPrefixBytes] {
+                    kMacIpv6MulticastPrefix,
+                    kMacIpv6MulticastPrefix,
+                };
+                if (__builtin_memcmp(mac, &groupPrefix, sizeof(groupPrefix)) !=
+                        0 ||
+                    *destination != kIpv6MulticastPrefix ||
+                    __builtin_memcmp(
+                        usbByteOffset(mac, kMacGroupPrefixBytes),
+                        usbByteOffset(destination, kIpv6DestinationLastFour),
+                        kMulticastSuffixBytes) != 0)
+                {
+                    return Result::UnsupportedFrame;
+                }
+            }
+            return observeIpv6(nowMs, frame, bytes);
+        }
+
         bool AwdlNeighbors::find(const Mac &source, uint64_t nowMs,
                                  AwdlNeighbor &out) const
         {

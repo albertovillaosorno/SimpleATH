@@ -2653,8 +2653,19 @@ class SimpleATH final : public IOService
             else if (header.type == simpleath::ieee80211::FrameType::Data)
             {
                 // A complete MIF must already have created the peer;
-                // IPv6 data alone cannot create neighbors or prove trust.
-                (void)awdlNeighbors_.observeIpv6(now, frame, mpduBytes);
+                // Only data addressed to our physical station (or the
+                // matching IPv6 multicast group) may refresh peer state.
+                // This is not an AirDrop authorization or native IP RX.
+                const auto *board = board_.view(epoch_);
+                if (!stationMacProgrammed_ || board == nullptr)
+                {
+                    return;
+                }
+                simpleath::ieee80211::Mac local {};
+                __builtin_memcpy(&local.bytes[0], &board->summary.mac[0],
+                                 sizeof(local.bytes));
+                (void)awdlNeighbors_.observeIpv6ForLocal(now, local, frame,
+                                                         mpduBytes);
             }
         }
 
