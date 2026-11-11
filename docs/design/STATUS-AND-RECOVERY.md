@@ -1,5 +1,62 @@
 # Implementation status, blockers and recovery
 
+## Current checkpoint — 2026-11-10, source and experimental USB
+
+**Boot outcome is not established.** On the owner's prior experimental
+`build-v2026.1110.1754` kext, OpenCore logged 193 unresolved
+`IONetworkController` / `IOEthernetController` / `IOSkywalk*` symbols,
+a RIP-relative relocation targeting address zero and
+`Prelinked injection SimpleATH.kext - Invalid Parameter`. The owner reported
+that boot freezes only with this experimental kext present. No confirmed
+`SimpleATH::start`, kernel panic backtrace, radio initialization or network
+interface followed from that artifact. This is a prelink failure, not proof
+of runtime Wi-Fi or a diagnosed operating-system hang mechanism.
+
+Source commit `1515a72` declares **direct** `OSBundleLibraries` for
+`com.apple.iokit.IONetworkingFamily` **3.2** and
+`com.apple.iokit.IOSkywalkFamily` **1.0**, retaining
+`com.apple.iokit.IO80211Family` **1200.13.1**. The retained exact-25G332 KDK
+family metadata supports these dependency floors; three offline regression
+cases cover the pinned providers and the six failed superclass groups.
+The old binary's 764 undefined Mach-O names included all 193 names reported
+by OpenCore. This source correction addresses a missing provider declaration
+but cannot prove effective Boot KC exports or OpenCore linking behavior.
+
+The owner separately authorized **one** new Intel build and USB replacement.
+The collaborating agents report GitHub Actions build `42936876016`, tag
+`build-v2026.1110.1909`, built from **1515a72**, succeeded. The x86_64
+kext executable is 516,704 bytes, has UUID
+`07FCE4A5-F19E-3485-95DA-2A66C7253EF2` and SHA-256
+`4d408268e2d70bbb2533a107bc47aea7abf771d950b858ceeb241a4df409430c`.
+The mounted test USB's `EFI/OC/Kexts/SimpleATH.kext` was replaced without
+creating a backup, as expressly requested, and the installed executable
+hash matches the artifact. The existing `config.plist` content/hash was
+unchanged; exactly one SimpleATH entry remains enabled. The 1909 Mach-O
+still has **the same 764 undefined symbol names** as 1754, as expected from
+an Info.plist-only dependency fix. A successful Xcode build and matching
+USB hash do not verify OpenCore injection or kernel runtime.
+
+**Next evidence gate:** the owner boots that specific test USB and captures
+the **new** OpenCore log (not the previous 180630 trace), recording whether
+SimpleATH prelink injection succeeds or still reports zero-valued symbols,
+relocation overflow or another linker error. Only after actual kernel load
+is shown should physical PCI identity, SREV, board acquisition, the radio
+pipeline and Wi-Fi enumeration be assessed. If the experimental USB fails
+to boot, use a separate known-good boot path and disable/remove SimpleATH's
+OpenCore `Kernel -> Add` entry in the experimental configuration. The
+`-simpleathoff` boot argument **cannot** fix a prelink/injection failure.
+No additional build, tag, EFI mutation or live test is implied here.
+
+The **2026-11-06 material below is a historical baseline**: in particular,
+its statements that PCI ownership was passive, native source uncompiled,
+or no newer build was authorized are superseded by later commits and the
+1909 artifact. Radio calibration/channel authorization, DMA service,
+WPA2/scan operation and actual AirPort interface readiness are still open.
+For source-level prelink details see
+`docs/todo/open/abi/exact-tahoe-abi.mdc`.
+
+---
+
 Record: 2026-11-06. This record covers the committed source milestones below.
 Concurrent agents may add further modules; source names or presence alone do
 not establish that those modules are compiled, wired to hardware or validated.
