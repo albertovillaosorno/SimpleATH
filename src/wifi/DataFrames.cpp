@@ -54,6 +54,7 @@ namespace simpleath
         static constexpr uint16_t kEthernetIiMin = 0x0600;
         static constexpr uint16_t kEtherTypeAarp = 0x80f3;
         static constexpr uint16_t kEtherTypeIpx = 0x8137;
+        static constexpr uint16_t kEtherTypeEapol = 0x888e;
         static constexpr size_t kBaseHeaderBytes = 24;
         static constexpr size_t kFourthAddressBytes = 6;
         static constexpr size_t kQosControlBytes = 2;
@@ -64,6 +65,9 @@ namespace simpleath
         static constexpr size_t kEthernetHeaderBytes = 14;
         static constexpr size_t kEtherTypeHighOffset = 12;
         static constexpr size_t kEtherTypeLowOffset = 13;
+        static constexpr size_t kAmsduSubframeHeaderBytes = 14U;
+        static constexpr size_t kAmsduSubframeLengthOffset = 12U;
+        static constexpr size_t kAmsduAlignment = 4U;
 
         static bool overlaps(const void *const firstBuffer, size_t firstBytes,
                              const void *const secondBuffer, size_t secondBytes)
@@ -239,6 +243,84 @@ namespace simpleath
             return Result::Ok;
         }
 
+        // Parse exactly one bounded subframe into a private borrowed view.
+        // No caller-visible pointer or slot count changes on any failure.
+        static Result decodeAmsduSubframe(const uint8_t *subframe,
+                                          size_t remaining, bool protectedFrame,
+                                          Msdu &out, size_t &consumed)
+        {
+            if (remaining < kAmsduSubframeHeaderBytes + kLlcSnapBytes)
+            {
+                return Result::Truncated;
+            }
+            uint8_t prefix[kAmsduSubframeHeaderBytes] {};
+            __builtin_memcpy(&prefix[0], subframe, sizeof(prefix));
+            const size_t msduLength =
+                (static_cast<size_t>(prefix[kAmsduSubframeLengthOffset])
+                 << kBitsPerByte) |
+                static_cast<size_t>(prefix[kAmsduSubframeLengthOffset + 1U]);
+            if (msduLength < kLlcSnapBytes ||
+                msduLength > remaining - kAmsduSubframeHeaderBytes)
+            {
+                return Result::Truncated;
+            }
+            Msdu decoded {};
+            __builtin_memcpy(&decoded.destination.bytes[0], &prefix[0],
+                             kMacAddressBytes);
+            __builtin_memcpy(&decoded.source.bytes[0],
+                             &prefix[kMacAddressBytes], kMacAddressBytes);
+            if (!validStationMac(decoded.source))
+            {
+                return Result::InvalidAddress;
+            }
+            uint8_t anyDestination = 0U;
+            for (const uint8_t octet : decoded.destination.bytes)
+            {
+                anyDestination |= octet;
+            }
+            if (anyDestination == 0U)
+            {
+                return Result::InvalidAddress;
+            }
+            const uint8_t *const llc =
+                pointerAt(subframe, kAmsduSubframeHeaderBytes);
+            const Result snap = validateSnap(llc, decoded.etherType);
+            if (snap != Result::Ok)
+            {
+                return snap;
+            }
+            // Aggregated EAPOL is never eligible for supplicant/PN handoff.
+            if (decoded.etherType == kEtherTypeEapol)
+            {
+                return Result::InvalidSecurity;
+            }
+            decoded.payload = pointerAt(llc, kLlcSnapBytes);
+            decoded.payloadLength = msduLength - kLlcSnapBytes;
+            decoded.protectedFrame = protectedFrame;
+            decoded.qosFrame = true;
+            out = decoded;
+            consumed = kAmsduSubframeHeaderBytes + msduLength;
+            return Result::Ok;
+        }
+
+        // Fixed 16-entry array: select the next empty slot by a bounded
+        // range traversal rather than unchecked caller-controlled indexing.
+        static bool appendAmsduSubframe(AmsduPayload &out, const Msdu &next)
+        {
+            size_t index = 0U;
+            for (auto &slot : out.subframes)
+            {
+                if (index == out.count)
+                {
+                    slot = next;
+                    ++out.count;
+                    return true;
+                }
+                ++index;
+            }
+            return false;
+        }
+
         Result decodeAmsduData(const uint8_t *frame, size_t frameBytes,
                                bool containsFcs, bool verifiedDecryptionAndMic,
                                AmsduPayload &out)
@@ -283,66 +365,29 @@ namespace simpleath
                 }
                 frameBytes -= kFcsBytes;
             }
-            constexpr size_t kSubframeHeaderBytes = 14U;
-            constexpr size_t kSubframeLengthOffset = 12U;
-            constexpr size_t kAlignment = 4U;
             AmsduPayload accepted {};
             size_t cursor = header.headerLength;
             while (cursor < frameBytes)
             {
-                if (accepted.count == kMaximumAmsduSubframes ||
-                    frameBytes - cursor < kSubframeHeaderBytes + kLlcSnapBytes)
+                if (accepted.count == kMaximumAmsduSubframes)
                 {
                     return Result::Truncated;
                 }
                 const uint8_t *const subframe = pointerAt(frame, cursor);
-                uint8_t prefix[kSubframeHeaderBytes] {};
-                __builtin_memcpy(&prefix[0], subframe, sizeof(prefix));
-                const size_t msduLength =
-                    (static_cast<size_t>(prefix[kSubframeLengthOffset])
-                     << kBitsPerByte) |
-                    static_cast<size_t>(prefix[kSubframeLengthOffset + 1U]);
-                if (msduLength < kLlcSnapBytes ||
-                    msduLength > frameBytes - cursor - kSubframeHeaderBytes)
+                Msdu msdu {};
+                size_t consumed = 0U;
+                const Result next =
+                    decodeAmsduSubframe(subframe, frameBytes - cursor,
+                                        header.protectedFrame, msdu, consumed);
+                if (next != Result::Ok)
+                {
+                    return next;
+                }
+                if (!appendAmsduSubframe(accepted, msdu))
                 {
                     return Result::Truncated;
                 }
-                Msdu msdu {};
-                __builtin_memcpy(&msdu.destination.bytes[0], &prefix[0],
-                                 kMacAddressBytes);
-                __builtin_memcpy(&msdu.source.bytes[0],
-                                 &prefix[kMacAddressBytes], kMacAddressBytes);
-                if (!validStationMac(msdu.source))
-                {
-                    return Result::InvalidAddress;
-                }
-                uint8_t anyDestination = 0U;
-                for (const uint8_t value : msdu.destination.bytes)
-                {
-                    anyDestination |= value;
-                }
-                if (anyDestination == 0U)
-                {
-                    return Result::InvalidAddress;
-                }
-                const uint8_t *const llc =
-                    pointerAt(subframe, kSubframeHeaderBytes);
-                const Result snap = validateSnap(llc, msdu.etherType);
-                if (snap != Result::Ok)
-                {
-                    return snap;
-                }
-                // EAPOL never bypasses the unique supplicant/replay ledger.
-                if (msdu.etherType == 0x888eU)
-                {
-                    return Result::InvalidSecurity;
-                }
-                msdu.payload = pointerAt(llc, kLlcSnapBytes);
-                msdu.payloadLength = msduLength - kLlcSnapBytes;
-                msdu.protectedFrame = header.protectedFrame;
-                msdu.qosFrame = true;
-                accepted.subframes[accepted.count++] = msdu;
-                cursor += kSubframeHeaderBytes + msduLength;
+                cursor += consumed;
                 if (cursor == frameBytes)
                 {
                     break;
@@ -350,12 +395,11 @@ namespace simpleath
                 // Only inter-subframe padding is allowed. A trailing pad
                 // cannot masquerade as a valid empty subframe.
                 const size_t pad =
-                    (kAlignment -
-                     ((kSubframeHeaderBytes + msduLength) % kAlignment)) %
-                    kAlignment;
+                    (kAmsduAlignment - (consumed % kAmsduAlignment)) %
+                    kAmsduAlignment;
                 if (pad > frameBytes - cursor ||
                     frameBytes - cursor - pad <
-                        kSubframeHeaderBytes + kLlcSnapBytes)
+                        kAmsduSubframeHeaderBytes + kLlcSnapBytes)
                 {
                     return Result::Truncated;
                 }
