@@ -329,33 +329,84 @@ namespace simpleath
             {
                 return false;
             }
+            // Capture the complete borrowed USB lease. A native policy or
+            // descriptor method can synchronously close and reopen this same
+            // storage with the SAME owner epoch and endpoint addresses.
+            // Checking only before the final provider calls would authorize
+            // the old stack frame to send on that successor's pipes.
+            const UsbHciOwnerLease issued {
+                epoch,
+                native.stream.generation,
+                native.topology,
+                true,
+            };
+            const Ath3kUsbIdentity identity = native.identity;
             IOUSBHostInterface *const interface = native.interface;
             const IOUSBHostDevice *const device = native.device;
-            const uint64_t generation = native.stream.generation;
-            if (!native.permit(native.policyContext, epoch) || !native.opened ||
-                native.epoch != epoch ||
-                native.stream.generation != generation ||
-                native.interface != interface || native.device != device ||
-                interface->getDevice() != device)
+            IOUSBHostPipe *const eventPipe = native.eventIn;
+            IOUSBHostPipe *const aclRead = native.aclIn;
+            IOUSBHostPipe *const aclWrite = native.aclOut;
+            void *const policyContext = native.policyContext;
+            const auto permit = native.permit;
+            const auto deliver = native.deliver;
+            const auto stillOwned =
+                [&native, &issued, interface, device, eventPipe, aclRead,
+                 aclWrite, policyContext, permit, deliver, &identity]()
+            {
+                const UsbHciOwnerLease current {
+                    native.epoch,
+                    native.stream.generation,
+                    native.topology,
+                    native.opened,
+                };
+                return sameUsbHciOwnerLease(issued, current) &&
+                       native.interface == interface &&
+                       native.device == device &&
+                       sameIdentity(native.identity, identity) &&
+                       native.eventIn == eventPipe && native.aclIn == aclRead &&
+                       native.aclOut == aclWrite &&
+                       native.policyContext == policyContext &&
+                       native.permit == permit && native.deliver == deliver;
+            };
+            if (!permit(policyContext, epoch) || !stillOwned())
+            {
+                return false;
+            }
+            if (interface->getDevice() != device || !stillOwned())
             {
                 return false;
             }
             Ath3kUsbIdentity current {};
+            if (!liveHciIdentity(interface, current) || !stillOwned() ||
+                !sameIdentity(identity, current))
+            {
+                return false;
+            }
             UsbHciInterfaceTopology topology {};
-            return liveHciIdentity(interface, current) &&
-                   sameIdentity(native.identity, current) &&
-                   hciTopology(interface, topology) &&
-                   sameUsbHciInterfaceTopology(native.topology, topology) &&
-                   validPipe(
-                       native.eventIn,
-                       native.topology.endpoints.eventInterruptIn,
-                       StandardUSB::kEndpointDescriptorTransferTypeInterrupt) &&
-                   validPipe(
-                       native.aclIn, native.topology.endpoints.aclBulkIn,
+            if (!hciTopology(interface, topology) || !stillOwned() ||
+                !sameUsbHciInterfaceTopology(issued.topology, topology))
+            {
+                return false;
+            }
+            // Recheck after EACH borrowed pipe descriptor query. If one
+            // reenters owner shutdown, do not dereference any later pipe.
+            if (!validPipe(
+                    eventPipe, issued.topology.endpoints.eventInterruptIn,
+                    StandardUSB::kEndpointDescriptorTransferTypeInterrupt) ||
+                !stillOwned())
+            {
+                return false;
+            }
+            if (!validPipe(aclRead, issued.topology.endpoints.aclBulkIn,
+                           StandardUSB::kEndpointDescriptorTransferTypeBulk) ||
+                !stillOwned())
+            {
+                return false;
+            }
+            return validPipe(
+                       aclWrite, issued.topology.endpoints.aclBulkOut,
                        StandardUSB::kEndpointDescriptorTransferTypeBulk) &&
-                   validPipe(native.aclOut,
-                             native.topology.endpoints.aclBulkOut,
-                             StandardUSB::kEndpointDescriptorTransferTypeBulk);
+                   stillOwned();
         }
 
         bool hciCommand(void *context, const uint8_t *buffer, size_t bytes)

@@ -36,6 +36,27 @@ namespace simpleath
     bool sameUsbHciInterfaceTopology(const UsbHciInterfaceTopology &opened,
                                      const UsbHciInterfaceTopology &current);
 
+    // The native HCI owner can be torn down and rebound inside a borrowed
+    // USB/provider callback, even to the same epoch and endpoint topology.
+    // A local transport generation is the final discriminator. During the
+    // initial attach it may still be zero; only the native owner is open then.
+    struct UsbHciOwnerLease
+    {
+            uint64_t epoch {};
+            uint64_t generation {};
+            UsbHciInterfaceTopology topology {};
+            bool opened {};
+    };
+
+    inline bool sameUsbHciOwnerLease(const UsbHciOwnerLease &issued,
+                                     const UsbHciOwnerLease &current)
+    {
+        return issued.opened && current.opened && issued.epoch != 0U &&
+               issued.epoch == current.epoch &&
+               issued.generation == current.generation &&
+               sameUsbHciInterfaceTopology(issued.topology, current.topology);
+    }
+
     // The USB owner extracts endpoint address and transfer type from the
     // ACTIVE interface's real descriptors, including alternate setting.
     // Transfer type follows USB bmAttributes bits 1:0 (bulk=2, interrupt=3).

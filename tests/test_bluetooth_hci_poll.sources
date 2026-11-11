@@ -1,1 +1,2 @@
 src/bluetooth/UsbHci.cpp
+src/bluetooth/UsbHciEndpointSelector.cpp

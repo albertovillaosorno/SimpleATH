@@ -1,5 +1,6 @@
 // Synthetic USB IN results: no Apple USB provider or physical controller.
 #include "bluetooth/UsbHci.hpp"
+#include "bluetooth/UsbHciEndpointSelector.hpp"
 
 #include <cstddef>
 
@@ -122,6 +123,64 @@ namespace
 
 int main()
 {
+    using simpleath::sameUsbHciOwnerLease;
+    using simpleath::UsbHciOwnerLease;
+    // A native HCI service can call its own detach/reopen from a borrowed
+    // authorization callback. The successor can reuse the physical USB ID,
+    // owner epoch, and exact endpoint topology; only generation separates it.
+    const UsbHciOwnerLease issued {
+        17U,
+        8U,
+        {1U, 0U, {0x81U, 0x82U, 0x02U}},
+        true,
+    };
+    UsbHciOwnerLease current = issued;
+    if (!sameUsbHciOwnerLease(issued, current))
+    {
+        return 10;
+    }
+    current.generation = 10U; // Synchronous revoke + reattach, same epoch.
+    if (sameUsbHciOwnerLease(issued, current))
+    {
+        return 11;
+    }
+    current = issued;
+    current.epoch = 18U;
+    if (sameUsbHciOwnerLease(issued, current))
+    {
+        return 12;
+    }
+    current = issued;
+    current.topology.alternateSetting = 1U;
+    if (sameUsbHciOwnerLease(issued, current))
+    {
+        return 13;
+    }
+    current = issued;
+    current.topology.endpoints.aclBulkOut = 0x03U;
+    if (sameUsbHciOwnerLease(issued, current))
+    {
+        return 14;
+    }
+    current = issued;
+    current.opened = false;
+    if (sameUsbHciOwnerLease(issued, current))
+    {
+        return 15;
+    }
+    // attachUsbHci calls the native permit before assigning generation 1.
+    current = issued;
+    current.generation = 0U;
+    const UsbHciOwnerLease initial = current;
+    if (!sameUsbHciOwnerLease(initial, current))
+    {
+        return 16;
+    }
+    current.generation = 1U;
+    if (sameUsbHciOwnerLease(initial, current))
+    {
+        return 17;
+    }
     for (const auto &sample : kCases)
     {
         if (simpleath::classifyUsbHciRead(sample.current, sample.completed,
