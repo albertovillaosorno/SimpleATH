@@ -442,3 +442,17 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   build at `58dd1da` predates this fix. The macOS Bluetooth host/USB integration,
   physical pairing, RF coexistence and AirDrop remain unverified and required;
   the P0 task stays open.
+
+- **USB HCI receive-permit recursion (2026-11-10):** Both event and ACL
+  receive paths now mark the stream as receiving *before* invoking the
+  external host permission callback. A synchronous same-stream receive inside
+  that callback faults the current physical USB epoch instead of interleaving
+  bytes from two transfers or producing a fabricated HCI packet. The outer
+  operation releases its guard only when the original physical generation
+  still owns the state; a detached/rebound successor is left untouched.
+  `tests/test_bluetooth_usb.cpp` reproduced the issue against the previous
+  source (exit 31), then passed for both streams and detach/reattach recovery
+  under C++14/C++17 ASan+UBSan. Scoped strict Clang-Tidy, formatting and
+  freestanding C++14 syntax checks passed. This is source-only transport
+  safety, not macOS Bluetooth-host registration, physical USB behavior,
+  coexistence or AirDrop. This P0 task remains open.

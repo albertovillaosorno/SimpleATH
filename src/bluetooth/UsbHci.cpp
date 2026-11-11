@@ -726,10 +726,10 @@ namespace simpleath
                      << kBitsPerByte));
         }
 
-        UsbHciStatus ingest(UsbHciState &state, UsbHciStream &stream,
-                            const UsbHciHostCallbacks &host,
-                            UsbHciPacketKind kind, const uint8_t *data,
-                            size_t bytes)
+        UsbHciStatus ingestBuffered(UsbHciState &state, UsbHciStream &stream,
+                                    const UsbHciHostCallbacks &host,
+                                    UsbHciPacketKind kind, const uint8_t *data,
+                                    size_t bytes)
         {
             const UsbHciStatus permission = authorize(state, host);
             if (permission != UsbHciStatus::Ok)
@@ -791,6 +791,41 @@ namespace simpleath
                 }
             }
             return UsbHciStatus::Ok;
+        }
+
+        UsbHciStatus ingest(UsbHciState &state, UsbHciStream &stream,
+                            const UsbHciHostCallbacks &host,
+                            UsbHciPacketKind kind, const uint8_t *data,
+                            size_t bytes)
+        {
+            // A permit callback can reenter receive before the first byte is
+            // buffered, so the delivery-only guard is insufficient. Latch a
+            // same-stream recursion fault BEFORE asking the external owner.
+            if (stream.receiving)
+            {
+                state.faulted = true;
+                return UsbHciStatus::Faulted;
+            }
+            if (!state.attached)
+            {
+                return UsbHciStatus::NotAttached;
+            }
+            if (state.faulted)
+            {
+                return UsbHciStatus::Faulted;
+            }
+            const uint64_t epoch = state.epoch;
+            const uint64_t generation = state.generation;
+            stream.receiving = true;
+            const UsbHciStatus result =
+                ingestBuffered(state, stream, host, kind, data, bytes);
+            // An owner callback may replace the whole state synchronously.
+            // Do not clear the successor's in-progress guard after an ABA.
+            if (!replacedSession(state, epoch, generation))
+            {
+                stream.receiving = false;
+            }
+            return result;
         }
     } // namespace
 

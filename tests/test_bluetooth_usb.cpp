@@ -71,11 +71,31 @@ namespace
             UsbHciStatus reentryStatus {UsbHciStatus::Ok};
             bool reenterOnDelivery {};
             bool reentered {};
+            bool reenterOnPermit {};
+            bool reenteredPermit {};
+            UsbHciStatus permitReentryStatus {UsbHciStatus::Ok};
     };
+
+    UsbHciHostCallbacks host(UsbFake &fake);
 
     bool permit(void *context, uint64_t epoch)
     {
-        const auto &fake = *static_cast<UsbFake *>(context);
+        auto &fake = *static_cast<UsbFake *>(context);
+        if (fake.reenterOnPermit && !fake.reenteredPermit &&
+            fake.reentryState != nullptr)
+        {
+            fake.reenteredPermit = true;
+            constexpr std::array<uint8_t, 3U> event {0xffU, 1U, 0x61U};
+            constexpr std::array<uint8_t, 5U> acl {
+                2U, 0x20U, 1U, 0U, 0x61U,
+            };
+            fake.permitReentryStatus =
+                fake.reentryKind == UsbHciPacketKind::Event
+                    ? receiveUsbHciEvent(*fake.reentryState, host(fake),
+                                         event.data(), event.size())
+                    : receiveUsbHciAcl(*fake.reentryState, host(fake),
+                                       acl.data(), acl.size());
+        }
         return fake.valid && epoch == kEpoch;
     }
 
@@ -2119,6 +2139,65 @@ namespace
                    UsbHciStatus::Faulted;
     }
 
+    bool testReentrantPermitCannotInterleaveHciIngress()
+    {
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 3U> event {0xffU, 1U, 0x55U};
+        constexpr std::array<uint8_t, 5U> acl {
+            2U, 0x20U, 1U, 0U, 0x55U,
+        };
+        for (const UsbHciPacketKind kind :
+             {UsbHciPacketKind::Event, UsbHciPacketKind::Acl})
+        {
+            UsbFake fake = newFake();
+            UsbHciState state {};
+            if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok)
+            {
+                return false;
+            }
+            if (kind == UsbHciPacketKind::Acl &&
+                (!negotiateAclCredits(state, fake) ||
+                 receiveUsbHciEvent(state, host(fake), kClassicConnected.data(),
+                                    kClassicConnected.size()) !=
+                     UsbHciStatus::Ok))
+            {
+                return false;
+            }
+            const size_t before = fake.delivered;
+            fake.reentryState = &state;
+            fake.reentryKind = kind;
+            fake.reenterOnPermit = true;
+            const UsbHciStatus outer =
+                kind == UsbHciPacketKind::Event
+                    ? receiveUsbHciEvent(state, host(fake), event.data(),
+                                         event.size())
+                    : receiveUsbHciAcl(state, host(fake), acl.data(),
+                                       acl.size());
+            if (outer != UsbHciStatus::OwnershipLost || !fake.reenteredPermit ||
+                fake.permitReentryStatus != UsbHciStatus::Faulted ||
+                !state.faulted || fake.delivered != before)
+            {
+                return false;
+            }
+            // A physical detach/new lease must make clean ingress possible.
+            fake.reenterOnPermit = false;
+            detachUsbHci(state);
+            if (attachUsbHci(state, endpoints, host(fake)) !=
+                    UsbHciStatus::Ok ||
+                receiveUsbHciEvent(state, host(fake), event.data(),
+                                   event.size()) != UsbHciStatus::Ok ||
+                fake.delivered != before + 1U)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool testStaleHciEpochCallbacks()
     {
         constexpr std::array<EpochRaceEvent, 3U> triggers {
@@ -2252,6 +2331,11 @@ int main()
     {
         constexpr int kRecursiveUsbDeliveryFailure = 24;
         return kRecursiveUsbDeliveryFailure;
+    }
+    if (!testReentrantPermitCannotInterleaveHciIngress())
+    {
+        constexpr int kReentrantIngressFailure = 31;
+        return kReentrantIngressFailure;
     }
     if (!testStaleHciEpochCallbacks())
     {

@@ -71,6 +71,10 @@ namespace simpleath
             // The borrowed completed packet remains live while the host
             // delivery callback runs. Same-stream reentry must not rewrite it.
             bool delivering {};
+            // Guards the entire receive operation, including permit callbacks
+            // before the packet is complete. Nested same-stream input cannot
+            // splice two USB transfers into an invented HCI frame.
+            bool receiving {};
     };
 
     struct UsbHciAclHandle
