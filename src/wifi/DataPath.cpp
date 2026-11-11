@@ -56,6 +56,8 @@ namespace simpleath
             constexpr size_t kEthernetHeaderBytes = 14U;
             constexpr size_t kDataHeaderBytes = 24U;
             constexpr size_t kSnapBytes = 8U;
+            constexpr uint8_t kQosDataSubtype = 8U;
+            constexpr uint8_t kCcmpKeyIdShift = 6U;
             constexpr size_t kFcsBytes = 4U;
             constexpr size_t kMaximumMpduBytes = 2346U;
             constexpr uint16_t kMinimumEtherType = 0x0600U;
@@ -700,6 +702,53 @@ namespace simpleath
             return admitted;
         }
 
+        // These independent gates keep malformed RF, station and security
+        // evidence out of the shared A-MSDU parser before publishing a view.
+        static DataPathResult validateAmsduRxLink(const LinkContext &link,
+                                                  bool fcsAndDmaValidated)
+        {
+            if (!validStationMac(link.station) ||
+                !physicalBssidValid(link.bssid) ||
+                sameMac(link.station, link.bssid))
+            {
+                return DataPathResult::InvalidAddress;
+            }
+            if (!link.rfReady || !link.associated)
+            {
+                return DataPathResult::NotAssociated;
+            }
+            if (!link.channelPermitted)
+            {
+                return DataPathResult::CountryNotAuthorized;
+            }
+            return fcsAndDmaValidated ? DataPathResult::Ok
+                                      : DataPathResult::InvalidRxStatus;
+        }
+
+        static DataPathResult
+        validateAmsduRxSecurity(const LinkContext &link, const Frame &header,
+                                bool ccmpMicAndPnValidated)
+        {
+            if (link.security == LinkSecurity::Open)
+            {
+                return header.protectedFrame ||
+                               link.pairwiseAndGroupKeysInstalled
+                           ? DataPathResult::InvalidSecurityState
+                           : DataPathResult::Ok;
+            }
+            if (link.security == LinkSecurity::Wpa2Ccmp)
+            {
+                if (!header.protectedFrame || !ccmpMicAndPnValidated)
+                {
+                    return DataPathResult::UnverifiedDecryption;
+                }
+                return link.pairwiseAndGroupKeysInstalled
+                           ? DataPathResult::Ok
+                           : DataPathResult::MissingKeys;
+            }
+            return DataPathResult::UnsupportedFrame;
+        }
+
         DataPathResult
         inspectStationAmsduRx(const LinkContext &link, const uint8_t *frame,
                               size_t frameBytes, bool fcsIncluded,
@@ -717,27 +766,16 @@ namespace simpleath
             {
                 return DataPathResult::NullBuffer;
             }
-            if (!validStationMac(link.station) ||
-                !physicalBssidValid(link.bssid) ||
-                sameMac(link.station, link.bssid))
+            const auto linkStatus =
+                validateAmsduRxLink(link, fcsAndDmaValidated);
+            if (linkStatus != DataPathResult::Ok)
             {
-                return DataPathResult::InvalidAddress;
-            }
-            if (!link.rfReady || !link.associated)
-            {
-                return DataPathResult::NotAssociated;
-            }
-            if (!link.channelPermitted)
-            {
-                return DataPathResult::CountryNotAuthorized;
-            }
-            if (!fcsAndDmaValidated)
-            {
-                return DataPathResult::InvalidRxStatus;
+                return linkStatus;
             }
             Frame header {};
             if (parseFrame(frame, frameBytes, header) != Result::Ok ||
-                header.type != FrameType::Data || header.subtype != 8U)
+                header.type != FrameType::Data ||
+                header.subtype != kQosDataSubtype)
             {
                 return DataPathResult::MalformedFrame;
             }
@@ -749,27 +787,11 @@ namespace simpleath
                 // unicast RA must be independently established.
                 return DataPathResult::NotFromAssociatedAccessPoint;
             }
-            if (link.security == LinkSecurity::Open)
+            const auto securityStatus =
+                validateAmsduRxSecurity(link, header, ccmpMicAndPnValidated);
+            if (securityStatus != DataPathResult::Ok)
             {
-                if (header.protectedFrame || link.pairwiseAndGroupKeysInstalled)
-                {
-                    return DataPathResult::InvalidSecurityState;
-                }
-            }
-            else if (link.security == LinkSecurity::Wpa2Ccmp)
-            {
-                if (!header.protectedFrame || !ccmpMicAndPnValidated)
-                {
-                    return DataPathResult::UnverifiedDecryption;
-                }
-                if (!link.pairwiseAndGroupKeysInstalled)
-                {
-                    return DataPathResult::MissingKeys;
-                }
-            }
-            else
-            {
-                return DataPathResult::UnsupportedFrame;
+                return securityStatus;
             }
             AmsduPayload accepted {};
             const auto decoded =
@@ -781,14 +803,23 @@ namespace simpleath
                            ? DataPathResult::OverlappingBuffers
                            : DataPathResult::UnsupportedFrame;
             }
-            for (size_t index = 0; index < accepted.count; ++index)
+            size_t checked = 0;
+            for (const auto &msdu : accepted.subframes)
             {
-                const auto &msdu = accepted.subframes[index];
+                if (checked == accepted.count)
+                {
+                    break;
+                }
+                ++checked;
                 if ((msdu.destination.bytes[0] & 1U) == 0U &&
                     !sameMac(msdu.destination, link.station))
                 {
                     return DataPathResult::NotForThisStation;
                 }
+            }
+            if (checked != accepted.count)
+            {
+                return DataPathResult::MalformedFrame;
             }
             result = accepted;
             return DataPathResult::Ok;
@@ -833,8 +864,9 @@ namespace simpleath
                 encryptedBytes - (containsFcs ? kFcsBytes : 0U);
             Frame header {};
             if (parseFrame(encrypted, mpduBytes, header) != Result::Ok ||
-                header.type != FrameType::Data || header.subtype != 8U ||
-                !header.protectedFrame || header.toDs || !header.fromDs ||
+                header.type != FrameType::Data ||
+                header.subtype != kQosDataSubtype || !header.protectedFrame ||
+                header.toDs || !header.fromDs ||
                 !sameMac(header.bssid, link.bssid) ||
                 !sameMac(header.destination, link.station))
             {
@@ -851,7 +883,7 @@ namespace simpleath
             uint8_t iv[4] {};
             __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
                              sizeof(iv));
-            if ((iv[3] >> 6U) != 0U)
+            if ((iv[3] >> kCcmpKeyIdShift) != 0U)
             {
                 return DataPathResult::UnverifiedDecryption;
             }
