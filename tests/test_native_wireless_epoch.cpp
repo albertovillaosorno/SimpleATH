@@ -44,6 +44,8 @@ int main()
     using simpleath::tahoe::acceptWirelessPortIdentity;
     using simpleath::tahoe::acceptWirelessReceiveIdentity;
     using simpleath::tahoe::acceptWirelessSnapshot;
+    using simpleath::tahoe::mayDeliverWirelessData;
+    using simpleath::tahoe::WirelessDataPortLease;
     constexpr uint64_t first = 1U;
     constexpr uint64_t second = 2U;
     constexpr uint64_t latest = UINT64_MAX;
@@ -120,6 +122,61 @@ int main()
     {
         constexpr int kPortGenerationRaceFailure = 8;
         return kPortGenerationRaceFailure;
+    }
+    // A valid controlled port is still insufficient for ordinary Ethernet
+    // before a current, beacon-confirmed association. Pre-port EAPOL is
+    // separately admitted by the physical owner, not by this data lease.
+    WirelessDataPortLease data {first, true, true, false, true, true, true};
+    constexpr int kPrematureDataFailure = 9;
+    if (!mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.associatedBeaconObserved = false;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.associatedBeaconObserved = true;
+    data.associationGeneration = 0U;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.associationGeneration = first;
+    data.controlledPortOpen = false;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.controlledPortOpen = true;
+    data.associated = false;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.associated = true;
+    data.rfKillBlocked = true;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.rfKillBlocked = false;
+    data.radioAvailable = false;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.radioAvailable = true;
+    data.powered = false;
+    if (mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
+    }
+    data.powered = true;
+    if (!mayDeliverWirelessData(data))
+    {
+        return kPrematureDataFailure;
     }
     return 0;
 }

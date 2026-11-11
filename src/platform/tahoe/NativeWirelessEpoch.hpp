@@ -44,6 +44,29 @@ namespace simpleath
 {
     namespace tahoe
     {
+        // Ordinary Skywalk Ethernet is a later stage than the physical
+        // association and pre-port EAPOL exchange. The radio must have
+        // observed a beacon from the selected AP before a controlled port
+        // can deliver ordinary data. This is an independent mailbox gate:
+        // a stale OS queue enable must never upgrade an unconfirmed join.
+        struct WirelessDataPortLease
+        {
+                uint64_t associationGeneration;
+                bool radioAvailable;
+                bool powered;
+                bool rfKillBlocked;
+                bool associated;
+                bool controlledPortOpen;
+                bool associatedBeaconObserved;
+        };
+
+        inline bool mayDeliverWirelessData(const WirelessDataPortLease &state)
+        {
+            return state.associationGeneration != 0U && state.radioAvailable &&
+                   state.powered && !state.rfKillBlocked && state.associated &&
+                   state.controlledPortOpen && state.associatedBeaconObserved;
+        }
+
         // A callback from a retired PCI epoch or a superseded same-epoch AP
         // association cannot be granted access to a successor's mailbox.
         // An epoch advance becomes visible through notify()/snapshot(); a

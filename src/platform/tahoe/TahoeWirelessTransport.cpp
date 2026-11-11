@@ -57,6 +57,17 @@ namespace simpleath
             constexpr uint8_t kEapolEtherTypeHigh = 0x88U;
             constexpr uint8_t kEapolEtherTypeLow = 0x8eU;
 
+            WirelessDataPortLease dataPortLease(const WirelessSnapshot &state)
+            {
+                return {state.associationGeneration,
+                        state.radioAvailable,
+                        state.powered,
+                        state.rfKillBlocked,
+                        state.associated,
+                        state.controlledPortOpen,
+                        state.associatedBeaconObserved};
+            }
+
             bool isEapolEthernet(const uint8_t *bytes, size_t length)
             {
                 if (bytes == nullptr || length < kMinEthernetFrame)
@@ -263,7 +274,8 @@ namespace simpleath
                 snapshotValue.radioAvailable && snapshotValue.powered &&
                 snapshotValue.associated && !snapshotValue.rfKillBlocked;
             receiveAuthorized_ =
-                eapolReceiveAuthorized_ && snapshotValue.controlledPortOpen;
+                eapolReceiveAuthorized_ &&
+                mayDeliverWirelessData(dataPortLease(snapshotValue));
             IOLockUnlock(lock);
             // A synchronous subscribe may invoke notify before returning;
             // the mailbox and initial owner epoch already exist.
@@ -376,8 +388,8 @@ namespace simpleath
             eapolReceiveAuthorized_ = current.radioAvailable &&
                                       current.powered && current.associated &&
                                       !current.rfKillBlocked;
-            receiveAuthorized_ =
-                eapolReceiveAuthorized_ && current.controlledPortOpen;
+            receiveAuthorized_ = eapolReceiveAuthorized_ &&
+                                 mayDeliverWirelessData(dataPortLease(current));
             IOLockUnlock(mailboxLock_);
             out = current;
             return kIOReturnSuccess;
@@ -684,8 +696,7 @@ namespace simpleath
             {
                 return result;
             }
-            if (!state.associated || !state.controlledPortOpen ||
-                !state.radioAvailable || !state.powered || state.rfKillBlocked)
+            if (!mayDeliverWirelessData(dataPortLease(state)))
             {
                 return kIOReturnNotReady;
             }
