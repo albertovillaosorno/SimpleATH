@@ -110,6 +110,12 @@ namespace simpleath
             // borrowed RX callback unwind. A failed restart quarantines DMA
             // and calls fault; keyUpdateResumed runs only after real restart.
             IOReturn endKeyUpdateGated();
+            // Link loss permanently retires the queue in this owner epoch.
+            // Unlike key updates this never rearms IRQ or recycles borrowed
+            // descriptors. A pending device-owned TX forbids key erasure even
+            // after the hardware is physically isolated.
+            bool retireLinkGated();
+            bool linkRetirementIsolatedGated() const;
             IOReturn transmitGated(const uint8_t *frame, size_t bytes,
                                    uint64_t token,
                                    const edma::TxControlRequest &control,
@@ -174,6 +180,7 @@ namespace simpleath
             bool keyUpdateIsolated_ {false};
             bool keyUpdateRestartPending_ {false};
             bool keyUpdateFaultPending_ {false};
+            bool linkRetirementIsolated_ {false};
             uint8_t rxHead_[2] {};
             bool droppedChain_[2] {};
     };

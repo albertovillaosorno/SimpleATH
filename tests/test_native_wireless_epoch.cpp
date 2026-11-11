@@ -35,8 +35,159 @@
 // Module: Offline regression cases for native wireless epoch.
 
 // Portable host checks for the actual Tahoe native Ethernet callback gate.
+#include "platform/NativeLinkRetirement.hpp"
 #include "platform/tahoe/NativeWirelessEpoch.hpp"
 #include <stdint.h>
+
+namespace
+{
+    struct FakeLinkHardware
+    {
+            bool queueCanIsolate = true;
+            bool pendingTransmit = false;
+            bool keyEraseSucceeds = true;
+            bool queueIsolated = false;
+            int queueCalls = 0;
+            int eraseCalls = 0;
+    };
+
+    bool isolateQueue(void *context, uint64_t epoch)
+    {
+        auto &fake = *static_cast<FakeLinkHardware *>(context);
+        if (epoch == 0)
+        {
+            return false;
+        }
+        ++fake.queueCalls;
+        fake.queueIsolated = fake.queueCanIsolate;
+        return fake.queueIsolated && !fake.pendingTransmit;
+    }
+
+    bool eraseHardwareKeys(void *context, uint64_t epoch)
+    {
+        auto &fake = *static_cast<FakeLinkHardware *>(context);
+        if (epoch == 0 || !fake.queueIsolated)
+        {
+            return false;
+        }
+        ++fake.eraseCalls;
+        return fake.keyEraseSucceeds;
+    }
+
+    bool checkNativeLinkRetirement()
+    {
+        using simpleath::NativeLinkRetirementBackend;
+        using simpleath::retireNativeLinkHardware;
+        FakeLinkHardware fake {};
+        NativeLinkRetirementBackend backend {
+            &fake,
+            isolateQueue,
+            eraseHardwareKeys,
+        };
+        constexpr uint64_t kOwnerEpoch = 42U;
+        // Physical quiescence precedes any wipe. Even successful erasure
+        // permanently forbids reusing this queue in the former PCI epoch.
+        auto result = retireNativeLinkHardware(backend, kOwnerEpoch,
+                                               kOwnerEpoch, true, kOwnerEpoch);
+        if (!result.queueIsolated || !result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || fake.queueCalls != 1 ||
+            fake.eraseCalls != 1)
+        {
+            return false;
+        }
+        fake = {};
+        fake.keyEraseSucceeds = false;
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        if (!result.queueIsolated || result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || fake.queueCalls != 1 ||
+            fake.eraseCalls != 1)
+        {
+            return false;
+        }
+        // A queue with an outstanding device-owned transmit descriptor or
+        // failed MAC/bus isolation must never receive a keycache wipe.
+        fake = {};
+        fake.queueCanIsolate = false;
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        if (result.queueIsolated || result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || fake.queueCalls != 1 ||
+            fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        // Physical isolation alone is insufficient to scrub a key still
+        // referenced by a device-owned outgoing management descriptor.
+        fake = {};
+        fake.pendingTransmit = true;
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        if (result.queueIsolated || result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || !fake.queueIsolated ||
+            fake.queueCalls != 1 || fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        fake = {};
+        result = retireNativeLinkHardware(backend, kOwnerEpoch - 1U,
+                                          kOwnerEpoch, true, kOwnerEpoch);
+        if (result.queueIsolated || result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || fake.queueCalls != 0 ||
+            fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        result = retireNativeLinkHardware(backend, 0, kOwnerEpoch, true,
+                                          kOwnerEpoch);
+        if (result.queueIsolated || result.hardwareKeysErased ||
+            fake.queueCalls != 0 || fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          false, kOwnerEpoch);
+        if (!result.queueIsolated || result.hardwareKeysErased ||
+            fake.queueCalls != 1 || fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        fake = {};
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch - 1U);
+        if (!result.queueIsolated || result.hardwareKeysErased ||
+            fake.queueCalls != 1 || fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        backend.eraseKeys = nullptr;
+        fake = {};
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        if (!result.queueIsolated || result.hardwareKeysErased ||
+            fake.queueCalls != 1 || fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        backend.isolate = nullptr;
+        fake = {};
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        if (result.queueIsolated || result.hardwareKeysErased ||
+            !result.requiresNewPhysicalEpoch || fake.queueCalls != 0 ||
+            fake.eraseCalls != 0)
+        {
+            return false;
+        }
+        backend.isolate = isolateQueue;
+        backend.context = nullptr;
+        result = retireNativeLinkHardware(backend, kOwnerEpoch, kOwnerEpoch,
+                                          true, kOwnerEpoch);
+        return !result.queueIsolated && !result.hardwareKeysErased &&
+               result.requiresNewPhysicalEpoch && fake.queueCalls == 0 &&
+               fake.eraseCalls == 0;
+    }
+} // namespace
 
 int main()
 {
@@ -178,5 +329,7 @@ int main()
     {
         return kPrematureDataFailure;
     }
-    return 0;
+    constexpr int kLinkRetirementFailure = 10;
+    return static_cast<int>(!checkNativeLinkRetirement()) *
+           kLinkRetirementFailure;
 }

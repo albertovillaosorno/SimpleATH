@@ -827,6 +827,33 @@ namespace simpleath
         return restartAfterKeyUpdateGated();
     }
 
+    bool NativeQueues::retireLinkGated()
+    {
+        // No command-gate or same-epoch device evidence: never claim a wipe
+        // lease. Even on failure the owner must require a complete reset.
+        if (!gated() || !attached_ || phase_ != NativeQueuePhase::Running)
+        {
+            return false;
+        }
+        interrupt_->disable();
+        const bool noOutstandingTransmit = !txPending_;
+        const bool isolated = isolateHardwareGated();
+        // The RX caller may still borrow an old DMA slot. Do not clear or
+        // recycle it here, and do not call the ordinary fault callback while
+        // its receive stack is active. Stop will retire the mapping later.
+        phase_ = NativeQueuePhase::Quarantined;
+        keyUpdateIsolated_ = false;
+        keyUpdateRestartPending_ = false;
+        linkRetirementIsolated_ = isolated && noOutstandingTransmit;
+        return linkRetirementIsolated_;
+    }
+
+    bool NativeQueues::linkRetirementIsolatedGated() const
+    {
+        return gated() && phase_ == NativeQueuePhase::Quarantined &&
+               linkRetirementIsolated_ && !txPending_;
+    }
+
     IOReturn NativeQueues::transmitGated(const uint8_t *frame, size_t bytes,
                                          uint64_t token,
                                          const edma::TxControlRequest &control,
@@ -1140,6 +1167,7 @@ namespace simpleath
         keyUpdateIsolated_ = false;
         keyUpdateRestartPending_ = false;
         keyUpdateFaultPending_ = false;
+        linkRetirementIsolated_ = false;
         phase_ = NativeQueuePhase::Quarantined;
         callbacks_.fault(callbacks_.context, result);
     }
@@ -1153,6 +1181,7 @@ namespace simpleath
         keyUpdateIsolated_ = false;
         keyUpdateRestartPending_ = false;
         keyUpdateFaultPending_ = false;
+        linkRetirementIsolated_ = false;
         if (interrupt_ != nullptr)
         {
             interrupt_->disable();
@@ -1218,6 +1247,7 @@ namespace simpleath
         inReceiveCallback_ = inInterruptService_ = false;
         keyUpdateIsolated_ = keyUpdateRestartPending_ = false;
         keyUpdateFaultPending_ = false;
+        linkRetirementIsolated_ = false;
         epoch_ = txToken_ = 0;
         nextDescriptorId_ = 1;
         pendingDescriptorId_ = txSlot_ = completionHead_ = 0;

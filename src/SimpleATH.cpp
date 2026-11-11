@@ -52,6 +52,7 @@
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/Ar9565PciSession.hpp"
+#include "platform/NativeLinkRetirement.hpp"
 #include "platform/tahoe/NativeWirelessEpoch.hpp"
 #include "platform/tahoe/NativeWirelessOwner.hpp"
 #include "platform/tahoe/TahoeJoinSession.hpp"
@@ -1332,26 +1333,10 @@ class SimpleATH final : public IOService
             }
             self.txSequence_ =
                 static_cast<uint16_t>((self.txSequence_ + 1U) & kSequenceMask);
-            // A successfully queued disassociation ends the native local
-            // association immediately; no stale PTK/GTK, replay state or
-            // receive port may survive the leave request. Hardware DMA still
-            // owns its copied management frame until completion.
-            self.controlledPortAuthorized_ = false;
-            self.nativePairwiseTx_.revoke();
-            self.nativeProtectedFragments_.clear();
-            self.nativePairwiseRx_.revoke();
-            for (auto &group : self.nativeGroupRx_)
-            {
-                group.revoke();
-            }
-            self.nativePairwiseKeyRevoked_ = true;
-            self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
-            memset(&self.protectedRxScratch_[0], 0,
-                   sizeof(self.protectedRxScratch_));
-            self.engine_.radioStopped(
-                nowMicros(nullptr) / kMicrosPerMillisecond, false);
-            self.failNativeJoin(kIOReturnAborted);
-            self.notifyWirelessChange(false);
+            // The queued disassociation still has a device-owned TX lease:
+            // isolate the hardware, but NEVER erase its keycache until the
+            // outstanding descriptor is known to have fully retired.
+            self.retireNativeLink(kIOReturnAborted);
             return kIOReturnSuccess;
         }
 
@@ -2204,6 +2189,55 @@ class SimpleATH final : public IOService
             };
         }
 
+        // Link loss is a one-way terminal queue isolation, not a WPA2 rekey.
+        // Only its specific physical same-epoch and no-pending-TX proof may
+        // authorize the last keycache scrub before a complete hardware reset.
+        static bool retiredLinkKeyCachePermit(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && nvmOwner(context) &&
+                   self.board_.view(epoch) != nullptr &&
+                   self.queues_.epoch() == epoch &&
+                   self.queues_.linkRetirementIsolatedGated() &&
+                   self.keyCache_.initialized &&
+                   self.keyCache_.ownerContext == &self.access_ &&
+                   self.keyCache_.ownerEpoch == epoch;
+        }
+
+        simpleath::KeyCacheBackend retiredLinkKeyCacheBackend()
+        {
+            return {
+                &access_,
+                epoch_,
+                backend_.activeRegisters().barLengthBytes,
+                retiredLinkKeyCachePermit,
+                readRegister,
+                writeRegister,
+            };
+        }
+
+        static bool isolateRetiredLink(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && self.queues_.retireLinkGated();
+        }
+
+        static bool eraseRetiredLinkKeys(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (epoch != self.epoch_ || !self.keyCache_.initialized)
+            {
+                return false;
+            }
+            const auto result = simpleath::eraseAr9565Keys(
+                self.retiredLinkKeyCacheBackend(), self.keyCache_);
+            self.setProperty("SimpleATHLinkLossKeyCacheEraseResult",
+                             static_cast<uint32_t>(result.result),
+                             kRfPropertyWidthBits);
+            return result.result == simpleath::KeyCacheResult::Ok &&
+                   !result.requiresReset;
+        }
+
         static bool nativeKeyInstallPermit(void *context)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
@@ -2948,10 +2982,10 @@ class SimpleATH final : public IOService
 
         void retireNativeLink(IOReturn reason)
         {
-            // Reuse this exact terminal path for a verified AP disconnect,
-            // missed beacon deadline and watchdog-owner revocation. The
-            // keycache remains under the native queue/reset owner; no new
-            // association or controlled port is authorized without it.
+            // One command-gated terminal path handles AP deauthentication,
+            // beacon timeout and OS disconnect. Revoke software delivery
+            // FIRST; hardware must not consume a stale key or resume an old
+            // queue even when physical erasure is not possible.
             controlledPortAuthorized_ = false;
             nativePairwiseTx_.revoke();
             nativeProtectedFragments_.clear();
@@ -2962,6 +2996,37 @@ class SimpleATH final : public IOService
             }
             nativePairwiseKeyRevoked_ = true;
             nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+            const simpleath::NativeLinkRetirementBackend backend {
+                &access_,
+                isolateRetiredLink,
+                eraseRetiredLinkKeys,
+            };
+            const auto retired = simpleath::retireNativeLinkHardware(
+                backend, epoch_, epoch_, keyCache_.initialized,
+                keyCache_.ownerEpoch);
+            setProperty("SimpleATHLinkLossQueueIsolated",
+                        retired.queueIsolated);
+            setProperty("SimpleATHLinkLossKeyCacheWipeConfirmed",
+                        retired.hardwareKeysErased);
+            // A verified wipe still cannot reactivate the retired EDMA,
+            // inherited scan or original association in this physical epoch.
+            // Lost ownership and partial erasure require a full silicon reset.
+            keyCache_.requiresReset = retired.requiresNewPhysicalEpoch;
+            setProperty("SimpleATHKeyCacheResetRequired",
+                        keyCache_.requiresReset);
+            radioOperational_ = false;
+            channelAuthorized_ = false;
+            txSafety_ = {};
+            const bool scanAborted = abortActiveNativeScan();
+            if (scanAborted)
+            {
+                notifyWirelessScanFinished();
+            }
+            scanBridge_.clear();
+            completedScanTicket_ = {};
+            memset(&protectedRxScratch_[0], 0, sizeof(protectedRxScratch_));
+            engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
+                                 false);
             failNativeJoin(reason);
             notifyWirelessChange(false);
         }
@@ -3449,10 +3514,7 @@ class SimpleATH final : public IOService
                     self.channelAuthorized_ = false;
                     self.txSafety_ = {};
                 }
-                self.failNativeJoin(kIOReturnNotReady);
-                self.engine_.radioStopped(
-                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                self.notifyWirelessChange(false);
+                self.retireNativeLink(kIOReturnNotReady);
                 return;
             }
             ++self.receivedFrames_;

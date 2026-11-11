@@ -1524,6 +1524,14 @@
       "kind": "code"
     },
     {
+      "path": "src/platform/NativeLinkRetirement.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "source"
+    },
+    {
       "path": "src/platform/SimpleATH.xcodeproj/project.pbxproj",
       "license": "LicenseRef-SimpleBCM-All-Rights-Reserved",
       "license_file": "LICENSE-SIMPLEBCM",

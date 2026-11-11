@@ -114,27 +114,46 @@ boot still cannot arm the watchdog in practice because RF/channel startup and
 native packet queues remain unverified; it does not prove hardware keycache
 scrub, interrupt service, reconnection or physical Wi-Fi operation.
 
-### Link-loss hardware-key and reconnect gap (source audit, 2026-11-11)
+### Prior link-loss audit (2026-11-11)
 
-`SimpleATH::retireNativeLink` closes the native data port, revokes software
-PTK/GTK CCMP sessions, clears protected fragments and invalidates the
-association watchdog. **It does not erase the hardware AR9565 keycache,
-quiesce EDMA, or reset the portable station to a fresh scan.** The hardware
-keycache wipe in `stopHardware` occurs only after queue isolation and MAC
-quiescence; `nativeRemoveKeys` attempts a serialized key update/erase and
-marks the radio reset-required when erasure cannot be established. Neither
-function is invoked by the current AP deauthentication or beacon-timeout
-`retireNativeLink` path. Thus a disconnected link cannot be considered ready
-for another association merely because its software keys were revoked.
+Before the guarded quarantine transition described below,
+`SimpleATH::retireNativeLink` revoked software PTK/GTK CCMP and watchdog
+state but left EDMA, automatic MAC responses, hardware keycache and portable
+station/scan state alive. The existing `nativeRemoveKeys` operated under a
+separate key-update lease, and `stopHardware` could wipe hardware keys only
+after queue isolation. Neither function was safe to invoke from an arbitrary
+RX callback without a same-epoch, quiesced hardware owner. Software-only
+revoke could not authorize another association in that PCI epoch.
 
-Next integration step: make one command-gated, same-epoch link-loss owner
-quiesce all data TX/RX and automatic responses before keycache erasure; if
-this cannot be proven, quarantine radio/queue use until a full reset. Retire
-the old station/scan/association generation and require fresh channel,
-regulatory, peer, key and PN evidence before reconnect. Include fake queue
-lease and failed-erasure regressions. Do not call the current `nativeRemoveKeys`
-from an unproven callback context or claim a hardware scrub from the existing
-software-only revocation.
+The following implementation closes this immediate isolation/wipe admission
+gap, but does not yet provide a successful, evidence-backed physical reset
+and reconnect coordinator. It deliberately denies same-epoch reconnection.
+
+### Native link-loss quarantine (source implementation, 2026-11-11)
+
+The command-gated `retireNativeLink` now routes verified AP disconnects,
+beacon timeout, terminal RX security denial and a successfully queued local
+leave through one software revoke and hardware queue-retirement path. It
+immediately closes the controlled data port, invalidates CCMP/PN receive
+state, attempts to mask IRQ, disable bus mastering and quiesce the MAC, and
+quarantines the old EDMA queue without recycling a borrowed RX buffer or
+resuming pending DMA. Only a verified same-epoch queue isolation **with no
+outstanding TX descriptor** permits a conditional keycache scrub using a
+separate, narrowly scoped hardware write permit. Erasure failure, pending
+TX, a lost PCI epoch or failed isolation cannot publish a wipe; the old
+hardware epoch always remains reset-required. The portable engine's scan,
+station, supplicant, fragment and replay state is reset after this transition.
+Old queued transmit completions and scan results cannot authorize reconnect.
+
+`tests/test_native_wireless_epoch.cpp` exercises callback order, failed queue
+isolation, stale physical/key epochs, outstanding device-owned TX,
+a missing callback context, skipped wipe when uninitialized, and failed erasure
+with fake callbacks. This is **not** a device measurement: native Tahoe build,
+real MAC/EDMA quiescence and physical key RAM verification are untested.
+Automatic same-epoch reconnect is intentionally denied, not implemented;
+a new PCI/reset/calibration/channel/scan/key epoch is still required. No
+native asynchronous reset/reconnect coordinator exists yet. Keep this task
+open until an end-to-end, correctly owned recovery path is verified.
 
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
