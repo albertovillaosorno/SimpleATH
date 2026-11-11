@@ -801,6 +801,20 @@
   },
   {
     "directory": ".",
+    "file": "src/wifi/ManagementReassembly.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++14",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "src/wifi/ManagementReassembly.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "src/wifi/ScanCache.cpp",
     "arguments": [
       "clang++",
@@ -1357,6 +1371,20 @@
       "c++",
       "-fsyntax-only",
       "tests/test_management_admission.cpp"
+    ]
+  },
+  {
+    "directory": ".",
+    "file": "tests/test_management_reassembly.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_management_reassembly.cpp"
     ]
   },
   {

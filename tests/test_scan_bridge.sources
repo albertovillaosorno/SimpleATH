@@ -1,6 +1,7 @@
 src/wifi/Frames.cpp
 src/wifi/ScanCache.cpp
 src/wifi/LegacyScanBridge.cpp
+src/wifi/ManagementReassembly.cpp
 src/wifi/WifiEngine.cpp
 src/wifi/Station.cpp
 src/wifi/LinkMonitor.cpp

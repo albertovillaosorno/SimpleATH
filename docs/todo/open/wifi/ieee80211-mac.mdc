@@ -133,3 +133,21 @@ supply hardware management-frame integrity or a native reconnect pipeline.
   hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
+
+## Source integration — bounded management-fragment RX
+
+`ManagementReassembly.{hpp,cpp}` now runs as a fixed-capacity RX stage in
+`WifiEngine::acceptRx` after the caller attests DMA/FCS and channel policy.
+It publishes no management payload before contiguous fragments match the
+original subtype, sequence number and all three 802.11 addresses. The owner
+rejects out-of-order, stale (>500-ms), clock-regressed, overlength and PMF-
+protected fragments, and clears pending state on scan replacement, new join,
+rejection, radio stop and an invalid RX trust lease. Completed frames are
+borrowed only during the synchronous scan/association/link handler. The
+standalone `parseFrame` still refuses raw management fragments.
+
+This is a source-only reassembly path included in the normal Xcode target;
+it does not authenticate non-PMF management frames, establish physical FCS,
+wire RF or prove scan operation. PMF reassembly and negotiation, independent
+receive-channel calibration, aggregation, BlockAck and native response timing
+remain outstanding. The P2 task stays open pending those integrations.

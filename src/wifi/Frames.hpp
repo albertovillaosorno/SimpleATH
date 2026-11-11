@@ -110,8 +110,9 @@ namespace simpleath
                            // frames.
         };
 
-        // Management frame fragments are rejected until reassembly is
-        // implemented; passing a partial authentication frame is unsafe.
+        // Raw management fragments are rejected. The WifiEngine receive owner
+        // may assemble FCS-verified fragments through ManagementReassembly;
+        // this standalone parser never interprets a partial authentication.
         Result parseFrame(const uint8_t *bytes, size_t length, Frame &out);
 
         // The caller checks the parser result; malformed or unrecognized RSN

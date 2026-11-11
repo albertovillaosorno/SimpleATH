@@ -603,9 +603,9 @@ namespace simpleath
             {
                 return Result::Truncated;
             }
-            // Management reassembly is not implemented: neither an initial
-            // More Fragments frame nor a later nonzero fragment can be
-            // interpreted as a complete beacon or handshake response.
+            // A caller must explicitly reassemble validated management
+            // fragments before parsing. This standalone parser rejects a
+            // partial header/body, regardless of fragment sequence.
             if (type == FrameType::Management &&
                 (readLittle16(byteOffset(bytes, kMacSequenceOffset)) &
                  kFragmentNumberMask) != 0)

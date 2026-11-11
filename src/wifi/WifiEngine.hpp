@@ -43,6 +43,7 @@
 
 #include "DataPath.hpp"
 #include "LinkMonitor.hpp"
+#include "ManagementReassembly.hpp"
 #include "ScanCache.hpp"
 #include "Station.hpp"
 #include "Wpa2Supplicant.hpp"
@@ -406,6 +407,9 @@ namespace simpleath
                 // after forgetting the rejected candidate and supplicant.
                 void abandonCandidate();
 
+                // One bounded, FCS-gated management exchange per current RX
+                // owner. Cleared on association replacement and radio stop.
+                ManagementReassembly management_;
                 ScanCache cache_;
                 Station station_;
                 LinkMonitor link_;

@@ -301,6 +301,7 @@ namespace simpleath
             channelAuthorized_ = false;
             nextSequence_ = 0;
             resetDataSequences();
+            management_.clear();
             scanConfigured_ = false;
             scanOnChannel_ = false;
             scanComplete_ = false;
@@ -377,6 +378,7 @@ namespace simpleath
                 return EngineResult::InvalidState;
             }
             cache_.clear();
+            management_.clear();
             channelAuthorized_ = countryChannelAllowed;
             scanConfigured_ = false;
             scanOnChannel_ = false;
@@ -554,6 +556,7 @@ namespace simpleath
             scanIndex_ = 0;
             cache_.clear();
             station_.reset();
+            management_.clear();
             channelAuthorized_ = false;
             return EngineResult::Ok;
         }
@@ -634,6 +637,7 @@ namespace simpleath
             selected_ = true;
             osSupplicantOwned_ = false;
             resetDataSequences();
+            management_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -700,6 +704,7 @@ namespace simpleath
             selected_ = true;
             osSupplicantOwned_ = false;
             resetDataSequences();
+            management_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -751,6 +756,7 @@ namespace simpleath
             selected_ = true;
             osSupplicantOwned_ = false;
             resetDataSequences();
+            management_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -800,6 +806,7 @@ namespace simpleath
             selected_ = true;
             osSupplicantOwned_ = wpa2Personal;
             resetDataSequences();
+            management_.clear();
             stationAddress_ = station;
             return EngineResult::Ok;
         }
@@ -833,6 +840,7 @@ namespace simpleath
             link_.clear();
             stationAddress_ = {};
             resetDataSequences();
+            management_.clear();
             selected_ = false;
             osSupplicantOwned_ = false;
         }
@@ -1227,6 +1235,9 @@ namespace simpleath
             if ((frame == nullptr) || !trust.radioReady ||
                 !trust.channelAuthorized || !trust.dmaAndFcsVerified)
             {
+                // An unverified or revoked RX must not leave an earlier
+                // fragment eligible for completion after radio recovery.
+                management_.clear();
                 return EngineResult::InvalidInput;
             }
             // The trusted DMA owner must state whether the verified FCS was
@@ -1239,8 +1250,30 @@ namespace simpleath
             }
             const size_t macBytes =
                 length - (trust.rxFrameIncludesFcs ? 4U : 0U);
+            // Reassemble only independently FCS-verified management MPDUs.
+            // Partial fragments cannot reach scan, auth, association or link
+            // loss handlers. Borrowed assembly storage lives inside this
+            // serialized engine and is consumed before the next RX call.
+            const uint8_t *complete = frame;
+            size_t completeBytes = macBytes;
+            if (macBytes >= 2U && (frame[0] & 0x0fU) == 0U)
+            {
+                ManagementFrameView view {};
+                const auto assembly =
+                    management_.ingest(frame, macBytes, nowMs, view);
+                if (assembly == ManagementFragmentResult::Rejected)
+                {
+                    return EngineResult::InvalidReceivedFrame;
+                }
+                if (assembly == ManagementFragmentResult::Pending)
+                {
+                    return EngineResult::NoAction;
+                }
+                complete = view.bytes;
+                completeBytes = view.length;
+            }
             Frame header {};
-            if (parseFrame(frame, macBytes, header) != Result::Ok)
+            if (parseFrame(complete, completeBytes, header) != Result::Ok)
             {
                 return EngineResult::InvalidReceivedFrame;
             }
@@ -1251,15 +1284,15 @@ namespace simpleath
                     (header.subtype == kBeaconSubtype ||
                      header.subtype == kProbeResponseSubtype))
                 {
-                    const EngineResult scanResult =
-                        observeScanFrame(frame, macBytes, rssi, nowMs, action);
+                    const EngineResult scanResult = observeScanFrame(
+                        complete, completeBytes, rssi, nowMs, action);
                     if (scanResult == EngineResult::Ok || scanConfigured_)
                     {
                         return scanResult;
                     }
                 }
-                return handleManagement(frame, macBytes, nowMs, out, capacity,
-                                        action);
+                return handleManagement(complete, completeBytes, nowMs, out,
+                                        capacity, action);
             }
             if (header.type == FrameType::Data)
             {
@@ -1563,6 +1596,7 @@ namespace simpleath
             stationAddress_ = {};
             nextSequence_ = 0;
             resetDataSequences();
+            management_.clear();
             selected_ = false;
             keysConfigured_ = false;
             osSupplicantOwned_ = false;

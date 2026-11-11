@@ -1908,6 +1908,22 @@
       "kind": "code"
     },
     {
+      "path": "src/wifi/ManagementReassembly.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "src/wifi/ManagementReassembly.hpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
       "path": "src/wifi/NativePortSecurityAdmission.hpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -2765,6 +2781,22 @@
     },
     {
       "path": "tests/test_management_admission.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
+      "path": "tests/test_management_reassembly.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_management_reassembly.sources",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
