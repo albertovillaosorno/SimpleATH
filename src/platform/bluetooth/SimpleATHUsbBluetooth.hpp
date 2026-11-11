@@ -4,6 +4,7 @@
 
 #include "NativeAth3kIo.hpp"
 #include <IOKit/IOService.h>
+#include <IOKit/bluetooth/transport/IOBluetoothHostControllerUSBTransport.h>
 #include <IOKit/usb/IOUSBHostInterface.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSMetaClass.h>
@@ -34,7 +35,10 @@ class SimpleATHUsbBluetooth final : public IOService
         // Tahoe OSDefineDefaultStructors emits these allocation methods.
         // Keep the SDK-defined allocation/free implementation paired
         // with its declarations; this does not alter the vtable.
+        // Required by OSDefineDefaultStructors; intentional OSObject ABI match.
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
         void *operator new(size_t size);
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
         void operator delete(void *memory, size_t size);
 
     protected:
@@ -71,6 +75,52 @@ class SimpleATHUsbBluetooth final : public IOService
         // Atomically claim a queued reset vs. external shutdown. Internal
         // start-failure cleanup deliberately does not cancel recovery.
         uint8_t resetState_ {0U};
+};
+
+// The post-firmware USB HCI function is a DIFFERENT IOKit personality from
+// SimpleATHUsbBluetooth. Inherit the native Apple Bluetooth transport's
+// command, event, ACL, SCO, controller-registration and power implementation,
+// but permit attachment only to published operational AR3012 USB identities.
+// This does not claim the 2026 Tahoe Bluetooth ABI has been runtime verified.
+class SimpleATHUsbHciTransport final
+    : public IOBluetoothHostControllerUSBTransport
+{
+    private:
+        static constexpr const OSMetaClass *superClass =
+            &IOBluetoothHostControllerUSBTransport::gMetaClass;
+
+    public:
+        static const OSMetaClass *const metaClass;
+
+        static class MetaClass : public OSMetaClass
+        {
+            public:
+                MetaClass() noexcept;
+                OSObject *alloc() const APPLE_KEXT_OVERRIDE;
+        } gMetaClass;
+        friend class SimpleATHUsbHciTransport::MetaClass;
+        const OSMetaClass *getMetaClass() const APPLE_KEXT_OVERRIDE;
+        // Required by OSDefineDefaultStructors; intentional OSObject ABI match.
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+        void *operator new(size_t size);
+        // NOLINTNEXTLINE(bugprone-derived-method-shadowing-base-method)
+        void operator delete(void *memory, size_t size);
+
+        SimpleATHUsbHciTransport();
+        SimpleATHUsbHciTransport(const SimpleATHUsbHciTransport &) = delete;
+        SimpleATHUsbHciTransport &
+        operator=(const SimpleATHUsbHciTransport &) = delete;
+        SimpleATHUsbHciTransport(SimpleATHUsbHciTransport &&) = delete;
+        SimpleATHUsbHciTransport &
+        operator=(SimpleATHUsbHciTransport &&) = delete;
+        ~SimpleATHUsbHciTransport() APPLE_KEXT_OVERRIDE;
+
+    protected:
+        explicit SimpleATHUsbHciTransport(const OSMetaClass *meta);
+
+    public:
+        IOService *probe(IOService *provider, SInt32 *score) override;
+        bool start(IOService *provider) override;
 };
 
 #endif

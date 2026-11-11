@@ -277,6 +277,27 @@ namespace
         {
             return false;
         }
+        // Boot personality and post-firmware native host transport have
+        // disjoint physical identity contracts. Alternate vendor families
+        // are admitted only in operational Bluetooth HCI mode.
+        const Ath3kUsbIdentity running {
+            kAtherosUsbVendor,
+            kAtherosUsbProduct,
+            2U,
+            0U,
+        };
+        const Ath3kUsbIdentity extra {0x0489U, 0xe036U, 0x0200U, 0U};
+        if (!isSupportedAth3kHciIdentity(running) ||
+            !isSupportedAth3kHciIdentity(extra) ||
+            isSupportedAth3kHciIdentity(identity) ||
+            isSupportedAth3kHciIdentity(bad) ||
+            isSupportedAth3kHciIdentity(
+                {kAtherosUsbVendor, kAtherosUsbProduct, 2U, 1U}) ||
+            isSupportedAth3kHciIdentity({kAtherosUsbVendor, 0xffffU, 2U, 0U}) ||
+            isSupportedAth3kHciIdentity({0x0489U, 0xe036U, 1U, 0U}))
+        {
+            return false;
+        }
         UsbFake fake = newFake();
         auto result = bootstrapAth3kUsb(identity, usbIo(fake));
         if (result.result != Ath3kBootResult::AwaitReenumeration ||

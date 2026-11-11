@@ -532,3 +532,26 @@ lifetime and teardown. Do not attach the old firmware loader to an already
 operational HCI interface or claim BLE pairing, AirDrop or Continuity ready
 from firmware bootstrap success alone. This is an audited missing wiring
 contract, not a completed host integration or device test.
+
+## Source progress — distinct post-firmware native macOS HCI owner
+
+The AR3012 bootloader personality still accepts only physical boot-mode
+revisions and retains its independent DFU firmware/upload/reset lifecycle.
+The new `SimpleATHUsbHciTransport` personality matches seven published
+AR3012 HCI vendor families on USB interface 0, class E0/01/01. Its physical
+probe additionally checks the full published VID/PID, operational bcdDevice,
+live USB provider identity and descriptor class. Bootloader devices are
+rejected rather than reset or claimed by the HCI service.
+
+The service subclasses Apple's
+`IOBluetoothHostControllerUSBTransport` and forwards real start, USB HCI
+event/ACL/SCO transport, host registration, power/teardown to the native
+Bluetooth-family implementation instead of creating a second USB pipe owner.
+A post-start identity/provider replacement closes the new base session and
+fails the attach. The required native BluetoothFamily library dependency
+is declared. Only the normal-mode service uses the Apple host path; the
+pre-firmware owner stays isolated. Pinned MacKernelSDK headers describe this
+native transport class, **but it is not a verified macOS Tahoe 25G332
+export or behavioral contract**. Native Apple build, actual loaded symbol
+resolution, Bluetooth pairing, LE/AirDrop and coexistence remain unverified.
+The source-only checks cannot establish physical Bluetooth readiness.

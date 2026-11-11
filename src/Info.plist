@@ -46,6 +46,167 @@
 			<key>IOProbeScore</key>
 			<integer>100</integer>
 		</dict>
+		<key>SimpleATH AR3012 HCI Atheros</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>3315</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI AzureWave</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>5075</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI Foxconn</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>1161</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI Fujitsu</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>1221</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI Lite-On</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>1226</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI Toshiba</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>2352</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
+		<key>SimpleATH AR3012 HCI ASUS</key>
+		<dict>
+			<key>CFBundleIdentifier</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>IOClass</key>
+			<string>SimpleATHUsbHciTransport</string>
+			<key>IOProviderClass</key>
+			<string>IOUSBHostInterface</string>
+			<key>idVendor</key>
+			<integer>2821</integer>
+			<key>bConfigurationValue</key>
+			<string>*</string>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
+			<key>bInterfaceClass</key>
+			<integer>224</integer>
+			<key>bInterfaceSubClass</key>
+			<integer>1</integer>
+			<key>bInterfaceProtocol</key>
+			<integer>1</integer>
+			<key>IOProbeScore</key>
+			<integer>150</integer>
+		</dict>
 		<key>SimpleATH USB AR3012 Atheros firmware</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
@@ -21513,6 +21674,8 @@
 		<string>3.2</string>
 		<key>com.apple.iokit.IOSkywalkFamily</key>
 		<string>1.0</string>
+		<key>com.apple.iokit.IOBluetoothFamily</key>
+		<string>1.0.0</string>
 		<key>com.apple.iokit.IOUSBHostFamily</key>
 		<string>1.0.1</string>
 		<key>com.apple.kpi.iokit</key>

@@ -5,6 +5,7 @@
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOService.h>
 #include <IOKit/IOTypes.h>
+#include <IOKit/bluetooth/transport/IOBluetoothHostControllerUSBTransport.h>
 #include <IOKit/usb/AppleUSBDefinitions.h>
 #include <IOKit/usb/IOUSBHostDevice.h>
 #include <IOKit/usb/StandardUSB.h>
@@ -45,6 +46,7 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
 
     namespace
 {
+    constexpr uint8_t kBluetoothUsbClass = 0xe0U;
     constexpr size_t kMaxFirmwareName = 48;
     constexpr size_t kMaxFirmwareBytes = size_t {1024U} * 1024U;
     constexpr unsigned int kRegistryPropertyBits = 32U;
@@ -127,6 +129,36 @@ OSDefineDefaultStructors(SimpleATHUsbBluetooth, IOService)
         }
         (void)thread_call_enter(request->call);
         return true;
+    }
+
+    bool physicalHciIdentity(IOUSBHostInterface * interface,
+                             simpleath::Ath3kUsbIdentity & out)
+    {
+        out = {};
+        if (interface == nullptr || interface->isInactive())
+        {
+            return false;
+        }
+        const auto *const descriptor = interface->getInterfaceDescriptor();
+        IOUSBHostDevice *const device = interface->getDevice();
+        const auto *const usb =
+            device == nullptr ? nullptr : device->getDeviceDescriptor();
+        if (device == nullptr || device->isInactive() ||
+            descriptor == nullptr || usb == nullptr ||
+            descriptor->bInterfaceNumber != 0U ||
+            descriptor->bInterfaceClass != kBluetoothUsbClass ||
+            descriptor->bInterfaceSubClass != 0x01U ||
+            descriptor->bInterfaceProtocol != 0x01U)
+        {
+            return false;
+        }
+        out = {
+            USBToHost16(usb->idVendor),
+            USBToHost16(usb->idProduct),
+            USBToHost16(usb->bcdDevice),
+            descriptor->bInterfaceNumber,
+        };
+        return simpleath::isSupportedAth3kHciIdentity(out);
     }
 
     bool physicalIdentity(IOUSBHostInterface * interface,
@@ -378,4 +410,76 @@ void SimpleATHUsbBluetooth::free()
     cancelDeferredReset();
     revoke();
     IOService::free();
+}
+
+// The native host transport owns post-firmware USB HCI. Keep its metaclass
+// separate from the DFU firmware loader so an operational device cannot be
+// rematched as a firmware upload target.
+SimpleATHUsbHciTransport::MetaClass SimpleATHUsbHciTransport::gMetaClass;
+const OSMetaClass *const SimpleATHUsbHciTransport::metaClass =
+    &SimpleATHUsbHciTransport::gMetaClass;
+constexpr const OSMetaClass *SimpleATHUsbHciTransport::superClass;
+
+SimpleATHUsbHciTransport::SimpleATHUsbHciTransport(const OSMetaClass *meta)
+    : IOBluetoothHostControllerUSBTransport(meta)
+{
+}
+
+SimpleATHUsbHciTransport::~SimpleATHUsbHciTransport() = default;
+
+const OSMetaClass *SimpleATHUsbHciTransport::getMetaClass() const
+{
+    return &gMetaClass;
+}
+
+SimpleATHUsbHciTransport::MetaClass::MetaClass() noexcept
+    : OSMetaClass("SimpleATHUsbHciTransport",
+                  SimpleATHUsbHciTransport::superClass,
+                  sizeof(SimpleATHUsbHciTransport))
+{
+}
+
+OSDefineDefaultStructors(SimpleATHUsbHciTransport,
+                         IOBluetoothHostControllerUSBTransport)
+
+    IOService *SimpleATHUsbHciTransport::probe(IOService *provider,
+                                               SInt32 *score)
+{
+    auto *const interface = OSDynamicCast(IOUSBHostInterface, provider);
+    simpleath::Ath3kUsbIdentity identity {};
+    if (!physicalHciIdentity(interface, identity))
+    {
+        return nullptr;
+    }
+    return IOBluetoothHostControllerUSBTransport::probe(provider, score);
+}
+
+bool SimpleATHUsbHciTransport::start(IOService *provider)
+{
+    auto *const interface = OSDynamicCast(IOUSBHostInterface, provider);
+    simpleath::Ath3kUsbIdentity identity {};
+    if (!physicalHciIdentity(interface, identity))
+    {
+        return false;
+    }
+    const IOUSBHostDevice *const physicalDevice = interface->getDevice();
+    // The superclass implements native macOS Bluetooth HCI/ACL/SCO
+    // registration, asynchronous USB endpoint handling and power lifecycle.
+    // No second raw-HCI pipe owner may open the interface in this service.
+    if (!IOBluetoothHostControllerUSBTransport::start(provider))
+    {
+        return false;
+    }
+    simpleath::Ath3kUsbIdentity current {};
+    if (interface->getDevice() != physicalDevice ||
+        !physicalHciIdentity(interface, current) ||
+        current.vendorId != identity.vendorId ||
+        current.productId != identity.productId ||
+        current.deviceRevision != identity.deviceRevision ||
+        current.interfaceNumber != identity.interfaceNumber)
+    {
+        IOBluetoothHostControllerUSBTransport::stop(provider);
+        return false;
+    }
+    return true;
 }

@@ -18,7 +18,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PLIST = ROOT / "src/Info.plist"
 MANIFEST = ROOT / "firmware/manifest.json"
 BOOT_CLASS = "SimpleATHUsbBluetooth"
+HCI_CLASS = "SimpleATHUsbHciTransport"
 BOOT_VENDOR_IDS = {0x0CF3, 0x13D3}
+HCI_VENDOR_IDS = {0x0CF3, 0x13D3, 0x0489, 0x04C5, 0x04CA, 0x0930, 0x0B05}
 EXPECTED_IMAGES = 18
 LICENSE_FRAGMENT = "license"
 RESOURCE_NAME_FRAGMENT = "resource name"
@@ -51,7 +53,42 @@ class Ath3kFirmwareTests(TestCase):
             "SimpleATH",
             "SimpleATHTahoeController",
             BOOT_CLASS,
+            HCI_CLASS,
         }
+
+    @staticmethod
+    def test_normal_hci_matches_separate_apple_host_transport() -> None:
+        """Only class-correct post-firmware USB may invoke the HCI probe."""
+        info = cast("dict[str, object]", plistlib.loads(PLIST.read_bytes()))
+        personalities = cast(
+            "dict[str, dict[str, object]]", info["IOKitPersonalities"]
+        )
+        hci = [
+            entry for entry in personalities.values()
+            if entry.get("IOClass") == HCI_CLASS
+        ]
+        assert len(hci) == len(HCI_VENDOR_IDS)
+        observed_vendors = {
+            cast("int", entry["idVendor"]) for entry in hci
+        }
+        assert observed_vendors == HCI_VENDOR_IDS
+        for entry in hci:
+            assert entry["IOProviderClass"] == "IOUSBHostInterface"
+            assert entry["bInterfaceNumber"] == 0
+            assert entry["bInterfaceClass"] == 0xE0
+            assert entry["bInterfaceSubClass"] == 1
+            assert entry["bInterfaceProtocol"] == 1
+            assert "SimpleATHAth3kFirmware" not in entry
+        libraries = cast("dict[str, str]", info["OSBundleLibraries"])
+        assert libraries["com.apple.iokit.IOBluetoothFamily"] == "1.0.0"
+
+        native = (
+            ROOT / "src/platform/bluetooth/SimpleATHUsbBluetooth.cpp"
+        ).read_text()
+        assert "isSupportedAth3kHciIdentity(out)" in native
+        native_superclass = "IOBluetoothHostControllerUSBTransport"
+        assert f"{native_superclass}::start(provider)" in native
+        assert f"{native_superclass}::stop(provider)" in native
 
     @staticmethod
     def test_plist_round_trip_never_changes_bytes() -> None:

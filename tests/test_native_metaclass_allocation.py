@@ -14,6 +14,10 @@ SOURCE = ROOT / "src"
 CLASSES = (
     ("SimpleATH", "SimpleATH.cpp"),
     ("SimpleATHUsbBluetooth", "platform/bluetooth/SimpleATHUsbBluetooth.hpp"),
+    (
+        "SimpleATHUsbHciTransport",
+        "platform/bluetooth/SimpleATHUsbBluetooth.hpp",
+    ),
     ("SimpleATHTahoeController", "platform/tahoe/SimpleATHTahoeController.hpp"),
     ("SimpleATHInfraProtocol", "platform/tahoe/SimpleATHInfraProtocol.hpp"),
 )
@@ -26,6 +30,22 @@ NATIVE_UNITS = (
 NEW_DECLARATION = "void *operator new(size_t size);"
 DELETE_DECLARATION = "void operator delete(void *memory, size_t size);"
 HOST_STANDARDS = ("c++14", "c++17")
+
+
+def _class_body(source: str, classname: str) -> str:
+    """Isolate one metaclass owner even in multi-class headers.
+
+    Args:
+        source: C++ declarations from one header.
+        classname: Exact OSObject subclass name.
+
+    Returns:
+        The single subclass declaration body.
+
+    """
+    start = source.index(f"class {classname} final")
+    end = source.index("\n};", start)
+    return source[start:end]
 
 
 def _compile_fixture(
@@ -114,12 +134,14 @@ class NativeMetaclassAllocation(unittest.TestCase):
     def test_driver_allocator_declarations_match_sdk_operator_methods() -> None:
         """Every actual macro consumer declares both matching signatures."""
         for classname, path in CLASSES:
-            content = (SOURCE / path).read_text(encoding="utf-8")
-            assert f"class {classname} final : public" in content
+            content = _class_body(
+                (SOURCE / path).read_text(encoding="utf-8"), classname
+            )
+            assert f"class {classname} final" in content
             assert content.count(NEW_DECLARATION) == 1, classname
             assert content.count(DELETE_DECLARATION) == 1, classname
             implementation = SOURCE / path.replace(".hpp", ".cpp")
-            assert f"OSDefineDefaultStructors({classname}, " in (
+            assert f"OSDefineDefaultStructors({classname}," in (
                 implementation.read_text(encoding="utf-8")
             )
 
@@ -127,7 +149,9 @@ class NativeMetaclassAllocation(unittest.TestCase):
     def test_freestanding_allocator_macro_definitions_compile() -> None:
         """Reproduce Tahoe operator new/delete expansion under C++14/17."""
         for classname, path in CLASSES:
-            content = (SOURCE / path).read_text(encoding="utf-8")
+            content = _class_body(
+                (SOURCE / path).read_text(encoding="utf-8"), classname
+            )
             declarations = "\n".join(
                 line.strip()
                 for line in content.splitlines()
