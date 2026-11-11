@@ -496,3 +496,25 @@ physical-identity rejection. Both AWDL source and test pass strict Clang-Tidy
 and formatting; native owner source passes SDK syntax. No physical RF,
 channel sharing, BLE ownership, peer authentication, native AWDL interface,
 TX authorization or AirDrop transfer is established by this observer.
+
+## Source progress — 2026-11-10: native EDMA receive TSF phase anchoring
+
+The production PCI receive callback now attempts a **read-only physical TSF**
+bridge before admitting a channel-six AWDL MIF. `Ar9565RxTsf` reconstructs
+the descriptor's real low-32-bit RX timestamp from stable U32/L32/U32 TSF
+reads, including the 32-bit rollover case. It correlates the TSF snapshot
+against bounded kernel monotonic uptime calls, rejects timestamps older than
+200 ms, unstable multi-read TSF, revoked RF/PCI ownership or more than 2 ms
+of host-clock read span. Every TSF MMIO read rechecks the live same-epoch
+D0, RF-kill, channel-six authorization and running EDMA lease. The MIF peer
+table receives the verified reception timestamp, never a fabricated callback
+arrival time; a rejected sample does not renew or establish a peer.
+
+This is compiled into the normal Xcode production source target and covered
+by C++14/C++17 synthetic ASan+UBSan tests for rollover, read faults, revoked
+leases, future/stale frames and host clock jitter. References: pinned Linux
+`ath9k/recv.c`, `ath9k/hw.c` and `ath9k/reg.h`, SHA-256 recorded in the
+ledger. Real physical tune/channel authorization remains unimplemented,
+therefore this RX path is still dormant. No Apple AWDL interface, native
+synchronization/election/TX scheduling, Bluetooth discovery or AirDrop
+readiness is established. Keep this P0 task open.

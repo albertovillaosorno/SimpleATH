@@ -29,6 +29,7 @@
 		00000000000000000000D5A0 /* Ar9565PhyMode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D5A1 /* Ar9565PhyMode.cpp */; };
 		00000000000000000000D5B0 /* Ar9565Ani.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D5B1 /* Ar9565Ani.cpp */; };
 		00000000000000000000D5C0 /* Ar9565AniMib.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D5C1 /* Ar9565AniMib.cpp */; };
+		00000000000000000000D5D0 /* Ar9565RxTsf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D5D1 /* Ar9565RxTsf.cpp */; };
 		00000000000000000000D590 /* Ar9565RadioSequence.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D591 /* Ar9565RadioSequence.cpp */; };
 		00000000000000000000D550 /* Ar9565Regulator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D551 /* Ar9565Regulator.cpp */; };
 		00000000000000000000D560 /* Ar9565BoardModal.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000D561 /* Ar9565BoardModal.cpp */; };
@@ -113,8 +114,10 @@
 		00000000000000000000D5A2 /* Ar9565PhyMode.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565PhyMode.hpp; sourceTree = "<group>"; };
 		00000000000000000000D5B1 /* Ar9565Ani.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Ani.cpp; sourceTree = "<group>"; };
 		00000000000000000000D5C1 /* Ar9565AniMib.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565AniMib.cpp; sourceTree = "<group>"; };
+		00000000000000000000D5D1 /* Ar9565RxTsf.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565RxTsf.cpp; sourceTree = "<group>"; };
 		00000000000000000000D5B2 /* Ar9565Ani.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565Ani.hpp; sourceTree = "<group>"; };
 		00000000000000000000D5C2 /* Ar9565AniMib.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565AniMib.hpp; sourceTree = "<group>"; };
+		00000000000000000000D5D2 /* Ar9565RxTsf.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565RxTsf.hpp; sourceTree = "<group>"; };
 		00000000000000000000D591 /* Ar9565RadioSequence.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565RadioSequence.cpp; sourceTree = "<group>"; };
 		00000000000000000000D592 /* Ar9565RadioSequence.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = hardware/Ar9565RadioSequence.hpp; sourceTree = "<group>"; };
 		00000000000000000000D551 /* Ar9565Regulator.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = hardware/Ar9565Regulator.cpp; sourceTree = "<group>"; };
@@ -256,8 +259,10 @@
 				00000000000000000000D628 /* SimpleATHUsbBluetooth.hpp */,
 				00000000000000000000D5B1 /* Ar9565Ani.cpp */,
 				00000000000000000000D5C1 /* Ar9565AniMib.cpp */,
+		00000000000000000000D5D1 /* Ar9565RxTsf.cpp */,
 				00000000000000000000D5B2 /* Ar9565Ani.hpp */,
 				00000000000000000000D5C2 /* Ar9565AniMib.hpp */,
+		00000000000000000000D5D2 /* Ar9565RxTsf.hpp */,
 				00000000000000000000D591 /* Ar9565RadioSequence.cpp */,
 				00000000000000000000D5A1 /* Ar9565PhyMode.cpp */,
 				00000000000000000000D5A2 /* Ar9565PhyMode.hpp */,
@@ -462,6 +467,7 @@
 				00000000000000000000D613 /* SimpleATHUsbBluetooth.cpp in Sources */,
 				00000000000000000000D5B0 /* Ar9565Ani.cpp in Sources */,
 				00000000000000000000D5C0 /* Ar9565AniMib.cpp in Sources */,
+		00000000000000000000D5D0 /* Ar9565RxTsf.cpp in Sources */,
 				00000000000000000000D590 /* Ar9565RadioSequence.cpp in Sources */,
 				00000000000000000000D5A0 /* Ar9565PhyMode.cpp in Sources */,
 				00000000000000000000D540 /* Ar9565KeyCache.cpp in Sources */,

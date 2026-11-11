@@ -11,6 +11,7 @@
 #include "hardware/Ar9565Regulator.hpp"
 #include "hardware/Ar9565RfIni.hpp"
 #include "hardware/Ar9565RtcPower.hpp"
+#include "hardware/Ar9565RxTsf.hpp"
 #include "platform/Ar9565NativePci.hpp"
 #include "platform/Ar9565NativeQueues.hpp"
 #include "platform/Ar9565PciSession.hpp"
@@ -2301,6 +2302,23 @@ class SimpleATH final : public IOService
             return high != self.rfKillActiveHigh_;
         }
 
+        // Native EDMA RX timestamp attestation is READ ONLY. The callback
+        // synchronizes the AR9003 TSF register against the kernel monotonic
+        // clock only during a live, physically authorized channel-six lease.
+        // Neither a valid TSF nor a decoded MIF can turn radio readiness on.
+        static bool awdlTsfPermit(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && nvmOwner(context) &&
+                   self.board_.view(epoch) != nullptr &&
+                   self.radioOperational_ && self.channelAuthorized_ &&
+                   self.verifiedReceiveChannel_ == kAwdlSocialChannelSix &&
+                   self.queues_.epoch() == epoch &&
+                   self.queues_.phase() ==
+                       simpleath::NativeQueuePhase::Running &&
+                   self.liveRfKillUnblocked();
+        }
+
         static bool rfKillRuntimePermit(void *context, uint64_t epoch)
         {
             const auto &self = *static_cast<RegisterAccess *>(context)->owner;
@@ -2743,7 +2761,26 @@ class SimpleATH final : public IOService
             if (header.type == simpleath::ieee80211::FrameType::Management &&
                 header.subtype == kAwdlActionSubtype)
             {
-                if (awdlNeighbors_.observeMifForLocal(now, local, frame,
+                const simpleath::RxTsfBackend clockIo {
+                    &access_,
+                    epoch_,
+                    backend_.activeRegisters().barLengthBytes,
+                    awdlTsfPermit,
+                    readRegister,
+                    nowMicros,
+                };
+                simpleath::RxTsfSample hardwareArrival {};
+                // No callback-arrival-time fallback: a delayed IRQ must not
+                // be treated as the on-air MIF phase. Fail closed instead.
+                if (simpleath::captureAr9565RxTsf(clockIo, status.timestamp,
+                                                  hardwareArrival) !=
+                    simpleath::RxTsfResult::Ok)
+                {
+                    return;
+                }
+                const uint64_t mifMs =
+                    hardwareArrival.frameMonotonicUsec / kMicrosPerMillisecond;
+                if (awdlNeighbors_.observeMifForLocal(mifMs, local, frame,
                                                       mpduBytes) ==
                     simpleath::ieee80211::Result::Ok)
                 {
