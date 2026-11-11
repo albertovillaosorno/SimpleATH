@@ -46,6 +46,7 @@ namespace
         MibTimestamp = 20,
         FinalMibRevocation = 21,
         MibWriteFailure = 22,
+        AniPolling = 23,
     };
 
     constexpr uint64_t kEpoch = 69;
@@ -62,6 +63,11 @@ namespace
     constexpr uint32_t kPhyGenControl = 0xa204;
     constexpr uint32_t kAniFirstStepRegister = 0x9e10U;
     constexpr uint32_t kAniMibControl = 0x40U;
+    constexpr uint32_t kAniCycle = 0x80f8U;
+    constexpr uint32_t kAniRx = 0x80f0U;
+    constexpr uint32_t kAniTx = 0x80ecU;
+    constexpr uint32_t kAniOfdm = 0x812cU;
+    constexpr uint32_t kAniCck = 0x8134U;
     constexpr uint32_t kAniMibMaskOfdm = 0x8130U;
     constexpr uint32_t kAniMibMaskCck = 0x8138U;
     constexpr uint32_t kAniMibOfdmTiming = 0x00020000U;
@@ -105,6 +111,7 @@ namespace
             bool grantNever {};
             bool delayChecked {};
             bool badMeasurement {};
+            bool readNoiseExtensionSample {true};
             EepromImage *boardToAlter {};
     };
 
@@ -164,7 +171,8 @@ namespace
             }
             return true;
         }
-        if (offset == kNoisePrimary || offset == kNoiseExtension)
+        if (offset == kNoisePrimary ||
+            (offset == kNoiseExtension && fake.readNoiseExtensionSample))
         {
             *value =
                 offset == kNoisePrimary ? kNoiseSample : kNoiseExtensionSample;
@@ -322,6 +330,87 @@ namespace
             image, request, TxGainProfile::LowOb, RxGainProfile::Standard,
             BoardModalDiversity::WlanOnly, permission, backends(fake),
             kCounterEpochStartMs);
+    }
+
+    struct MibReadings
+    {
+            uint32_t cycles;
+            uint32_t receive;
+            uint32_t transmit;
+            uint32_t ofdm;
+            uint32_t cck;
+    };
+
+    void setCounters(Fake &fake, const MibReadings &counters)
+    {
+        fake.registers.at(kAniCycle / 4U) = counters.cycles;
+        fake.registers.at(kAniRx / 4U) = counters.receive;
+        fake.registers.at(kAniTx / 4U) = counters.transmit;
+        fake.registers.at(kAniOfdm / 4U) = counters.ofdm;
+        fake.registers.at(kAniCck / 4U) = counters.cck;
+    }
+
+    int checkAniPolling()
+    {
+        Fake fake {};
+        auto radio = run(fake);
+        const auto lease = backends(fake);
+        RadioAniPollState state {};
+        fake.readNoiseExtensionSample = false;
+        setCounters(fake, {4400000U, 400000U, 100000U, 50U, 10U});
+        const auto first = pollAr9565ReceiveOnlyAni(
+            channel(), authorized(), lease.baseband, lease.mib, 200U, false,
+            radio.aniState, radio.mibState, state);
+        setCounters(fake, {30800000U, 1400000U, 400000U, 2500U, 1500U});
+        const auto second = pollAr9565ReceiveOnlyAni(
+            channel(), authorized(), lease.baseband, lease.mib, 800U, false,
+            radio.aniState, radio.mibState, state);
+        if (radio.result != RadioSequenceResult::Ok ||
+            first.result != RadioAniPollResult::Primed ||
+            second.result != RadioAniPollResult::Adapted ||
+            second.windowResult != AniResult::Ok ||
+            second.window.listenedMilliseconds != 570U ||
+            second.window.ofdmTimingErrors != 2450U ||
+            !second.adaptation.adjusted ||
+            radio.aniState.lastCounterSequence != 2U || !state.primed ||
+            second.requiresReset)
+        {
+            return static_cast<int>(TestExit::AniPolling);
+        }
+        setCounters(fake, {57200000U, 2400000U, 700000U, 4500U, 2700U});
+        const size_t writes = fake.writes;
+        const auto scan = pollAr9565ReceiveOnlyAni(
+            channel(), authorized(), lease.baseband, lease.mib, 1400U, true,
+            radio.aniState, radio.mibState, state);
+        if (scan.result != RadioAniPollResult::Adapted ||
+            scan.adaptation.registerProgrammed || fake.writes != writes + 2U ||
+            radio.aniState.lastCounterSequence != 3U)
+        {
+            return static_cast<int>(TestExit::AniPolling);
+        }
+        auto foreign = lease.mib;
+        foreign.read32 = alternateRead;
+        const size_t reads = fake.reads;
+        const auto invalid = pollAr9565ReceiveOnlyAni(
+            channel(), authorized(), lease.baseband, foreign, 1800U, false,
+            radio.aniState, radio.mibState, state);
+        if (invalid.result != RadioAniPollResult::InvalidBackend ||
+            invalid.requiresReset || fake.reads != reads)
+        {
+            return static_cast<int>(TestExit::AniPolling);
+        }
+        fake.failedReadOffset = kAniCck;
+        const auto failed = pollAr9565ReceiveOnlyAni(
+            channel(), authorized(), lease.baseband, lease.mib, 1800U, false,
+            radio.aniState, radio.mibState, state);
+        if (failed.result != RadioAniPollResult::CounterFailed ||
+            !failed.requiresReset || radio.mibState.initialized ||
+            radio.aniState.initialized || !radio.mibState.requiresReset ||
+            state.primed)
+        {
+            return static_cast<int>(TestExit::AniPolling);
+        }
+        return 0;
     }
 
     int checkSplitBackendTransport()
@@ -547,6 +636,11 @@ int main()
         originalBoard.bytes[0] != kTamperedEepromVersion)
     {
         return static_cast<int>(TestExit::BoardSnapshot);
+    }
+    const int polling = checkAniPolling();
+    if (polling != 0)
+    {
+        return polling;
     }
     const int splitBackend = checkSplitBackendTransport();
     if (splitBackend != 0)

@@ -95,5 +95,47 @@ namespace simpleath
         BoardModalDiversity diversity,
         const CalibrationAndRegulatory &authorization,
         const RadioSequenceBackends &backends, uint64_t monotonicMilliseconds);
+
+    enum class RadioAniPollResult : uint8_t
+    {
+        Primed,
+        Adapted,
+        InvalidBackend,
+        NotInitialized,
+        CounterFailed,
+        InvalidWindow,
+        AdaptationFailed,
+        OwnershipLost,
+    };
+
+    struct RadioAniPollState
+    {
+            AniHardwareSample previous {};
+            uint64_t previousCapturedMs {};
+            bool primed {};
+    };
+
+    struct RadioAniPollProgress
+    {
+            RadioAniPollResult result {RadioAniPollResult::InvalidBackend};
+            AniMibProgress mib {};
+            AniResult windowResult {AniResult::NotInitialized};
+            AniErrorWindow window {};
+            AniMonitorProgress adaptation {};
+            bool requiresReset {};
+    };
+
+    // Compose two physically frozen MIB samples into one bounded ANI policy
+    // window and an optional hardware sensitivity update. The native owner
+    // supplies a real periodic scheduler, live physical authorization, and a
+    // serialized same-epoch exclusive MIB lease; this routine does not turn
+    // on RX/TX or claim RF readiness. Any ambiguity revokes both ANI states
+    // and requires a physical reset before trying this epoch again.
+    RadioAniPollProgress pollAr9565ReceiveOnlyAni(
+        const RfChannelRequest &request,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &baseband, const AniMibBackend &mibBackend,
+        uint64_t monotonicMilliseconds, bool scanning, Ar9565AniState &aniState,
+        AniMibState &mibState, RadioAniPollState &pollState);
 } // namespace simpleath
 #endif

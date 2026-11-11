@@ -422,6 +422,15 @@ mask readback, ambiguous MIB writes and final owner revocation. Its focused
 C++14/C++17 ASan+UBSan runs, direct strict Clang-Tidy and Clang-Format pass.
 No physical radio operations were performed.
 
+`pollAr9565ReceiveOnlyAni` now composes actual frozen MIB captures into
+bounded error windows and source-backed sensitivity programming. Its first
+capture primes the observation; subsequent captures enforce an epoch, time,
+validated counter deltas and independent PHY/MIB permits. Scanning never
+retunes; physical failures revoke both ANI states and require reset. Focused
+C++14/C++17 sanitizer fixtures exercise sensitivity updates, scanning,
+transport mismatch and counter-read failures. No native timer or radio
+activation has been added; the missing physical proof gates remain open.
+
 **Still required:** `SimpleATH` must call the receive-only RF sequence only
 after independent board/reference-crystal, country/channel, antenna and
 Bluetooth coexistence evidence exists; it currently does not invoke it.

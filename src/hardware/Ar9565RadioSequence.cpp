@@ -263,4 +263,114 @@ namespace simpleath
         progress.requiresReset = false;
         return progress;
     }
+
+    RadioAniPollProgress pollAr9565ReceiveOnlyAni(
+        const RfChannelRequest &request,
+        const CalibrationAndRegulatory &authorization,
+        const RxAgcBackend &baseband, const AniMibBackend &mibBackend,
+        uint64_t monotonicMilliseconds, bool scanning, Ar9565AniState &aniState,
+        AniMibState &mibState, RadioAniPollState &pollState)
+    {
+        RadioAniPollProgress progress {};
+        const RfChannelRequest channel = request;
+        const CalibrationAndRegulatory allowed = authorization;
+        const RxAgcBackend phy = baseband;
+        const AniMibBackend mib = mibBackend;
+        const RfIniBackend &io = phy.io;
+        // Never combine a real MIB epoch with an unrelated register bus.
+        if (io.context == nullptr || io.ownerEpoch == 0U ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            phy.read32 == nullptr || mib.permit == nullptr ||
+            mib.context != io.context || mib.ownerEpoch != io.ownerEpoch ||
+            mib.barLengthBytes != io.barLengthBytes ||
+            mib.read32 != phy.read32 || mib.write32 != io.write32)
+        {
+            return progress;
+        }
+        progress.result = RadioAniPollResult::NotInitialized;
+        if (!aniState.initialized || !mibState.initialized ||
+            mibState.requiresReset || aniState.ownerEpoch != io.ownerEpoch ||
+            mibState.ownerEpoch != io.ownerEpoch)
+        {
+            return progress;
+        }
+        const auto revoke = [&]
+        {
+            pollState = {};
+            aniState.initialized = false;
+            mibState.initialized = false;
+            mibState.requiresReset = true;
+            progress.requiresReset = true;
+        };
+        if (pollState.primed &&
+            (pollState.previous.ownerEpoch != io.ownerEpoch ||
+             pollState.previousCapturedMs == 0U ||
+             !pollState.previous.mmioAndMasksVerified))
+        {
+            progress.result = RadioAniPollResult::OwnershipLost;
+            revoke();
+            return progress;
+        }
+        AniHardwareSample captured {};
+        progress.mib = captureAr9565AniMib(
+            aniState, allowed, mib, monotonicMilliseconds, mibState, captured);
+        if (progress.mib.result != AniMibResult::Ok)
+        {
+            progress.result = RadioAniPollResult::CounterFailed;
+            revoke();
+            return progress;
+        }
+        if (!io.permitWrite(io.context, io.ownerEpoch) ||
+            !mib.permit(mib.context, mib.ownerEpoch))
+        {
+            progress.result = RadioAniPollResult::OwnershipLost;
+            revoke();
+            return progress;
+        }
+        if (!pollState.primed)
+        {
+            pollState.previous = captured;
+            pollState.previousCapturedMs = monotonicMilliseconds;
+            pollState.primed = true;
+            progress.result = RadioAniPollResult::Primed;
+            return progress;
+        }
+        if (monotonicMilliseconds <= pollState.previousCapturedMs ||
+            monotonicMilliseconds - pollState.previousCapturedMs > UINT32_MAX)
+        {
+            progress.result = RadioAniPollResult::InvalidWindow;
+            revoke();
+            return progress;
+        }
+        progress.windowResult = deriveAr9565AniErrorWindow(
+            channel, pollState.previous, captured,
+            static_cast<uint32_t>(monotonicMilliseconds -
+                                  pollState.previousCapturedMs),
+            scanning, progress.window);
+        if (progress.windowResult != AniResult::Ok)
+        {
+            progress.result = RadioAniPollResult::InvalidWindow;
+            revoke();
+            return progress;
+        }
+        progress.adaptation = adaptAr9565AniToPhyErrors(
+            channel, allowed, phy, progress.window, aniState);
+        if (progress.adaptation.result != AniResult::Ok)
+        {
+            progress.result = RadioAniPollResult::AdaptationFailed;
+            revoke();
+            return progress;
+        }
+        if (!io.permitWrite(io.context, io.ownerEpoch) ||
+            !mib.permit(mib.context, mib.ownerEpoch))
+        {
+            progress.result = RadioAniPollResult::OwnershipLost;
+            revoke();
+            return progress;
+        }
+        pollState.previous = captured;
+        pollState.previousCapturedMs = monotonicMilliseconds;
+        progress.result = RadioAniPollResult::Adapted;
+        return progress;
+    }
 } // namespace simpleath
