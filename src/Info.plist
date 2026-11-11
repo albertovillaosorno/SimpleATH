@@ -21509,6 +21509,10 @@
 		<string>1.0</string>
 		<key>com.apple.iokit.IO80211Family</key>
 		<string>1200.13.1</string>
+		<key>com.apple.iokit.IONetworkingFamily</key>
+		<string>3.2</string>
+		<key>com.apple.iokit.IOSkywalkFamily</key>
+		<string>1.0</string>
 		<key>com.apple.iokit.IOUSBHostFamily</key>
 		<string>1.0.1</string>
 		<key>com.apple.kpi.iokit</key>

@@ -122,3 +122,40 @@ and three distinct wraparound cases with offline C++14/C++17 host execution.
 This guards bounded source parsing; it does not establish that the private
 Tahoe native class layout, symbol export eligibility or patch offsets match
 25G332, and this P0 TODO remains open.
+
+## November 10 authorized artifact / OpenCore prelink evidence
+
+The owner-provided OpenCore boot log for the previously authorized
+`build-v2026.1110.1754` artifact reports **193 `OCAK: Symbol ... has
+0-value` errors**, followed by an unresolved `target=0x0` RIP-relative
+relocation and `SimpleATH.kext - Invalid Parameter`. The log therefore
+shows failure **before kernel injection**, not a kernel panic or a failed
+runtime radio initialization. Its final overall prelink status does not
+mean that SimpleATH was injected.
+
+Offline inspection of that exact authorized Mach-O (UUID
+`22F77BCB-91F5-3B28-B5EF-31B5F457FC4F`) found 764 undefined nlist
+symbol names; **all 193** OpenCore `0-value` symbol names match those
+imports. They comprise 78 `IONetworkController`, 45 `IOEthernetController`,
+32 `IOSkywalkNetworkInterface`, 23 `IOSkywalkEthernetInterface`, 14
+`IOSkywalkInterface` and one `IOSkywalkPacket` symbols. The built kext's
+`OSBundleLibraries` included `IO80211Family` but omitted both
+`IONetworkingFamily` and `IOSkywalkFamily`, even though its native class
+hierarchy directly imports those provider symbols.
+
+The independently retained **25G332** KDK family plists in
+`docs/evidence/TAHOE-25G332-KDK-SYMBOLS.json` show `IO80211Family`
+requiring `IONetworkingFamily >= 3.0` and `IOSkywalkFamily >= 1.0`,
+while `IOSkywalkFamily` requires `IONetworkingFamily >= 3.2`.
+`src/Info.plist` now declares both **direct** providers, at `3.2` and
+`1.0` respectively. `tests/test_native_bundle_dependencies.py` asserts
+those pinned source contracts: the missing library reproduced a test
+failure before the edit and all three checks pass after it.
+
+This correction addresses a concrete source-level omission, **not proof**
+that the loaded Boot KC exports every imported private superclass method
+or that OpenCore can resolve the relocation. Effective production exports,
+OpenCore's dependency-linker behavior and the actual owner boot remain
+unverified. No new Xcode build, build tag, EFI edit or hardware test was
+performed for this source correction; those require distinct authorization.
+The P0 Tahoe ABI TODO stays open.
