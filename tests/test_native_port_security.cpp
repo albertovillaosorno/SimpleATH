@@ -1,5 +1,8 @@
 // Standalone fail-closed driver-owned WPA2 controlled-port policy fixture.
+#include "wifi/Frames.hpp"
 #include "wifi/NativePortSecurityAdmission.hpp"
+#include "wifi/Station.hpp"
+#include <cstdint>
 
 namespace
 {
@@ -56,42 +59,46 @@ namespace
     {
         using simpleath::ieee80211::NativeM4CompletionEvidence;
         using simpleath::ieee80211::nativeM4TransmitCompleted;
+        constexpr uint64_t kExpectedToken = 7U;
+        constexpr uint64_t kOtherToken = 8U;
+        constexpr uint64_t kActiveEpoch = 12U;
+        constexpr uint64_t kOtherEpoch = 13U;
         NativeM4CompletionEvidence evidence {};
-        evidence.completedToken = 7;
-        evidence.pendingToken = 7;
-        evidence.joinEpoch = 12;
-        evidence.radioEpoch = 12;
-        evidence.hardwareKeyEpoch = 12;
+        evidence.completedToken = kExpectedToken;
+        evidence.pendingToken = kExpectedToken;
+        evidence.joinEpoch = kActiveEpoch;
+        evidence.radioEpoch = kActiveEpoch;
+        evidence.hardwareKeyEpoch = kActiveEpoch;
         evidence.station = StationState::HardwareKeysInstalled;
         evidence.frameTransmitOk = true;
         if (!nativeM4TransmitCompleted(evidence))
         {
             return false;
         }
-        evidence.completedToken = 8;
+        evidence.completedToken = kOtherToken;
         if (nativeM4TransmitCompleted(evidence))
         {
             return false;
         }
-        evidence.completedToken = 7;
+        evidence.completedToken = kExpectedToken;
         evidence.pendingToken = 0;
         if (nativeM4TransmitCompleted(evidence))
         {
             return false;
         }
-        evidence.pendingToken = 7;
-        evidence.joinEpoch = 13;
+        evidence.pendingToken = kExpectedToken;
+        evidence.joinEpoch = kOtherEpoch;
         if (nativeM4TransmitCompleted(evidence))
         {
             return false;
         }
-        evidence.joinEpoch = 12;
-        evidence.hardwareKeyEpoch = 13;
+        evidence.joinEpoch = kActiveEpoch;
+        evidence.hardwareKeyEpoch = kOtherEpoch;
         if (nativeM4TransmitCompleted(evidence))
         {
             return false;
         }
-        evidence.hardwareKeyEpoch = 12;
+        evidence.hardwareKeyEpoch = kActiveEpoch;
         evidence.frameTransmitOk = false;
         if (nativeM4TransmitCompleted(evidence))
         {
