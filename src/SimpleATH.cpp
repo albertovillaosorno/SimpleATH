@@ -141,6 +141,10 @@ namespace
     constexpr unsigned int kCounterPropertyWidthBits = 64;
     constexpr size_t kManagementReplyCapacity = 4096;
     constexpr uint16_t kNativePassiveDwellMs = 120;
+    constexpr uint8_t kNativeQosDataSubtype = 8U;
+    constexpr size_t kNativeQosHeaderBytes = 26U;
+    constexpr size_t kNativeQosControlOffset = 24U;
+    constexpr uint8_t kNativeAmsduPresent = 0x80U;
     constexpr uint32_t kNativeLinkWatchdogMs = 1000U;
     constexpr uint8_t kAwdlSocialChannelSix = 6U;
     constexpr uint8_t kAwdlActionSubtype = 13U;
@@ -1690,6 +1694,40 @@ class SimpleATH final : public IOService
             return nullptr;
         }
 
+        // Only the parsed, bounded CCMP ExtIV may propose a key class.
+        // KeyID 0 in a group frame still means GTK 0, never unicast PTK 0.
+        // This only selects a candidate: MIC/PN are verified separately.
+        simpleath::ieee80211::crypto::CcmpSession *
+        selectNativeReceiveKey(const simpleath::ieee80211::Frame &header,
+                               const uint8_t *frame, size_t mpduBytes)
+        {
+            if (frame == nullptr || header.headerLength > mpduBytes ||
+                mpduBytes - header.headerLength <
+                    kCcmpExtIvBytes + kCcmpMicBytes + 1U)
+            {
+                return nullptr;
+            }
+            // Header, ExtIV and MIC spans have been bounded by the caller.
+            const auto wireKeyByte =
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
+                frame[header.headerLength + kCcmpKeyIdOffset];
+            const auto keyId =
+                static_cast<uint8_t>(wireKeyByte >> kCcmpKeyIdShift);
+            const bool group = (header.destination.bytes[0] & 1U) != 0U;
+            const auto keyClass =
+                simpleath::ieee80211::crypto::classifyCcmpReceiveKey(group,
+                                                                     keyId);
+            if (keyClass ==
+                simpleath::ieee80211::crypto::CcmpReceiveKeyClass::Group)
+            {
+                return nativeGroupSlot(keyId);
+            }
+            return keyClass == simpleath::ieee80211::crypto::
+                                   CcmpReceiveKeyClass::Pairwise
+                       ? &nativePairwiseRx_
+                       : nullptr;
+        }
+
         bool nativeGroupInstalled() const
         {
             // Kernel SDK does not expose compatible std::algorithm headers.
@@ -2285,9 +2323,9 @@ class SimpleATH final : public IOService
             }
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             const auto link = self.engine_.linkStatus();
+            auto *groupRx = self.nativeGroupSlot(keyId);
             if (link.state != simpleath::ieee80211::LinkState::Associated ||
-                self.engine_.osSupplicantOwnsWpa2() ||
-                keyId >= simpleath::kCcmpGroupSlots ||
+                self.engine_.osSupplicantOwnsWpa2() || groupRx == nullptr ||
                 !nativeKeyInstallPermit(context))
             {
                 return false;
@@ -2300,9 +2338,8 @@ class SimpleATH final : public IOService
             self.nativeProtectedFragments_.clear();
             const auto mirrored =
                 result.result == simpleath::KeyCacheResult::Ok
-                    // keyId was proven < kCcmpGroupSlots above.
-                    // NOLINTNEXTLINE(*bounds-constant-array-index)
-                    ? self.nativeGroupRx_[keyId].install(
+                    // groupRx is the bounded, epoch-local mirrored GTK.
+                    ? groupRx->install(
                           key, &link.bssid.bytes[0], keyId, self.epoch_, 0,
                           // NOLINTNEXTLINE(*bounds-constant-array-index)
                           self.keyCache_.group[keyId].receiveFloor)
@@ -2310,9 +2347,8 @@ class SimpleATH final : public IOService
             if (result.result != simpleath::KeyCacheResult::Ok ||
                 mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
-                // NOLINTNEXTLINE(*bounds-constant-array-index)
                 self.nativeProtectedFragments_.clear();
-                self.nativeGroupRx_[keyId].revoke();
+                groupRx->revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
                 // reset, even if the portable supplicant resets its state.
@@ -2672,14 +2708,15 @@ class SimpleATH final : public IOService
         // borrows decrypted scratch only until this RX callback returns.
         void receiveNativeProtectedAmsdu(
             const simpleath::ieee80211::LinkContext &connection,
-            const uint8_t *frame, size_t bytes, size_t mpduBytes,
+            const uint8_t *frame, size_t bytes,
             simpleath::ieee80211::crypto::CcmpSession &receive)
         {
             if (!controlledPortAuthorized_ || !associatedBeaconObserved_ ||
-                joinEpoch_ != epoch_)
+                joinEpoch_ != epoch_ || bytes <= kFcsBytes)
             {
                 return;
             }
+            const size_t mpduBytes = bytes - kFcsBytes;
             simpleath::ieee80211::AmsduPayload decoded {};
             const auto result =
                 simpleath::ieee80211::inspectProtectedStationAmsduRx(
@@ -2697,7 +2734,8 @@ class SimpleATH final : public IOService
             const size_t plainBytes =
                 mpduBytes - kCcmpExtIvBytes - kCcmpMicBytes;
             const simpleath::ieee80211::InputTrust trust {
-                true, channelAuthorized_, true, true, false};
+                true, channelAuthorized_, true, true, false,
+            };
             simpleath::ieee80211::AmsduPayload accepted {};
             const auto admitted = engine_.acceptVerifiedProtectedAmsduRx(
                 &protectedRxScratch_[0], plainBytes, trust, accepted);
@@ -2705,13 +2743,49 @@ class SimpleATH final : public IOService
                         static_cast<uint32_t>(admitted), kRfPropertyWidthBits);
             if (admitted == simpleath::ieee80211::EngineResult::Ok)
             {
-                for (size_t i = 0; i < accepted.count; ++i)
+                size_t delivered = 0;
+                for (const auto &subframe : accepted.subframes)
                 {
-                    deliverNativeMsdu(accepted.subframes[i], false);
+                    if (delivered++ == accepted.count)
+                    {
+                        break;
+                    }
+                    deliverNativeMsdu(subframe, false);
                 }
                 ++receivedFrames_;
                 setProperty("SimpleATHReceivedFrames", receivedFrames_,
                             kCounterPropertyWidthBits);
+            }
+        }
+
+        void publishNativeProtectedMsdu(const uint8_t *frame, size_t mpduBytes,
+                                        bool driverOwned,
+                                        const simpleath::ieee80211::Msdu &msdu)
+        {
+            // CCMP MIC/PN and complete fragment station admission precede
+            // this call. Ordinary data consumes the shared QoS/legacy
+            // sequence window; EAPOL Group1 retains its separate replay/MIC
+            // rules and must not be dropped as an ordinary duplicate.
+            const simpleath::ieee80211::InputTrust trust {
+                true, channelAuthorized_, true, true, false,
+            };
+            const auto admitted = msdu.etherType == kEtherTypeEapol
+                                      ? simpleath::ieee80211::EngineResult::Ok
+                                      : engine_.acceptVerifiedProtectedDataRx(
+                                            frame, mpduBytes, trust, msdu);
+            if (admitted != simpleath::ieee80211::EngineResult::Ok)
+            {
+                return;
+            }
+            if (driverOwned)
+            {
+                receiveNativeDriverMsdu(msdu);
+            }
+            else
+            {
+                // OS-owned protected EAPOL may reach its single supplicant
+                // before the OS opens the controlled data port.
+                deliverNativeMsdu(msdu, true);
             }
         }
 
@@ -2754,42 +2828,12 @@ class SimpleATH final : public IOService
             {
                 return;
             }
-            // A group MPDU may only select a currently installed GTK slot;
-            // unicast must always use the pairwise key 0. The portable CCMP
-            // bridge independently verifies the authenticated key ID.
-            // Bound is checked above against complete ExtIV/MIC spans.
-            // NOLINTBEGIN(*bounds-pointer-arithmetic)
-            const auto wireKeyByte =
-                frame[header.headerLength + kCcmpKeyIdOffset];
-            // NOLINTEND(*bounds-pointer-arithmetic)
-            const auto keyId =
-                static_cast<uint8_t>(wireKeyByte >> kCcmpKeyIdShift);
-            const bool group = (header.destination.bytes[0] & 1U) != 0U;
-            const auto keyClass =
-                simpleath::ieee80211::crypto::classifyCcmpReceiveKey(group,
-                                                                     keyId);
-            if (keyClass ==
-                simpleath::ieee80211::crypto::CcmpReceiveKeyClass::Invalid)
+            // Untrusted KeyID selects a candidate GTK/PTK only. The CCMP
+            // owner must still authenticate the MIC and replay PN.
+            auto *receive = selectNativeReceiveKey(header, frame, mpduBytes);
+            if (receive == nullptr)
             {
                 return;
-            }
-            // GTK index zero is legal and distinct from the PTK at index
-            // zero. A group destination MUST select its GTK slot, even if
-            // the unicast PTK uses the same two-bit on-air index.
-            auto *receive = &nativePairwiseRx_;
-            if (keyClass ==
-                simpleath::ieee80211::crypto::CcmpReceiveKeyClass::Group)
-            {
-                size_t currentId = 0;
-                for (auto &slot : nativeGroupRx_)
-                {
-                    if (currentId == keyId)
-                    {
-                        receive = &slot;
-                        break;
-                    }
-                    ++currentId;
-                }
             }
             const simpleath::ieee80211::LinkContext connection {
                 link.station,
@@ -2811,18 +2855,20 @@ class SimpleATH final : public IOService
             // CCMP SPP A-MSDU AAD and MIC must authenticate it before use.
             // Fragmented aggregates are not admitted by this RX contract.
             uint8_t qosControl = 0U;
-            if (header.subtype == 8U && header.headerLength == 26U)
+            if (header.subtype == kNativeQosDataSubtype &&
+                header.headerLength == kNativeQosHeaderBytes)
             {
-                // parseFrame already validated these two QoS octets.
-                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
-                __builtin_memcpy(&qosControl, frame + 24U, sizeof(qosControl));
+                // A parsed QoS MPDU includes this complete fixed header.
+                uint8_t qosHeader[kNativeQosHeaderBytes] {};
+                __builtin_memcpy(&qosHeader[0], frame, sizeof(qosHeader));
+                qosControl = qosHeader[kNativeQosControlOffset];
             }
-            if ((qosControl & 0x80U) != 0U)
+            if ((qosControl & kNativeAmsduPresent) != 0U)
             {
                 if (!fragmented)
                 {
                     receiveNativeProtectedAmsdu(connection, frame, bytes,
-                                                mpduBytes, *receive);
+                                                *receive);
                 }
             }
             else
@@ -2845,32 +2891,8 @@ class SimpleATH final : public IOService
                             kRfPropertyWidthBits);
                 if (result == simpleath::ieee80211::DataPathResult::Ok)
                 {
-                    // CCMP MIC/PN and complete fragment station admission
-                    // preceded this call. Ordinary Ethernet also consumes
-                    // the selected association's shared QoS/legacy sequence
-                    // window, just like open data and protected A-MSDUs.
-                    // EAPOL Group1 must retain its independent replay/MIC
-                    // rules and cannot be dropped by a data sequence gate.
-                    const simpleath::ieee80211::InputTrust trust {
-                        true, channelAuthorized_, true, true, false};
-                    const auto admitted =
-                        msdu.etherType == kEtherTypeEapol
-                            ? simpleath::ieee80211::EngineResult::Ok
-                            : engine_.acceptVerifiedProtectedDataRx(
-                                  frame, mpduBytes, trust, msdu);
-                    if (admitted == simpleath::ieee80211::EngineResult::Ok)
-                    {
-                        if (driverOwned)
-                        {
-                            receiveNativeDriverMsdu(msdu);
-                        }
-                        else
-                        {
-                            // OS-owned protected EAPOL may reach its single
-                            // supplicant before the OS opens the port.
-                            deliverNativeMsdu(msdu, true);
-                        }
-                    }
+                    publishNativeProtectedMsdu(frame, mpduBytes, driverOwned,
+                                               msdu);
                 }
             }
             // Scrub even malformed/authentication-failed partial plaintext.
@@ -3081,15 +3103,17 @@ class SimpleATH final : public IOService
                                                  header) !=
                     simpleath::ieee80211::Result::Ok ||
                 header.type != simpleath::ieee80211::FrameType::Data ||
-                header.subtype != 8U || header.headerLength < 26U)
+                header.subtype != kNativeQosDataSubtype ||
+                header.headerLength < kNativeQosHeaderBytes)
             {
                 return false;
             }
             // This has been bounds-checked by parseFrame. Copy instead of
             // borrowing a byte beyond the lifetime of the RX DMA callback.
-            uint8_t qosControl = 0U;
-            __builtin_memcpy(&qosControl, frame + 24U, sizeof(qosControl));
-            if ((qosControl & 0x80U) == 0U)
+            uint8_t qosHeader[kNativeQosHeaderBytes] {};
+            __builtin_memcpy(&qosHeader[0], frame, sizeof(qosHeader));
+            const uint8_t qosControl = qosHeader[kNativeQosControlOffset];
+            if ((qosControl & kNativeAmsduPresent) == 0U)
             {
                 return false;
             }
@@ -3125,9 +3149,14 @@ class SimpleATH final : public IOService
                 // One DMA MPDU, one sequence acceptance; each authorized
                 // Ethernet-II subframe is independently copied into the
                 // native controller's fixed receive mailbox.
-                for (size_t i = 0; i < aggregate.count; ++i)
+                size_t delivered = 0;
+                for (const auto &subframe : aggregate.subframes)
                 {
-                    deliverNativeMsdu(aggregate.subframes[i], false);
+                    if (delivered++ == aggregate.count)
+                    {
+                        break;
+                    }
+                    deliverNativeMsdu(subframe, false);
                 }
                 ++receivedFrames_;
                 setProperty("SimpleATHReceivedFrames", receivedFrames_,
