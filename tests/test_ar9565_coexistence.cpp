@@ -14,13 +14,22 @@ namespace
     constexpr uint32_t kBar = 0x24000;
     constexpr uint32_t kSeed = 0xffffffffU;
     constexpr size_t kSteps = 10;
-    constexpr size_t kTotalRegisters = 20;
+    constexpr size_t kTotalRegisters = 26;
     constexpr size_t kSharedMciStageSteps = 8;
     constexpr size_t kSharedAntennaStageSteps = 8;
     constexpr uint32_t kMciScheduleAddress = 0x1818;
     constexpr uint32_t kMciGpmAddress = 0x1820;
     constexpr uint32_t kMciGpmEntries = 0x1824;
+    constexpr uint32_t kMciCommand0 = 0x1800;
     constexpr uint32_t kMciCommand2 = 0x1808;
+    constexpr uint32_t kMciReceiveStatus = 0x1844;
+    constexpr uint32_t kMciTxPayload0 = 0x1898;
+    constexpr uint32_t kMciGpmQueryCommand = 0x1080;
+    constexpr uint32_t kMciCommandDone = 0x1U;
+    constexpr uint32_t kMciCommandFailed = 0x80U;
+    constexpr uint32_t kMciBtAsleep = 0x1000U;
+    constexpr uint32_t kMciStatusPayload = 0x0003020cU;
+    constexpr uint32_t kMciVersionPayload = 0x0cU;
     constexpr uint32_t kMciInterruptRaw = 0x1828;
     constexpr uint32_t kMciReceiveMessageRaw = 0x1838;
     constexpr uint32_t kMciGpmReceived = 0x00000100U;
@@ -74,6 +83,7 @@ namespace
     constexpr int kFailedAntenna = 7;
     constexpr int kFailedMciReset = 8;
     constexpr int kFailedMciInterrupt = 9;
+    constexpr int kFailedMciTransmit = 10;
 
     struct Register
     {
@@ -105,12 +115,21 @@ namespace
                     {kMciCommand2, 0U},
                     {kMciInterruptRaw, 0U},
                     {kMciReceiveMessageRaw, 0U},
+                    {kMciCommand0, 0U},
+                    {kMciReceiveStatus, 0U},
+                    {kMciTxPayload0, 0U},
+                    {kMciTxPayload0 + 4U, 0U},
+                    {kMciTxPayload0 + 8U, 0U},
+                    {kMciTxPayload0 + 12U, 0U},
                 },
             };
             std::array<uint32_t, kTotalRegisters> writeOrder {};
             std::array<uint32_t, kTotalRegisters> writeValues {};
             size_t delays {};
             bool invalidateGpmAfterReset {};
+            bool finishMciCommand {true};
+            bool failMciCommand {};
+            bool bluetoothSleepsAfterCommand {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -186,6 +205,18 @@ namespace
             else
             {
                 reg->bits = bits;
+            }
+        }
+        if (address == kMciCommand0 && bits == kMciGpmQueryCommand)
+        {
+            if (mock.finishMciCommand)
+            {
+                find(mock, kMciInterruptRaw)->bits |=
+                    mock.failMciCommand ? kMciCommandFailed : kMciCommandDone;
+            }
+            if (mock.bluetoothSleepsAfterCommand)
+            {
+                find(mock, kMciReceiveStatus)->bits |= kMciBtAsleep;
             }
         }
         if (mock.invalidateGpmAfterReset && address == kMciCommand2 &&
@@ -725,6 +756,221 @@ namespace
         return true;
     }
 
+    bool sharedMciTransmitTests()
+    {
+        const auto physicalBoard = board();
+        const auto evidence = sharedAuthorized();
+        const auto dma = sharedBuffers();
+        const SharedMciAntennaSelection topology {
+            SharedMciAntennaTopology::OneSharedPaAndLna,
+            true,
+        };
+        const SharedMciResetEvidence resetLease {true, true};
+        const MciCoexTransmitEvidence transmitLease {true, true, true};
+        const auto prepare = [&](Mock &mock, MciGpmCursor &cursor)
+        {
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, dma, io(mock))
+                        .result != CoexistenceResult::Ok ||
+                stageAr9565SharedMciAntenna(physicalBoard, evidence, dma,
+                                            topology, io(mock))
+                        .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            find(mock, kMciGpmEntries)->bits =
+                (kFinalWritePointer << 16U) | kAr9565MciGpmEntries;
+            if (resetAr9565SharedMciRxTx(physicalBoard, evidence, dma, topology,
+                                         resetLease, io(mock), cursor)
+                    .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = mock.reads = mock.permits = mock.delays = 0U;
+            return true;
+        };
+        for (const auto query :
+             {MciCoexQuery::Version, MciCoexQuery::BluetoothStatus})
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            // An unrelated GPM receive notification must NOT be cleared by
+            // TX W1C. A stale command completion must be acknowledged first.
+            find(mock, kMciInterruptRaw)->bits =
+                kMciCommandDone | kMciRxMessageInterrupt;
+            const auto result =
+                sendAr9565MciCoexQuery(physicalBoard, evidence, dma, cursor,
+                                       transmitLease, query, io(mock));
+            if (result.result != CoexistenceResult::Ok ||
+                result.requiresReset || result.completedWrites != 7U ||
+                mock.writes != 7U ||
+                mock.writeOrder.at(0U) != kMciInterruptRaw ||
+                mock.writeOrder.at(1U) != kMciTxPayload0 ||
+                mock.writeOrder.at(2U) != kMciTxPayload0 + 4U ||
+                mock.writeOrder.at(3U) != kMciTxPayload0 + 8U ||
+                mock.writeOrder.at(4U) != kMciTxPayload0 + 12U ||
+                mock.writeOrder.at(5U) != kMciCommand0 ||
+                mock.writeOrder.at(6U) != kMciInterruptRaw ||
+                find(mock, kMciCommand0)->bits != kMciGpmQueryCommand ||
+                find(mock, kMciTxPayload0 + 4U)->bits !=
+                    (query == MciCoexQuery::Version ? kMciVersionPayload
+                                                    : kMciStatusPayload) ||
+                find(mock, kMciTxPayload0)->bits != 0U ||
+                find(mock, kMciTxPayload0 + 8U)->bits != 0U ||
+                find(mock, kMciTxPayload0 + 12U)->bits != 0U ||
+                find(mock, kMciInterruptRaw)->bits != kMciRxMessageInterrupt ||
+                !cursor.attached || cursor.ownerEpoch != kEpoch)
+            {
+                return false;
+            }
+        }
+        // All preflight failures must prevent any command MMIO.
+        for (size_t scenario = 0U; scenario < 11U; ++scenario)
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            auto lease = transmitLease;
+            auto current = cursor;
+            auto configuredIo = io(mock);
+            auto bus = dma;
+            auto claims = evidence;
+            auto chosen = MciCoexQuery::Version;
+            if (scenario == 0U)
+            {
+                lease.bluetoothAwakeFromHost = false;
+            }
+            else if (scenario == 1U)
+            {
+                lease.exclusiveMciCommandLease = false;
+            }
+            else if (scenario == 2U)
+            {
+                lease.noOutstandingMciCommands = false;
+            }
+            else if (scenario == 3U)
+            {
+                current.ownerEpoch++;
+            }
+            else if (scenario == 4U)
+            {
+                bus.gpmBusAddress++;
+            }
+            else if (scenario == 5U)
+            {
+                configuredIo.io.barLengthBytes = kMciTxPayload0;
+            }
+            else if (scenario == 6U)
+            {
+                find(mock, kMciReceiveStatus)->bits = kMciBtAsleep;
+            }
+            else if (scenario == 7U)
+            {
+                find(mock, kMciInterrupt)->bits = 1U;
+            }
+            else if (scenario == 8U)
+            {
+                claims.bluetoothHostOwned = false;
+            }
+            else
+            {
+                chosen = static_cast<MciCoexQuery>(0xffU);
+            }
+            const auto result =
+                sendAr9565MciCoexQuery(physicalBoard, claims, bus, current,
+                                       lease, chosen, configuredIo);
+            const auto expected =
+                scenario < 4U || scenario == 6U || scenario == 8U
+                    ? CoexistenceResult::MissingIsolation
+                : scenario == 4U ? CoexistenceResult::InvalidDma
+                : scenario == 5U ? CoexistenceResult::InvalidBar
+                : scenario == 7U ? CoexistenceResult::ReadbackMismatch
+                                 : CoexistenceResult::InvalidGpm;
+            if (result.result != expected || result.requiresReset ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+        }
+        for (size_t scenario = 0U; scenario < 9U; ++scenario)
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            if (scenario == 0U)
+            {
+                mock.finishMciCommand = false;
+            }
+            else if (scenario == 1U)
+            {
+                mock.failMciCommand = true;
+            }
+            else if (scenario == 2U)
+            {
+                mock.failWrite = 2U;
+            }
+            else if (scenario == 3U)
+            {
+                mock.revokeAfter = 2U;
+            }
+            else if (scenario == 4U)
+            {
+                mock.bluetoothSleepsAfterCommand = true;
+            }
+            else if (scenario == 5U)
+            {
+                // W1C for SW_MSG_DONE is accepted but hardware never clears.
+                mock.skipWrite = 6U;
+            }
+            else if (scenario == 6U)
+            {
+                mock.failRead = 11U;
+            }
+            else if (scenario == 7U)
+            {
+                // A stale command completion must be acknowledged before
+                // writing payload, and a failed acknowledge cannot proceed.
+                find(mock, kMciInterruptRaw)->bits = kMciCommandDone;
+                mock.skipWrite = 1U;
+            }
+            else
+            {
+                // Refuse TX if the posted nonzero GPM type/opcode word did
+                // not really reach hardware; never issue COMMAND0.
+                mock.skipWrite = 2U;
+            }
+            const auto result = sendAr9565MciCoexQuery(
+                physicalBoard, evidence, dma, cursor, transmitLease,
+                MciCoexQuery::BluetoothStatus, io(mock));
+            const auto expected =
+                scenario == 0U   ? CoexistenceResult::TimedOut
+                : scenario == 1U ? CoexistenceResult::MessageRejected
+                : scenario == 2U ? CoexistenceResult::WriteFailed
+                : scenario == 3U ? CoexistenceResult::OwnershipLost
+                : scenario == 4U ? CoexistenceResult::MissingIsolation
+                : scenario == 5U ? CoexistenceResult::ReadbackMismatch
+                : scenario == 6U ? CoexistenceResult::ReadFailed
+                                 : CoexistenceResult::ReadbackMismatch;
+            if (result.result != expected || !result.requiresReset ||
+                (scenario == 7U && mock.writes != 1U) ||
+                (scenario == 0U && mock.delays != 500U) ||
+                (scenario == 8U && find(mock, kMciCommand0)->bits != 0U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool sharedMciInterruptTests()
     {
         const auto physicalBoard = board();
@@ -1089,6 +1335,10 @@ int main()
     if (!sharedMciResetTests())
     {
         return kFailedMciReset;
+    }
+    if (!sharedMciTransmitTests())
+    {
+        return kFailedMciTransmit;
     }
     if (!sharedMciInterruptTests())
     {

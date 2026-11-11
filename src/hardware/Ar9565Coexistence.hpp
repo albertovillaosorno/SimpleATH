@@ -61,6 +61,8 @@ namespace simpleath
         ReadbackMismatch,
         InvalidDma,
         InvalidGpm,
+        MessageRejected,
+        TimedOut,
     };
 
     struct CoexistenceProgress
@@ -171,6 +173,35 @@ namespace simpleath
                              const SharedMciAntennaSelection &antenna,
                              const SharedMciResetEvidence &resetEvidence,
                              const RxAgcBackend &backend, MciGpmCursor &cursor);
+
+    enum class MciCoexQuery : uint8_t
+    {
+        Version,
+        BluetoothStatus,
+    };
+
+    struct MciCoexTransmitEvidence
+    {
+            // Supplied by the single native Bluetooth/MCI owner, not a
+            // firmware VID/PID match, EEPROM field or an assumed BT state.
+            bool bluetoothAwakeFromHost {};
+            bool exclusiveMciCommandLease {};
+            bool noOutstandingMciCommands {};
+    };
+
+    // Send an actual MCI_GPM coexistence-version or BT-status query using
+    // AR_MCI_TX_PAYLOAD0..3 and COMMAND0, then poll SW_MSG_DONE while IRQs
+    // remain masked. The caller must have physically staged and reset MCI,
+    // attached the epoch's ring cursor and independently leased awake BT.
+    // This never grants antenna/RF readiness or interprets the response.
+    // The native owner must eventually consume the matching GPM response.
+    // Ambiguous writes, timeout or failed status acknowledgement require
+    // a full owner reset before another MCI command.
+    CoexistenceProgress sendAr9565MciCoexQuery(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers, const MciGpmCursor &cursor,
+        const MciCoexTransmitEvidence &transmit, MciCoexQuery query,
+        const RxAgcBackend &backend);
 
     struct MciPendingInterrupts
     {

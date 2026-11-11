@@ -277,3 +277,25 @@ queue start and interrupt-time RF-kill revocation once RF evidence exists.
 These do not establish the missing proofs, do not make scan operational, and
 must not be bypassed by setting readiness flags optimistically. No change to
 owner-controlled safe boot, USB/EFI installation or hardware testing.
+
+## Source-only MCI coexistence query transmitter
+
+`Ar9565Coexistence.cpp` now also has a bounded, owner-epoch MCI GPM
+**version-query and Bluetooth status/topology-query transmitter** using the
+exact pinned Linux ath9k `ar9003_mci_send_message` COMMAND0/TX_PAYLOAD
+register sequence. It requires independently verified restored single-chain
+board and coherent DMA/antenna/MCI-reset evidence, a same-epoch attached GPM
+cursor, a genuine awake Bluetooth host/command lease and MAC auto-responses
+quiesced. Its live MMIO preflight rechecks the rings, MCI enabled state,
+masked interrupts and the hardware remote-sleep bit. A raw W1C command
+completion/failed-send is explicitly acknowledged without erasing unrelated
+GPM receive notifications. A 500-us maximum poll and any ambiguous hardware
+write/readback/owner loss retain the full-reset requirement. C++14 and C++17
+ASan/UBSan fixtures cover both request encodings, stale W1C, timeout,
+controller rejection, remote sleep, failures and revoked epochs; direct
+Clang-Tidy passes. The native PCI or USB Bluetooth owner does **not invoke**
+this primitive, and the GPM response remains unconsumed/unverified. It
+does **not** establish Bluetooth negotiation, physical coexistence, active
+RF, Wi-Fi, scanning or AirDrop readiness. The RF/PHY/regulatory TODO remains
+open until native board/clock/regulatory proof and complete RF + BT leases
+are actually implemented.

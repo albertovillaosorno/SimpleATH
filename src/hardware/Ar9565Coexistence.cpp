@@ -51,6 +51,23 @@ namespace simpleath
         constexpr uint32_t kMciCommand2 = 0x1808;
         constexpr uint32_t kMciInterruptRaw = 0x1828;
         constexpr uint32_t kMciReceiveMessageRaw = 0x1838;
+        constexpr uint32_t kMciCommand0 = 0x1800U;
+        constexpr uint32_t kMciTxPayload0 = 0x1898U;
+        constexpr uint32_t kMciReceiveStatus = 0x1844U;
+        constexpr uint32_t kMciRemoteSleep = 0x00001000U;
+        constexpr uint32_t kMciSent = 0x00000001U;
+        constexpr uint32_t kMciMessageFailure = 0x000001b0U;
+        constexpr uint32_t kMciTransmitStatusMask =
+            kMciSent | kMciMessageFailure;
+        constexpr uint32_t kMciGpmCommand = 0x00001080U;
+        constexpr uint32_t kMciCoexAgent = 0x0cU;
+        constexpr uint32_t kMciStatusQueryOpcode = 2U;
+        constexpr uint32_t kMciBluetoothInformationMask = 3U;
+        constexpr uint32_t kMciStatusQueryShift = 16U;
+        constexpr uint32_t kMciOpcodeShift = 8U;
+        constexpr uint32_t kMciTransmitPollMicros = 500U;
+        constexpr uint32_t kMciPayloadWordBytes = 4U;
+        constexpr uint32_t kMciTransmitPointerShift = 16U;
         constexpr uint32_t kMciInterruptRxMessage = 0x00000200U;
         constexpr uint32_t kMciReceiveGpmMessage = 0x00000100U;
         constexpr uint32_t kMciReceiveRemoteReset = 0x00000001U;
@@ -301,6 +318,143 @@ namespace simpleath
             }
             return true;
         }
+
+        bool validMciTransmitLease(const SharedMciEvidence &evidence,
+                                   const MciGpmCursor &cursor,
+                                   const MciCoexTransmitEvidence &transmit,
+                                   uint64_t epoch)
+        {
+            return evidence.physicallyVerifiedBoard &&
+                   evidence.bluetoothHostOwned &&
+                   evidence.coexistenceAndAntennaLease &&
+                   evidence.macAndAutoResponsesQuiesced &&
+                   evidence.initializedCoherentDma &&
+                   transmit.bluetoothAwakeFromHost &&
+                   transmit.exclusiveMciCommandLease &&
+                   transmit.noOutstandingMciCommands && cursor.attached &&
+                   cursor.ownerEpoch == epoch &&
+                   cursor.nextIndex < kAr9565MciGpmEntries;
+        }
+
+        bool writeMciCoexCommand(const RxAgcBackend &stable,
+                                 CoexistenceProgress &progress,
+                                 MciCoexQuery query)
+        {
+            const RfIniBackend &io = stable.io;
+            // Linux ath9k ar9003_mci_send_message: four little-endian GPM
+            // payload words, followed by AR_MCI_COMMAND0 (header 0x80, len 16).
+            // Version query opcode 0, status query opcode 2. Its bitmap asks
+            // Bluetooth for ALL_INFO and physical antenna topology, not a
+            // locally invented response or readiness grant.
+            const uint32_t word =
+                kMciCoexAgent |
+                ((query == MciCoexQuery::BluetoothStatus ? kMciStatusQueryOpcode
+                                                         : 0U)
+                 << kMciOpcodeShift) |
+                ((query == MciCoexQuery::BluetoothStatus
+                      ? kMciBluetoothInformationMask
+                      : 0U)
+                 << kMciStatusQueryShift);
+            for (uint32_t index = 0U; index < 4U; ++index)
+            {
+                progress.lastOffset =
+                    kMciTxPayload0 + (index * kMciPayloadWordBytes);
+                if (!permit(io, progress))
+                {
+                    return false;
+                }
+                progress.requiresReset = true;
+                if (!io.write32(io.context, progress.lastOffset,
+                                index == 1U ? word : 0U))
+                {
+                    progress.result = CoexistenceResult::WriteFailed;
+                    return false;
+                }
+                ++progress.completedWrites;
+                // The command register must never latch a partial/stale
+                // payload. Drain each posted TX word and verify it before
+                // allowing the MCI engine to transmit.
+                if (!permit(io, progress))
+                {
+                    return false;
+                }
+                uint32_t observed = 0U;
+                if (!stable.read32(io.context, progress.lastOffset, &observed))
+                {
+                    progress.result = CoexistenceResult::ReadFailed;
+                    return false;
+                }
+                ++progress.completedReads;
+                if (observed != (index == 1U ? word : 0U))
+                {
+                    progress.result = CoexistenceResult::ReadbackMismatch;
+                    return false;
+                }
+            }
+            progress.lastOffset = kMciCommand0;
+            if (!permit(io, progress))
+            {
+                return false;
+            }
+            if (!io.write32(io.context, kMciCommand0, kMciGpmCommand))
+            {
+                progress.result = CoexistenceResult::WriteFailed;
+                return false;
+            }
+            ++progress.completedWrites;
+            return true;
+        }
+
+        bool waitMciCoexCommand(const RxAgcBackend &stable,
+                                CoexistenceProgress &progress)
+        {
+            const RfIniBackend &io = stable.io;
+            uint32_t raw = 0U;
+            uint32_t receiveStatus = 0U;
+            for (uint32_t index = 0U; index < kMciTransmitPollMicros; ++index)
+            {
+                if (!readMciPendingRaw(stable, progress, kMciInterruptRaw, raw))
+                {
+                    return false;
+                }
+                const uint32_t commandStatus = raw & kMciTransmitStatusMask;
+                if (commandStatus != 0U)
+                {
+                    if (!acknowledgeMciPendingRaw(
+                            stable, progress, kMciInterruptRaw, commandStatus))
+                    {
+                        return false;
+                    }
+                    if ((commandStatus & kMciMessageFailure) != 0U)
+                    {
+                        progress.result = CoexistenceResult::MessageRejected;
+                        return false;
+                    }
+                    if (!readMciPendingRaw(stable, progress, kMciReceiveStatus,
+                                           receiveStatus))
+                    {
+                        return false;
+                    }
+                    if ((receiveStatus & kMciRemoteSleep) != 0U ||
+                        !permit(io, progress))
+                    {
+                        progress.result = CoexistenceResult::MissingIsolation;
+                        return false;
+                    }
+                    progress.result = CoexistenceResult::Ok;
+                    progress.requiresReset = false;
+                    return true;
+                }
+                if (!permit(io, progress))
+                {
+                    return false;
+                }
+                io.delayMicros(io.context, 1U);
+            }
+            progress.result = CoexistenceResult::TimedOut;
+            return false;
+        }
+
     } // namespace
 
     CoexistenceProgress stageAr9565SharedMciDma(
@@ -631,6 +785,111 @@ namespace simpleath
         cursor = fresh;
         progress.result = CoexistenceResult::Ok;
         progress.requiresReset = false;
+        return progress;
+    }
+
+    CoexistenceProgress sendAr9565MciCoexQuery(
+        const BoardDataSummary &board, const SharedMciEvidence &evidence,
+        const SharedMciDmaBuffers &buffers, const MciGpmCursor &cursor,
+        const MciCoexTransmitEvidence &transmit, MciCoexQuery query,
+        const RxAgcBackend &backend)
+    {
+        CoexistenceProgress progress {
+            CoexistenceResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0U ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            io.delayMicros == nullptr || stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBoard;
+        if (board.eepromVersion != 2 || board.txChainMask != kSingleChain ||
+            board.rxChainMask != kSingleChain ||
+            !board.calibrationPierBinsPlausible)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::MissingIsolation;
+        if (!validMciTransmitLease(evidence, cursor, transmit, io.ownerEpoch))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidGpm;
+        if (query != MciCoexQuery::Version &&
+            query != MciCoexQuery::BluetoothStatus)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidDma;
+        if (!validSharedDma(buffers))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBar;
+        if (io.barLengthBytes < kSelfGeneratedMask + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        const RegisterOperation expected[] {
+            {kSelfGeneratedMask, 0xffffffffU, 0U},
+            {kMciInterruptEnable, 0xffffffffU, 0U},
+            {kMciReceiveMessageEnable, 0xffffffffU, 0U},
+            {kMciRemoteCpuInterruptEnable, 0xffffffffU, 0U},
+            {kBtCoexistenceControl, kMciModeEnable, kMciModeEnable},
+            {kMciGpmAddress, 0xffffffffU, buffers.gpmBusAddress},
+            {kMciGpmEntries, kMciGpmConfiguredLengthMask, buffers.gpmEntries},
+            {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
+        };
+        progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &check : expected)
+        {
+            if (!observe(stable, progress, check))
+            {
+                return progress;
+            }
+        }
+        uint32_t receiveStatus = 0U;
+        if (!readMciPendingRaw(stable, progress, kMciReceiveStatus,
+                               receiveStatus))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::MissingIsolation;
+        if ((receiveStatus & kMciRemoteSleep) != 0U)
+        {
+            return progress;
+        }
+        uint32_t currentGpm = 0U;
+        if (!readMciPendingRaw(stable, progress, kMciGpmEntries, currentGpm))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidGpm;
+        if ((currentGpm & kMciGpmConfiguredLengthMask) != buffers.gpmEntries ||
+            (currentGpm >> kMciTransmitPointerShift) >= buffers.gpmEntries)
+        {
+            return progress;
+        }
+        uint32_t raw = 0U;
+        if (!readMciPendingRaw(stable, progress, kMciInterruptRaw, raw))
+        {
+            return progress;
+        }
+        // Clear ONLY old command completion/failure W1C bits. Any other
+        // interrupt remains pending for the independent RX/MCI consumer.
+        if (!acknowledgeMciPendingRaw(stable, progress, kMciInterruptRaw,
+                                      raw & kMciTransmitStatusMask))
+        {
+            return progress;
+        }
+        if (!writeMciCoexCommand(stable, progress, query) ||
+            !waitMciCoexCommand(stable, progress))
+        {
+            return progress;
+        }
         return progress;
     }
 
