@@ -227,6 +227,17 @@ namespace simpleath
                                       uint8_t *out, size_t capacity,
                                       EngineAction &action);
 
+                // One complete OPEN A-MSDU RX, including the exact QoS TID
+                // sequence/retry window shared with ordinary station frames.
+                // A replay/duplicate yields NoAction and clears all borrowed
+                // subframe views. This never opens a port or bypasses physical
+                // DMA/FCS/channel authorization. WPA2 requires a separate,
+                // genuinely negotiated SPP+CCMP receive owner.
+                EngineResult acceptOpenAmsduRx(const uint8_t *frame,
+                                               size_t length,
+                                               const InputTrust &trust,
+                                               AmsduPayload &out);
+
                 // Driver-owned WPA2 only: authenticate a protected AP
                 // Group1 using the live pairwise RX CCMP session, update the
                 // GTK via the supplicant, then protect its Group2 response

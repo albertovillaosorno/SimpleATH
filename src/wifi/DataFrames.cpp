@@ -202,6 +202,136 @@ namespace simpleath
             return Result::Ok;
         }
 
+        Result decodeAmsduData(const uint8_t *frame, size_t frameBytes,
+                               bool containsFcs, bool verifiedDecryptionAndMic,
+                               AmsduPayload &out)
+        {
+            if (overlaps(&out, sizeof(out), frame, frameBytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            out = {};
+            Frame header {};
+            const Result parsed = parseFrame(frame, frameBytes, header);
+            if (parsed != Result::Ok)
+            {
+                return parsed;
+            }
+            // QoS Data only; the A-MSDU bit lives in QoS Control, before
+            // optional HT Control. Do not reinterpret WDS or fragments.
+            if (header.type != FrameType::Data ||
+                header.subtype != kQosSubtype || header.fragment != 0U ||
+                header.moreFragments || header.toDs == header.fromDs)
+            {
+                return Result::UnsupportedFrame;
+            }
+            if (header.protectedFrame && !verifiedDecryptionAndMic)
+            {
+                return Result::InvalidSecurity;
+            }
+            constexpr size_t kQosOffset = kBaseHeaderBytes;
+            if (frameBytes < header.headerLength ||
+                header.headerLength < kQosOffset + kQosControlBytes ||
+                (*pointerAt(frame, kQosOffset) & kAmsduPresent) == 0U ||
+                frameBytes > kMaximumMpduBytesIncludingFcs -
+                                 (containsFcs ? 0U : kFcsBytes))
+            {
+                return Result::InvalidFrame;
+            }
+            if (containsFcs)
+            {
+                if (frameBytes < header.headerLength + kFcsBytes)
+                {
+                    return Result::Truncated;
+                }
+                frameBytes -= kFcsBytes;
+            }
+            constexpr size_t kSubframeHeaderBytes = 14U;
+            constexpr size_t kSubframeLengthOffset = 12U;
+            constexpr size_t kAlignment = 4U;
+            AmsduPayload accepted {};
+            size_t cursor = header.headerLength;
+            while (cursor < frameBytes)
+            {
+                if (accepted.count == kMaximumAmsduSubframes ||
+                    frameBytes - cursor < kSubframeHeaderBytes + kLlcSnapBytes)
+                {
+                    return Result::Truncated;
+                }
+                const uint8_t *const subframe = pointerAt(frame, cursor);
+                uint8_t prefix[kSubframeHeaderBytes] {};
+                __builtin_memcpy(&prefix[0], subframe, sizeof(prefix));
+                const size_t msduLength =
+                    (static_cast<size_t>(prefix[kSubframeLengthOffset])
+                     << kBitsPerByte) |
+                    static_cast<size_t>(prefix[kSubframeLengthOffset + 1U]);
+                if (msduLength < kLlcSnapBytes ||
+                    msduLength > frameBytes - cursor - kSubframeHeaderBytes)
+                {
+                    return Result::Truncated;
+                }
+                Msdu msdu {};
+                __builtin_memcpy(&msdu.destination.bytes[0], &prefix[0],
+                                 kMacAddressBytes);
+                __builtin_memcpy(&msdu.source.bytes[0],
+                                 &prefix[kMacAddressBytes], kMacAddressBytes);
+                if (!validStationMac(msdu.source))
+                {
+                    return Result::InvalidAddress;
+                }
+                uint8_t anyDestination = 0U;
+                for (const uint8_t value : msdu.destination.bytes)
+                {
+                    anyDestination |= value;
+                }
+                if (anyDestination == 0U)
+                {
+                    return Result::InvalidAddress;
+                }
+                const uint8_t *const llc =
+                    pointerAt(subframe, kSubframeHeaderBytes);
+                const Result snap = validateSnap(llc, msdu.etherType);
+                if (snap != Result::Ok)
+                {
+                    return snap;
+                }
+                // EAPOL never bypasses the unique supplicant/replay ledger.
+                if (msdu.etherType == 0x888eU)
+                {
+                    return Result::InvalidSecurity;
+                }
+                msdu.payload = pointerAt(llc, kLlcSnapBytes);
+                msdu.payloadLength = msduLength - kLlcSnapBytes;
+                msdu.protectedFrame = header.protectedFrame;
+                msdu.qosFrame = true;
+                accepted.subframes[accepted.count++] = msdu;
+                cursor += kSubframeHeaderBytes + msduLength;
+                if (cursor == frameBytes)
+                {
+                    break;
+                }
+                // Only inter-subframe padding is allowed. A trailing pad
+                // cannot masquerade as a valid empty subframe.
+                const size_t pad =
+                    (kAlignment -
+                     ((kSubframeHeaderBytes + msduLength) % kAlignment)) %
+                    kAlignment;
+                if (pad > frameBytes - cursor ||
+                    frameBytes - cursor - pad <
+                        kSubframeHeaderBytes + kLlcSnapBytes)
+                {
+                    return Result::Truncated;
+                }
+                cursor += pad;
+            }
+            if (accepted.count == 0U)
+            {
+                return Result::Truncated;
+            }
+            out = accepted;
+            return Result::Ok;
+        }
+
         Result encodeReceivedEthernet(const Msdu &msdu, uint8_t *out,
                                       size_t capacity, size_t &written)
         {

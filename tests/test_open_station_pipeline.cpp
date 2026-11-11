@@ -348,6 +348,56 @@ namespace
         link.rfReady = true;
         link.channelPermitted = true;
 
+        // An OPEN A-MSDU shares the same per-TID sequence ledger as ordinary
+        // QoS MPDUs. It is all-or-nothing and cannot be delivered twice.
+        uint8_t aggregate[26U + 23U + 1U + 23U] {};
+        std::memcpy(aggregate, qos, 26U);
+        aggregate[22U] = 0x10U; // Sequence 1 on TID 2.
+        aggregate[23U] = 0U;
+        aggregate[24U] = 0x82U;
+        for (size_t index = 0; index < 2U; ++index)
+        {
+            uint8_t *const subframe = aggregate + (index == 0U ? 26U : 50U);
+            if (index == 0U)
+            {
+                std::memcpy(subframe, kStation, 6U);
+            }
+            else
+            {
+                std::memset(subframe, 0xff, 6U);
+            }
+            std::memcpy(subframe + 6U, kAp, 6U);
+            subframe[13U] = 9U;
+            subframe[14U] = 0xaaU;
+            subframe[15U] = 0xaaU;
+            subframe[16U] = 3U;
+            subframe[20U] = 0x08U;
+            subframe[22U] = static_cast<uint8_t>('A' + index);
+        }
+        AmsduPayload aggregates {};
+        if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
+                                     syntheticTrust,
+                                     aggregates) != EngineResult::Ok ||
+            aggregates.count != 2U ||
+            aggregates.subframes[0].payload[0] != 'A' ||
+            aggregates.subframes[1].payload[0] != 'B' ||
+            engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
+                                     syntheticTrust,
+                                     aggregates) != EngineResult::NoAction ||
+            aggregates.count != 0U)
+        {
+            return 69;
+        }
+        aggregate[22U] = 0x20U; // New sequence, invalid foreign recipient.
+        aggregate[50U + 1U] = 0xeeU;
+        if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
+                                     syntheticTrust, aggregates) !=
+                EngineResult::InvalidReceivedFrame ||
+            aggregates.count != 0U)
+        {
+            return 70;
+        }
+
         uint8_t ethernet[17] {};
         std::memcpy(ethernet, kAp, 6);
         std::memcpy(ethernet + 6, kStation, 6);

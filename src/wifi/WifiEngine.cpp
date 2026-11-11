@@ -1232,6 +1232,53 @@ namespace simpleath
             return EngineResult::NoAction;
         }
 
+        EngineResult WifiEngine::acceptOpenAmsduRx(const uint8_t *frame,
+                                                   size_t length,
+                                                   const InputTrust &trust,
+                                                   AmsduPayload &out)
+        {
+            if (overlaps(&out, sizeof(out), this, sizeof(*this)) ||
+                overlaps(&out, sizeof(out), frame, length) ||
+                overlaps(&out, sizeof(out), &trust, sizeof(trust)) ||
+                overlaps(frame, length, this, sizeof(*this)) ||
+                overlaps(frame, length, &trust, sizeof(trust)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            out = {};
+            if (frame == nullptr || !trust.radioReady ||
+                !trust.channelAuthorized || !trust.dmaAndFcsVerified ||
+                station_.state() != StationState::AssociatedOpen ||
+                link_.status().state != LinkState::Associated)
+            {
+                return EngineResult::InvalidState;
+            }
+            LinkContext link {};
+            link.station = stationAddress_;
+            link.bssid = station_.candidate().beacon.bssid;
+            link.security = LinkSecurity::Open;
+            link.associated = true;
+            link.rfReady = trust.radioReady;
+            link.channelPermitted = trust.channelAuthorized;
+            link.pairwiseAndGroupKeysInstalled = false;
+            AmsduPayload accepted {};
+            if (inspectStationAmsduRx(link, frame, length,
+                                      trust.rxFrameIncludesFcs,
+                                      trust.dmaAndFcsVerified, false,
+                                      accepted) != DataPathResult::Ok)
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            // The *whole* aggregate consumes one 802.11 QoS sequence number.
+            // Never publish a subframe before this shared duplicate gate.
+            if (!acceptDataSequence(frame, true))
+            {
+                return EngineResult::NoAction;
+            }
+            out = accepted;
+            return EngineResult::Ok;
+        }
+
         EngineResult WifiEngine::acceptProtectedGroupRekey(
             const uint8_t *encrypted, size_t encryptedBytes, bool includesFcs,
             const InputTrust &trust, crypto::CcmpSession &receive,

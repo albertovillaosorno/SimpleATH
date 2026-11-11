@@ -82,7 +82,8 @@ namespace simpleath
                                        const uint8_t transmitter[kCcmpMacBytes],
                                        uint8_t keyId, uint64_t epoch,
                                        uint64_t lastTransmittedPn,
-                                       uint64_t receiveFloor);
+                                       uint64_t receiveFloor,
+                                       bool verifiedSppAmsdu = false);
                     // No FCS on input or output. Output is committed only on
                     // full success; both directions require the same epoch.
                     // protect additionally requires pairwise key ID zero.
@@ -122,6 +123,9 @@ namespace simpleath
                     uint64_t rxFloor_ {};
                     uint64_t rxTidFloors_[kCcmpTidCount] {};
                     uint8_t keyId_ {};
+                    // SPP A-MSDU MUST be negotiated and verified separately.
+                    // Legacy CCMP sessions never authenticate the A-MSDU bit.
+                    bool sppAmsdu_ {};
                     bool installed_ {};
             };
         } // namespace crypto

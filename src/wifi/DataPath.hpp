@@ -122,6 +122,28 @@ namespace simpleath
             crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
             size_t scratchCapacity, Msdu &result);
 
+        // Inspect an entire associated AP-to-station QoS A-MSDU before
+        // publishing any subframe; rejected peers/recipients revoke all
+        // borrowed pointers. The caller must prove physical DMA/FCS, and
+        // for WPA2 verify the actual CCMP MIC/PN on this exact MPDU.
+        // Aggregated EAPOL is never permitted.
+        DataPathResult
+        inspectStationAmsduRx(const LinkContext &link, const uint8_t *frame,
+                              size_t frameBytes, bool fcsIncluded,
+                              bool fcsAndDmaValidated,
+                              bool ccmpMicAndPnValidated, AmsduPayload &result);
+
+        // Authenticate and decrypt a WPA2 A-MSDU with the matching pairwise
+        // RX key exactly ONCE. Borrowed output lives only in caller scratch;
+        // the caller must consume/copy and scrub it synchronously. On failed
+        // admission scratch is scrubbed and no view is published. CCMP group
+        // aggregates and EAPOL remain prohibited.
+        DataPathResult inspectProtectedStationAmsduRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, AmsduPayload &result);
+
         // Gate a decoded 802.11 MSDU before it is ever delivered into a native
         // network interface. The caller must have checked EDMA RX status,
         // FCS and CCMP integrity/packet number (for example through

@@ -2800,6 +2800,78 @@ class SimpleATH final : public IOService
             }
         }
 
+        // Deaggregate one physically received OPEN QoS A-MSDU only after
+        // the portable engine has accepted its shared per-TID duplicate
+        // window. WPA2 aggregated RX remains blocked until SPP A-MSDU was
+        // actually negotiated with the selected AP and CCMP installed
+        // with its separate authenticated A-MSDU-bit contract.
+        bool routeNativeOpenAmsdu(const uint8_t *frame, size_t bytes,
+                                  const simpleath::edma::RxStatus &status)
+        {
+            if (frame == nullptr || bytes <= kFcsBytes)
+            {
+                return false;
+            }
+            simpleath::ieee80211::Frame header {};
+            if (simpleath::ieee80211::parseFrame(frame, bytes - kFcsBytes,
+                                                 header) !=
+                    simpleath::ieee80211::Result::Ok ||
+                header.type != simpleath::ieee80211::FrameType::Data ||
+                header.subtype != 8U || header.headerLength < 26U)
+            {
+                return false;
+            }
+            // This has been bounds-checked by parseFrame. Copy instead of
+            // borrowing a byte beyond the lifetime of the RX DMA callback.
+            uint8_t qosControl = 0U;
+            __builtin_memcpy(&qosControl, frame + 24U, sizeof(qosControl));
+            if ((qosControl & 0x80U) == 0U)
+            {
+                return false;
+            }
+            // Once an A-MSDU is recognized, all denials CONSUME it. Never
+            // fall through to unaggregated LLC or EAPOL processing.
+            if (!controlledPortAuthorized_ || !radioOperational_ ||
+                !channelAuthorized_ || !associatedBeaconObserved_ ||
+                joinEpoch_ != epoch_ ||
+                queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                queues_.epoch() != epoch_ ||
+                engine_.stationState() !=
+                    simpleath::ieee80211::StationState::AssociatedOpen ||
+                engine_.linkStatus().state !=
+                    simpleath::ieee80211::LinkState::Associated)
+            {
+                return true;
+            }
+            const simpleath::ieee80211::InputTrust trust {
+                true,
+                channelAuthorized_,
+                status.frameValid && !status.crcError && !status.decryptError &&
+                    !status.phyError && !status.micError && !status.keyMiss,
+                false,
+                true,
+            };
+            simpleath::ieee80211::AmsduPayload aggregate {};
+            const auto admitted =
+                engine_.acceptOpenAmsduRx(frame, bytes, trust, aggregate);
+            setProperty("SimpleATHLastAmsduReceiveResult",
+                        static_cast<uint32_t>(admitted), kRfPropertyWidthBits);
+            if (admitted == simpleath::ieee80211::EngineResult::Ok)
+            {
+                // One DMA MPDU, one sequence acceptance; each authorized
+                // Ethernet-II subframe is independently copied into the
+                // native controller's fixed receive mailbox.
+                for (size_t i = 0; i < aggregate.count; ++i)
+                {
+                    deliverNativeMsdu(aggregate.subframes[i], false);
+                }
+                ++receivedFrames_;
+                setProperty("SimpleATHReceivedFrames", receivedFrames_,
+                            kCounterPropertyWidthBits);
+            }
+            return true;
+        }
+
         // Keep driver-owned and OS-owned protected data out of the clear
         // WifiEngine RX parser. Only the selected CCMP MIC/PN session may
         // verify an encrypted MPDU before any native packet delivery.
@@ -3036,7 +3108,8 @@ class SimpleATH final : public IOService
                 return;
             }
             self.receiveNativeAwdl(frame, bytes, status);
-            if (self.routeNativeSecurityRx(frame, bytes, status))
+            if (self.routeNativeSecurityRx(frame, bytes, status) ||
+                self.routeNativeOpenAmsdu(frame, bytes, status))
             {
                 return;
             }

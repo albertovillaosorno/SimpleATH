@@ -233,11 +233,12 @@ namespace simpleath
                         size_t bytes = 0U;
                         uint8_t priority = 0U;
                         bool qos = false;
+                        uint8_t authenticatedQos = 0U;
                 };
 
                 bool validHeader(const uint8_t *frame, size_t bytes,
                                  bool encrypted, const uint8_t transmitter[6U],
-                                 FrameHeader &header)
+                                 bool sppAmsdu, FrameHeader &header)
                 {
                     if (frame == nullptr || bytes < kHeaderBytes + 1U ||
                         bytes > kCcmpMaximumMpduBytes)
@@ -263,19 +264,26 @@ namespace simpleath
                         return false;
                     }
                     uint8_t priority = 0U;
+                    uint8_t authenticatedQos = 0U;
                     if (qos)
                     {
                         const uint8_t qosControl =
                             *byteAt(frame, kQosControlOffset);
-                        if ((qosControl & kQosAmsduPresent) != 0U)
+                        const bool aggregated =
+                            (qosControl & kQosAmsduPresent) != 0U;
+                        if (aggregated && !sppAmsdu)
                         {
-                            // A-MSDU subframes need a separate authenticated
-                            // demultiplexer before native Ethernet delivery.
+                            // Without independently negotiated SPP A-MSDU,
+                            // the A-MSDU bit is unauthenticated by CCMP and
+                            // must never select a different plaintext parser.
                             return false;
                         }
                         priority = qosControl & kQosTidMask;
+                        authenticatedQos =
+                            priority |
+                            (sppAmsdu ? (qosControl & kQosAmsduPresent) : 0U);
                     }
-                    header = {headerBytes, priority, qos};
+                    header = {headerBytes, priority, qos, authenticatedQos};
                     return true;
                 }
 
@@ -283,7 +291,7 @@ namespace simpleath
                                 const uint8_t *header, uint64_t pn,
                                 const FrameHeader &frame)
                 {
-                    nonce.at(0U) = frame.priority;
+                    nonce.at(0U) = frame.authenticatedQos;
                     __builtin_memcpy(&nonce.at(1U), byteAt(header, 10U),
                                      kCcmpMacBytes);
                     for (size_t i = 0U; i < 6U; ++i)
@@ -305,7 +313,7 @@ namespace simpleath
                     {
                         // Only TID is authenticated from QoS Control. EOSP,
                         // Ack Policy and TXOP are mutable 802.11 fields.
-                        aad.at(22U) = frame.priority;
+                        aad.at(22U) = frame.authenticatedQos;
                         aad.at(23U) = 0U;
                     }
                 }
@@ -472,6 +480,7 @@ namespace simpleath
                 rxFloor_ = 0U;
                 secureWipe(rxTidFloors_, sizeof(rxTidFloors_));
                 keyId_ = 0U;
+                sppAmsdu_ = false;
                 installed_ = false;
             }
 
@@ -480,10 +489,11 @@ namespace simpleath
                                  const uint8_t transmitter[kCcmpMacBytes],
                                  uint8_t keyId, uint64_t epoch,
                                  uint64_t lastTransmittedPn,
-                                 uint64_t receiveFloor)
+                                 uint64_t receiveFloor, bool verifiedSppAmsdu)
             {
                 if (installed_ || key == nullptr || transmitter == nullptr ||
                     epoch == 0U || keyId > 3U ||
+                    (verifiedSppAmsdu && keyId != 0U) ||
                     lastTransmittedPn > kCcmpMaximumPacketNumber ||
                     receiveFloor > kCcmpMaximumPacketNumber ||
                     overlap(this, sizeof(*this), key, kCcmpTemporalKeyBytes) ||
@@ -513,6 +523,7 @@ namespace simpleath
                     floor = receiveFloor;
                 }
                 keyId_ = keyId;
+                sppAmsdu_ = verifiedSppAmsdu;
                 installed_ = true;
                 return CcmpResult::Ok;
             }
@@ -538,7 +549,8 @@ namespace simpleath
                 }
                 FrameHeader header {};
                 if (keyId_ != 0U ||
-                    !validHeader(frame, bytes, false, transmitter_, header))
+                    !validHeader(frame, bytes, false, transmitter_, sppAmsdu_,
+                                 header))
                 {
                     return CcmpResult::UnsupportedFrame;
                 }
@@ -612,7 +624,8 @@ namespace simpleath
                     return CcmpResult::OverlappingBuffers;
                 }
                 FrameHeader header {};
-                if (!validHeader(frame, bytes, true, transmitter_, header) ||
+                if (!validHeader(frame, bytes, true, transmitter_, sppAmsdu_,
+                                 header) ||
                     bytes < header.bytes + kExtIvBytes + kMicBytes + 1U)
                 {
                     return CcmpResult::UnsupportedFrame;

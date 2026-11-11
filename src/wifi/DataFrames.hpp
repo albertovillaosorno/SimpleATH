@@ -35,6 +35,24 @@ namespace simpleath
                              bool containsFcs, bool verifiedDecryptionAndMic,
                              Msdu &out);
 
+        // Complete bounded QoS A-MSDU deaggregation into borrowed Ethernet
+        // MSDUs. All subframes must be valid before ANY pointer is published.
+        // The caller must independently establish FCS, association, CCMP
+        // MIC/PN and destination authority. EAPOL cannot be aggregated here.
+        // Output must not alias the source. Native callers must copy payloads
+        // while retaining this immutable RX buffer.
+        constexpr size_t kMaximumAmsduSubframes = 32U;
+
+        struct AmsduPayload
+        {
+                Msdu subframes[kMaximumAmsduSubframes] {};
+                size_t count {};
+        };
+
+        Result decodeAmsduData(const uint8_t *frame, size_t frameBytes,
+                               bool containsFcs, bool verifiedDecryptionAndMic,
+                               AmsduPayload &out);
+
         // Ethernet-II packet handoff into a native OS-owned receive pool.
         // Caller must first prove DMA/FCS, station association, destination,
         // duplicate suppression and, for protected frames, CCMP MIC/replay.

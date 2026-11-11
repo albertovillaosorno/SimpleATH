@@ -663,6 +663,188 @@ namespace simpleath
             return admitted;
         }
 
+        DataPathResult
+        inspectStationAmsduRx(const LinkContext &link, const uint8_t *frame,
+                              size_t frameBytes, bool fcsIncluded,
+                              bool fcsAndDmaValidated,
+                              bool ccmpMicAndPnValidated, AmsduPayload &result)
+        {
+            if (overlaps(&result, sizeof(result), frame, frameBytes) ||
+                overlaps(&result, sizeof(result), &link, sizeof(link)) ||
+                overlaps(frame, frameBytes, &link, sizeof(link)))
+            {
+                return DataPathResult::OverlappingBuffers;
+            }
+            result = {};
+            if (frame == nullptr)
+            {
+                return DataPathResult::NullBuffer;
+            }
+            if (!validStationMac(link.station) ||
+                !physicalBssidValid(link.bssid) ||
+                sameMac(link.station, link.bssid))
+            {
+                return DataPathResult::InvalidAddress;
+            }
+            if (!link.rfReady || !link.associated)
+            {
+                return DataPathResult::NotAssociated;
+            }
+            if (!link.channelPermitted)
+            {
+                return DataPathResult::CountryNotAuthorized;
+            }
+            if (!fcsAndDmaValidated)
+            {
+                return DataPathResult::InvalidRxStatus;
+            }
+            Frame header {};
+            if (parseFrame(frame, frameBytes, header) != Result::Ok ||
+                header.type != FrameType::Data || header.subtype != 8U)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            if (header.toDs || !header.fromDs ||
+                !sameMac(header.bssid, link.bssid) ||
+                !sameMac(header.destination, link.station))
+            {
+                // No group or WDS A-MSDU RX: the selected station's
+                // unicast RA must be independently established.
+                return DataPathResult::NotFromAssociatedAccessPoint;
+            }
+            if (link.security == LinkSecurity::Open)
+            {
+                if (header.protectedFrame || link.pairwiseAndGroupKeysInstalled)
+                {
+                    return DataPathResult::InvalidSecurityState;
+                }
+            }
+            else if (link.security == LinkSecurity::Wpa2Ccmp)
+            {
+                if (!header.protectedFrame || !ccmpMicAndPnValidated)
+                {
+                    return DataPathResult::UnverifiedDecryption;
+                }
+                if (!link.pairwiseAndGroupKeysInstalled)
+                {
+                    return DataPathResult::MissingKeys;
+                }
+            }
+            else
+            {
+                return DataPathResult::UnsupportedFrame;
+            }
+            AmsduPayload accepted {};
+            const auto decoded =
+                decodeAmsduData(frame, frameBytes, fcsIncluded,
+                                ccmpMicAndPnValidated, accepted);
+            if (decoded != Result::Ok)
+            {
+                return decoded == Result::OverlappingBuffers
+                           ? DataPathResult::OverlappingBuffers
+                           : DataPathResult::UnsupportedFrame;
+            }
+            for (size_t index = 0; index < accepted.count; ++index)
+            {
+                const auto &msdu = accepted.subframes[index];
+                if ((msdu.destination.bytes[0] & 1U) == 0U &&
+                    !sameMac(msdu.destination, link.station))
+                {
+                    return DataPathResult::NotForThisStation;
+                }
+            }
+            result = accepted;
+            return DataPathResult::Ok;
+        }
+
+        DataPathResult inspectProtectedStationAmsduRx(
+            const LinkContext &link, const uint8_t *encrypted,
+            size_t encryptedBytes, bool containsFcs, bool fcsAndDmaValidated,
+            crypto::CcmpSession &receive, uint64_t epoch, uint8_t *scratch,
+            size_t scratchCapacity, AmsduPayload &result)
+        {
+            // A failed alias check must never destroy either the encrypted
+            // frame, key ledger or caller's existing result.
+            if (overlaps(&result, sizeof(result), encrypted, encryptedBytes) ||
+                overlaps(&result, sizeof(result), scratch, scratchCapacity) ||
+                overlaps(&result, sizeof(result), &link, sizeof(link)) ||
+                overlaps(&result, sizeof(result), &receive, sizeof(receive)) ||
+                overlaps(scratch, scratchCapacity, encrypted, encryptedBytes) ||
+                overlaps(scratch, scratchCapacity, &link, sizeof(link)) ||
+                overlaps(scratch, scratchCapacity, &receive, sizeof(receive)) ||
+                overlaps(encrypted, encryptedBytes, &link, sizeof(link)) ||
+                overlaps(encrypted, encryptedBytes, &receive, sizeof(receive)))
+            {
+                return DataPathResult::OverlappingBuffers;
+            }
+            result = {};
+            if (encrypted == nullptr || scratch == nullptr)
+            {
+                return DataPathResult::NullBuffer;
+            }
+            const auto status = protectedRxLinkStatus(link, fcsAndDmaValidated,
+                                                      receive.installed());
+            if (status != DataPathResult::Ok)
+            {
+                return status;
+            }
+            if (encryptedBytes < (containsFcs ? kFcsBytes : 0U))
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            const size_t mpduBytes =
+                encryptedBytes - (containsFcs ? kFcsBytes : 0U);
+            Frame header {};
+            if (parseFrame(encrypted, mpduBytes, header) != Result::Ok ||
+                header.type != FrameType::Data || header.subtype != 8U ||
+                !header.protectedFrame || header.toDs || !header.fromDs ||
+                !sameMac(header.bssid, link.bssid) ||
+                !sameMac(header.destination, link.station))
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            constexpr size_t kExtIvBytes = 8U;
+            constexpr size_t kMicBytes = 8U;
+            if (mpduBytes < header.headerLength + kExtIvBytes + kMicBytes + 1U)
+            {
+                return DataPathResult::MalformedFrame;
+            }
+            // A-MSDU uses the selected station's unicast pairwise key
+            // (wire Key ID zero), never the broadcast GTK.
+            uint8_t iv[4] {};
+            __builtin_memcpy(&iv[0], byteAt(encrypted, header.headerLength),
+                             sizeof(iv));
+            if ((iv[3] >> 6U) != 0U)
+            {
+                return DataPathResult::UnverifiedDecryption;
+            }
+            size_t plainBytes = 0;
+            const auto authenticated =
+                receive.unprotect(epoch, encrypted, mpduBytes, scratch,
+                                  scratchCapacity, plainBytes);
+            if (authenticated != crypto::CcmpResult::Ok)
+            {
+                return protectedRxCryptoFailure(authenticated);
+            }
+            constexpr uint8_t kProtectedFrameBit = 0x40U;
+            // CcmpSession strips this bit after authenticating the original
+            // wire MPDU; only the private plaintext admission copy restores.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            scratch[1] |= kProtectedFrameBit;
+            const auto admitted = inspectStationAmsduRx(
+                link, scratch, plainBytes, false, true, true, result);
+            if (admitted != DataPathResult::Ok)
+            {
+                volatile uint8_t *const clear = scratch;
+                for (size_t i = 0; i < plainBytes; ++i)
+                {
+                    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    clear[i] = 0;
+                }
+            }
+            return admitted;
+        }
+
         static DataPathResult validateStationRxEapol(const LinkContext &link,
                                                      const Frame &header,
                                                      const Msdu &parsed,
