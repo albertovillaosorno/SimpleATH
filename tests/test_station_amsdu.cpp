@@ -205,6 +205,19 @@ namespace
         {
             return __LINE__;
         }
+        // Reject an all-zero destination in a late subframe, even when the
+        // first subframe was valid. No borrowed payload may escape on error.
+        (void)sample(frame);
+        for (size_t i = 0U; i < kStation.size(); ++i)
+        {
+            frame.at(50U + i) = 0U;
+        }
+        if (decodeAmsduData(frame.data(), bytes, false, false, decoded) !=
+                Result::InvalidAddress ||
+            !empty(decoded))
+        {
+            return __LINE__;
+        }
         (void)sample(frame);
         frame.at(50U) = 0x02U;
         frame.at(51U) = 0xeeU; // Second subframe unicast for another STA.
@@ -262,6 +275,34 @@ namespace
                                   false, decoded) !=
                 DataPathResult::NotFromAssociatedAccessPoint ||
             !empty(decoded))
+        {
+            return __LINE__;
+        }
+        return 0;
+    }
+
+    int aliasedAggregation()
+    {
+        Bytes wire {};
+        const size_t length = sample(wire);
+        AmsduPayload aliased {};
+        static_assert(sizeof(aliased) >= 73U, "A-MSDU view holds wire fixture");
+        // Model a caller passing the exact same storage as both output
+        // and immutable USB/DMA input, without violating object alignment.
+        std::memcpy(&aliased, wire.data(), length);
+        const auto *input =
+            static_cast<const uint8_t *>(static_cast<const void *>(&aliased));
+        if (decodeAmsduData(input, length, false, false, aliased) !=
+                Result::OverlappingBuffers ||
+            std::memcmp(input, wire.data(), length) != 0)
+        {
+            return __LINE__;
+        }
+        const auto state = link(LinkSecurity::Open);
+        if (inspectStationAmsduRx(state, input, length, false, true, false,
+                                  aliased) !=
+                DataPathResult::OverlappingBuffers ||
+            std::memcmp(input, wire.data(), length) != 0)
         {
             return __LINE__;
         }
@@ -399,6 +440,10 @@ int main()
         return result;
     }
     if (const int result = rejectedAggregates())
+    {
+        return result;
+    }
+    if (const int result = aliasedAggregation())
     {
         return result;
     }
