@@ -533,6 +533,18 @@ namespace simpleath
                 {
                     return hintResult;
                 }
+                // The optional AirDrop observer is another borrowed host
+                // callback. Even when it reports success (or its stale
+                // failure was ignored), it may have replaced the scan with
+                // the same epoch and phase. Stop this old multi-report batch.
+                if (state.generation != reportGeneration ||
+                    state.epoch != reportEpoch ||
+                    state.phase == LeScanPhase::Idle ||
+                    state.phase == LeScanPhase::AwaitDisable ||
+                    state.stopRequested)
+                {
+                    return LeDiscoveryResult::Ok;
+                }
             }
             return LeDiscoveryResult::Ok;
         }

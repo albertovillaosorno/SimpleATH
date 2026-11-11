@@ -68,6 +68,8 @@ namespace
             void *commandContext {};
             bool (*onNextCommand)(void *) {};
             uint8_t triggerOpcode {};
+            void *hintContext {};
+            bool (*onFirstHint)(void *) {};
             size_t activeAuthorizations {};
             std::array<size_t, kMaxCommands> commandSizes {};
             uint8_t observedAddress {};
@@ -267,6 +269,12 @@ namespace
             return false;
         }
         ++fake.airDropHints;
+        if (fake.airDropHints == 1U && fake.onFirstHint != nullptr)
+        {
+            const auto callback = fake.onFirstHint;
+            fake.onFirstHint = nullptr;
+            return callback(fake.hintContext) && !fake.rejectAirDropHint;
+        }
         if (fake.revokeOnAirDropHint)
         {
             fake.valid = false;
@@ -458,6 +466,19 @@ namespace
             {
                 fake_.reportContext = this;
                 fake_.onFirstReport = restartDuringPermit;
+            }
+
+            static bool rejectAfterHintRestart(void *context)
+            {
+                (void)restartDuringPermit(context);
+                return false;
+            }
+
+            void restartFromFirstHint(bool rejectDelivery)
+            {
+                fake_.hintContext = this;
+                fake_.onFirstHint = rejectDelivery ? rejectAfterHintRestart
+                                                   : restartDuringPermit;
             }
 
             static bool deliverInline(void *context, const uint8_t *event,
@@ -1496,6 +1517,54 @@ namespace
                revoked.phase() == LeScanPhase::Faulted;
     }
 
+    bool sameEpochHintBatchIsolation()
+    {
+        constexpr size_t kLeMetaHeaderBytes = 4U;
+        constexpr size_t kOneAirDropReportBytes =
+            kHciAirDropEventBytes - kLeMetaHeaderBytes;
+        auto single = syntheticHciAirDrop();
+        std::array<uint8_t, kHciAirDropEventBytes + kOneAirDropReportBytes>
+            batch {};
+        for (size_t index = 0U; index < single.size(); ++index)
+        {
+            batch.at(index) = single.at(index);
+        }
+        batch.at(1U) =
+            static_cast<uint8_t>(batch.size() - kHciEventHeaderBytes);
+        batch.at(3U) = kTwoReports;
+        for (size_t index = 0U; index < kOneAirDropReportBytes; ++index)
+        {
+            batch.at(single.size() + index) =
+                single.at(kLeMetaHeaderBytes + index);
+        }
+        for (const bool rejectHint : {false, true})
+        {
+            Fixture restarted {};
+            restarted.fake().expectAirDrop = true;
+            if (!restarted.start())
+            {
+                return false;
+            }
+            restarted.restartFromFirstHint(rejectHint);
+            // The hint callback retires the first scan and starts a second
+            // one with identical epoch and phase. A late false hint result
+            // must also leave the successor unfaulted and consume no more
+            // reports from this stale controller event.
+            if (restarted.accept(batch.data(), batch.size()) !=
+                    LeDiscoveryResult::Ok ||
+                restarted.fake().reports != 1U ||
+                restarted.fake().airDropHints != 1U ||
+                restarted.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+                restarted.phase() != LeScanPhase::Scanning ||
+                restarted.epoch() != kEpoch ||
+                restarted.fake().commandCount != 4U)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool validAppleAirDropHints()
     {
         auto advert = syntheticAirDrop();
@@ -1632,7 +1701,7 @@ namespace
 
 int main()
 {
-    if (!nativeHciAirDropHintHandoff())
+    if (!nativeHciAirDropHintHandoff() || !sameEpochHintBatchIsolation())
     {
         constexpr int kAirDropHciHandoffFailure = 29;
         return kAirDropHciHandoffFailure;
