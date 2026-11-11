@@ -2768,15 +2768,31 @@ class SimpleATH final : public IOService
                             kRfPropertyWidthBits);
                 if (result == simpleath::ieee80211::DataPathResult::Ok)
                 {
-                    if (driverOwned)
+                    // CCMP MIC/PN and complete fragment station admission
+                    // preceded this call. Ordinary Ethernet also consumes
+                    // the selected association's shared QoS/legacy sequence
+                    // window, just like open data and protected A-MSDUs.
+                    // EAPOL Group1 must retain its independent replay/MIC
+                    // rules and cannot be dropped by a data sequence gate.
+                    const simpleath::ieee80211::InputTrust trust {
+                        true, channelAuthorized_, true, true, false};
+                    const auto admitted =
+                        msdu.etherType == kEtherTypeEapol
+                            ? simpleath::ieee80211::EngineResult::Ok
+                            : engine_.acceptVerifiedProtectedDataRx(
+                                  frame, mpduBytes, trust, msdu);
+                    if (admitted == simpleath::ieee80211::EngineResult::Ok)
                     {
-                        receiveNativeDriverMsdu(msdu);
-                    }
-                    else
-                    {
-                        // OS-owned protected EAPOL may reach its single
-                        // supplicant before the OS opens the controlled port.
-                        deliverNativeMsdu(msdu, true);
+                        if (driverOwned)
+                        {
+                            receiveNativeDriverMsdu(msdu);
+                        }
+                        else
+                        {
+                            // OS-owned protected EAPOL may reach its single
+                            // supplicant before the OS opens the port.
+                            deliverNativeMsdu(msdu, true);
+                        }
                     }
                 }
             }

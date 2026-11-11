@@ -291,6 +291,17 @@ namespace simpleath
                     const uint8_t *frame, size_t length,
                     const InputTrust &trust, AmsduPayload &out);
 
+                // Driver/OS-owned ordinary WPA2 data MUST pass the native
+                // same-epoch CCMP MIC/PN and full station MSDU gate first.
+                // Recheck selected association and consume its exact QoS or
+                // legacy sequence in the shared 64-packet duplicate window.
+                // The wire MPDU includes IV/MIC but no FCS. A final verified
+                // fragment may be used only after complete reassembly.
+                // EAPOL is deliberately outside this data-delivery gate.
+                EngineResult acceptVerifiedProtectedDataRx(
+                    const uint8_t *wire, size_t wireBytes,
+                    const InputTrust &trust, const Msdu &verified);
+
                 // Driver-owned WPA2 only: authenticate a protected AP
                 // Group1 using the live pairwise RX CCMP session, update the
                 // GTK via the supplicant, then protect its Group2 response

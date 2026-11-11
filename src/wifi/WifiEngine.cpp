@@ -78,6 +78,8 @@ namespace simpleath
             constexpr size_t kRxCopiedHeaderBytes = 26U;
             constexpr size_t kRxQosControlOffset = 24U;
             constexpr uint8_t kRxTidMask = 0x0fU;
+            constexpr uint8_t kRxOrdinaryDataSubtype = 0U;
+            constexpr uint8_t kRxQosDataSubtype = 8U;
             constexpr uint8_t kManagementVersionTypeMask = 0x0fU;
             constexpr uint8_t kDataVersionType = 0x08U;
             constexpr uint8_t kFragmentedMoreBit = 0x04U;
@@ -1488,6 +1490,69 @@ namespace simpleath
             }
             out = accepted;
             return EngineResult::Ok;
+        }
+
+        EngineResult WifiEngine::acceptVerifiedProtectedDataRx(
+            const uint8_t *wire, size_t wireBytes, const InputTrust &trust,
+            const Msdu &verified)
+        {
+            // No native caller may alias the live session or its trust data.
+            // In particular, malformed input must not consume a sequence.
+            if (overlaps(wire, wireBytes, this, sizeof(*this)) ||
+                overlaps(wire, wireBytes, &trust, sizeof(trust)) ||
+                overlaps(wire, wireBytes, &verified, sizeof(verified)) ||
+                overlaps(&trust, sizeof(trust), this, sizeof(*this)) ||
+                overlaps(&verified, sizeof(verified), this, sizeof(*this)) ||
+                overlaps(&verified, sizeof(verified), &trust, sizeof(trust)))
+            {
+                return EngineResult::InvalidInput;
+            }
+            const StationState state = station_.state();
+            const bool osInstalled =
+                osSupplicantOwned_ && state == StationState::WaitingForWpa2Keys;
+            const bool driverInstalled =
+                !osSupplicantOwned_ &&
+                state == StationState::HardwareKeysInstalled &&
+                supplicant_.keysInstalled();
+            if (wire == nullptr || !trust.radioReady ||
+                !trust.channelAuthorized || !trust.dmaAndFcsVerified ||
+                !trust.ccmpMicAndReplayVerified || trust.rxFrameIncludesFcs ||
+                (!osInstalled && !driverInstalled) ||
+                link_.status().state != LinkState::Associated ||
+                station_.candidate().beacon.rsn.security !=
+                    Security::Wpa2Personal)
+            {
+                return EngineResult::InvalidState;
+            }
+            // This verifies the *wire* sequence/receiver belongs to the same
+            // fully admitted plaintext MSDU. No LLC/payload is decrypted a
+            // second time; the native CCMP/fragment owner retains that proof.
+            Frame header {};
+            if (wireBytes < kRxCopiedHeaderBytes ||
+                parseFrame(wire, wireBytes, header) != Result::Ok ||
+                header.type != FrameType::Data || !header.protectedFrame ||
+                header.toDs || !header.fromDs ||
+                (header.subtype != kRxOrdinaryDataSubtype &&
+                 header.subtype != kRxQosDataSubtype) ||
+                !sameMac(header.bssid, station_.candidate().beacon.bssid) ||
+                !sameMac(header.destination, verified.destination) ||
+                !sameMac(header.source, verified.source) ||
+                !validStationMac(verified.source) ||
+                (((header.destination.bytes[0] & 1U) == 0U) &&
+                 !sameMac(header.destination, stationAddress_)) ||
+                verified.payload == nullptr ||
+                verified.etherType == kEtherTypeEapol ||
+                !verified.protectedFrame ||
+                verified.qosFrame != (header.subtype == kRxQosDataSubtype))
+            {
+                return EngineResult::InvalidReceivedFrame;
+            }
+            // A successfully authenticated final fragment retains the same
+            // sequence/TID/address identity as the first fragment. Only the
+            // completed MSDU (never a pending fragment) reaches this point.
+            return acceptDataSequence(wire, verified.qosFrame)
+                       ? EngineResult::Ok
+                       : EngineResult::NoAction;
         }
 
         EngineResult WifiEngine::acceptProtectedGroupRekey(

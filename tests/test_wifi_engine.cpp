@@ -810,6 +810,200 @@ namespace
                    : __LINE__ % kFailureModulo + 1;
     }
 
+    // CCMP MIC/PN is not a substitute for 802.11 per-TID duplicate history.
+    // Two independently authenticated PNs with the same on-air sequence
+    // represent only one delivered MSDU, even if Retry is absent.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    int verifiedNativeOrdinarySequenceRx()
+    {
+        const std::array<uint8_t, 32> pmk {{1}};
+        std::array<uint8_t, 32> anonce {{7}};
+        std::array<uint8_t, 32> snonce {};
+        for (size_t i = 0; i < snonce.size(); ++i)
+        {
+            snonce.at(i) = static_cast<uint8_t>(i + 1U);
+        }
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, 48> ptk {};
+        Provider provider {};
+        WifiEngine engine;
+        if (crypto::derivePtk(pmk.data(), ap, station, anonce.data(),
+                              snonce.data(), ptk.data()) != crypto::Error::Ok ||
+            !joinAndInstall(engine, provider, ptk.data()))
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        crypto::CcmpSession apTx {};
+        crypto::CcmpSession stationRx {};
+        if (apTx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0, 0) !=
+                crypto::CcmpResult::Ok ||
+            stationRx.install(kPairwiseTk.data(), kAp.data(), 0, kEpoch, 0,
+                              0) != crypto::CcmpResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 38> plain {};
+        fromAp(plain);
+        plain.at(22) = 0x10; // Legacy sequence one.
+        plain.at(30) = 0x08; // IPv4, not EAPOL.
+        plain.at(31) = 0x00;
+        plain.at(32) = 'D';
+        std::array<uint8_t, 512> wire {};
+        std::array<uint8_t, 512> scratch {};
+        const LinkContext link {
+            station, ap, LinkSecurity::Wpa2Ccmp, true, true, true, true};
+        auto transmitAndAdmit =
+            [&](const uint8_t *frame, size_t length, const InputTrust &trust)
+        {
+            size_t wireBytes = 0;
+            if (apTx.protect(kEpoch, frame, length, wire.data(), wire.size(),
+                             wireBytes) != crypto::CcmpResult::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            Msdu verified {};
+            if (inspectProtectedStationRx(link, wire.data(), wireBytes, false,
+                                          true, stationRx, kEpoch,
+                                          scratch.data(), scratch.size(),
+                                          verified) != DataPathResult::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            return engine.acceptVerifiedProtectedDataRx(wire.data(), wireBytes,
+                                                        trust, verified);
+        };
+        InputTrust missingMic = kTrust;
+        missingMic.ccmpMicAndReplayVerified = false;
+        if (transmitAndAdmit(plain.data(), plain.size(), kTrust) !=
+                EngineResult::Ok ||
+            transmitAndAdmit(plain.data(), plain.size(), kTrust) !=
+                EngineResult::NoAction)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Failed trust proof must not consume the new sequence.
+        plain.at(22) = 0x20;
+        if (transmitAndAdmit(plain.data(), plain.size(), missingMic) !=
+                EngineResult::InvalidState ||
+            transmitAndAdmit(plain.data(), plain.size(), kTrust) !=
+                EngineResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Detached or altered station-identity output cannot authorize a
+        // fresh sequence, even after the packet's CCMP proof succeeded.
+        plain.at(22) = 0x30;
+        size_t identityWireBytes = 0;
+        Msdu identityVerified {};
+        if (apTx.protect(kEpoch, plain.data(), plain.size(), wire.data(),
+                         wire.size(),
+                         identityWireBytes) != crypto::CcmpResult::Ok ||
+            inspectProtectedStationRx(link, wire.data(), identityWireBytes,
+                                      false, true, stationRx, kEpoch,
+                                      scratch.data(), scratch.size(),
+                                      identityVerified) != DataPathResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        Msdu mismatched = identityVerified;
+        mismatched.source.bytes[5] ^= 1U;
+        if (engine.acceptVerifiedProtectedDataRx(wire.data(), identityWireBytes,
+                                                 kTrust, mismatched) !=
+                EngineResult::InvalidReceivedFrame ||
+            engine.acceptVerifiedProtectedDataRx(wire.data(), 24U, kTrust,
+                                                 identityVerified) !=
+                EngineResult::InvalidReceivedFrame ||
+            engine.acceptVerifiedProtectedDataRx(wire.data(), identityWireBytes,
+                                                 kTrust, identityVerified) !=
+                EngineResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // QoS TID three and TID four each have independent windows from
+        // legacy and from one another, even with the same sequence number.
+        std::array<uint8_t, 40> qos {};
+        std::memcpy(qos.data(), plain.data(), 24);
+        std::memcpy(qos.data() + 26, plain.data() + 24, 14);
+        qos.at(0) = 0x88;
+        qos.at(24) = 3;
+        if (transmitAndAdmit(qos.data(), qos.size(), kTrust) !=
+                EngineResult::Ok ||
+            transmitAndAdmit(qos.data(), qos.size(), kTrust) !=
+                EngineResult::NoAction)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        qos.at(24) = 4;
+        if (transmitAndAdmit(qos.data(), qos.size(), kTrust) !=
+            EngineResult::Ok)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // Each encrypted fragment has its own CCMP PN/MIC; the last one
+        // may advance sequence history only after full station reassembly.
+        plain.at(22) = 0x50;
+        std::array<uint8_t, 32> first {};
+        std::array<uint8_t, 30> last {};
+        std::memcpy(first.data(), plain.data(), first.size());
+        std::memcpy(last.data(), plain.data(), 24);
+        std::memcpy(last.data() + 24, plain.data() + 32, 6);
+        first.at(1) = 0x06; // FromDS, More Fragments.
+        last.at(1) = 0x02;
+        last.at(22) = 0x51; // Same 12-bit sequence, fragment one.
+        auto completeFragments = [&]()
+        {
+            std::array<uint8_t, 128> firstWire {};
+            std::array<uint8_t, 128> lastWire {};
+            size_t firstBytes = 0;
+            size_t lastBytes = 0;
+            if (apTx.protect(kEpoch, first.data(), first.size(),
+                             firstWire.data(), firstWire.size(), firstBytes,
+                             true) != crypto::CcmpResult::Ok ||
+                apTx.protect(kEpoch, last.data(), last.size(), lastWire.data(),
+                             lastWire.size(), lastBytes,
+                             true) != crypto::CcmpResult::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            ProtectedFragmentStream fragments {};
+            Msdu reassembled {};
+            if (inspectProtectedFragmentStationRx(
+                    link, firstWire.data(), firstBytes, false, true, stationRx,
+                    kEpoch, fragments, 1U, scratch.data(), scratch.size(),
+                    reassembled) != DataPathResult::PendingFragments ||
+                reassembled.payload != nullptr ||
+                inspectProtectedFragmentStationRx(
+                    link, lastWire.data(), lastBytes, false, true, stationRx,
+                    kEpoch, fragments, 2U, scratch.data(), scratch.size(),
+                    reassembled) != DataPathResult::Ok)
+            {
+                return EngineResult::CryptoFailure;
+            }
+            return engine.acceptVerifiedProtectedDataRx(
+                lastWire.data(), lastBytes, kTrust, reassembled);
+        };
+        if (completeFragments() != EngineResult::Ok ||
+            completeFragments() != EngineResult::NoAction)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        // An EAPOL MSDU is not ordinary data; its MIC/replay state belongs
+        // exclusively to the supplicant's Group1 path.
+        const auto eapol = cleartextApFrame(
+            makeSignedKey({0x82, 3}, kGroupWrapped, ptk.data()));
+        if (transmitAndAdmit(eapol.data(), eapol.size(), kTrust) !=
+            EngineResult::InvalidReceivedFrame)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        engine.clear();
+        return transmitAndAdmit(plain.data(), plain.size(), kTrust) ==
+                       EngineResult::InvalidState
+                   ? 0
+                   : __LINE__ % kFailureModulo + 1;
+    }
+
     // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
@@ -821,5 +1015,10 @@ int main()
         return baseline;
     }
     const int native = verifiedNativeGroupExchange();
-    return native == 0 ? verifiedNativeAggregateRx() : native;
+    if (native != 0)
+    {
+        return native;
+    }
+    const int aggregate = verifiedNativeAggregateRx();
+    return aggregate == 0 ? verifiedNativeOrdinarySequenceRx() : aggregate;
 }

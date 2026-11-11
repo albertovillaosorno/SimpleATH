@@ -338,3 +338,20 @@ lookup and 221 ms with fixed-work arithmetic (identical ciphertext
 checksum). This is a performance warning, not a reproducible radio rate or
 kernel benchmark. Prefer a separately verified hardware/native AES backend
 before permitting operational traffic, and keep the WPA2 TODO open.
+
+## Native protected ordinary data duplicate admission (2026-11-11)
+
+After independent native CCMP MIC/PN verification and full station MSDU
+admission, ordinary protected Ethernet receive now shares WifiEngine's
+association-local, 64-sequence duplicate history with open data and SPP
+A-MSDUs. The gate checks the exact selected AP, station destination, QoS TID
+and native trust evidence before it consumes a sequence. A successfully
+reassembled final protected fragment supplies the same authenticated
+sequence/TID identity; incomplete fragments never reach this gate. A second
+CCMP-valid PN with an identical 802.11 sequence is not published twice.
+
+Protected Group1 EAPOL explicitly bypasses the ordinary-data sequence window:
+its own authenticated EAPOL MIC/replay state still controls GTK rekey. Portable
+C++14/C++17 sanitizer fixtures use synthetic CCMP frames, TID isolation and
+missing-MIC-proof cases. This does not establish BlockAck/A-MPDU reordering,
+physical DMA/FCS validity or operational Tahoe hardware/port delivery.
