@@ -1,0 +1,21 @@
+# Focused diagnostic pass for host utilities and regression fixtures.
+# Avoid production-only naming, modernization and complexity rules.
+InheritParentConfig: false
+Checks: >
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-deadcode.*,
+  clang-analyzer-security.*,
+  bugprone-use-after-move,
+  bugprone-dangling-handle,
+  bugprone-undefined-memory-manipulation,
+  bugprone-infinite-loop,
+  bugprone-unchecked-optional-access,
+  bugprone-sizeof-expression,
+  misc-unconventional-assign-operator
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(^|/)(tests|tools)/'
+ExcludeHeaderFilterRegex: ''
+SystemHeaders: false
+FormatStyle: none
+UseColor: false

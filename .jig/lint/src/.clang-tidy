@@ -24,7 +24,7 @@ Checks: >
   -performance-enum-size,
   -readability-identifier-length
 WarningsAsErrors: '*'
-HeaderFilterRegex: '(^|/)(src|tests|tools)/'
+HeaderFilterRegex: '(^|/)(src)/'
 ExcludeHeaderFilterRegex: ''
 SystemHeaders: false
 FormatStyle: none

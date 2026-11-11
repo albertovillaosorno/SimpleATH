@@ -71,14 +71,22 @@ ignore = [
   "EM",
   "PLR2004",
   "SLF001", # Unit tests deliberately reach private implementation seams.
-  "PLR0913",
-  "PLR0914",
-  "PLR0915",
-  "C901",
+  "PLR0913", # Permitir más de 4 argumentos en funciones/fixtures de prueba
+  "PLR0914", # Permitir más de 10 variables locales en tests complejos
+  "PLR0915", # Permitir más de 25 sentencias en un test
+  "C901",    # Permitir mayor complejidad ciclomática en tests
+  "ARG001",  # Ignorar parámetros no usados (vital para fixtures de pytest inyectadas)
+  "ARG002",  # Ignorar métodos con argumentos no usados en clases de prueba
 ]
 # Tool scripts still run production checks; relax only cosmetic explanations
 # and named-constant/exception-string ceremony, not correctness checks.
-"tools/**/*.py" = ["D", "EM", "PLR2004"]
+"tools/**/*.py" = [
+  "D", 
+  "EM", 
+  "PLR2004",
+  "PLR0913", # Permitir herramientas con más argumentos CLI
+  "PLR0915", # Permitir scripts de herramientas más largos/procedurales
+]
 # jig-ignore-next-line: indivisible reviewed identifier
 # Function-oriented test directories intentionally mirror hyphenated research IDs.
 "tests/function/**/*.py" = ["implicit-namespace-package"]

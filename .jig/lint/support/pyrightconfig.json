@@ -1,0 +1,46 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "tools"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    ".cache",
+    ".dependencies",
+    ".git",
+    ".temp",
+    ".venv",
+    "target"
+  ],
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Linux",
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "typeCheckingMode": "strict",
+      "reportAny": "error",
+      "reportExplicitAny": "error",
+      "reportMissingTypeStubs": "error"
+    },
+    {
+      "root": "tests",
+      "typeCheckingMode": "standard",
+      "reportAny": "none",
+      "reportExplicitAny": "none",
+      "reportUnusedParameter": "none",
+      "reportMissingTypeStubs": "none",
+      "reportPrivateUsage": "none",
+      "enableTypeIgnoreComments": true
+    },
+    {
+      "root": "tools",
+      "typeCheckingMode": "standard",
+      "reportAny": "none",
+      "reportExplicitAny": "none",
+      "reportMissingTypeStubs": "warning",
+      "enableTypeIgnoreComments": true
+    }
+  ]
+}

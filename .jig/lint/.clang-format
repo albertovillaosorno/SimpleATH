@@ -1,7 +1,6 @@
----
-# Shared C/C++ policy. Other clang-format languages are disabled below.
+# Shared C/C++ policy for SimpleATH.
 BasedOnStyle: LLVM
-DisableFormat: true
+DisableFormat: false
 UseTab: Never
 IndentWidth: 4
 TabWidth: 4
@@ -80,4 +79,17 @@ DisableFormat: false
 Language: Cpp
 DisableFormat: false
 Standard: Latest
+---
+# Disable formatting for non-C/C++ languages if clang-format touches them
+Language: JavaScript
+DisableFormat: true
+---
+Language: Java
+DisableFormat: true
+---
+Language: ObjC
+DisableFormat: true
+---
+Language: CSharp
+DisableFormat: true
 ...
