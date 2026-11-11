@@ -65,6 +65,9 @@ namespace
             bool (*onFirstReport)(void *) {};
             void *permitContext {};
             bool (*onNextPermit)(void *) {};
+            void *commandContext {};
+            bool (*onNextCommand)(void *) {};
+            uint8_t triggerOpcode {};
             size_t activeAuthorizations {};
             std::array<size_t, kMaxCommands> commandSizes {};
             uint8_t observedAddress {};
@@ -161,6 +164,12 @@ namespace
         }
         fake.commandSizes.at(fake.commandCount) = bytes;
         ++fake.commandCount;
+        if (fake.onNextCommand != nullptr && opcode == fake.triggerOpcode)
+        {
+            const auto callback = fake.onNextCommand;
+            fake.onNextCommand = nullptr;
+            (void)callback(fake.commandContext);
+        }
         const InlineReply reply = fake.inlineReply;
         fake.inlineReply = InlineReply::None;
         if (reply == InlineReply::None)
@@ -344,6 +353,57 @@ namespace
                 fake_.onNextPermit = detachDuringPermit;
             }
 
+            static bool restartDuringPermit(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                fixture.revoke();
+                fixture.fake_.nestedScanResult = fixture.begin();
+                return fixture.fake_.nestedScanResult ==
+                           LeDiscoveryResult::Ok &&
+                       fixture.completeParameters() == LeDiscoveryResult::Ok &&
+                       fixture.completeEnable() == LeDiscoveryResult::Ok;
+            }
+
+            void restartFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = restartDuringPermit;
+            }
+
+            void revokeFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = revokeDuringReport;
+            }
+
+            void replaceFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = rebindDuringReport;
+            }
+
+            void revokeDuringCommand(uint8_t opcode)
+            {
+                fake_.commandContext = this;
+                fake_.onNextCommand = revokeDuringReport;
+                fake_.triggerOpcode = opcode;
+            }
+
+            bool stopRequested() const
+            {
+                return scan_.stopRequested;
+            }
+
+            void exhaustGeneration()
+            {
+                scan_.generation = UINT64_MAX;
+            }
+
+            bool generationExhausted() const
+            {
+                return scan_.generation == UINT64_MAX;
+            }
+
             static bool stopDuringReport(void *context)
             {
                 auto &fixture = *static_cast<Fixture *>(context);
@@ -392,6 +452,12 @@ namespace
             {
                 fake_.reportContext = this;
                 fake_.onFirstReport = revokeDuringReport;
+            }
+
+            void restartFromFirstReport()
+            {
+                fake_.reportContext = this;
+                fake_.onFirstReport = restartDuringPermit;
             }
 
             static bool deliverInline(void *context, const uint8_t *event,
@@ -591,6 +657,157 @@ namespace
             active.phase() != LeScanPhase::Idle ||
             active.fake().activeAuthorizations != 0U ||
             active.fake().commandCount != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int synchronousPermitRevocation()
+    {
+        // A host permission callback may retire the pending scan without
+        // returning an ownership denial. Its old caller must not change a
+        // newly Idle state or issue a controller disable on stale rights.
+        Fixture stopping {};
+        if (!stopping.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        stopping.revokeFromPermit();
+        if (stopping.stop() != LeDiscoveryResult::OwnershipLost ||
+            stopping.phase() != LeScanPhase::Idle || stopping.epoch() != 0U ||
+            stopping.stopRequested() || stopping.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture receiving {};
+        if (!receiving.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        receiving.revokeFromPermit();
+        if (receiving.accept(nullptr, 0U) != LeDiscoveryResult::OwnershipLost ||
+            receiving.phase() != LeScanPhase::Idle || receiving.epoch() != 0U ||
+            receiving.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // A callback can replace the physical USB epoch and begin the next
+        // scan. Late work from the prior call may not stop/fault this owner.
+        Fixture replacing {};
+        if (!replacing.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        replacing.replaceFromPermit();
+        if (replacing.stop() != LeDiscoveryResult::OwnershipLost ||
+            replacing.fake().commandCount != 3U ||
+            replacing.phase() != LeScanPhase::AwaitParameters ||
+            replacing.stopRequested())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture reentering {};
+        if (!reentering.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        reentering.replaceFromPermit();
+        if (reentering.accept(nullptr, 0U) !=
+                LeDiscoveryResult::OwnershipLost ||
+            reentering.fake().commandCount != 3U ||
+            reentering.phase() != LeScanPhase::AwaitParameters ||
+            reentering.stopRequested())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The callback can revoke and RESTART in the same physical epoch,
+        // returning to precisely the old Scanning phase. Epoch/phase checks
+        // alone cannot identify that its session is a different procedure.
+        Fixture restarted {};
+        if (!restarted.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        restarted.restartFromPermit();
+        if (restarted.stop() != LeDiscoveryResult::OwnershipLost ||
+            restarted.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+            restarted.phase() != LeScanPhase::Scanning ||
+            restarted.epoch() != kEpoch || restarted.fake().commandCount != 4U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture restartedIngress {};
+        if (!restartedIngress.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        restartedIngress.restartFromPermit();
+        if (restartedIngress.accept(nullptr, 0U) !=
+                LeDiscoveryResult::OwnershipLost ||
+            restartedIngress.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+            restartedIngress.phase() != LeScanPhase::Scanning ||
+            restartedIngress.epoch() != kEpoch ||
+            restartedIngress.fake().commandCount != 4U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Submission callbacks are equally reentrant: the scan may be
+        // revoked while an HCI command is being handed to USB. Returning
+        // success from the old stack frame must not reanimate that scan.
+        Fixture initial {};
+        if (!initial.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        initial.revokeDuringCommand(kParamsOpcode);
+        if (initial.begin() != LeDiscoveryResult::OwnershipLost ||
+            initial.phase() != LeScanPhase::Idle || initial.epoch() != 0U ||
+            initial.fake().commandCount != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture enabling {};
+        if (!enabling.attach() || enabling.begin() != LeDiscoveryResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        enabling.revokeDuringCommand(kEnableOpcode);
+        if (enabling.completeParameters() != LeDiscoveryResult::OwnershipLost ||
+            enabling.phase() != LeScanPhase::Idle || enabling.epoch() != 0U ||
+            enabling.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture disabling {};
+        if (!disabling.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        disabling.revokeDuringCommand(kEnableOpcode);
+        if (disabling.stop() != LeDiscoveryResult::OwnershipLost ||
+            disabling.phase() != LeScanPhase::Idle || disabling.epoch() != 0U ||
+            disabling.fake().commandCount != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Never wrap generation to a value that authorizes ancient callbacks.
+        Fixture exhausted {};
+        if (!exhausted.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        exhausted.exhaustGeneration();
+        if (exhausted.begin() != LeDiscoveryResult::Faulted ||
+            exhausted.fake().commandCount != 0U ||
+            exhausted.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        exhausted.revoke();
+        if (!exhausted.generationExhausted() ||
+            exhausted.begin() != LeDiscoveryResult::Faulted ||
+            exhausted.fake().commandCount != 0U)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
@@ -1042,6 +1259,23 @@ namespace
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
+        // Revoke and restart a completed new scan in the SAME epoch and
+        // Scanning phase from a report observer. Never forward the old batch.
+        Fixture sameEpoch {};
+        if (!sameEpoch.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        sameEpoch.restartFromFirstReport();
+        if (sameEpoch.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::Ok ||
+            sameEpoch.fake().reports != 1U ||
+            sameEpoch.fake().nestedScanResult != LeDiscoveryResult::Ok ||
+            sameEpoch.phase() != LeScanPhase::Scanning ||
+            sameEpoch.epoch() != kEpoch || sameEpoch.fake().commandCount != 4U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
         // The previous delivery completes after a new physical USB epoch
         // has attached. A stale false return must not fault the successor
         // or emit the second report from the old HCI transfer.
@@ -1420,6 +1654,10 @@ int main()
     if (const int activeReentry = activePolicyReentrancy())
     {
         return activeReentry;
+    }
+    if (const int permitRevocation = synchronousPermitRevocation())
+    {
+        return permitRevocation;
     }
     if (const int normal = normalLifecycle())
     {

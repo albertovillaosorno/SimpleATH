@@ -102,6 +102,9 @@ namespace simpleath
     struct LeDiscoveryState
     {
             uint64_t epoch {};
+            // Local session identity survives revoke and same-epoch restart.
+            // Exhaustion denies fresh scans rather than aliasing old work.
+            uint64_t generation {};
             LeScanPhase phase {LeScanPhase::Idle};
             bool stopRequested {};
             // Only an explicitly authorized active scan may deliver

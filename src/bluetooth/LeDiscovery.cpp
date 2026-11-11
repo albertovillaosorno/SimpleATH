@@ -159,17 +159,39 @@ namespace simpleath
             return LeAirDropStatus::Absent;
         }
 
+        void clearDiscovery(LeDiscoveryState &state)
+        {
+            const uint64_t next = state.generation == UINT64_MAX
+                                      ? UINT64_MAX
+                                      : state.generation + 1U;
+            state = {};
+            state.generation = next;
+        }
+
         bool authorized(const LeDiscoveryState &state,
                         const UsbHciState &transport,
                         const UsbHciHostCallbacks &host,
                         const LeDiscoveryOwner &owner)
         {
-            return owner.context != nullptr && owner.permit != nullptr &&
-                   owner.onAdvertisement != nullptr &&
-                   owner.epoch == state.epoch &&
-                   host.ownerEpoch == state.epoch && transport.attached &&
-                   transport.epoch == state.epoch && !transport.faulted &&
-                   owner.permit(owner.context, state.epoch);
+            const uint64_t epoch = state.epoch;
+            const uint64_t generation = transport.generation;
+            const uint64_t scanGeneration = state.generation;
+            const LeScanPhase phase = state.phase;
+            if (owner.context == nullptr || owner.permit == nullptr ||
+                owner.onAdvertisement == nullptr || owner.epoch != epoch ||
+                host.ownerEpoch != epoch || !transport.attached ||
+                transport.epoch != epoch || transport.faulted ||
+                !owner.permit(owner.context, epoch))
+            {
+                return false;
+            }
+            // Authorization is an external callback. It may retire the scan,
+            // start a nested procedure, or replace the USB session before
+            // returning true; no old caller may act on its cached rights.
+            return state.epoch == epoch && state.phase == phase &&
+                   state.generation == scanGeneration && transport.attached &&
+                   !transport.faulted && transport.epoch == epoch &&
+                   transport.generation == generation;
         }
 
         LeDiscoveryResult sendEnable(UsbHciState &transport,
@@ -191,6 +213,41 @@ namespace simpleath
         {
             state.phase = LeScanPhase::Faulted;
             return result;
+        }
+
+        // A controller Command Complete can arrive inside the USB OUT
+        // callback. Only an acknowledged inline disable may retire Idle;
+        // arbitrary owner revocation or USB replacement cannot be reported
+        // as a successful scan transition.
+        LeDiscoveryResult sendPendingEnable(LeDiscoveryState &state,
+                                            UsbHciState &transport,
+                                            const UsbHciHostCallbacks &host,
+                                            bool enable)
+        {
+            const uint64_t epoch = state.epoch;
+            const uint64_t generation = transport.generation;
+            const uint64_t scanGeneration = state.generation;
+            const LeDiscoveryResult sent = sendEnable(transport, host, enable);
+            const bool inlineDisable = !enable &&
+                                       state.phase == LeScanPhase::Idle &&
+                                       sent == LeDiscoveryResult::Ok &&
+                                       !transport.commandWindow.pending;
+            if (transport.generation != generation ||
+                ((state.epoch != epoch || state.generation != scanGeneration) &&
+                 !inlineDisable) ||
+                (enable && state.phase == LeScanPhase::AwaitParameters) ||
+                (enable && state.phase == LeScanPhase::Idle &&
+                 transport.commandWindow.pending))
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
+            if (sent != LeDiscoveryResult::Ok)
+            {
+                return fault(state, LeDiscoveryResult::TransportFailed);
+            }
+            return state.phase == LeScanPhase::Faulted
+                       ? LeDiscoveryResult::Faulted
+                       : LeDiscoveryResult::Ok;
         }
 
         LeDiscoveryResult completeCommand(LeDiscoveryState &state,
@@ -228,35 +285,22 @@ namespace simpleath
             {
                 if (state.stopRequested)
                 {
-                    state = {};
+                    clearDiscovery(state);
                     return LeDiscoveryResult::Ok;
                 }
                 state.phase = LeScanPhase::AwaitEnable;
-                if (sendEnable(transport, host, true) != LeDiscoveryResult::Ok)
-                {
-                    return fault(state, LeDiscoveryResult::TransportFailed);
-                }
-                // The controller callback can synchronously dispatch a
-                // rejection for the enable while this completion unwinds.
-                return state.phase == LeScanPhase::Faulted
-                           ? LeDiscoveryResult::Faulted
-                           : LeDiscoveryResult::Ok;
+                // A nested controller rejection still propagates as Faulted.
+                return sendPendingEnable(state, transport, host, true);
             }
             if (state.phase == LeScanPhase::AwaitDisable)
             {
-                state = {};
+                clearDiscovery(state);
                 return LeDiscoveryResult::Ok;
             }
             if (state.stopRequested)
             {
                 state.phase = LeScanPhase::AwaitDisable;
-                if (sendEnable(transport, host, false) != LeDiscoveryResult::Ok)
-                {
-                    return fault(state, LeDiscoveryResult::TransportFailed);
-                }
-                return state.phase == LeScanPhase::Faulted
-                           ? LeDiscoveryResult::Faulted
-                           : LeDiscoveryResult::Ok;
+                return sendPendingEnable(state, transport, host, false);
             }
             state.phase = LeScanPhase::Scanning;
             return LeDiscoveryResult::Ok;
@@ -390,8 +434,10 @@ namespace simpleath
             }
             // Ordinary Bluetooth event delivery precedes any optional
             // AirDrop hint. No hint may activate an AWDL or OS host procedure.
+            const uint64_t reportGeneration = state.generation;
             const bool delivered = callback(owner.context, reportEpoch, hint);
-            if (state.epoch != reportEpoch ||
+            if (state.generation != reportGeneration ||
+                state.epoch != reportEpoch ||
                 state.phase == LeScanPhase::Idle ||
                 state.phase == LeScanPhase::AwaitDisable || state.stopRequested)
             {
@@ -454,13 +500,15 @@ namespace simpleath
                     continue;
                 }
                 const uint64_t reportEpoch = state.epoch;
+                const uint64_t reportGeneration = state.generation;
                 const bool delivered =
                     owner.onAdvertisement(owner.context, reportEpoch, report);
                 // A callback may quiesce the old USB function and attach a
                 // new physical owner before it returns. Neither a rejected
                 // old delivery nor the rest of this batch may fault or leak
                 // into that successor's discovery session.
-                if (state.epoch != reportEpoch ||
+                if (state.generation != reportGeneration ||
+                    state.epoch != reportEpoch ||
                     state.phase == LeScanPhase::Idle ||
                     state.phase == LeScanPhase::AwaitDisable ||
                     state.stopRequested)
@@ -507,6 +555,11 @@ namespace simpleath
             {
                 return LeDiscoveryResult::Busy;
             }
+            if (state.generation == UINT64_MAX)
+            {
+                return LeDiscoveryResult::Faulted;
+            }
+            const uint64_t priorGeneration = state.generation;
             if (!transport.attached || transport.faulted ||
                 transport.epoch != host.ownerEpoch ||
                 host.ownerEpoch != owner.epoch ||
@@ -528,6 +581,10 @@ namespace simpleath
             {
                 return LeDiscoveryResult::Busy;
             }
+            if (state.generation != priorGeneration)
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
             // HCI LE Set Scan Parameters (0x200b): passive or active, public
             // address, unfiltered. Active requests already passed an explicit
             // host privacy/procedure authorization callback.
@@ -543,11 +600,22 @@ namespace simpleath
                 0x00U,
                 0x00U,
             };
+            clearDiscovery(state);
+            const uint64_t scanGeneration = state.generation;
             state.epoch = owner.epoch;
             state.active = active;
             state.phase = LeScanPhase::AwaitParameters;
-            if (sendUsbHciCommand(transport, host, &command[0U],
-                                  kScanParamsBytes) != UsbHciStatus::Ok)
+            const uint64_t sessionGeneration = transport.generation;
+            const UsbHciStatus sent = sendUsbHciCommand(
+                transport, host, &command[0U], kScanParamsBytes);
+            if (state.epoch != owner.epoch ||
+                state.generation != scanGeneration ||
+                transport.generation != sessionGeneration ||
+                state.phase == LeScanPhase::Idle)
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
+            if (sent != UsbHciStatus::Ok)
             {
                 return fault(state, LeDiscoveryResult::TransportFailed);
             }
@@ -555,7 +623,16 @@ namespace simpleath
             {
                 return LeDiscoveryResult::Faulted;
             }
-            if (!authorized(state, transport, host, owner))
+            const LeScanPhase afterSendPhase = state.phase;
+            const bool stillPermitted =
+                authorized(state, transport, host, owner);
+            if (state.epoch != owner.epoch || state.phase != afterSendPhase ||
+                state.generation != scanGeneration ||
+                transport.generation != sessionGeneration)
+            {
+                return LeDiscoveryResult::OwnershipLost;
+            }
+            if (!stillPermitted)
             {
                 return fault(state, LeDiscoveryResult::OwnershipLost);
             }
@@ -656,6 +733,7 @@ namespace simpleath
         {
             return LeDiscoveryResult::InvalidArgument;
         }
+        const uint64_t priorGeneration = state.generation;
         if (!transport.attached || transport.faulted ||
             transport.epoch != host.ownerEpoch ||
             host.ownerEpoch != owner.epoch ||
@@ -677,12 +755,21 @@ namespace simpleath
         {
             return LeDiscoveryResult::Busy;
         }
+        if (state.generation != priorGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
         if (!authorize(owner.context, owner.epoch, interval, window))
         {
             return LeDiscoveryResult::Unauthorized;
         }
         // A policy callback can revoke USB ownership or reset the scan
         // state. Recheck both before sending an active RF command.
+        if (state.generation != priorGeneration &&
+            state.phase == LeScanPhase::Idle)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
         return beginLegacyScan(state, transport, host, owner, interval, window,
                                true);
     }
@@ -699,7 +786,18 @@ namespace simpleath
         {
             return LeDiscoveryResult::Faulted;
         }
-        if (!authorized(state, transport, host, owner))
+        const uint64_t requestEpoch = state.epoch;
+        const uint64_t requestSerial = state.generation;
+        const uint64_t requestGeneration = transport.generation;
+        const LeScanPhase requestPhase = state.phase;
+        const bool permitted = authorized(state, transport, host, owner);
+        if (state.epoch != requestEpoch || state.phase != requestPhase ||
+            state.generation != requestSerial ||
+            transport.generation != requestGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
+        if (!permitted)
         {
             return fault(state, LeDiscoveryResult::OwnershipLost);
         }
@@ -714,7 +812,22 @@ namespace simpleath
             return LeDiscoveryResult::Ok;
         }
         state.phase = LeScanPhase::AwaitDisable;
-        if (sendEnable(transport, host, false) != LeDiscoveryResult::Ok)
+        const LeDiscoveryResult sent = sendEnable(transport, host, false);
+        if (state.phase == LeScanPhase::Idle && sent == LeDiscoveryResult::Ok &&
+            !transport.commandWindow.pending &&
+            transport.generation == requestGeneration)
+        {
+            // An inline HCI Command Complete may retire the scan while the
+            // USB submit frame is unwinding. This is a real ACK, not a lost
+            // epoch. An unacknowledged disable never grants that result.
+            return LeDiscoveryResult::Ok;
+        }
+        if (state.epoch != requestEpoch || state.generation != requestSerial ||
+            transport.generation != requestGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
+        if (sent != LeDiscoveryResult::Ok)
         {
             return fault(state, LeDiscoveryResult::TransportFailed);
         }
@@ -727,7 +840,15 @@ namespace simpleath
         {
             return LeDiscoveryResult::Ok;
         }
-        if (!authorized(state, transport, host, owner))
+        const LeScanPhase afterSendPhase = state.phase;
+        const bool stillPermitted = authorized(state, transport, host, owner);
+        if (state.epoch != requestEpoch || state.phase != afterSendPhase ||
+            state.generation != requestSerial ||
+            transport.generation != requestGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
+        if (!stillPermitted)
         {
             return fault(state, LeDiscoveryResult::OwnershipLost);
         }
@@ -748,7 +869,18 @@ namespace simpleath
         {
             return LeDiscoveryResult::Faulted;
         }
-        if (!authorized(state, transport, host, owner))
+        const uint64_t ingressEpoch = state.epoch;
+        const uint64_t ingressSerial = state.generation;
+        const uint64_t ingressGeneration = transport.generation;
+        const LeScanPhase ingressPhase = state.phase;
+        const bool permitted = authorized(state, transport, host, owner);
+        if (state.epoch != ingressEpoch || state.phase != ingressPhase ||
+            state.generation != ingressSerial ||
+            transport.generation != ingressGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
+        if (!permitted)
         {
             return fault(state, LeDiscoveryResult::OwnershipLost);
         }
@@ -795,11 +927,18 @@ namespace simpleath
         }
         const LeDiscoveryResult result =
             dispatchReports(state, transport, host, owner, event, bytes);
+        if (result != LeDiscoveryResult::Ok &&
+            (state.epoch != ingressEpoch || state.phase != ingressPhase ||
+             state.generation != ingressSerial ||
+             transport.generation != ingressGeneration))
+        {
+            return LeDiscoveryResult::OwnershipLost;
+        }
         return result == LeDiscoveryResult::Ok ? result : fault(state, result);
     }
 
     void revokeLeDiscovery(LeDiscoveryState &state)
     {
-        state = {};
+        clearDiscovery(state);
     }
 } // namespace simpleath
