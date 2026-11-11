@@ -47,6 +47,7 @@ class SimpleATHTahoeController final : public IO80211Controller
         explicit SimpleATHTahoeController(const OSMetaClass *meta);
 
     public:
+        bool init(OSDictionary *properties) override;
         bool start(IOService *provider) override;
         void stop(IOService *provider) override;
 

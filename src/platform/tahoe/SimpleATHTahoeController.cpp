@@ -75,39 +75,67 @@ OSDefineDefaultStructors(SimpleATHTahoeController, IO80211Controller)
     }
 }
 
+// Emit milestone pairs around the native IO80211 initialization boundary.
+// The physical owner has already reached DMA preparation on the Dell, but
+// OpenCore logs end at ExitBootServices; the first missing "ready" marker
+// helps isolate any synchronous native call that did not return during boot.
+bool SimpleATHTahoeController::init(OSDictionary *properties)
+{
+    IOLog("SimpleATH Tahoe: IO80211InitEnter\n");
+    if (!IO80211Controller::init(properties))
+    {
+        IOLog("SimpleATH Tahoe: IO80211InitFailed\n");
+        return false;
+    }
+    IOLog("SimpleATH Tahoe: IO80211InitReady\n");
+    return true;
+}
+
 bool SimpleATHTahoeController::start(IOService *provider)
 {
     if (provider == nullptr)
     {
         return false;
     }
+    IOLog("SimpleATH Tahoe: ControllerStartEnter\n");
     const auto diagnostics = simpleath::readNativeDiagnostics();
     simpleath::publishNativeDiagnostics(this, diagnostics);
     // Require an actual PCI epoch, radio owner and callback contract before
     // allowing the native superclass to publish any interface state.
+    IOLog("SimpleATH Tahoe: ProviderBindEnter\n");
     if (transport_.bind(provider) != kIOReturnSuccess)
     {
+        IOLog("SimpleATH Tahoe: ProviderBindFailed\n");
         setProperty("SimpleATHNativeFailureStage", "ProviderBind");
         return false;
     }
     // Native createWorkQueue/getWorkQueue base implementations are false/null
     // in 25G332. Supply the actual IO80211 queue before CoreCapture or WCL
     // starts: an ordinary IOWorkLoop is not a compatible replacement.
+    IOLog("SimpleATH Tahoe: ProviderBindReady\n");
+    IOLog("SimpleATH Tahoe: WorkQueueEnter\n");
     if (!createWorkQueue())
     {
+        IOLog("SimpleATH Tahoe: WorkQueueFailed\n");
         setProperty("SimpleATHNativeFailureStage", "WorkQueue");
         transport_.unbind();
         return false;
     }
+    IOLog("SimpleATH Tahoe: WorkQueueReady\n");
+    IOLog("SimpleATH Tahoe: CoreCaptureEnter\n");
     if (!capture_.start(this, workQueue_))
     {
+        IOLog("SimpleATH Tahoe: CoreCaptureFailed\n");
         setProperty("SimpleATHNativeFailureStage", "CoreCapture");
         transport_.unbind();
         capture_.stop();
         return false;
     }
+    IOLog("SimpleATH Tahoe: CoreCaptureReady\n");
+    IOLog("SimpleATH Tahoe: IO80211StartEnter\n");
     if (!IO80211Controller::start(provider))
     {
+        IOLog("SimpleATH Tahoe: IO80211StartFailed\n");
         setProperty("SimpleATHNativeFailureStage", "IO80211Start");
         // The superclass may have constructed WCL event sources before a
         // later stage failed. Retire those while logging/queue remain valid.
@@ -116,35 +144,50 @@ bool SimpleATHTahoeController::start(IOService *provider)
         capture_.stop();
         return false;
     }
+    IOLog("SimpleATH Tahoe: IO80211StartReady\n");
     started_ = true;
+    IOLog("SimpleATH Tahoe: InfraInitEnter\n");
     infrastructure_ = new SimpleATHInfraProtocol;
     if (infrastructure_ == nullptr || !infrastructure_->initialize(this))
     {
+        IOLog("SimpleATH Tahoe: InfraInitFailed\n");
         setProperty("SimpleATHNativeFailureStage", "InfraInit");
         stop(provider);
         return false;
     }
+    IOLog("SimpleATH Tahoe: InfraInitReady\n");
+    IOLog("SimpleATH Tahoe: InfraAttachEnter\n");
     if (!infrastructure_->attach(this))
     {
+        IOLog("SimpleATH Tahoe: InfraAttachFailed\n");
         setProperty("SimpleATHNativeFailureStage", "InfraAttach");
         stop(provider);
         return false;
     }
+    IOLog("SimpleATH Tahoe: InfraAttachReady\n");
     infrastructureAttached_ = true;
+    IOLog("SimpleATH Tahoe: NativeAttachEnter\n");
     if (!attachInterface(infrastructure_, this))
     {
+        IOLog("SimpleATH Tahoe: NativeAttachFailed\n");
         setProperty("SimpleATHNativeFailureStage", "NativeAttach");
         stop(provider);
         return false;
     }
+    IOLog("SimpleATH Tahoe: NativeAttachReady\n");
     nativeAttached_ = true;
+    IOLog("SimpleATH Tahoe: InfraStartEnter\n");
     if (!infrastructure_->start(this))
     {
+        IOLog("SimpleATH Tahoe: InfraStartFailed\n");
         setProperty("SimpleATHNativeFailureStage", "InfraStart");
         stop(provider);
         return false;
     }
+    IOLog("SimpleATH Tahoe: InfraStartReady\n");
+    IOLog("SimpleATH Tahoe: InfraPublishEnter\n");
     infrastructure_->registerService();
+    IOLog("SimpleATH Tahoe: InfraPublishReady\n");
     infrastructurePublished_ = true;
     removeProperty("SimpleATHNativeFailureStage");
     if (diagnostics.detailed)
