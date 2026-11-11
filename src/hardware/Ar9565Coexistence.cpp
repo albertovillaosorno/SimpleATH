@@ -48,6 +48,9 @@ namespace simpleath
         constexpr uint32_t kPcuMisc = 0x8120;
         constexpr uint32_t kBtLnaTimeout = 0x1940;
         constexpr uint32_t kMciMessageAttributes = 0x1814;
+        constexpr uint32_t kMciCommand2 = 0x1808;
+        constexpr uint32_t kMciResetTx = 0x1U;
+        constexpr uint32_t kMciResetRx = 0x2U;
         constexpr uint32_t kMciGpmConfiguredLengthMask = 0x0000ffffU;
         constexpr uint32_t kBtTxChainMask = 0x00380000U;
         constexpr uint32_t kBtAntennaPreventsRx = 0x00100000U;
@@ -101,6 +104,80 @@ namespace simpleath
             }
             status.result = CoexistenceResult::OwnershipLost;
             return false;
+        }
+
+        bool observe(const RxAgcBackend &backend, CoexistenceProgress &status,
+                     const RegisterOperation &expected)
+        {
+            status.lastOffset = expected.offset;
+            if (!permit(backend.io, status))
+            {
+                return false;
+            }
+            uint32_t actual = 0U;
+            if (!backend.read32(backend.io.context, expected.offset, &actual))
+            {
+                status.result = CoexistenceResult::ReadFailed;
+                return false;
+            }
+            ++status.completedReads;
+            if ((actual & expected.mask) != (expected.value & expected.mask))
+            {
+                status.result = CoexistenceResult::ReadbackMismatch;
+                return false;
+            }
+            return true;
+        }
+
+        bool pulseMciReset(const RxAgcBackend &backend,
+                           CoexistenceProgress &status, uint32_t bit)
+        {
+            const RfIniBackend &io = backend.io;
+            status.lastOffset = kMciCommand2;
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            uint32_t original = 0U;
+            if (!backend.read32(io.context, kMciCommand2, &original))
+            {
+                status.result = CoexistenceResult::ReadFailed;
+                return false;
+            }
+            ++status.completedReads;
+            if ((original & (kMciResetTx | kMciResetRx)) != 0U)
+            {
+                status.result = CoexistenceResult::ReadbackMismatch;
+                return false;
+            }
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            status.requiresReset = true;
+            if (!io.write32(io.context, kMciCommand2, original | bit))
+            {
+                status.result = CoexistenceResult::WriteFailed;
+                return false;
+            }
+            ++status.completedWrites;
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            io.delayMicros(io.context, 1U);
+            if (!permit(io, status))
+            {
+                return false;
+            }
+            if (!io.write32(io.context, kMciCommand2, original))
+            {
+                status.result = CoexistenceResult::WriteFailed;
+                return false;
+            }
+            ++status.completedWrites;
+            return observe(backend, status,
+                           {kMciCommand2, kMciResetTx | kMciResetRx, 0U});
         }
 
         bool apply(const RxAgcBackend &backend, CoexistenceProgress &status,
@@ -286,21 +363,8 @@ namespace simpleath
         progress.result = CoexistenceResult::OwnershipLost;
         for (const RegisterOperation &expected : staged)
         {
-            progress.lastOffset = expected.offset;
-            if (!permit(io, progress))
+            if (!observe(stable, progress, expected))
             {
-                return progress;
-            }
-            uint32_t actual = 0U;
-            if (!stable.read32(io.context, expected.offset, &actual))
-            {
-                progress.result = CoexistenceResult::ReadFailed;
-                return progress;
-            }
-            ++progress.completedReads;
-            if ((actual & expected.mask) != (expected.value & expected.mask))
-            {
-                progress.result = CoexistenceResult::ReadbackMismatch;
                 return progress;
             }
         }
@@ -359,6 +423,138 @@ namespace simpleath
         {
             return progress;
         }
+        progress.result = CoexistenceResult::Ok;
+        progress.requiresReset = false;
+        return progress;
+    }
+
+    CoexistenceProgress
+    resetAr9565SharedMciRxTx(const BoardDataSummary &board,
+                             const SharedMciEvidence &evidence,
+                             const SharedMciDmaBuffers &buffers,
+                             const SharedMciAntennaSelection &antenna,
+                             const SharedMciResetEvidence &resetEvidence,
+                             const RxAgcBackend &backend, MciGpmCursor &cursor)
+    {
+        CoexistenceProgress progress {
+            CoexistenceResult::InvalidBackend, 0, 0, 0, false,
+        };
+        const RxAgcBackend stable = backend;
+        const RfIniBackend &io = stable.io;
+        if (io.context == nullptr || io.ownerEpoch == 0U ||
+            io.permitWrite == nullptr || io.write32 == nullptr ||
+            io.delayMicros == nullptr || stable.read32 == nullptr)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBoard;
+        if (board.eepromVersion != 2 || board.txChainMask != kSingleChain ||
+            board.rxChainMask != kSingleChain ||
+            !board.calibrationPierBinsPlausible)
+        {
+            return progress;
+        }
+        const bool oneShared =
+            antenna.topology == SharedMciAntennaTopology::OneSharedPaAndLna;
+        progress.result = CoexistenceResult::MissingIsolation;
+        if (!evidence.physicallyVerifiedBoard || !evidence.bluetoothHostOwned ||
+            !evidence.coexistenceAndAntennaLease ||
+            !evidence.macAndAutoResponsesQuiesced ||
+            !evidence.mciEngineQuiesced || !evidence.initializedCoherentDma ||
+            !antenna.physicallyVerifiedTopology ||
+            (!oneShared &&
+             antenna.topology != SharedMciAntennaTopology::TwoIndependent) ||
+            !resetEvidence.bluetoothControllerQuiesced ||
+            !resetEvidence.pendingGpmTrafficSettled)
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidDma;
+        if (!validSharedDma(buffers))
+        {
+            return progress;
+        }
+        progress.result = CoexistenceResult::InvalidBar;
+        if (io.barLengthBytes < kGlobalControl + sizeof(uint32_t))
+        {
+            return progress;
+        }
+        // Verify physical DMA and AR9565 antenna stage were both completed
+        // and remain quiesced. Nothing is trusted from the caller's old
+        // result value, and every read checks the live owner epoch.
+        const RegisterOperation expected[] {
+            {kSelfGeneratedMask, 0xffffffffU, 0U},
+            {kMciInterruptEnable, 0xffffffffU, 0U},
+            {kMciReceiveMessageEnable, 0xffffffffU, 0U},
+            {kMciRemoteCpuInterruptEnable, 0xffffffffU, 0U},
+            {
+                kBtCoexistenceControl,
+                0xffffffffU,
+                kBtMciBaseMode | kBtSharedRxChain |
+                    (oneShared ? kBtSharedPaAndLna | kBtOneAntenna
+                               : kBtTwoAntennas),
+            },
+            {
+                kBtCoexistenceControl2,
+                kBtTxChainMask | kBtRxDeweight,
+                oneShared ? kBtOneTxChain : 0U,
+            },
+            {kGlobalControl, 0x1U, 0x1U},
+            {kMciMessageAttributes, 0xffffffffU, kMciMessageAttributesValue},
+            {
+                kMciTransmitControl,
+                kMciDisableLnaUpdate,
+                oneShared ? 0U : kMciDisableLnaUpdate,
+            },
+            {kMciGpmAddress, 0xffffffffU, buffers.gpmBusAddress},
+            {kMciGpmEntries, kMciGpmConfiguredLengthMask, buffers.gpmEntries},
+            {kMciScheduleAddress, 0xffffffffU, buffers.scheduleBusAddress},
+        };
+        progress.result = CoexistenceResult::OwnershipLost;
+        for (const RegisterOperation &item : expected)
+        {
+            if (!observe(stable, progress, item))
+            {
+                return progress;
+            }
+        }
+        // All preflight checks succeeded. From the first write onward, any
+        // old GPM view is invalid, including when the new reset fails.
+        cursor = {};
+        if (!apply(stable, progress,
+                   {kBtCoexistenceControl, kMciModeEnable, kMciModeEnable}))
+        {
+            return progress;
+        }
+        if (!pulseMciReset(stable, progress, kMciResetTx) ||
+            !pulseMciReset(stable, progress, kMciResetRx))
+        {
+            return progress;
+        }
+        progress.lastOffset = kMciGpmEntries;
+        if (!permit(io, progress))
+        {
+            return progress;
+        }
+        uint32_t head = 0U;
+        if (!stable.read32(io.context, kMciGpmEntries, &head))
+        {
+            progress.result = CoexistenceResult::ReadFailed;
+            return progress;
+        }
+        ++progress.completedReads;
+        MciGpmCursor fresh {};
+        if (attachAr9565MciGpm(io.ownerEpoch, head, fresh) !=
+            MciGpmResult::Empty)
+        {
+            progress.result = CoexistenceResult::InvalidGpm;
+            return progress;
+        }
+        if (!permit(io, progress))
+        {
+            return progress;
+        }
+        cursor = fresh;
         progress.result = CoexistenceResult::Ok;
         progress.requiresReset = false;
         return progress;

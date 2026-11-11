@@ -14,12 +14,16 @@ namespace
     constexpr uint32_t kBar = 0x24000;
     constexpr uint32_t kSeed = 0xffffffffU;
     constexpr size_t kSteps = 10;
-    constexpr size_t kTotalRegisters = 17;
+    constexpr size_t kTotalRegisters = 18;
     constexpr size_t kSharedMciStageSteps = 8;
     constexpr size_t kSharedAntennaStageSteps = 8;
     constexpr uint32_t kMciScheduleAddress = 0x1818;
     constexpr uint32_t kMciGpmAddress = 0x1820;
     constexpr uint32_t kMciGpmEntries = 0x1824;
+    constexpr uint32_t kMciCommand2 = 0x1808;
+    constexpr uint32_t kResetTx = 1U;
+    constexpr uint32_t kResetRx = 2U;
+    constexpr uint32_t kFinalWritePointer = 5U;
     constexpr uint32_t kPhysicalScheduleAddress = 0x00100000U;
     constexpr uint32_t kInvalidGpmOffset = 16U;
     constexpr uint32_t kMciEnableBit = 0x4U;
@@ -62,6 +66,7 @@ namespace
     constexpr int kFailedSharedMci = 5;
     constexpr int kFailedGpm = 6;
     constexpr int kFailedAntenna = 7;
+    constexpr int kFailedMciReset = 8;
 
     struct Register
     {
@@ -90,9 +95,13 @@ namespace
                     {kPcuMisc, kSeed},
                     {kLnaTimeout, kSeed},
                     {kMciAttributes, kSeed},
+                    {kMciCommand2, 0U},
                 },
             };
             std::array<uint32_t, kTotalRegisters> writeOrder {};
+            std::array<uint32_t, kTotalRegisters> writeValues {};
+            size_t delays {};
+            bool invalidateGpmAfterReset {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -148,6 +157,7 @@ namespace
         if (mock.writes <= mock.writeOrder.size())
         {
             mock.writeOrder.at(mock.writes - 1) = address;
+            mock.writeValues.at(mock.writes - 1) = bits;
         }
         if (mock.writes == mock.failWrite)
         {
@@ -162,11 +172,21 @@ namespace
         {
             reg->bits = bits;
         }
+        if (mock.invalidateGpmAfterReset && address == kMciCommand2 &&
+            bits == 0U && mock.writes == 5U)
+        {
+            find(mock, kMciGpmEntries)->bits |= 0xffff0000U;
+        }
         return true;
     }
 
-    void delay(void * /*context*/, uint32_t /*micros*/)
+    void delay(void *context, uint32_t micros)
     {
+        auto &mock = *static_cast<Mock *>(context);
+        if (micros == 1U)
+        {
+            ++mock.delays;
+        }
     }
 
     RxAgcBackend io(Mock &mock)
@@ -531,6 +551,164 @@ namespace
         return true;
     }
 
+    bool sharedMciResetTests()
+    {
+        const auto physicalBoard = board();
+        const auto evidence = sharedAuthorized();
+        const auto physicalDma = sharedBuffers();
+        const SharedMciResetEvidence resetReady {true, true};
+        const SharedMciAntennaSelection topologyOne {
+            SharedMciAntennaTopology::OneSharedPaAndLna,
+            true,
+        };
+        const SharedMciAntennaSelection topologyTwo {
+            SharedMciAntennaTopology::TwoIndependent,
+            true,
+        };
+        for (const auto &topology : {topologyOne, topologyTwo})
+        {
+            Mock mock {};
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                        .result != CoexistenceResult::Ok ||
+                stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, topology, io(mock))
+                        .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            find(mock, kMciGpmEntries)->bits =
+                (kFinalWritePointer << 16U) | kAr9565MciGpmEntries;
+            mock.writes = mock.reads = mock.permits = mock.delays = 0U;
+            MciGpmCursor cursor {kEpoch - 1U, 11U, true};
+            const auto result = resetAr9565SharedMciRxTx(
+                physicalBoard, evidence, physicalDma, topology, resetReady,
+                io(mock), cursor);
+            if (result.result != CoexistenceResult::Ok ||
+                result.requiresReset || result.completedWrites != 5U ||
+                mock.writes != 5U || mock.delays != 2U || !cursor.attached ||
+                cursor.ownerEpoch != kEpoch ||
+                cursor.nextIndex != kFinalWritePointer ||
+                find(mock, kMciControl)->bits !=
+                    ((topology.topology ==
+                              SharedMciAntennaTopology::OneSharedPaAndLna
+                          ? kOneAntennaMode
+                          : kTwoAntennaMode) |
+                     kMciEnableBit) ||
+                find(mock, kMciCommand2)->bits != 0U ||
+                find(mock, kMciInterrupt)->bits != 0U ||
+                find(mock, kSelfGen)->bits != 0U ||
+                mock.writeOrder.at(0U) != kMciControl ||
+                mock.writeOrder.at(1U) != kMciCommand2 ||
+                mock.writeOrder.at(2U) != kMciCommand2 ||
+                mock.writeOrder.at(3U) != kMciCommand2 ||
+                mock.writeOrder.at(4U) != kMciCommand2 ||
+                mock.writeValues.at(1U) != kResetTx ||
+                mock.writeValues.at(2U) != 0U ||
+                mock.writeValues.at(3U) != kResetRx ||
+                mock.writeValues.at(4U) != 0U)
+            {
+                return false;
+            }
+        }
+        {
+            Mock mock {};
+            MciGpmCursor cursor {kEpoch - 1U, 7U, true};
+            if (resetAr9565SharedMciRxTx(physicalBoard, evidence, physicalDma,
+                                         topologyOne, resetReady, io(mock),
+                                         cursor)
+                        .result != CoexistenceResult::ReadbackMismatch ||
+                mock.writes != 0U || cursor.nextIndex != 7U)
+            {
+                return false;
+            }
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                        .result != CoexistenceResult::Ok ||
+                stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, topologyOne, io(mock))
+                        .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = mock.reads = mock.permits = 0U;
+            const SharedMciResetEvidence denied {false, true};
+            if (resetAr9565SharedMciRxTx(physicalBoard, evidence, physicalDma,
+                                         topologyOne, denied, io(mock), cursor)
+                        .result != CoexistenceResult::MissingIsolation ||
+                mock.writes != 0U || cursor.nextIndex != 7U)
+            {
+                return false;
+            }
+            auto missingDelay = io(mock);
+            missingDelay.io.delayMicros = nullptr;
+            if (resetAr9565SharedMciRxTx(physicalBoard, evidence, physicalDma,
+                                         topologyOne, resetReady, missingDelay,
+                                         cursor)
+                        .result != CoexistenceResult::InvalidBackend ||
+                mock.writes != 0U)
+            {
+                return false;
+            }
+            find(mock, kMciInterrupt)->bits = 1U;
+            if (resetAr9565SharedMciRxTx(physicalBoard, evidence, physicalDma,
+                                         topologyOne, resetReady, io(mock),
+                                         cursor)
+                        .result != CoexistenceResult::ReadbackMismatch ||
+                mock.writes != 0U || cursor.nextIndex != 7U)
+            {
+                return false;
+            }
+        }
+        for (size_t scenario = 0U; scenario < 4U; ++scenario)
+        {
+            Mock mock {};
+            if (stageAr9565SharedMciDma(physicalBoard, evidence, physicalDma,
+                                        io(mock))
+                        .result != CoexistenceResult::Ok ||
+                stageAr9565SharedMciAntenna(physicalBoard, evidence,
+                                            physicalDma, topologyOne, io(mock))
+                        .result != CoexistenceResult::Ok)
+            {
+                return false;
+            }
+            mock.writes = mock.reads = mock.permits = 0U;
+            if (scenario == 0U)
+            {
+                mock.failWrite = 2U;
+            }
+            else if (scenario == 1U)
+            {
+                mock.revokeAfter = 2U;
+            }
+            else if (scenario == 2U)
+            {
+                mock.invalidateGpmAfterReset = true;
+            }
+            else
+            {
+                mock.failRead = 1U;
+            }
+            MciGpmCursor cursor {kEpoch - 1U, 7U, true};
+            const auto result = resetAr9565SharedMciRxTx(
+                physicalBoard, evidence, physicalDma, topologyOne, resetReady,
+                io(mock), cursor);
+            const auto expected =
+                scenario == 0U   ? CoexistenceResult::WriteFailed
+                : scenario == 1U ? CoexistenceResult::OwnershipLost
+                : scenario == 2U ? CoexistenceResult::InvalidGpm
+                                 : CoexistenceResult::ReadFailed;
+            if (result.result != expected ||
+                result.requiresReset != (scenario != 3U) ||
+                cursor.attached == (scenario != 3U) ||
+                (scenario == 3U && cursor.nextIndex != 7U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool sharedGpmTests()
     {
         constexpr uint32_t kRingEntries = 16U;
@@ -733,6 +911,10 @@ int main()
     if (!sharedAntennaTests())
     {
         return kFailedAntenna;
+    }
+    if (!sharedMciResetTests())
+    {
+        return kFailedMciReset;
     }
     if (!sharedGpmTests())
     {

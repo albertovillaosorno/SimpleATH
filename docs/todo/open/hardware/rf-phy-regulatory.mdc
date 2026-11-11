@@ -183,6 +183,18 @@ Bluetooth GPM handshake, IRQ processing, coexistence calibration and active
 radio authority still need end-to-end source integration; this step does
 not establish functional Bluetooth, scanning or Wi-Fi readiness.
 
+A subsequent source-only MCI reset stage now rechecks the coherent DMA
+ring addresses, AR9565 antenna topology, disabled interrupt and autonomous
+reply masks in the live owner epoch; it also requires an independent Bluetooth
+quiescence lease and settled GPM traffic. Only then does it enable MCI mode,
+pulse TX and RX reset bits with one-microsecond holds and read back the live
+GPM head into a new epoch-bound cursor. Failed writes or ownership revocation
+invalidate the cursor and require hardware reset. Offline C++14/C++17
+sanitized fixtures cover pulse order, both antenna modes, stale DMA, absent
+leases, invalid head and partial reset errors. **The native PCI owner still
+does not invoke this stage**; no MCI IRQ or GPM handshake is armed and
+coexistence, native radio and Bluetooth runtime remain incomplete.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.

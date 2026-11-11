@@ -60,6 +60,7 @@ namespace simpleath
         WriteFailed,
         ReadbackMismatch,
         InvalidDma,
+        InvalidGpm,
     };
 
     struct CoexistenceProgress
@@ -143,6 +144,33 @@ namespace simpleath
     // This only snapshots an index; it does not configure or enable MCI.
     MciGpmResult attachAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
                                     MciGpmCursor &cursor);
+
+    struct SharedMciResetEvidence
+    {
+            // The native BT USB/HCI owner must hold a real, same-epoch
+            // quiescence lease and have settled outstanding GPM traffic
+            // before destructive MCI RX/TX reset. Host ownership alone is
+            // insufficient; EEPROM or firmware-loader IDs prove neither.
+            bool bluetoothControllerQuiesced {};
+            bool pendingGpmTrafficSettled {};
+    };
+
+    // The source-level AR9565 MCI reset phase AFTER coherent rings and
+    // antenna registers have been staged in this exact owner epoch.
+    // Rechecks all critical state, enables MCI mode, pulses TX then RX reset
+    // with mandatory microsecond holds, and snapshots the live GPM write
+    // pointer only after reset. MCI interrupts and WLAN automatic responses
+    // stay OFF. The caller owns serialization, write-posting drains, true
+    // Bluetooth quiescence and eventual BT handshake/interrupt activation.
+    // On a partial write or owner loss, the old cursor is revoked and a
+    // hardware reset is required. No success value here authorizes RF TX/RX.
+    CoexistenceProgress
+    resetAr9565SharedMciRxTx(const BoardDataSummary &board,
+                             const SharedMciEvidence &evidence,
+                             const SharedMciDmaBuffers &buffers,
+                             const SharedMciAntennaSelection &antenna,
+                             const SharedMciResetEvidence &resetEvidence,
+                             const RxAgcBackend &backend, MciGpmCursor &cursor);
 
     // Consume the oldest previously unconsumed GPM slot in ring order,
     // skipping the ath9k 0xfe reserved slots. The caller MUST synchronize
