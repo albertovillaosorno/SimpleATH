@@ -40,7 +40,7 @@ from pathlib import Path
 import shutil
 
 # Only an explicitly requested local compiler and generated fixture are run.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 from typing import TYPE_CHECKING
 
 if __package__:
@@ -176,7 +176,7 @@ def run_probe(
         encoding="utf-8",
     )
     _ = host.write_text(source, encoding="utf-8")
-    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+    _ = subprocess.run(
         [
             xcrun,
             "clang++",
@@ -197,7 +197,7 @@ def run_probe(
         shell=False,
         timeout=120,
     )
-    output = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+    output = subprocess.check_output(
         [str(executable)], text=True, shell=False, timeout=60
     )
     return checked_counts(output, method_count)

@@ -42,7 +42,7 @@ those slots as allocatePacketNoWait/setHardwareAssists virtual methods.
 from pathlib import Path
 import re
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 import unittest
 
@@ -114,7 +114,7 @@ def _run(
         Process status plus captured compiler diagnostics.
 
     """
-    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+    return subprocess.run(
         args,
         input=source,
         capture_output=True,

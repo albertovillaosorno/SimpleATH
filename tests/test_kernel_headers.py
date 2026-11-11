@@ -39,7 +39,7 @@ import re
 import shutil
 
 # Reviewed boundary: isolated compiler syntax checks, never kernel linking.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -150,7 +150,7 @@ class FreestandingKernelHeaders(unittest.TestCase):
         """
         compiler = shutil.which("clang++")
         assert compiler is not None
-        resource = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        resource = subprocess.run(
             [compiler, "-print-resource-dir"],
             shell=False,
             check=True,
@@ -171,7 +171,7 @@ void construct() {
     (void)new (static_cast<void *>(storage)) Object{1, 2};
 }
 """
-        result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        result = subprocess.run(
             [
                 compiler,
                 "-std=c++14",
@@ -206,7 +206,7 @@ void construct() {
         """
         compiler = shutil.which("clang++")
         assert compiler is not None, "Clang compiler is required"
-        resource = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        resource = subprocess.run(
             [compiler, "-print-resource-dir"],
             shell=False,
             check=True,
@@ -218,7 +218,7 @@ void construct() {
         assert (builtin / "stddef.h").is_file()
         for standard in FREESTANDING_CXX_STANDARDS:
             for unit in POWER_SOURCE_UNITS:
-                result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                result = subprocess.run(
                     [
                         compiler,
                         f"-std={standard}",

@@ -49,8 +49,9 @@ import plistlib
 import re
 import shutil
 import struct
+
 # Reviewed argv-only local commands.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 import tempfile
 from typing import Protocol
@@ -164,7 +165,7 @@ def package_name(
     sha = (
         sha
         or os.environ.get("GITHUB_SHA")
-        or subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed git argv.
+        or subprocess.check_output(
             [_installed_executable("git"), "rev-parse", "HEAD"],
             cwd=ROOT,
             text=True,
@@ -863,7 +864,7 @@ def _verified_binary(
     require_invariant(info["CFBundleIdentifier"] == BUNDLE_IDENTIFIER)
     require_invariant(not any(LILU_IDENTIFIER in name for name in libraries))
     undefined = set(
-        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed nm argv.
+        subprocess.check_output(
             [_installed_executable("nm"), "-u", "-j", str(binary)],
             text=True,
         ).splitlines()
@@ -1046,7 +1047,7 @@ def _host_executable(temp: Path) -> Path:
     )
     _ = (temp / "Payloads.S").write_text(assembly)
     executable = temp / "verify"
-    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed xcrun argv.
+    _ = subprocess.run(
         [
             _installed_executable("xcrun"),
             "clang++",
@@ -1153,7 +1154,7 @@ def _run_system_host(
     runs: list[Mapping[str, object]] = []
     for far in (False, True):
         # Source-only host fixture path and arguments are explicitly bounded.
-        output = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true] - No shell.
+        output = subprocess.check_output(
             [
                 str(context.executable),
                 str(context.temp / "imports.bin"),
@@ -1284,7 +1285,7 @@ def build(configuration: str, *, analyze: bool = False) -> None:
         action,
     ]
     with log.open("w") as output:
-        result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argv.
+        result = subprocess.run(
             command, stdout=output, stderr=subprocess.STDOUT, check=False
         )
     diagnostics = [

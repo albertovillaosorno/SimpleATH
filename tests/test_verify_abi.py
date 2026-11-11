@@ -36,7 +36,7 @@
 
 from pathlib import Path
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import tempfile
 from unittest import TestCase
 from unittest import mock

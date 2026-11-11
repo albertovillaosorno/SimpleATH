@@ -53,8 +53,9 @@ import json
 import os
 from pathlib import Path
 import stat
+
 # Export-only nm with a fixed argv and no shell.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 from typing import Protocol
 from typing import TypeIs
@@ -950,9 +951,9 @@ def _export_inputs(
         TypeError: The legacy preparation operation is unavailable.
 
     """
-    from embed import OUTPUT  # ruff: ignore[import-outside-top-level] - Explicit export operation.
-    from embed import generate  # ruff: ignore[import-outside-top-level] - Explicit export operation.
-    from native_payload import SkywalkPlan  # ruff: ignore[import-outside-top-level] - Explicit export operation.
+    from embed import OUTPUT
+    from embed import generate
+    from native_payload import SkywalkPlan
 
     os.environ["SIMPLEATH_NATIVE_SOURCE"] = "system"
     generate()
@@ -960,7 +961,7 @@ def _export_inputs(
     required = set(_strings(manifest.get("nativeImports")))
     required.update(
         # Fixed argv, export-only nm.
-        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+        subprocess.check_output(
             [NM_PROGRAM, "-u", "-j", str(binary)], text=True
         ).splitlines()
     )

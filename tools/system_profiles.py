@@ -301,7 +301,7 @@ def validate_reference_systems() -> dict[str, dict[str, str]]:
 
     """
     # The collection reader is loaded only for explicit system validation.
-    from kernel_collection import KernelCollection  # ruff: ignore[import-outside-top-level] - Avoid eager binary-reader imports.
+    from kernel_collection import KernelCollection
 
     if platform.system() != MACOS or platform.machine() != INTEL:
         message = "Build validation requires an Intel Mac"

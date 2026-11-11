@@ -44,8 +44,9 @@ import json
 from pathlib import Path
 import re
 import shutil
+
 # Diagnostics invoke fixed macOS utilities without a shell.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 from typing import NotRequired
 from typing import TYPE_CHECKING
@@ -114,7 +115,7 @@ def capture(command: list[str]) -> _CommandResult:
     try:
         # Command tokens are fixed here; only validated enN names are appended.
         # No shell, intentional diagnostics collection.
-        result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        result = subprocess.run(
             [executable, *command[1:]],
             capture_output=True,
             text=True,

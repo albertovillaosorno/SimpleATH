@@ -432,7 +432,7 @@ def _serialize_array(
     else:
         message = "Array initializer count/type mismatch"
         # Legacy initializer errors are ValueError.
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
+        raise ValueError(message)
 
 
 def _field_index(
@@ -464,7 +464,7 @@ def _serialize_struct(
     if not isinstance(value, list):
         message = "Structure initializer type mismatch"
         # Legacy initializer errors are ValueError.
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
+        raise ValueError(message)
     cursor = 0
     written: set[int] = set()
     for field, item in value:
@@ -481,7 +481,7 @@ def _serialize_scalar(
     if not isinstance(value, int):
         message = "Expected scalar initializer"
         # Legacy initializer errors are ValueError.
-        raise ValueError(message)  # ruff: ignore[type-check-without-type-error]
+        raise ValueError(message)
     bits = layout.size * 8
     low = -(1 << (bits - 1)) if layout.signed else 0
     high = (1 << (bits - (1 if layout.signed else 0))) - 1

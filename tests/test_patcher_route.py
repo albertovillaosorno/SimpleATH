@@ -36,7 +36,7 @@
 
 from pathlib import Path
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Fixed host-only commands.
+import subprocess
 import tempfile
 import unittest
 
@@ -84,7 +84,7 @@ class PatcherRoutingHostTests(unittest.TestCase):
             _ = test_source.write_bytes(FIXTURE.read_bytes())
             for standard in ("c++14", "c++17"):
                 executable = temporary / f"route-{standard}"
-                compiled = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                compiled = subprocess.run(
                     [
                         compiler,
                         f"-std={standard}",
@@ -108,7 +108,7 @@ class PatcherRoutingHostTests(unittest.TestCase):
                     timeout=30,
                 )
                 assert compiled.returncode == 0, compiled.stderr
-                run = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+                run = subprocess.run(
                     [str(executable)],
                     cwd=ROOT,
                     capture_output=True,

@@ -50,7 +50,7 @@ import shutil
 import signal
 
 # Reviewed boundary: installed linters and opt-in host tests use argv only.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 import tempfile
 from typing import Literal
@@ -333,7 +333,7 @@ def run_process(
     with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
         try:
             # Installed tools/test argv only; POSIX session isolates cleanup.
-            with subprocess.Popen(  # ruff: ignore[subprocess-without-shell-equals-true]
+            with subprocess.Popen(
                 argv,
                 cwd=cwd,
                 stdin=subprocess.DEVNULL,
@@ -506,11 +506,14 @@ def _command(tool: str, file: Path, root: Path) -> list[str] | None:
         ],
         "basedpyright": [
             "-p",
-            str(root / (
-                ".jig/lint/src/pyrightconfig.json"
-                if file.is_relative_to(root / "src")
-                else ".jig/lint/support/pyrightconfig.json"
-            )),
+            str(
+                root
+                / (
+                    ".jig/lint/src/pyrightconfig.json"
+                    if file.is_relative_to(root / "src")
+                    else ".jig/lint/support/pyrightconfig.json"
+                )
+            ),
             "--outputjson",
         ],
     }
@@ -900,7 +903,8 @@ def tidy_command_exists(root: Path, file: Path) -> bool:
     except OSError, ValueError, UnicodeError, RecursionError:
         return False
     return _object_list(entries) and any(
-        _compile_entry_target(entry, root) == file.resolve() for entry in entries
+        _compile_entry_target(entry, root) == file.resolve()
+        for entry in entries
     )
 
 

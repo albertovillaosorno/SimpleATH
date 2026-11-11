@@ -97,13 +97,12 @@ class Ath3kFirmwareTests(TestCase):
             "dict[str, dict[str, object]]", info["IOKitPersonalities"]
         )
         hci = [
-            entry for entry in personalities.values()
+            entry
+            for entry in personalities.values()
             if entry.get("IOClass") == HCI_CLASS
         ]
         assert len(hci) == len(HCI_VENDOR_IDS)
-        observed_vendors = {
-            cast("int", entry["idVendor"]) for entry in hci
-        }
+        observed_vendors = {cast("int", entry["idVendor"]) for entry in hci}
         assert observed_vendors == HCI_VENDOR_IDS
         for entry in hci:
             assert entry["IOProviderClass"] == "IOUSBHostInterface"

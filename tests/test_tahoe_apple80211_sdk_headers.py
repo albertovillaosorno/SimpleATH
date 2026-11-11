@@ -43,7 +43,7 @@ compiles the repository-owned fixed payload adapter as freestanding C++.
 from pathlib import Path
 import re
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -75,7 +75,7 @@ class Apple80211PrivateSdkHeaderRegression(unittest.TestCase):
         """Compile native value envelopes using only Clang C headers."""
         clang = shutil.which("clang++")
         assert clang is not None, "Clang C++ compiler is required"
-        resource = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        resource = subprocess.run(
             [clang, "-print-resource-dir"],
             capture_output=True,
             text=True,
@@ -103,7 +103,7 @@ class Apple80211PrivateSdkHeaderRegression(unittest.TestCase):
             "c++",
             "-",
         ]
-        result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        result = subprocess.run(
             command,
             input=source,
             capture_output=True,

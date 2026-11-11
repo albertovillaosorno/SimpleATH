@@ -127,8 +127,8 @@ class NativeModelSlotMappingTests(TestCase):
             mock.patch.object(native_abi, "table", side_effect=fake_table),
             mock.patch.object(native_abi, "method_key", side_effect=str),
         ):
-            model._map_native_class(PARENT)  # ruff: ignore[private-member-access]  # pyright: ignore[reportPrivateUsage]
-            model._map_legacy_class("BrcmTahoe", CHILD, PARENT)  # ruff: ignore[private-member-access]  # pyright: ignore[reportPrivateUsage]
+            model._map_native_class(PARENT)  # pyright: ignore[reportPrivateUsage]
+            model._map_legacy_class("BrcmTahoe", CHILD, PARENT)  # pyright: ignore[reportPrivateUsage]
         assert model.holes == [(PARENT, VIRTUAL_SLOT_BYTES, "removed")]
         assert model.old_views[PARENT] == [
             ("native", PARENT, 0),
@@ -179,10 +179,8 @@ class NativeModelSlotMappingTests(TestCase):
             mock.patch.object(native_abi, "table", side_effect=fake_table),
             mock.patch.object(native_abi, "method_key", side_effect=str),
         ):
-            model._map_native_class(PARENT)  # ruff: ignore[private-member-access]  # pyright: ignore[reportPrivateUsage]
+            model._map_native_class(PARENT)  # pyright: ignore[reportPrivateUsage]
             # Keep this regression in the standard-library unittest suite.
-            with self.assertRaisesRegex(  # ruff: ignore[pytest-unittest-raises-assertion]
-                ValueError, "Unmapped override"
-            ):
-                model._map_legacy_class("BrcmTahoe", CHILD, PARENT)  # ruff: ignore[private-member-access]  # pyright: ignore[reportPrivateUsage]
+            with self.assertRaisesRegex(ValueError, "Unmapped override"):
+                model._map_legacy_class("BrcmTahoe", CHILD, PARENT)  # pyright: ignore[reportPrivateUsage]
         assert CHILD not in model.tables

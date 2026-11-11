@@ -42,12 +42,16 @@ from tools import macho
 # These pure internals are intentionally tested without invoking the generator.
 # Synthetic byte model only.
 from tools.profiles import _ProfileImage  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+
 # Check safety gate directly.
 from tools.profiles import _copy_sites  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+
 # Test mask behavior directly.
 from tools.profiles import _guard_mismatch  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+
 # Check C++ layout directly.
 from tools.profiles import _profile_header  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
+
 # Synthetic codegen only.
 from tools.profiles import _profile_lines  # pyright: ignore[reportPrivateUsage]  # ruff: ignore[import-private-name]
 

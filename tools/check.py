@@ -46,8 +46,9 @@ import re
 import sys
 from typing import TYPE_CHECKING
 from typing import TypeIs
+
 # Parse only local Xcode scheme metadata.
-import xml.etree.ElementTree as ET  # ruff: ignore[suspicious-xml-etree-import]
+import xml.etree.ElementTree as ET
 
 from bootstrap import ROOT
 from build import fragment
@@ -137,9 +138,7 @@ def _check_project() -> None:
     for path in project.rglob("*.xcscheme"):
         # Schemes are local source-controlled build metadata, not network XML.
         # Parse local Xcode scheme source only.
-        for reference in ET.parse(path).iter(  # ruff: ignore[suspicious-xml-element-tree-usage]
-            "BuildableReference"
-        ):
+        for reference in ET.parse(path).iter("BuildableReference"):
             _ensure(
                 condition=reference.attrib["ReferencedContainer"]
                 == PROJECT_REFERENCE,

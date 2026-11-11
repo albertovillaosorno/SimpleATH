@@ -47,8 +47,9 @@ from pathlib import Path
 import re
 import shutil
 import stat
+
 # Fixed argv and explicit shell=False.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 
 if __package__:
@@ -878,7 +879,7 @@ class Image:
             raise FileNotFoundError(message)
         self._require_original_image()
         # Fixed argument vector without shell interpolation.
-        output = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        output = subprocess.run(
             [
                 xcrun,
                 "llvm-objdump",

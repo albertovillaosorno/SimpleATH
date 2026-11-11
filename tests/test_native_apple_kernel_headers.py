@@ -37,7 +37,7 @@
 
 from pathlib import Path
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import tempfile
 import unittest
 
@@ -124,7 +124,7 @@ extern "C" int ffs(unsigned int);
                 "c++",
                 "-",
             ]
-            good = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            good = subprocess.run(
                 [
                     *options[:-4],
                     "-isystem",
@@ -141,7 +141,7 @@ extern "C" int ffs(unsigned int);
                 timeout=20,
             )
             assert good.returncode == 0, good.stderr
-            bad = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            bad = subprocess.run(
                 [
                     *options[:-4],
                     "-isystem",

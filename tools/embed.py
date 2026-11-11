@@ -47,8 +47,9 @@ import plistlib
 import re
 import shutil
 import struct
+
 # Fixed argv for pinned offline disassembly.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 from typing import TYPE_CHECKING
 from typing import TypeIs
@@ -518,7 +519,7 @@ def route_prefixes(image: Image, label: str) -> list[tuple[int, int]]:
     result: list[tuple[int, int]] = []
     for name in ROUTE_SYMBOLS[label]:
         # Explicit executable and fixed argv.
-        text = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+        text = subprocess.check_output(
             [
                 executable,
                 "llvm-objdump",

@@ -43,7 +43,7 @@ from pathlib import Path
 import shutil
 
 # Only known local command paths run in this explicit verification entrypoint.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 import tempfile
 from typing import TYPE_CHECKING
@@ -83,7 +83,7 @@ def verify_abi(folder: Path) -> dict[str, JsonValue]:
     if xcrun is None:
         message = "macOS xcrun is required for ABI fixture verification"
         raise FileNotFoundError(message)
-    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+    _ = subprocess.run(
         [
             xcrun,
             "clang++",
@@ -107,7 +107,7 @@ def verify_abi(folder: Path) -> dict[str, JsonValue]:
         check=True,
         shell=False,
     )
-    output = subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+    output = subprocess.check_output(
         [str(executable)], text=True, timeout=60, shell=False
     )
     return json_object(output)

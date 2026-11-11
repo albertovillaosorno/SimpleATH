@@ -41,8 +41,9 @@ import argparse
 import hashlib
 from pathlib import Path
 import shutil
+
 # Shell-free pinned Git operations only.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 import zipfile
 
@@ -104,7 +105,7 @@ def git(folder: Path, *args: str) -> str:
         message = "Git executable is missing"
         raise RuntimeError(message)
     # Git receives separate arguments; none are evaluated by a shell.
-    return subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+    return subprocess.check_output(
         [executable, "-C", str(folder), *args], text=True
     ).strip()
 
@@ -115,9 +116,7 @@ def _run_git(args: list[str], *, stdin: str | None = None) -> None:
         message = "Git executable is missing"
         raise RuntimeError(message)
     # URLs/revisions come from the pinned constants above; shell stays disabled.
-    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
-        [executable, *args], input=stdin, text=True, check=True
-    )
+    _ = subprocess.run([executable, *args], input=stdin, text=True, check=True)
 
 
 def _validate_item(

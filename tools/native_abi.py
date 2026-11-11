@@ -54,8 +54,9 @@ import re
 import shutil
 import stat
 import struct
+
 # Offline fixed-argv c++filt and xcrun only.
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import sys
 from typing import Protocol
 from typing import TYPE_CHECKING
@@ -818,7 +819,7 @@ def dem(names: Iterable[str]) -> list[str]:
     """
     symbols = list(names)
     # The installed executable and argv are fixed: no shell or user commands.
-    return subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+    return subprocess.check_output(
         [_installed_program("c++filt")],
         input="\n".join(symbols) + "\n",
         text=True,
@@ -830,7 +831,7 @@ class _CreateDisassembler(Protocol):
     """Checked callable surface of LLVMCreateDisasm."""
 
     # Preserve LLVMCreateDisasm's fixed five-argument C ABI.
-    def __call__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    def __call__(
         self, triple: bytes, info: None, tag: int, callback: None, symbol: None
     ) -> int | None: ...
 
@@ -840,7 +841,7 @@ class _DecodeInstruction(Protocol):
     """Checked callable surface of LLVMDisasmInstruction."""
 
     # Preserve LLVMDisasmInstruction's fixed six-argument C ABI.
-    def __call__(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
+    def __call__(
         self,
         context: int,
         data: object,
@@ -882,7 +883,7 @@ def disassembler() -> tuple[ctypes.CDLL, int]:
 
     """
     toolchain = Path(
-        subprocess.check_output(  # ruff: ignore[subprocess-without-shell-equals-true]
+        subprocess.check_output(
             [_installed_program("xcrun"), "--find", "llvm-objdump"], text=True
         ).strip()
     ).parent.parent
@@ -1526,7 +1527,7 @@ def verify_model(model: NativeModel) -> list[str]:
     checks: list[str] = []
 
     # Invariant pairs are supplied positionally in the pinned ABI checklist.
-    def require(condition: bool, name: str) -> None:  # ruff: ignore[boolean-type-hint-positional-argument]
+    def require(condition: bool, name: str) -> None:
         if not condition:
             message = "ABI verification failed: " + name
             raise ValueError(message)

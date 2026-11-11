@@ -38,7 +38,7 @@
 from pathlib import Path
 import platform
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import unittest
 
 from tools.native_apple_kernel_headers import native_kernel_syntax_command
@@ -110,7 +110,7 @@ void SyntheticDriver::operator delete(void *data, size_t bytes) {{
     deallocate(data, bytes);
 }}
 """
-    return subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+    return subprocess.run(
         [
             clang,
             f"-std={standard}",
@@ -148,7 +148,7 @@ def _xcrun_text(*args: str) -> str:
     """
     xcrun = shutil.which("xcrun")
     assert xcrun is not None, "Native Apple SDK requires xcrun"
-    result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(
         [xcrun, *args],
         capture_output=True,
         text=True,
@@ -225,7 +225,7 @@ class NativeMetaclassAllocation(unittest.TestCase):
         command = native_kernel_syntax_command(sdk, resource, SOURCE)
         assert command[-1] == "-"
         for unit in NATIVE_UNITS:
-            result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            result = subprocess.run(
                 [*command[:-1], str(SOURCE / unit)],
                 capture_output=True,
                 text=True,

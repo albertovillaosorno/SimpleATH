@@ -36,7 +36,7 @@
 
 from pathlib import Path
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import]
+import subprocess
 import tempfile
 import tomllib
 from typing import cast
@@ -76,7 +76,7 @@ class ScopedLintPolicy(unittest.TestCase):
             )
             assert command is not None
             assert f"--config-file={ROOT / policy}" in command
-            result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            result = subprocess.run(
                 [compiler, "-list-checks", f"--config-file={ROOT / policy}"],
                 capture_output=True,
                 text=True,
@@ -155,7 +155,7 @@ class ScopedLintPolicy(unittest.TestCase):
             ("tests/test_fixture.py", True),
             ("src/fixture.py", False),
         ):
-            result = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+            result = subprocess.run(
                 [
                     ruff,
                     "check",
@@ -175,7 +175,7 @@ class ScopedLintPolicy(unittest.TestCase):
                 timeout=20,
             )
             assert (result.returncode == 0) is passes, result.stdout
-        bug = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true]
+        bug = subprocess.run(
             [
                 ruff,
                 "check",

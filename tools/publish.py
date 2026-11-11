@@ -49,7 +49,7 @@ import os
 from pathlib import Path
 import re
 import shutil
-import subprocess  # ruff: ignore[suspicious-subprocess-import] - Explicit gh argv only.
+import subprocess
 import sys
 from typing import TypeIs
 import urllib.error
@@ -406,7 +406,7 @@ class _GitHub:
             "X-GitHub-Api-Version": "2022-11-28",
             "Content-Type": "application/json",
         }
-        query = urllib.request.Request(  # ruff: ignore[suspicious-url-open-usage] - HTTPS origin checked.
+        query = urllib.request.Request(
             self._api + path, data=encoded, headers=headers, method=method
         )
         try:
@@ -579,7 +579,7 @@ def _upload(tag: str, repository: str, files: list[Path]) -> None:
         message = "GitHub release CLI is unavailable"
         raise ValueError(message)
     # S603 is reviewed: fixed argv, exact repository/tag, absolute executable.
-    _ = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - Fixed argv, no shell.
+    _ = subprocess.run(
         [
             gh,
             "release",

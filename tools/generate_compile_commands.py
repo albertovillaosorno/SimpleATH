@@ -61,14 +61,15 @@ def _host_alias(root: Path, name: str, destination: Path) -> str:
 
     No absolute home, SDK or toolchain paths are written into Git.
     """
-    relative = Path('.cache/clang-tidy') / name
+    relative = Path(".cache/clang-tidy") / name
     alias = root / relative
     alias.parent.mkdir(parents=True, exist_ok=True)
     destination = destination.resolve()
     if alias.is_symlink() and alias.resolve() != destination:
         alias.unlink()
     if alias.exists() and not alias.is_symlink():
-        raise ValueError(f'Host SDK alias is not a symlink: {relative}')
+        message = f"Host SDK alias is not a symlink: {relative}"
+        raise ValueError(message)
     if not alias.is_symlink():
         alias.symlink_to(destination, target_is_directory=True)
     return relative.as_posix()
@@ -84,9 +85,12 @@ def _native_macos_flags(root: Path) -> list[str]:
     sdk = os.environ.get("SDKROOT")
     if not sdk:
         return ["-DKERNEL=1"]
-    alias = _host_alias(root, 'sdkroot', Path(sdk))
+    alias = _host_alias(root, "sdkroot", Path(sdk))
     return [
-        "-DKERNEL=1", "-isysroot", alias, "-isystem",
+        "-DKERNEL=1",
+        "-isysroot",
+        alias,
+        "-isystem",
         f"{alias}/System/Library/Frameworks/Kernel.framework/Headers",
     ]
 
@@ -111,7 +115,10 @@ def _reference_parse_flags(root: Path) -> list[str]:
             sites = sorted(toolchain.glob("*/c++/v1/__config_site"))
             if library.is_dir() and len(sites) == 1:
                 flags.extend(("-isystem", _host_alias(root, "libcxx", library)))
-                flags.extend(("-isystem", _host_alias(root, "libcxx-site", sites[0].parent)))
+                flags.extend((
+                    "-isystem",
+                    _host_alias(root, "libcxx-site", sites[0].parent),
+                ))
     flags.extend(("-isystem", ".references/MacKernelSDK/Headers"))
     return flags
 

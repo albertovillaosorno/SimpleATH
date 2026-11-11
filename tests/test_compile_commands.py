@@ -123,7 +123,7 @@ class SourceOnlyCompileCommandsTests(TestCase):
         """Keep optional SDK headers out of portable tests and probe tools."""
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
-            sdk, library, config, compiler = _fixture(root)
+            sdk, _, _, compiler = _fixture(root)
             with (
                 mock.patch.object(sys, "platform", "linux"),
                 mock.patch.object(shutil, "which", return_value=str(compiler)),
@@ -147,10 +147,6 @@ class SourceOnlyCompileCommandsTests(TestCase):
             assert commands["src/platform/probe/main.mm"][4:-4] == []
             assert commands["tests/test_fixture.cpp"][4:-4] == []
             native_sdk = root / "native-sdk"
-            native_kernel = (
-                native_sdk
-                / "System/Library/Frameworks/Kernel.framework/Headers"
-            )
             with (
                 mock.patch.object(sys, "platform", "darwin"),
                 mock.patch.dict("os.environ", {"SDKROOT": str(native_sdk)}),
