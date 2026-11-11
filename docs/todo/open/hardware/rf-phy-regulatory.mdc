@@ -145,6 +145,19 @@ readback/write failure after OLPC has already committed registers. Both
 stages remain **uninvoked by the live native PCI owner**.
 The RF/PHY/regulatory TODO stays open.
 
+The existing production `Ar9565Coexistence.cpp` now also contains the
+bounded AR9003 MCI GPM receive-ring cursor: it snapshots the `AR_MCI_GPM_1`
+16-entry head, copies each 16-byte message in oldest-first order, skips
+`0xfe` recycled slots, checks the session epoch, and rejects invalid register
+values and borrowed-buffer aliasing. The original ath9k `ar9003_mci.c`,
+`ar9003_mci.h` and `mci.h` revisions/hashes and retained permissive notices
+are recorded in `.references/ledger.jsonl`. Synthetic C++14/C++17
+ASan+UBSan ring-wrap, epoch, truncated-span and alias regressions passed.
+**This is only a compiled source primitive**: no native coherent DMA view,
+MCI RX reset/IRQ service, Bluetooth host handshake, antenna lease or
+bounded-producer-wrap guarantee is wired yet. It cannot establish shared
+coexistence, RX/TX permission or functional Bluetooth.
+
 Actual ordered RF INI, PLL, synthesizer, BT-safe antenna allocation,
 calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.

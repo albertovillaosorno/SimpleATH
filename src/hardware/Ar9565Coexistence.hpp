@@ -23,6 +23,7 @@ namespace simpleath
     constexpr uint32_t kAr9565MciScheduleBytes = 256U;
     constexpr uint32_t kAr9565MciGpmBytes = 256U;
     constexpr uint16_t kAr9565MciGpmEntries = 16U;
+    constexpr size_t kAr9565MciGpmMessageBytes = 16U;
 
     struct SharedMciDmaBuffers
     {
@@ -81,6 +82,52 @@ namespace simpleath
     CoexistenceProgress stageAr9565SharedMciDma(
         const BoardDataSummary &board, const SharedMciEvidence &evidence,
         const SharedMciDmaBuffers &buffers, const RxAgcBackend &backend);
+
+    enum class MciGpmResult : uint8_t
+    {
+        Message,
+        Empty,
+        InvalidArgument,
+        InvalidRegister,
+        NotAttached,
+        OwnershipLost,
+    };
+
+    struct MciGpmCursor
+    {
+            uint64_t ownerEpoch {};
+            uint16_t nextIndex {};
+            bool attached {};
+    };
+
+    struct MciGpmMessage
+    {
+            uint8_t type {};
+            uint8_t opcode {};
+            uint8_t payload[kAr9565MciGpmMessageBytes] {};
+    };
+
+    // Initialize a GPM cursor to the LIVE hardware write pointer after an
+    // independently authorized, synchronized coherent-DMA ring is staged and
+    // MCI RX has been reset. Prior messages are intentionally discarded.
+    // AR_MCI_GPM_1 low 16 bits MUST be 16, high 16 bits a valid index.
+    // This only snapshots an index; it does not configure or enable MCI.
+    MciGpmResult attachAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
+                                    MciGpmCursor &cursor);
+
+    // Consume the oldest previously unconsumed GPM slot in ring order,
+    // skipping the ath9k 0xfe reserved slots. The caller MUST synchronize
+    // the coherent CPU DMA view, serialize the live PCI/MCI owner epoch,
+    // validate the live register and prevent a full producer wrap between
+    // polls: a hardware ring has NO generation counter to detect overwrite.
+    // No callback, DMA read or MMIO occurs here. A copied message is opaque
+    // and must never by itself authorize BT coexistence, WLAN TX or AirDrop.
+    // Rejected inputs and owner loss leave both cursor and output untouched;
+    // Empty advances past reserved entries and clears output.
+    MciGpmResult nextAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
+                                  const uint8_t *synchronizedRing,
+                                  size_t ringBytes, MciGpmCursor &cursor,
+                                  MciGpmMessage &out);
 
     // Park the AR9565 MCI/BT coexistence controller for an independently
     // verified WLAN-only board/epoch, following ath9k reg_mci.h register

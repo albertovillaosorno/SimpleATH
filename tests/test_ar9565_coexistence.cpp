@@ -47,6 +47,7 @@ namespace
     constexpr int kFailedBackend = 3;
     constexpr int kFailedErrorPaths = 4;
     constexpr int kFailedSharedMci = 5;
+    constexpr int kFailedGpm = 6;
 
     struct Register
     {
@@ -312,6 +313,112 @@ namespace
         return true;
     }
 
+    bool sharedGpmTests()
+    {
+        constexpr uint32_t kRingEntries = 16U;
+        constexpr uint32_t kPointerShift = 16U;
+        constexpr size_t kMessageBytes = 16U;
+        constexpr uint8_t kReserved = 0xfeU;
+        const auto reg = [](uint32_t writePointer)
+        {
+            return (writePointer << kPointerShift) | kRingEntries;
+        };
+        std::array<uint8_t, kAr9565MciGpmBytes> ring {};
+        ring.fill(kReserved);
+        MciGpmCursor cursor {};
+        MciGpmMessage message {};
+        if (nextAr9565MciGpm(kEpoch, reg(14U), ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::NotAttached ||
+            attachAr9565MciGpm(kEpoch, reg(14U), cursor) !=
+                MciGpmResult::Empty ||
+            cursor.nextIndex != 14U || !cursor.attached)
+        {
+            return false;
+        }
+        // Existing data before the initial live write pointer is stale.
+        ring.at(2U * kMessageBytes + 4U) = 0x0cU;
+        ring.at(14U * kMessageBytes + 4U) = 0x0cU;
+        ring.at(14U * kMessageBytes + 5U) = 0x31U;
+        ring.at(14U * kMessageBytes + 0U) = 0xa1U;
+        ring.at(0U * kMessageBytes + 4U) = 0x0cU;
+        ring.at(0U * kMessageBytes + 5U) = 0x42U;
+        ring.at(0U * kMessageBytes + 15U) = 0xb2U;
+        // Hardware advanced 14 -> 15 (recycled) -> 0 -> 1; a read
+        // must deliver oldest-to-newest, skipping the reserved slot.
+        if (nextAr9565MciGpm(kEpoch, reg(1U), ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::Message ||
+            message.type != 0x0cU || message.opcode != 0x31U ||
+            message.payload[0] != 0xa1U || cursor.nextIndex != 15U)
+        {
+            return false;
+        }
+        ring.at(14U * kMessageBytes) = 0U; // Already copied, not borrowed.
+        if (message.payload[0] != 0xa1U ||
+            nextAr9565MciGpm(kEpoch, reg(1U), ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::Message ||
+            message.opcode != 0x42U || message.payload[15] != 0xb2U ||
+            cursor.nextIndex != 1U)
+        {
+            return false;
+        }
+        if (nextAr9565MciGpm(kEpoch, reg(1U), ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::Empty ||
+            message.type != 0U || cursor.nextIndex != 1U)
+        {
+            return false;
+        }
+        // An invalid register or different owner cannot change the cursor,
+        // and bad buffer spans may never be accessed.
+        cursor.nextIndex = 3U;
+        message.opcode = 0x99U;
+        const auto invalid = reg(1U) ^ 1U;
+        if (nextAr9565MciGpm(kEpoch + 1U, reg(1U), ring.data(), ring.size(),
+                             cursor, message) != MciGpmResult::OwnershipLost ||
+            nextAr9565MciGpm(kEpoch, invalid, ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::InvalidRegister ||
+            nextAr9565MciGpm(kEpoch, reg(0xffffU), ring.data(), ring.size(),
+                             cursor,
+                             message) != MciGpmResult::InvalidRegister ||
+            nextAr9565MciGpm(kEpoch, reg(1U), ring.data(), ring.size() - 1U,
+                             cursor,
+                             message) != MciGpmResult::InvalidArgument ||
+            nextAr9565MciGpm(kEpoch, reg(1U), nullptr, ring.size(), cursor,
+                             message) != MciGpmResult::InvalidArgument ||
+            cursor.nextIndex != 3U || message.opcode != 0x99U)
+        {
+            return false;
+        }
+        // A stale register must not roll an active session back to index 0.
+        if (attachAr9565MciGpm(kEpoch, reg(0xffffU), cursor) !=
+                MciGpmResult::InvalidRegister ||
+            attachAr9565MciGpm(0U, reg(1U), cursor) !=
+                MciGpmResult::InvalidArgument ||
+            cursor.nextIndex != 3U)
+        {
+            return false;
+        }
+        // Output must be disjoint from the DMA region, never an alias.
+        // Deliberately overlap the ring and output to verify early rejection.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto *alias = reinterpret_cast<MciGpmMessage *>(ring.data());
+        if (nextAr9565MciGpm(kEpoch, reg(1U), ring.data(), ring.size(), cursor,
+                             *alias) != MciGpmResult::InvalidArgument ||
+            cursor.nextIndex != 3U)
+        {
+            return false;
+        }
+        // Resynchronize after MCI RX reset in a new native epoch; old head
+        // may never authorize a message from the successor's shared ring.
+        if (attachAr9565MciGpm(kEpoch + 1U, reg(1U), cursor) !=
+                MciGpmResult::Empty ||
+            nextAr9565MciGpm(kEpoch, reg(2U), ring.data(), ring.size(), cursor,
+                             message) != MciGpmResult::OwnershipLost)
+        {
+            return false;
+        }
+        return true;
+    }
+
     WlanOnlyCoexistenceEvidence authorized()
     {
         return {true, true, true, true};
@@ -404,6 +511,10 @@ int main()
     if (!sharedMciTests())
     {
         return kFailedSharedMci;
+    }
+    if (!sharedGpmTests())
+    {
+        return kFailedGpm;
     }
     return 0;
 }

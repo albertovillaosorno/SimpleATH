@@ -1,6 +1,8 @@
 // Hardware register provenance: Linux v6.12 ath9k reg_mci.h,
 // ar9003_mci.c ar9003_mci_stop_bt() and ar9003_mci_2g5g_switch().
 /*
+ * Copyright (c) 2008-2011 Atheros Communications Inc.
+ * Copyright (c) 2010-2011 Atheros Communications Inc.
  * Copyright (c) 2015 Qualcomm Atheros Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -19,6 +21,7 @@
 #include "Ar9565Calibration.hpp"
 #include "Ar9565Eeprom.hpp"
 #include "Ar9565RfIni.hpp"
+#include <stddef.h>
 #include <stdint.h>
 
 namespace simpleath
@@ -198,6 +201,125 @@ namespace simpleath
         progress.result = CoexistenceResult::Ok;
         progress.requiresReset = false;
         return progress;
+    }
+
+    namespace
+    {
+        constexpr uint16_t kMciGpmReservedPointer = 0xffffU;
+        constexpr uint8_t kMciGpmReservedType = 0xfeU;
+        constexpr size_t kMciGpmEntryBytes = kAr9565MciGpmMessageBytes;
+        constexpr size_t kMciGpmTypeByte = 4U;
+        constexpr size_t kMciGpmOpcodeByte = 5U;
+        constexpr uint32_t kMciGpmLengthMask = 0xffffU;
+        constexpr uint32_t kMciGpmPointerShift = 16U;
+
+        bool validGpmRegister(uint32_t gpmRegister)
+        {
+            const uint32_t entries = gpmRegister & kMciGpmLengthMask;
+            const uint32_t writePointer = gpmRegister >> kMciGpmPointerShift;
+            return entries == kAr9565MciGpmEntries &&
+                   writePointer < kAr9565MciGpmEntries &&
+                   writePointer != kMciGpmReservedPointer;
+        }
+
+        // Comparing numeric pointer values is safe even when the memory
+        // spans are distinct objects. Never subtract unrelated C++ pointers.
+        bool overlapsGpm(const void *a, size_t aBytes, const void *b,
+                         size_t bBytes)
+        {
+            if (a == nullptr || b == nullptr || aBytes == 0U || bBytes == 0U)
+            {
+                return false;
+            }
+            uintptr_t left = 0U;
+            uintptr_t right = 0U;
+            static_assert(sizeof(left) == sizeof(a), "pointer width");
+            __builtin_memcpy(&left, static_cast<const void *>(&a),
+                             sizeof(left));
+            __builtin_memcpy(&right, static_cast<const void *>(&b),
+                             sizeof(right));
+            return left <= right ? right - left < aBytes
+                                 : left - right < bBytes;
+        }
+
+        const uint8_t *gpmSlot(const uint8_t *ring, size_t index)
+        {
+            // Only called after the full 16x16 ring and index were bounded.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            return ring + (index * kMciGpmEntryBytes);
+        }
+    } // namespace
+
+    MciGpmResult attachAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
+                                    MciGpmCursor &cursor)
+    {
+        if (ownerEpoch == 0U)
+        {
+            return MciGpmResult::InvalidArgument;
+        }
+        if (!validGpmRegister(gpmRegister))
+        {
+            return MciGpmResult::InvalidRegister;
+        }
+        cursor = {
+            ownerEpoch,
+            static_cast<uint16_t>(gpmRegister >> kMciGpmPointerShift),
+            true,
+        };
+        return MciGpmResult::Empty;
+    }
+
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    MciGpmResult nextAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
+                                  const uint8_t *synchronizedRing,
+                                  size_t ringBytes, MciGpmCursor &cursor,
+                                  MciGpmMessage &out)
+    {
+        if (overlapsGpm(&cursor, sizeof(cursor), &out, sizeof(out)) ||
+            overlapsGpm(synchronizedRing, ringBytes, &cursor, sizeof(cursor)) ||
+            overlapsGpm(synchronizedRing, ringBytes, &out, sizeof(out)) ||
+            synchronizedRing == nullptr || ringBytes != kAr9565MciGpmBytes)
+        {
+            return MciGpmResult::InvalidArgument;
+        }
+        if (!cursor.attached)
+        {
+            return MciGpmResult::NotAttached;
+        }
+        if (ownerEpoch == 0U || ownerEpoch != cursor.ownerEpoch)
+        {
+            return MciGpmResult::OwnershipLost;
+        }
+        if (!validGpmRegister(gpmRegister) ||
+            cursor.nextIndex >= kAr9565MciGpmEntries)
+        {
+            return MciGpmResult::InvalidRegister;
+        }
+        const auto head =
+            static_cast<uint16_t>(gpmRegister >> kMciGpmPointerShift);
+        uint16_t readIndex = cursor.nextIndex;
+        while (readIndex != head)
+        {
+            // Snapshot the complete shared-DMA entry before advancing the
+            // cursor. Never expose a borrowed DMA pointer to a BT consumer.
+            MciGpmMessage candidate {};
+            __builtin_memcpy(&candidate.payload[0],
+                             gpmSlot(synchronizedRing, readIndex),
+                             sizeof(candidate.payload));
+            candidate.type = candidate.payload[kMciGpmTypeByte];
+            candidate.opcode = candidate.payload[kMciGpmOpcodeByte];
+            readIndex =
+                static_cast<uint16_t>((readIndex + 1U) % kAr9565MciGpmEntries);
+            if (candidate.type != kMciGpmReservedType)
+            {
+                out = candidate;
+                cursor.nextIndex = readIndex;
+                return MciGpmResult::Message;
+            }
+        }
+        cursor.nextIndex = readIndex;
+        out = {};
+        return MciGpmResult::Empty;
     }
 
     CoexistenceProgress
