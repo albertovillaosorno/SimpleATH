@@ -4,6 +4,7 @@
 
 int main()
 {
+    using simpleath::tahoe::acceptWirelessJoinCommit;
     using simpleath::tahoe::acceptWirelessReceiveIdentity;
     using simpleath::tahoe::acceptWirelessSnapshot;
     constexpr uint64_t first = 1U;
@@ -54,6 +55,21 @@ int main()
     {
         constexpr int kSnapshotRaceFailure = 6;
         return kSnapshotRaceFailure;
+    }
+    // A provider may synchronously reset, complete or replace the active
+    // join before its outer callback returns success. The old WCL request
+    // must not observe a successor's join ID as its own success.
+    if (!acceptWirelessJoinCommit(first, first, first, first) ||
+        !acceptWirelessJoinCommit(latest, latest, latest, latest) ||
+        acceptWirelessJoinCommit(0, first, first, first) ||
+        acceptWirelessJoinCommit(first, 0, first, first) ||
+        acceptWirelessJoinCommit(first, first, second, first) ||
+        acceptWirelessJoinCommit(first, first, first, second) ||
+        acceptWirelessJoinCommit(second, first, first, first) ||
+        acceptWirelessJoinCommit(first, second, first, first))
+    {
+        constexpr int kJoinCompletionRaceFailure = 7;
+        return kJoinCompletionRaceFailure;
     }
     return 0;
 }

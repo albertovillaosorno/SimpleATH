@@ -511,7 +511,27 @@ namespace simpleath
             NativeConnectRequest stable = request;
             const IOReturn result = owner_.connect(owner_.context, &stable);
             clearConnectRequest(stable);
-            return result;
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            // A synchronous physical callback can reset the PCI owner or
+            // replace the native join while the request is in flight. Never
+            // begin a WCL join session for a superseded request. In
+            // particular, do not disconnect the replacement session here.
+            WirelessSnapshot observed {};
+            const IOReturn refreshed = snapshot(observed);
+            if (refreshed != kIOReturnSuccess)
+            {
+                return refreshed;
+            }
+            return acceptWirelessJoinCommit(request.epoch, request.requestId,
+                                            observed.epoch,
+                                            observed.joinRequestId) &&
+                           observed.joinStatus == kIOReturnSuccess &&
+                           observed.joinPhase != NativeJoinPhase::Failed
+                       ? kIOReturnSuccess
+                       : kIOReturnNotReady;
         }
 
         IOReturn TahoeWirelessTransport::disconnect(uint16_t reason)

@@ -25,6 +25,18 @@ namespace simpleath
                    sampledEventRevision == activeEventRevision;
         }
 
+        // A synchronous provider join can finish after a replacement request
+        // starts on the same PCI epoch, or after a radio reset advances the
+        // epoch. Only its own observed join request may be acknowledged to WCL.
+        inline bool acceptWirelessJoinCommit(uint64_t requestedEpoch,
+                                             uint64_t requestedId,
+                                             uint64_t observedEpoch,
+                                             uint64_t observedId)
+        {
+            return requestedEpoch != 0U && requestedId != 0U &&
+                   requestedEpoch == observedEpoch && requestedId == observedId;
+        }
+
         inline bool acceptWirelessReceiveIdentity(uint64_t callbackEpoch,
                                                   uint64_t activeEpoch,
                                                   uint64_t callbackAssociation,
