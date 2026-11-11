@@ -57,6 +57,10 @@ namespace simpleath
                           uint64_t epoch, const NativeQueueOwner &callbacks,
                           IOInterruptEventSource::Action interruptAction);
             IOReturn adoptGated(uint64_t currentEpoch);
+            // An ordinary initial RX start must not steal a Prepared queue
+            // temporarily isolated for WPA2 key writes. The key-update path
+            // resumes exclusively through restartAfterKeyUpdateGated().
+            bool initialStartEligibleGated() const;
             IOReturn startGated();
             // A receive callback may install WPA2 keys synchronously while it
             // borrows a DMA buffer. Physically stop RX/TX and bus mastering,

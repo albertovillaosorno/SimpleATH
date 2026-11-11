@@ -540,6 +540,13 @@ namespace simpleath
         return result;
     }
 
+    bool NativeQueues::initialStartEligibleGated() const
+    {
+        return gated() && attached_ && phase_ == NativeQueuePhase::Prepared &&
+               !keyUpdateIsolated_ && !keyUpdateRestartPending_ &&
+               !inReceiveCallback_ && !inInterruptService_;
+    }
+
     IOReturn NativeQueues::startGated()
     {
         if (!gated() || !attached_ || phase_ != NativeQueuePhase::Prepared ||
@@ -607,6 +614,13 @@ namespace simpleath
             }
         }
         __sync_synchronize();
+        // Register staging is not permission to hand hardware DMA access.
+        // RF-kill or the radio epoch can change while a ring is prepared.
+        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        {
+            fault(kIOReturnNotReady);
+            return kIOReturnNotReady;
+        }
         if (!callbacks_.setBusMaster(callbacks_.context, true))
         {
             fault(kIOReturnIOError);
@@ -624,6 +638,14 @@ namespace simpleath
         {
             fault(kIOReturnIOError);
             return kIOReturnIOError;
+        }
+        // Revalidate physical receiver permission after bus mastering and
+        // before unmasking the device interrupt source. Any observed loss
+        // makes the partially started epoch a recovery obligation.
+        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        {
+            fault(kIOReturnNotReady);
+            return kIOReturnNotReady;
         }
         interrupt_->enable();
         if (!write(kIer, 1))

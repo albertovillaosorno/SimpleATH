@@ -3229,6 +3229,22 @@ class SimpleATH final : public IOService
                     gate_->runAction(failedQueueStartAction);
                 }
             }
+            else if (result == kIOReturnSuccess && queuesAdopted_ &&
+                     queues_.phase() == simpleath::NativeQueuePhase::Prepared)
+            {
+                // A later power-on can retry an already-mapped, still-idle
+                // receiver only after a fresh live RF/channel preflight.
+                // Absent evidence keeps Prepared without starting DMA.
+                result = gate_->runAction(activatePreparedQueuesAction);
+                if (result != kIOReturnSuccess)
+                {
+                    gate_->runAction(failedQueueStartAction);
+                    // The gate revoked the hardware epoch and stopped DMA.
+                    // A quarantined mapping will refuse release and remain
+                    // pinned; a cleanly isolated one can now be retired.
+                    (void)queues_.releaseClient();
+                }
+            }
             IOLockUnlock(lifecycle_);
             return result;
         }
@@ -3267,8 +3283,64 @@ class SimpleATH final : public IOService
                 self.queuesAdopted_ = true;
                 self.setProperty("SimpleATHDmaMappingsReady", true);
                 self.stage("DMAResourcesPrepared");
-                // A new NVM/PCI epoch is observable as a radio transition,
-                // but DMA mappings alone never make the receiver available.
+                // Adoption only transfers mapping and IRQ ownership. If the
+                // already-completed PHY path holds physical, epoch-current RX
+                // authority, start the actual EDMA rings now. Otherwise
+                // leave them Prepared, with IRQ and bus mastering disabled.
+                // An EEPROM lease or a mapped ring cannot satisfy this gate.
+                const IOReturn started = activatePreparedQueuesAction(
+                    owner, nullptr, nullptr, nullptr, nullptr);
+                if (started == kIOReturnSuccess &&
+                    self.queues_.phase() ==
+                        simpleath::NativeQueuePhase::Prepared)
+                {
+                    // Board acquisition still changes the published PCI
+                    // epoch even when no actual receiver can be started.
+                    self.notifyWirelessChange(false);
+                }
+                return started;
+            }
+            return result;
+        }
+
+        static IOReturn activatePreparedQueuesAction(OSObject *owner,
+                                                     void * /*unused1*/,
+                                                     void * /*unused2*/,
+                                                     void * /*unused3*/,
+                                                     void * /*unused4*/)
+        {
+            auto *typed = OSDynamicCast(SimpleATH, owner);
+            if (typed == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
+            if (!self.queuesAdopted_ || self.queues_.epoch() != self.epoch_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Prepared)
+            {
+                return kIOReturnNotReady;
+            }
+            if (!self.queues_.initialStartEligibleGated())
+            {
+                // A WPA2 key update owns the Prepared queue until its
+                // borrowed receive frame unwinds and the private restart
+                // path completes. A power-on callback must not steal it.
+                return kIOReturnSuccess;
+            }
+            if (!queueRadioReady(&self.access_, self.epoch_))
+            {
+                // Physical RF/antenna/channel proof has not arrived. This
+                // is normal during board-acquisition-only startup, not a
+                // successful receiver initialization or a DMA fault.
+                return kIOReturnSuccess;
+            }
+            const IOReturn result = self.queues_.startGated();
+            self.setProperty("SimpleATHNativeQueueStartResult",
+                             static_cast<uint32_t>(result),
+                             kRfPropertyWidthBits);
+            if (result == kIOReturnSuccess)
+            {
+                self.stage("DMAReceiverStarted");
                 self.notifyWirelessChange(false);
             }
             return result;

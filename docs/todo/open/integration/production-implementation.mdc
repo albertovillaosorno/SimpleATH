@@ -146,3 +146,24 @@ needed. All 3,267 initial records are reference-only; none claims driver
 implementation. Downloaded checkouts/receipts remain ignored. The local Linux
 reference and its existing separate ledger remain required until their own
 retirement acceptance is met.
+
+## Initial EDMA activation connection — 2026-11-10
+
+The native `SimpleATH` queue adoption now attempts the **real**
+`NativeQueues::startGated()` only if its same-epoch physical RF/channel,
+station-MAC and live RF-kill callback permits reception. If radio proof is
+not present, the coherent queues stay mapped in `Prepared` with DMA and IRQ
+masked; a later power-on can retry without treating mapping as receiver
+readiness. The initial-start gate explicitly excludes the `Prepared` state
+borrowed by the WPA2 key-update isolation/restart flow. The queue executor
+rechecks the live RF gate before enabling PCI bus mastering and again before
+unmasking interrupts, quarantining/recovering a partial start on revocation.
+
+This closes only the missing **initial EDMA start invocation**; the physical
+receive-only RF pipeline is **still not connected** to the native owner. It
+must first obtain an independently verified board crystal, exact channel
+regulatory approval, and Bluetooth antenna/coexistence lease before asserting
+radio/channel readiness. No receive scan, TX, AirDrop, hardware test, kext
+build/tag, or USB/EFI installation follows from this source change. Strict
+native source syntax passed on the pinned research SDK; the whole-tree
+zero-failure validator remains outstanding.
