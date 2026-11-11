@@ -173,7 +173,7 @@ namespace
         auto *clear = static_cast<volatile uint8_t *>(storage);
         for (size_t index = 0; index < bytes; ++index)
         {
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
             clear[index] = 0;
         }
     }
@@ -2212,16 +2212,16 @@ class SimpleATH final : public IOService
             const auto mirrored =
                 result.result == simpleath::KeyCacheResult::Ok
                     // keyId was proven < kCcmpGroupSlots above.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                    // NOLINTNEXTLINE(*bounds-constant-array-index)
                     ? self.nativeGroupRx_[keyId].install(
                           key, &link.bssid.bytes[0], keyId, self.epoch_, 0,
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                          // NOLINTNEXTLINE(*bounds-constant-array-index)
                           self.keyCache_.group[keyId].receiveFloor)
                     : simpleath::ieee80211::crypto::CcmpResult::InvalidArgument;
             if (result.result != simpleath::KeyCacheResult::Ok ||
                 mirrored != simpleath::ieee80211::crypto::CcmpResult::Ok)
             {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                // NOLINTNEXTLINE(*bounds-constant-array-index)
                 self.nativeGroupRx_[keyId].revoke();
                 // Group-key failure can leave half-installed physical slots.
                 // Refuse any deferred EDMA restart until the whole epoch is
@@ -2617,10 +2617,10 @@ class SimpleATH final : public IOService
             // unicast must always use the pairwise key 0. The portable CCMP
             // bridge independently verifies the authenticated key ID.
             // Bound is checked above against complete ExtIV/MIC spans.
-            // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            // NOLINTBEGIN(*bounds-pointer-arithmetic)
             const auto wireKeyByte =
                 frame[header.headerLength + kCcmpKeyIdOffset];
-            // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            // NOLINTEND(*bounds-pointer-arithmetic)
             const auto keyId =
                 static_cast<uint8_t>(wireKeyByte >> kCcmpKeyIdShift);
             const bool group = (header.destination.bytes[0] & 1U) != 0U;
@@ -2683,7 +2683,7 @@ class SimpleATH final : public IOService
             volatile uint8_t *const clear = &protectedRxScratch_[0];
             for (size_t i = 0; i < sizeof(protectedRxScratch_); ++i)
             {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 clear[i] = 0;
             }
         }

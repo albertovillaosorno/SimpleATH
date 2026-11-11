@@ -54,8 +54,7 @@
   "reportMissingSuperCall": "error",
   "reportUninitializedInstanceVariable": "error",
   "extraPaths": [
-    "../../../src",
-    "../../../tools",
-    "../../../tests"
+    "../../../",
+    "../../../tools"
   ]
 }

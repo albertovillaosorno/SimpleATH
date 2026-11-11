@@ -48,7 +48,7 @@ namespace simpleath
     {
         // Linux ath9k hw.c: ath9k_hw_init_pll(), AR_SREV_9565 branch;
         // reg.h: AR_CH0_BB_DPLL1/2/3, AR_RTC_PLL_CONTROL, SLEEP_CLK.
-// Linux reference: drivers/net/wireless/ath/ath9k/hw.c
+        // Linux reference: drivers/net/wireless/ath/ath9k/hw.c
         constexpr uint32_t kBbDpll1 = 0x16180;
         constexpr uint32_t kBbDpll2 = 0x16184;
         constexpr uint32_t kBbDpll3 = 0x16188;

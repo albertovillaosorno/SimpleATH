@@ -6,6 +6,8 @@ IndentWidth: 4
 TabWidth: 4
 ContinuationIndentWidth: 4
 ColumnLimit: 80
+# Boundary contracts and NOLINT directives are checked separately at 80.
+ReflowComments: Never
 
 BreakBeforeBraces: Custom
 BraceWrapping:

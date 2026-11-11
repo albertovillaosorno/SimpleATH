@@ -46,7 +46,7 @@ namespace simpleath
     namespace
     {
         // Linux ath9k ar9003_phy.h: AR_SM_BASE + 0x140, and 65nm CH0.
-// Linux reference: drivers/net/wireless/ath/ath9k/ar9003_phy.c
+        // Linux reference: drivers/net/wireless/ath/ath9k/ar9003_phy.c
         constexpr uint8_t kJapanChannel = 14;
         constexpr uint32_t kSynthControl = 0xa340;
         constexpr uint32_t kSynth4 = 0x1608c;

@@ -143,7 +143,7 @@ namespace simpleath
             inline uint8_t readByte(const uint8_t *bytes, size_t offset)
             {
                 // A fixed native WCL byte-envelope, bounded at decode entry.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 return bytes[offset];
             }
 
@@ -151,7 +151,7 @@ namespace simpleath
                                   void *destination, size_t length)
             {
                 // The decode contract bounds each fixed field in 0x2cc.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 __builtin_memcpy(destination, bytes + offset, length);
             }
 

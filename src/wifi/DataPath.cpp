@@ -512,7 +512,7 @@ namespace simpleath
                 volatile uint8_t *const clear = scratch;
                 for (size_t i = 0; i < staged.frameBytes; ++i)
                 {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     clear[i] = 0;
                 }
                 return DataPathResult::FrameTooLong;
@@ -523,7 +523,7 @@ namespace simpleath
             volatile uint8_t *const clear = scratch;
             for (size_t i = 0; i < staged.frameBytes; ++i)
             {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 clear[i] = 0;
             }
             if (encrypted != crypto::CcmpResult::Ok)
@@ -684,7 +684,7 @@ namespace simpleath
             constexpr size_t kControlFlagsOffset = 1U;
             constexpr uint8_t kProtectedFrameBit = 0x40U;
             // The validated fixed header guarantees this 1-byte writable span.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
             scratch[kControlFlagsOffset] |= kProtectedFrameBit;
             const auto admitted = inspectStationRx(link, scratch, plainBytes,
                                                    false, true, true, result);
@@ -693,7 +693,7 @@ namespace simpleath
                 volatile uint8_t *const clear = scratch;
                 for (size_t i = 0; i < plainBytes; ++i)
                 {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     clear[i] = 0;
                 }
             }
@@ -866,7 +866,7 @@ namespace simpleath
             constexpr uint8_t kProtectedFrameBit = 0x40U;
             // CcmpSession strips this bit after authenticating the original
             // wire MPDU; only the private plaintext admission copy restores.
-            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
             scratch[1] |= kProtectedFrameBit;
             const auto admitted = inspectStationAmsduRx(
                 link, scratch, plainBytes, false, true, true, result);
@@ -875,7 +875,7 @@ namespace simpleath
                 volatile uint8_t *const clear = scratch;
                 for (size_t i = 0; i < plainBytes; ++i)
                 {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     clear[i] = 0;
                 }
             }

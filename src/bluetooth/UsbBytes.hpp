@@ -72,7 +72,7 @@ namespace simpleath
                 {
                     __builtin_trap();
                 }
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                // NOLINTNEXTLINE(*bounds-constant-array-index)
                 return storage_[index];
             }
 
@@ -82,7 +82,7 @@ namespace simpleath
                 {
                     __builtin_trap();
                 }
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                // NOLINTNEXTLINE(*bounds-constant-array-index)
                 return storage_[index];
             }
 
@@ -98,7 +98,7 @@ namespace simpleath
     template <typename Value> Value *usbByteOffset(Value *data, size_t index)
     {
         // The caller checks packet length and index before using the address.
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+        // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
         return &data[index];
     }
 } // namespace simpleath

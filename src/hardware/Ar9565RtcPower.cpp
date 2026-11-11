@@ -319,10 +319,9 @@ namespace simpleath
                     {
                         return result;
                     }
-                    result =
-                        delay(kColdResetHoldMicros); // AR9565 is AR9003;
-                                                     // exclude unrelated
-                                                     // SoC/DMA-halt recipes.
+                    result = delay(kColdResetHoldMicros); // AR9565 is AR9003;
+                                                          // exclude unrelated
+                    // SoC/DMA-halt recipes.
                     if (result != RtcResult::Ok)
                     {
                         return result;

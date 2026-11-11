@@ -144,7 +144,7 @@ namespace simpleath
                         volatile uint8_t *const bytes = buffer_;
                         for (size_t i = 0; i < bytes_; ++i)
                         {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                            // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                             bytes[i] = 0U;
                         }
                     }

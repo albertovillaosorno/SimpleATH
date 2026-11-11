@@ -52,9 +52,9 @@ namespace simpleath
             // IEEE byte indices and AES/CCM field masks are fixed wire-format
             // constants. Integer promotion of uint8_t to int is nonnegative,
             // and the C++14 kernel ABI intentionally exposes bounded C arrays.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-// NOLINTBEGIN(bugprone-signed-bitwise)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+            // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
+            // NOLINTBEGIN(bugprone-signed-bitwise)
+            // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
             namespace
             {
                 constexpr size_t kHeaderBytes = 24U;
@@ -94,7 +94,7 @@ namespace simpleath
                             {
                                 __builtin_trap();
                             }
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                            // NOLINTNEXTLINE(*bounds-constant-array-index)
                             return storage[index];
                         }
 
@@ -104,7 +104,7 @@ namespace simpleath
                             {
                                 __builtin_trap();
                             }
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                            // NOLINTNEXTLINE(*bounds-constant-array-index)
                             return storage[index];
                         }
 
@@ -122,24 +122,24 @@ namespace simpleath
                 uint8_t *byteAt(uint8_t *base, size_t offset)
                 {
                     // Caller validates byte capacity before this indexed view.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     return &base[offset];
                 }
 
                 const uint8_t *byteAt(const uint8_t *base, size_t offset)
                 {
                     // Callers validate the complete packet before offsets.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     return &base[offset];
                 }
 
                 void secureWipe(void *buffer, size_t bytes)
                 {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+                    // NOLINTNEXTLINE(*pro-type-reinterpret-cast)
                     auto *cursor = static_cast<volatile uint8_t *>(buffer);
                     for (size_t i = 0U; i < bytes; ++i)
                     {
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                        // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                         cursor[i] = 0U;
                     }
                 }
@@ -192,13 +192,13 @@ namespace simpleath
                         {
                             const uint8_t rotated = word.at(0U);
                             // AES S-box is indexed only by 8-bit values.
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
+                            // NOLINTBEGIN(*bounds-constant-array-index)
                             word.at(0U) = static_cast<uint8_t>(
                                 kAesSbox[word.at(1U)] ^ rcon);
                             word.at(1U) = kAesSbox[word.at(2U)];
                             word.at(2U) = kAesSbox[word.at(3U)];
                             word.at(3U) = kAesSbox[rotated];
-// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
+                            // NOLINTEND(*bounds-constant-array-index)
                             rcon = xtime(rcon);
                         }
                         for (size_t i = 0U; i < 4U; ++i)
@@ -725,9 +725,9 @@ namespace simpleath
                 return authenticated ? CcmpResult::Ok : CcmpResult::MicMismatch;
             }
 
-// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTEND(bugprone-signed-bitwise)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+            // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+            // NOLINTEND(bugprone-signed-bitwise)
+            // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
         } // namespace crypto
     } // namespace ieee80211
 } // namespace simpleath

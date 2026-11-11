@@ -57,7 +57,7 @@ namespace
     // This fixture builds literal IEEE 802.11/EAPOL wire octets and fixed
     // OpenSSL reference vectors, not production parameter policy. All such
     // numeric offsets and key sizes are deliberately exact on-air values.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
     constexpr uint64_t kEpoch = 410U;
     constexpr int kFailureModulo = 250;
     constexpr std::array<uint8_t, 6> kAp {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
@@ -663,7 +663,7 @@ namespace
         return 0;
     }
 
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
 int main()

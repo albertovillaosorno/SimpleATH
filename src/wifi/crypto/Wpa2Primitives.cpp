@@ -136,7 +136,7 @@ namespace simpleath
                     }
                     // The explicit capacity check is sufficient for the
                     // freestanding fixed-size crypto scratch arrays.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+                    // NOLINTNEXTLINE(*bounds-constant-array-index)
                     return array[index];
                 }
 
@@ -148,7 +148,7 @@ namespace simpleath
                 template <typename T> T &byteAt(T *span, size_t offset)
                 {
                     // Public call sites establish their buffer capacity.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                    // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                     return span[offset];
                 }
 

@@ -35,7 +35,6 @@
 //
 // Module: Host-side tooling for abi validation host.
 
-
 #include "HardwareIdentity.hpp"
 #include "WirelessABI.hpp"
 #include <CoreFoundation/CoreFoundation.h>

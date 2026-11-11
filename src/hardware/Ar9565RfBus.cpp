@@ -46,7 +46,7 @@ namespace simpleath
     namespace
     {
         // Linux ath9k ar9003_phy.c: ar9003_hw_rfbus_req/done
-// Linux reference: drivers/net/wireless/ath/ath9k/ar9003_phy.c
+        // Linux reference: drivers/net/wireless/ath/ath9k/ar9003_phy.c
         constexpr uint32_t kRfBusRequest = 0xa23c;
         constexpr uint32_t kRfBusGrant = 0xa240;
         constexpr uint32_t kPhyRxDelay = 0xa254;

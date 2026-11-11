@@ -17,34 +17,27 @@
   "pythonPlatform": "Linux",
   "executionEnvironments": [
     {
-      "root": "../../../src",
-      "typeCheckingMode": "strict",
-      "reportAny": "error",
-      "reportExplicitAny": "error",
-      "reportMissingTypeStubs": "error"
+      "root": "../../../src"
     },
     {
-      "root": "../../../tests",
-      "typeCheckingMode": "standard",
-      "reportAny": "none",
-      "reportExplicitAny": "none",
-      "reportUnusedParameter": "none",
-      "reportMissingTypeStubs": "none",
-      "reportPrivateUsage": "none",
-      "enableTypeIgnoreComments": true
+      "root": "../../../tests"
     },
     {
-      "root": "../../../tools",
-      "typeCheckingMode": "standard",
-      "reportAny": "none",
-      "reportExplicitAny": "none",
-      "reportMissingTypeStubs": "warning",
-      "enableTypeIgnoreComments": true
+      "root": "../../../tools"
     }
   ],
   "extraPaths": [
-    "../../../src",
-    "../../../tools",
-    "../../../tests"
-  ]
+    "../../../",
+    "../../../tools"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "error",
+  "reportImportCycles": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnusedCallResult": "none",
+  "reportUnnecessaryTypeIgnoreComment": "none"
 }

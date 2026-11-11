@@ -49,7 +49,7 @@ namespace
 {
     // Packet constants are exact published 802.11/CCM offsets and fixed
     // regression vector octets, rather than arbitrary numeric configuration.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
     constexpr uint64_t kEpoch = 9001U;
     constexpr size_t kProtectedHeader = 32U;
     constexpr int kDiagnosticModulo = 251;
@@ -609,7 +609,7 @@ namespace
     }
 
     // NOLINTEND(readability-suspicious-call-argument)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 } // namespace
 
 int main()

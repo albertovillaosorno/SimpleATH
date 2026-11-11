@@ -65,9 +65,9 @@ namespace simpleath
                 }
                 // A complete bounded Ethernet-II header is required. The
                 // provider, not this mailbox, authenticates the 802.11 frame.
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 const uint8_t high = bytes[kEtherTypeOffset];
-// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
                 const uint8_t low = bytes[kEtherTypeOffset + 1U];
                 return high == kEapolEtherTypeHigh && low == kEapolEtherTypeLow;
             }
