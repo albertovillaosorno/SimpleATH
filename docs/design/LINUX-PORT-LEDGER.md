@@ -2,7 +2,8 @@
 
 The owner requested a JSONL ledger to track the Linux source migration.
 `.references/ledger.jsonl` inventories the files under `.references/linux/`
-and records source provenance separately from implementation progress. Preserve the
+and records source provenance separately from implementation progress. Preserve
+the
 reference tree until the AR9565 retirement TODO is complete. The owner's
 later instruction requests deletion after that source milestone; existing
 inline notices and THIRD_PARTY_NOTICES.md suffice without extra archives.
@@ -10,12 +11,14 @@ inline notices and THIRD_PARTY_NOTICES.md suffice without extra archives.
 The initial snapshot contains 419 local reference files: 16 have documented
 partial implementation scopes and 403 have no recorded implementation
 assessment. None is marked complete. The local `.references/linux/` tree is
-excluded from Git by the existing ignore rule; this ledger records its actual file
+excluded from Git by the existing ignore rule; this ledger records its actual
+file
 contents by hash without changing that rule or adding the tree to Git.
 
 Linux schema-1 lines are complete objects for a `source` path relative to
 `.references/` (for example `linux/drivers/...`) and exact `sha256`. The initial
-inventory covers the reference files present at creation. Append another complete record when reviewing or
+inventory covers the reference files present at creation. Append another
+complete record when reviewing or
 porting that source; the last record for a path is current. Readers must
 compare its hash with the current reference file: a mismatch makes the
 record stale, not automatically applicable to the new version. Record a

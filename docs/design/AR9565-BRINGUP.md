@@ -22,7 +22,8 @@ PCI `168c:0036`, macOS Tahoe 26.7.2 (Darwin 25, build 25G332),
 OpenCore 1.0.8.
 
 For the current source milestones, remaining blockers, separate authorization
-scopes and recovery procedure, see [status and recovery](STATUS-AND-RECOVERY.md).
+scopes and recovery procedure, see [status and
+recovery](STATUS-AND-RECOVERY.md).
 See [macOS integration](MACOS-INTEGRATION.md) for PCI ownership/DMA/power and
 the limits of the stored Tahoe ABI evidence, and [EEPROM port](EEPROM-PORT.md)
 for the bounded source parser and the board acquisition still required.
@@ -31,21 +32,93 @@ and its posted-write, timing and power preconditions.
 
 ## Source components and blocking dependencies
 
-| Layer | Files | Implemented | Blocking dependency |
-| --- | --- | --- | --- |
-| PCI detection | `src/SimpleATH.cpp` and `src/Info.plist` | Exclusive native ownership for physical 0036 | macOS linkage/runtime validation |
-| Core identification | `src/hardware/Ar9565Core.*` | Physical PCI identity, type-2 SREV, 1.0/1.0.1/1.1, RTC and EEPROM status checks | Mapped PCI BAR with verified read32 callback |
-| Device state | `Ar9565Core.*` | Fail-closed phases; no TX/RX before implementation | EEPROM contents, reset and calibration |
-| RF configuration data | `generated/Ar9565InitTables.hpp` | 2,174 2.4GHz HT20/HT40 entries derived from 15 Linux ath9k source arrays | BAR writes, complete EEPROM validation, safe reset and delays |
-| Radio configuration planning | `Ar9565InitCatalog.*` | Revision-specific radio postamble, RX/TX gain profiles, channel 14 and regulatory preconditions | Calibration and board data |
-| PCI inspection session | `src/platform/Ar9565PciSession.*` | Portable ownership/D0/config/BAR0 checks, read-only allowlist and unwind | Native lifecycle implemented in SimpleATH; macOS runtime validation remains |
-| Board data parser | `Ar9565Eeprom.*` | Checked compression blocks/dump chains, five pinned dictionaries, 1088-byte image storage, raw board summary and gain-index mapping | Native acquisition/origin discovery, serialization/reconstruction verification, actual calibration/regulatory validation |
-| NVM read protocol | `Ar9565NvmReader.*` | Active EEPROM/OTP trigger/poll/byte-normalization source with word/capture bounds | Native caller connected; physical capture validation remains |
-| Power candidate calculation | `Ar9565Power.*` | EEPROM target interpolation, explicit CTL coverage, antenna/EIRP intersection and single-stream rate selection | Actual board/country approval, TPC conversion and calibrated/programmed/measured power; no TX enabled |
-| PCI DMA and interrupts | `Ar9003Descriptors.*`, `Ar9003Dma.*` | Pointer/status codecs and generation-checked ring metadata only | Actual DMA mapping, hardware rings, interrupts, completions and recovery |
-| Native packet-buffer mapping | `src/platform/Ar9565NativeDma.*` | IOBuffer/IOMapper/IODMACommand source compiled in normal target, 32-bit segments, client/gate handoff and token-checked retirement | controller worker/epoch ownership, ABI validation, coherent rings and real queues/interrupts remain missing |
-| 802.11 MAC and security | `src/wifi/` | Portable frame, scan-cache, station-state and EAPOL source; see WIFI-MAC-AND-DMA.md | Actual radio/queues, timers, verified crypto/key path, rates and OS integration |
-| macOS Wi-Fi UI | Not yet written | NOT IMPLEMENTED | Verified Tahoe IO80211/Skywalk ABI or a supported substitute |
+
+- **Layer:** PCI detection
+  - **Files:** `src/SimpleATH.cpp` and `src/Info.plist`
+  - **Implemented:** Exclusive native ownership for physical 0036
+  - **Blocking dependency:** macOS linkage/runtime validation
+
+- **Layer:** Core identification
+  - **Files:** `src/hardware/Ar9565Core.*`
+  - **Implemented:** Physical PCI identity, type-2 SREV, 1.0/1.0.1/1.1, RTC and
+    EEPROM status checks
+  - **Blocking dependency:** Mapped PCI BAR with verified read32 callback
+
+- **Layer:** Device state
+  - **Files:** `Ar9565Core.*`
+  - **Implemented:** Fail-closed phases; no TX/RX before implementation
+  - **Blocking dependency:** EEPROM contents, reset and calibration
+
+- **Layer:** RF configuration data
+  - **Files:** `generated/Ar9565InitTables.hpp`
+  - **Implemented:** 2,174 2.4GHz HT20/HT40 entries derived from 15 Linux ath9k
+    source arrays
+  - **Blocking dependency:** BAR writes, complete EEPROM validation, safe reset
+    and delays
+
+- **Layer:** Radio configuration planning
+  - **Files:** `Ar9565InitCatalog.*`
+  - **Implemented:** Revision-specific radio postamble, RX/TX gain profiles,
+    channel 14 and regulatory preconditions
+  - **Blocking dependency:** Calibration and board data
+
+- **Layer:** PCI inspection session
+  - **Files:** `src/platform/Ar9565PciSession.*`
+  - **Implemented:** Portable ownership/D0/config/BAR0 checks, read-only
+    allowlist and unwind
+  - **Blocking dependency:** Native lifecycle implemented in SimpleATH; macOS
+    runtime validation remains
+
+- **Layer:** Board data parser
+  - **Files:** `Ar9565Eeprom.*`
+  - **Implemented:** Checked compression blocks/dump chains, five pinned
+    dictionaries, 1088-byte image storage, raw board summary and gain-index
+    mapping
+  - **Blocking dependency:** Native acquisition/origin discovery,
+    serialization/reconstruction verification, actual calibration/regulatory
+    validation
+
+- **Layer:** NVM read protocol
+  - **Files:** `Ar9565NvmReader.*`
+  - **Implemented:** Active EEPROM/OTP trigger/poll/byte-normalization source
+    with word/capture bounds
+  - **Blocking dependency:** Native caller connected; physical capture
+    validation remains
+
+- **Layer:** Power candidate calculation
+  - **Files:** `Ar9565Power.*`
+  - **Implemented:** EEPROM target interpolation, explicit CTL coverage,
+    antenna/EIRP intersection and single-stream rate selection
+  - **Blocking dependency:** Actual board/country approval, TPC conversion and
+    calibrated/programmed/measured power; no TX enabled
+
+- **Layer:** PCI DMA and interrupts
+  - **Files:** `Ar9003Descriptors.*`, `Ar9003Dma.*`
+  - **Implemented:** Pointer/status codecs and generation-checked ring metadata
+    only
+  - **Blocking dependency:** Actual DMA mapping, hardware rings, interrupts,
+    completions and recovery
+
+- **Layer:** Native packet-buffer mapping
+  - **Files:** `src/platform/Ar9565NativeDma.*`
+  - **Implemented:** IOBuffer/IOMapper/IODMACommand source compiled in normal
+    target, 32-bit segments, client/gate handoff and token-checked retirement
+  - **Blocking dependency:** controller worker/epoch ownership, ABI validation,
+    coherent rings and real queues/interrupts remain missing
+
+- **Layer:** 802.11 MAC and security
+  - **Files:** `src/wifi/`
+  - **Implemented:** Portable frame, scan-cache, station-state and EAPOL source;
+    see WIFI-MAC-AND-DMA.md
+  - **Blocking dependency:** Actual radio/queues, timers, verified crypto/key
+    path, rates and OS integration
+
+- **Layer:** macOS Wi-Fi UI
+  - **Files:** Not yet written
+  - **Implemented:** NOT IMPLEMENTED
+  - **Blocking dependency:** Verified Tahoe IO80211/Skywalk ABI or a supported
+    substitute
+
 
 The native owner now invokes `src/hardware/Ar9565RtcPower.*` through ordered
 active MMIO, same-device posted-write draining and live D0 checks. MCI
@@ -53,7 +126,8 @@ coexistence remains a separate required integration.
 
 The generated Linux-derived arrays retain the original Atheros/Qualcomm
 permissive copyright notice in the generated file. The new C++ control code
-has no project-wide license grant. The unmodified Linux references retain their own notices.
+has no project-wide license grant. The unmodified Linux references retain their
+own notices.
 
 ## V1 boot versus V1 kext injection
 

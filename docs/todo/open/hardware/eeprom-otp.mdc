@@ -19,7 +19,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -30,10 +31,14 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c` — NVM restore, reconstruction dictionaries and board/calibration interpretation.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.h` — packed AR9300 board layout.
-- `.references/linux/drivers/net/wireless/ath/ath9k/eeprom.h` — common EEPROM definitions.
-- `.references/linux/drivers/net/wireless/ath/ath9k/reg.h` — EEPROM/OTP register semantics.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c` — NVM
+  restore, reconstruction dictionaries and board/calibration interpretation.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.h` — packed
+  AR9300 board layout.
+- `.references/linux/drivers/net/wireless/ath/ath9k/eeprom.h` — common EEPROM
+  definitions.
+- `.references/linux/drivers/net/wireless/ath/ath9k/reg.h` — EEPROM/OTP register
+  semantics.
 
 ## Objective
 
@@ -46,9 +51,11 @@ the user's actual EEPROM to finish the source task**.
 
 - [ ] Implement/review the stated source and integrate on main.
 - [ ] Validate NVM checksums, board identity and reject unknown layouts.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -77,7 +84,7 @@ validated for RF, and no live EEPROM has been read. BoardDataSummary is not
 calibrated RF state.
 
 The source/origin algorithm is grounded in ar9300_eeprom_restore_internal in
-[ar9003_eeprom.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c).
+[ar9003_eeprom.c](https://github.com/torvalds/linux).
 Next, connect the acquisition/lease to a verified exclusive native PCI owner
 and calibrated RF consumers, implement all required board-data interpretation,
 and revoke/drain outstanding work on power loss and teardown. Keep source kind,
@@ -138,7 +145,9 @@ unsupported gain indexes and valid templates with invalid board restrictions.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.

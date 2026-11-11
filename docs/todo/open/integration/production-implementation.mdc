@@ -20,7 +20,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -31,12 +32,21 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — AR9565 reset/radio pipeline.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c` — board interpretation and calibration.
+- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — AR9565 reset/radio
+  pipeline.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_eeprom.c` — board
+  interpretation and calibration.
 - `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c` — EDMA.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.cpp` — native AirPort, association/PMK and scan.
-- `.references/linux/drivers/bluetooth/ath3k.c` — Bluetooth firmware integration.
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/src/compat_rtw89/rtw89_awdl.c` — AWDL comparison; cached code does not establish feature readiness.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/WCL/WCL.cpp`
+  — native AirPort, association/PMK and scan.
+- `.references/linux/drivers/bluetooth/ath3k.c` — Bluetooth firmware
+  integration.
+- Reference project: `.references/AirPort_RTW89`
+  - Revision: `90b6cfc5a69c271688fad188857cfaeb58053dc5`
+  - File: `src/compat_rtw89/rtw89_awdl.c`
+  — AWDL comparison; cached code does not establish feature readiness.
 
 
 ## Owner directive
@@ -66,7 +76,8 @@ checks or imposing a serial lint-only hold on the missing source work.
 - [ ] Revision-correct reset, PLL/channel configuration and regulatory power.
 - [ ] Actual DMA rings, packet buffers, interrupts, completion and recovery.
 - [ ] Native Tahoe Wi-Fi controller/interface and OS packet/event contracts.
-- [ ] Real scan, authentication, association, WPA2/CCMP/key lifecycle and traffic.
+- [ ] Real scan, authentication, association, WPA2/CCMP/key lifecycle and
+  traffic.
 - [ ] QCA9565 Bluetooth USB HCI/firmware/BLE and Wi-Fi coexistence.
 - [ ] Native AWDL/peer-to-peer Wi-Fi plus BLE integration required for AirDrop.
 - [ ] Suspend/resume, disconnect/reconnect, partial failure and teardown.

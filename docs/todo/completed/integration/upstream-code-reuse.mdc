@@ -21,7 +21,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -32,11 +33,19 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/LICENSE` — RTW89 licensing scope.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/LICENSE` — BE200 licensing scope; per-file notices still apply.
-- `.references/nvidia-macos-driver/7412cdde81447f78da0ebb64216dc258d8beaedb/LICENSE` — PolyForm Noncommercial restrictions.
+- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/LICENSE` —
+  RTW89 licensing scope.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `LICENSE`
+  — BE200 licensing scope; per-file notices still apply.
+- Reference project: `.references/nvidia-macos-driver`
+  - Revision: `7412cdde81447f78da0ebb64216dc258d8beaedb`
+  - File: `LICENSE`
+  — PolyForm Noncommercial restrictions.
 - `.references/MacKernelSDK/LICENSE.txt` — SDK license.
-- `.references/ledger.jsonl` — sole acquisition and reuse history; acquisition is not implementation.
+- `.references/ledger.jsonl` — sole acquisition and reuse history; acquisition
+  is not implementation.
 
 
 ## Owner directive — 2026-11-10
@@ -60,7 +69,7 @@ The GPLv2 text is retained separately under licenses/GPL-2.0.txt.
 
 ## Pinned review sources and concrete reuse candidates
 
-1. [AirPort_RTW89](https://github.com/FranciumOS-org/AirPort_RTW89/tree/90b6cfc5a69c271688fad188857cfaeb58053dc5),
+1. [AirPort_RTW89](https://github.com/FranciumOS-org/AirPort_RTW89),
    revision `90b6cfc5a69c271688fad188857cfaeb58053dc5`.
    Review `src/front/AirPortRTW89Front.*`, `src/front/rtw89_front_api.h`,
    `src/kext/AirPortRTW89Native.cpp` and the relevant `src/compat_rtw89/`
@@ -70,7 +79,7 @@ The GPLv2 text is retained separately under licenses/GPL-2.0.txt.
    packet delivery where compatible with the exact target. This frontend
    uses restored IO80211FamilyLegacy, not our modern 25G332 InfraProtocol ABI.
    Its README explicitly leaves AirDrop/AWDL/Continuity unfinished.
-2. [AirportItlwm-BE200](https://github.com/Ersiter/AirportItlwm-BE200/tree/ff82f3e5647ce3885f5d48417b6356a6a23d2163),
+2. [AirportItlwm-BE200](https://github.com/Ersiter/AirportItlwm-BE200),
    revision `ff82f3e5647ce3885f5d48417b6356a6a23d2163`.
    Review `AirportItlwm/WCL/WCL.*`, `AirportItlwmSkywalkInterface.*`,
    `AirportItlwmV2.*`, `AirportItlwmEthernetInterface.*` and relevant
@@ -80,7 +89,8 @@ The GPLv2 text is retained separately under licenses/GPL-2.0.txt.
    Do not copy its fake `getProvider()` Ethernet bridge or advertise Intel
    firmware/HE/EHT/MLO/6 GHz behavior as AR9565 hardware support. README and
    branch development notes make different claims; inspect actual source.
-3. [NullMoth NVIDIA driver](https://github.com/nullmoth/nvidia-macos-driver/tree/7412cdde81447f78da0ebb64216dc258d8beaedb),
+3. [NullMoth NVIDIA
+   driver](https://github.com/nullmoth/nvidia-macos-driver),
    revision `7412cdde81447f78da0ebb64216dc258d8beaedb`.
    Review `docs/HOW-IT-WORKS.md`, `docs/SLEEP-WAKE.md`, `LICENSE` and `NOTICE`
    for IOKit ownership, suspend/resume sequencing and actionable diagnostics.

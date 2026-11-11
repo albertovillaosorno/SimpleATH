@@ -21,8 +21,10 @@ Apple's signing and PCI entitlements. It cannot share this PCI function with
 a kext. Moving PCI access there does not solve the native wireless interface.
 Apple explicitly limits NetworkingDriverKit to Ethernet; an Ethernet packet
 bridge must not be represented as native Wi-Fi. See Apple's
-[PCI network-driver guidance](https://developer.apple.com/documentation/pcidriverkit/connecting-a-network-driver)
-and [NetworkingDriverKit](https://developer.apple.com/documentation/networkingdriverkit).
+[PCI network-driver
+guidance](https://developer.apple.com)
+and
+[NetworkingDriverKit](https://developer.apple.com).
 
 ## What the local ABI evidence establishes
 
@@ -39,7 +41,8 @@ Full wireless nlists now supply constructors and vtable names missing from
 the snapshot. For example native attachInterface takes OSObject/IOService,
 which differs from the legacy interface-pointer/bool signature. Effective
 wireless exports, full types/virtual contracts and packet/key lifetimes still
-need verification. The native PCI adapter is now integrated; the wireless adapter remains required.
+need verification. The native PCI adapter is now integrated; the wireless
+adapter remains required.
 
 `src/platform/abi/Tahoe.json` has SHA-256
 `611b50f109954bb7eda873c40dccf7f6d3ff57a994a156ede9550d9ac9ce82cd`,
@@ -49,11 +52,13 @@ collection UUID `4bf8cd701d60637fdd1aca7be2d3d846`.
 
 It contains exactly three images: kernel, IOSkywalkFamily and IO80211Family.
 **It contains no IOPCIFamily image.** Its absence cannot establish that any
-IOPCIDevice symbol is missing from Tahoe. The current Info.plist declares IOPCIFamily 2.9. The old injection error establishes failure of that
+IOPCIDevice symbol is missing from Tahoe. The current Info.plist declares
+IOPCIFamily 2.9. The old injection error establishes failure of that
 artifact's resolution, not the unavailability of the entire PCI API.
 
 The pinned MacKernelSDK (`3f750085caa17ec3a7880f11c11bf4f48cd6a164`)
-[IOPCIDevice header](https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/pci/IOPCIDevice.h)
+[IOPCIDevice
+header](https://github.com/acidanthera/MacKernelSDK)
 inlines `configRead16` into nonvirtual `extendedConfigRead16`. Renaming the
 call to configRead16 therefore does not remove that import. Header SHA-256:
 `64a32261140503d1b332dd67ab656d3f79e946f223a730ad739b81fe5bb5ae3a`.
@@ -94,7 +99,8 @@ candidates; it deliberately cannot approve the native PCI or wireless ABI.
    on a separate sleepable client thread. Reserve lifetime/epoch under the
    gate, allocate privately, then reenter the gate and reject stale epochs
    before publishing any device address. See
-   [native DMA buffers](NATIVE-DMA-BUFFERS.md) for the normally compiled resource
+   [native DMA buffers](NATIVE-DMA-BUFFERS.md) for the normally compiled
+   resource
    implementation and the controller/worker integration still required.
    Establish D0 through the PCI/power family and observe completion before
    config/MMIO. A boot argument or a registry property cannot establish D0.
@@ -118,7 +124,8 @@ candidates; it deliberately cannot approve the native PCI or wireless ABI.
    A read-only diagnostic bus admits only SREV, RTC status and EEPROM status;
    EEPROM/OTP trigger registers are not innocuous passive reads.
 
-Apple's public [IOPCIDevice implementation](https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp)
+Apple's public [IOPCIDevice
+implementation](https://github.com/apple-oss-distributions/IOPCIFamily)
 delegates handleOpen to IOService's ownership protocol. Its DriverKit-specific
 close path disables memory/bus leading; a kext must not assume that DriverKit
 cleanup runs for a normal kernel client. Public source is architectural
@@ -142,7 +149,8 @@ Prepare rings before bus mastering; install disabled interrupt sources on the
 same work loop, clear stale causes in a device-specific sequence, then enable
 only implemented causes. Shared INTx requires ownership filtering and bounded
 draining; MSI availability must be discovered. Hard interrupt work must not
-allocate memory, wait for the gate, or process 802.11 frames. Deferred processing
+allocate memory, wait for the gate, or process 802.11 frames. Deferred
+processing
 must validate ownership/status before recycling buffers. The ath9k enhanced DMA
 descriptors, TX status ring and RX queues require a real port, not generic ring
 structures named after ath9k.

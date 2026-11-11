@@ -15,8 +15,10 @@ working Wi-Fi interface; radio, queue/IRQ and IO80211 integration remain open.
 
 ## Acquisition and provenance
 
-The [Dortania KDK manifest](https://raw.githubusercontent.com/dortania/KdkSupportPkg/gh-pages/manifest.json)
-and [25G332 release](https://github.com/dortania/KdkSupportPkg/releases/tag/25G332)
+The [Dortania KDK
+manifest](https://github.com/dortania/KdkSupportPkg)
+and [25G332
+release](https://github.com/dortania/KdkSupportPkg/releases/tag/25G332)
 provide Kernel Debug Kit 26.7.2 build 25G332, published November 2. The existing
 DMG was downloaded for static inspection, without executing the installer.
 Its 1,181,052,767 bytes hash to SHA-256
@@ -42,16 +44,28 @@ Records:
 - `docs/evidence/TAHOE-25G332-KDK-ACQUISITION.json`: archive provenance,
   debugger type observations and the rejected local candidate.
 - `docs/evidence/TAHOE-25G332-KDK-SYMBOLS.json`: input/slice hashes, family
-  versions/dependencies, UUIDs and classified symbol names; no callable addresses.
+  versions/dependencies, UUIDs and classified symbol names; no callable
+  addresses.
 
 ## What changed in the PCI evidence
 
-| x86_64 image | Version | UUID |
-| --- | --- | --- |
-| IOPCIFamily | 2.9, compatible 1.0.0b1 | 227771C6-ADC2-30C7-8408-263F723CF81C |
-| IO80211Family | 1200.13.1 | 4C2B4969-2B92-3646-9512-C1769BE0F9A4 |
-| IOSkywalkFamily | 1.0 | A6EDB8DB-175B-3A49-8919-5769FCDB6BED |
-| kernel | See package/SystemVersion record | 28267FD5-3E1E-3686-8A1C-E73E2466FCFB |
+
+- **x86_64 image:** IOPCIFamily
+  - **Version:** 2.9, compatible 1.0.0b1
+  - **UUID:** 227771C6-ADC2-30C7-8408-263F723CF81C
+
+- **x86_64 image:** IO80211Family
+  - **Version:** 1200.13.1
+  - **UUID:** 4C2B4969-2B92-3646-9512-C1769BE0F9A4
+
+- **x86_64 image:** IOSkywalkFamily
+  - **Version:** 1.0
+  - **UUID:** A6EDB8DB-175B-3A49-8919-5769FCDB6BED
+
+- **x86_64 image:** kernel
+  - **Version:** See package/SystemVersion record
+  - **UUID:** 28267FD5-3E1E-3686-8A1C-E73E2466FCFB
+
 
 The latter three UUIDs match the retained reference's respective images.
 The previously absent PCI image is now available as package evidence.
@@ -65,7 +79,8 @@ its packaged `Resources/config/IOPCIFamily.exports` list:
 The same intersection includes extended config read/write 8/16/32,
 get/mapDeviceMemoryWithRegister, setMemoryEnable, setBusMasterEnable,
 findPCICapability and enablePCIPowerManagement. The report retains exact names.
-IOPCIFamily's plist lists iokit/libkern/mach/private/unsupported KPI dependencies
+IOPCIFamily's plist lists iokit/libkern/mach/private/unsupported KPI
+dependencies
 at 8.0. Its export-list file has 388 entries, not all IOPCIDevice methods.
 
 This is concrete evidence against treating the prior resolution failure as
@@ -83,12 +98,14 @@ SDK-vtable comparison, DMA ownership contract or proof of a runtime layout.
 
 ## Native wireless remains a concrete integration task
 
-The full IO80211 KDK nlist contains controller and Skywalk-interface constructors,
+The full IO80211 KDK nlist contains controller and Skywalk-interface
+constructors,
 init methods and vtables absent from the small retained snapshot. For example:
 
 - `IO80211Controller::attachInterface(OSObject *, IOService *)`
 - `IO80211SkywalkInterface::init(IOService *, ether_addr *)`
-- `IO80211SkywalkInterface::inputPacket(IO80211NetworkPacket *, packet_info_tag *, ether_header *, bool *, bool)`
+- `IO80211SkywalkInterface::inputPacket(IO80211NetworkPacket *, packet_info_tag
+  *, ether_header *, bool *, bool)`
 
 Those signatures are observations from mangled names, not verified calling
 contracts. In particular the attach signature is different from the legacy
@@ -98,8 +115,9 @@ no wireless config export list, effective production export eligibility, full
 class layout, required virtual slots, queue/packet/key lifetime, selector/event
 contract or native driver adapter has been verified by this work.
 
-`<LOCAL_DOWNLOADS>/IO80211Family` is a different thin x86_64
-image, UUID 07644D43-FC89-3B05-AC4F-2E47D1045F4E. Its build provenance is unknown
+`a locally downloaded IO80211Family bundle` is a different thin x86_64
+image, UUID 07644D43-FC89-3B05-AC4F-2E47D1045F4E. Its build provenance is
+unknown
 and it is rejected as exact-target evidence. No matching KDK directory or kernel
 collection was found by the filename search in Downloads; installer and recovery
 archives were left untouched.
@@ -119,14 +137,45 @@ not establish compilation**: only membership in the target's active
 PBXSourcesBuildPhase does. This distinction matters when auditing presumed
 Tahoe dependencies and a prior unresolved-import artifact.
 
-| Source boundary | Checked-in target state | ABI implication |
-| --- | --- | --- |
-| `src/SimpleATH.cpp` | In the `SimpleATH` kext Sources phase; two passive `IOService` classes | No direct `IOPCIDevice`, native IO80211 or Skywalk controller call; exposes no usable Wi-Fi interface |
-| `src/platform/Ar9565NativePci.cpp` | In kext Sources, but the former PCI opt-in defaulted to `0` (historical) | Active PCI/IOPCIDevice code is preprocessor-disabled unless explicitly enabled; cannot be counted as a verified import or tested owner |
-| `src/platform/Ar9565NativeDma.cpp` | In kext Sources, but the former DMA opt-in defaulted to `0` (historical) | IODMACommand, IOMapper and memory-descriptor use is disabled, not available to the passive probe |
-| `src/platform/Ar9565PciSession.cpp` and portable hardware/Wi-Fi sources | In kext Sources | Callback-driven models are not an `IOPCIFamily` or native wireless service implementation |
-| `src/Bridge.cpp`, `src/Loader.cpp`, `src/NativeSkywalk.cpp`, `src/NativeUserClient.cpp` and legacy patch helpers | Have project file/build-file records, but are **not** in the active `SimpleATH` Sources phase | Their private symbols, embedded-payload assumptions and handcrafted Skywalk classes cannot be treated as imports of the current target or as a valid Tahoe wireless implementation |
-| `src/platform/probe/main.mm` | In the separate `athprobe` tool Sources phase | A userspace inspection utility, not a kernel Wi-Fi controller or proof that its probed symbols are callable from the kext |
+
+- **Source boundary:** `src/SimpleATH.cpp`
+  - **Checked-in target state:** In the `SimpleATH` kext Sources phase; two
+    passive `IOService` classes
+  - **ABI implication:** No direct `IOPCIDevice`, native IO80211 or Skywalk
+    controller call; exposes no usable Wi-Fi interface
+
+- **Source boundary:** `src/platform/Ar9565NativePci.cpp`
+  - **Checked-in target state:** In kext Sources, but the former PCI opt-in
+    defaulted to `0` (historical)
+  - **ABI implication:** Active PCI/IOPCIDevice code is preprocessor-disabled
+    unless explicitly enabled; cannot be counted as a verified import or tested
+    owner
+
+- **Source boundary:** `src/platform/Ar9565NativeDma.cpp`
+  - **Checked-in target state:** In kext Sources, but the former DMA opt-in
+    defaulted to `0` (historical)
+  - **ABI implication:** IODMACommand, IOMapper and memory-descriptor use is
+    disabled, not available to the passive probe
+
+- **Source boundary:** `src/platform/Ar9565PciSession.cpp` and portable
+  hardware/Wi-Fi sources
+  - **Checked-in target state:** In kext Sources
+  - **ABI implication:** Callback-driven models are not an `IOPCIFamily` or
+    native wireless service implementation
+
+- **Source boundary:** `src/Bridge.cpp`, `src/Loader.cpp`,
+  `src/NativeSkywalk.cpp`, `src/NativeUserClient.cpp` and legacy patch helpers
+  - **Checked-in target state:** Have project file/build-file records, but are
+    **not** in the active `SimpleATH` Sources phase
+  - **ABI implication:** Their private symbols, embedded-payload assumptions and
+    handcrafted Skywalk classes cannot be treated as imports of the current
+    target or as a valid Tahoe wireless implementation
+
+- **Source boundary:** `src/platform/probe/main.mm`
+  - **Checked-in target state:** In the separate `athprobe` tool Sources phase
+  - **ABI implication:** A userspace inspection utility, not a kernel Wi-Fi
+    controller or proof that its probed symbols are callable from the kext
+
 
 The checked-in `src/Info.plist` declares `com.apple.kpi.iokit`,
 `com.apple.kpi.libkern`, `com.apple.kpi.mach` and
@@ -168,15 +217,46 @@ hashes; no Apple binary, executable address or implementation was retained.
 This supplements, and does not replace, the separate PCI-family dSYM sizes
 already reported above.
 
-| Kernel type (static DWARF) | Size (bytes) | Selected native method evidence |
-| --- | ---: | --- |
-| `IOService` | 136 | `open(IOService*, IOOptionBits, void*)`, `close`, `isOpen`, `isInactive` |
-| `IOMapper` | 208 | `copyMapperForDevice(IOService*)` reports `OSPtr<IOMapper>` return (canonical `IOMapper*`) |
-| `IOBufferMemoryDescriptor` | 232 | `inTaskWithOptions(task_t, IOOptionBits, vm_size_t, vm_offset_t)` reports `OSPtr<IOBufferMemoryDescriptor>` (canonical pointer); `getBytesNoCopy()` returns `void*` |
-| `IODMACommand` | 120 | `withSpecification(...)` reports `OSPtr<IODMACommand>` (canonical pointer); `prepare(UInt64, UInt64, bool, bool)`, `complete(bool, bool)` and `synchronize(IOOptionBits)` appear in the type record |
-| `IOMemoryDescriptor` | 96 | `prepare(IODirection)`, `complete(IODirection)`, 64-bit byte-count `readBytes`/`writeBytes` |
-| `IOMemoryMap` | 88 | `getVirtualAddress()` and `getLength()` use 64-bit result types |
-| `IOWorkLoop` | 72 | `inGate()` and `onThread()` are reported as boolean methods |
+
+- **Kernel type (static DWARF):** `IOService`
+  - **Size (bytes):** 136
+  - **Selected native method evidence:** `open(IOService*, IOOptionBits,
+    void*)`, `close`, `isOpen`, `isInactive`
+
+- **Kernel type (static DWARF):** `IOMapper`
+  - **Size (bytes):** 208
+  - **Selected native method evidence:** `copyMapperForDevice(IOService*)`
+    reports `OSPtr<IOMapper>` return (canonical `IOMapper*`)
+
+- **Kernel type (static DWARF):** `IOBufferMemoryDescriptor`
+  - **Size (bytes):** 232
+  - **Selected native method evidence:** `inTaskWithOptions(task_t,
+    IOOptionBits, vm_size_t, vm_offset_t)` reports
+    `OSPtr<IOBufferMemoryDescriptor>` (canonical pointer); `getBytesNoCopy()`
+    returns `void*`
+
+- **Kernel type (static DWARF):** `IODMACommand`
+  - **Size (bytes):** 120
+  - **Selected native method evidence:** `withSpecification(...)` reports
+    `OSPtr<IODMACommand>` (canonical pointer); `prepare(UInt64, UInt64, bool,
+    bool)`, `complete(bool, bool)` and `synchronize(IOOptionBits)` appear in the
+    type record
+
+- **Kernel type (static DWARF):** `IOMemoryDescriptor`
+  - **Size (bytes):** 96
+  - **Selected native method evidence:** `prepare(IODirection)`,
+    `complete(IODirection)`, 64-bit byte-count `readBytes`/`writeBytes`
+
+- **Kernel type (static DWARF):** `IOMemoryMap`
+  - **Size (bytes):** 88
+  - **Selected native method evidence:** `getVirtualAddress()` and `getLength()`
+    use 64-bit result types
+
+- **Kernel type (static DWARF):** `IOWorkLoop`
+  - **Size (bytes):** 72
+  - **Selected native method evidence:** `inGate()` and `onThread()` are
+    reported as boolean methods
+
 
 In particular, the **nominal** `OSPtr<T>` result types for three factories
 must not be silently treated as proof that a pinned research SDK declaration

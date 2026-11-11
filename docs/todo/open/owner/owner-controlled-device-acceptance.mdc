@@ -32,7 +32,8 @@ dependencies:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -43,8 +44,12 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/README.md` — documented native Wi-Fi setup/limitations to compare with diagnostics.
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/README.md` — documented AWDL/AirDrop limitations to distinguish from working behavior.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `README.md`
+  — documented native Wi-Fi setup/limitations to compare with diagnostics.
+- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/README.md`
+  — documented AWDL/AirDrop limitations to distinguish from working behavior.
 - `.references/ledger.jsonl` — exact source identities behind the tested commit.
 
 ## Objective
@@ -76,20 +81,24 @@ unobserved result or a promise that static review proves first-run success.
       GitHub build tag; record the artifact hash and actual build diagnostics.
 - [ ] Observe OpenCore injection without unresolved imports/relocations,
       Tahoe boot and physical 168c:0036 identity with supported true SREV.
-- [ ] Owner tests native Wi-Fi, WPA2/CCMP encrypted IP, recovery, sleep and RF safety.
+- [ ] Owner tests native Wi-Fi, WPA2/CCMP encrypted IP, recovery, sleep and RF
+  safety.
 - [ ] Observe 2.4 GHz scanning, actual WPA2 association, DHCP/DNS/TCP traffic,
       reconnect after sleep, legal transmit-power constraints and no kernel
       panic during the owner-authorized runs; record limits and failures.
 - [ ] Verify the QCA9565 combo chip's Bluetooth USB HCI/firmware integration
       and Wi-Fi/Bluetooth coexistence; record the actual USB identity.
-- [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible Apple devices.
+- [ ] Demonstrate AirDrop discovery and bidirectional transfer with compatible
+  Apple devices.
 - [ ] Run `tools/debug/SimpleATH-debug.command` with mandatory sudo on macOS;
       reproduce the issue, then share the adjacent `SimpleATH-debug-*.log`
       here. Inspect missing devices, command failures, timestamps and loaded
       driver identity rather than treating collection completion as success.
-- [ ] Owner posts actual results here; agents coordinate code fixes in their chat
+- [ ] Owner posts actual results here; agents coordinate code fixes in their
+  chat
       and commit directly to main, iterating only with new owner permission.
-- [ ] Record real logs/results and remaining limits, never equating theory with success.
+- [ ] Record real logs/results and remaining limits, never equating theory with
+  success.
 - [ ] Owner explicitly requests closing THIS TODO. Neither successful checks
       nor permission to compile, install or test authorizes closure.
 

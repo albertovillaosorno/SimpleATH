@@ -22,7 +22,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -33,10 +34,18 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/src/compat_rtw89/rtw89_awdl.c` — AWDL frame/TLV reference; inspect actual completeness.
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/src/kext/rtw89_awdl_timing.cpp` — AWDL timing/host integration comparison.
-- `.references/MacKernelSDK/Headers/IOKit/80211/IO80211P2PInterface.h` — candidate native peer interface; exact KDK contract remains authoritative.
-- `.references/linux/net/mac80211/offchannel.c` — off-channel ownership and scheduling.
+- Reference project: `.references/AirPort_RTW89`
+  - Revision: `90b6cfc5a69c271688fad188857cfaeb58053dc5`
+  - File: `src/compat_rtw89/rtw89_awdl.c`
+  — AWDL frame/TLV reference; inspect actual completeness.
+- Reference project: `.references/AirPort_RTW89`
+  - Revision: `90b6cfc5a69c271688fad188857cfaeb58053dc5`
+  - File: `src/kext/rtw89_awdl_timing.cpp`
+  — AWDL timing/host integration comparison.
+- `.references/MacKernelSDK/Headers/IOKit/80211/IO80211P2PInterface.h` —
+  candidate native peer interface; exact KDK contract remains authoritative.
+- `.references/linux/net/mac80211/offchannel.c` — off-channel ownership and
+  scheduling.
 - `.references/linux/net/bluetooth/hci_event.c` — BLE discovery/event handling.
 
 

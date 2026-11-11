@@ -3,15 +3,18 @@
 `src/platform/Ar9565NativeDma.*` is compiled in the normal Xcode target, using
 IOBufferMemoryDescriptor, a device-specific IOMapper and IODMACommand. The
 experimental opt-in was removed on 2026-11-09, and SDK syntax checks now parse
-its real kernel declarations with `KERNEL=1`. The native PCI owner is integrated;
+its real kernel declarations with `KERNEL=1`. The native PCI owner is
+integrated;
 packet-ring/IRQ ownership and the client-thread allocation handoff still need
 to call this class. No hardware packet transfer is claimed by inclusion alone.
 
 ## Why allocation is separate from hardware ownership
 
-The pinned [IODMACommand header](https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/IODMACommand.h)
+The pinned [IODMACommand
+header](https://github.com/acidanthera/MacKernelSDK)
 documents that prepare can block and must not run while gated. The
-[buffer allocator](https://github.com/acidanthera/MacKernelSDK/blob/3f750085caa17ec3a7880f11c11bf4f48cd6a164/Headers/IOKit/IOBufferMemoryDescriptor.h)
+[buffer
+allocator](https://github.com/acidanthera/MacKernelSDK)
 can also block. Serializing every DMA call inside IOCommandGate would violate
 that contract. The controller must implement this ownership transfer:
 
@@ -25,7 +28,8 @@ that contract. The controller must implement this ownership transfer:
    not prevent provider termination, sleep or epoch invalidation.
 3. Reenter the gate with the **current** owner epoch. publishGated rejects a
    mismatch, returns no addresses, and leaves the unpublished mapping eligible
-   for client-context release. This handles sleep/stop during a blocking prepare.
+   for client-context release. This handles sleep/stop during a blocking
+   prepare.
 4. Publication assigns a nonwrapping per-buffer submission serial and marks
    the buffer DeviceOwned **before** the controller can program hardware. The
    output contains only OS-generated I/O bus segments and an epoch/allocation/
@@ -41,7 +45,8 @@ that contract. The controller must implement this ownership transfer:
 The class checks inGate/onThread to reject the owner's gate/work-loop context
 for client calls. Those checks do not prove that an arbitrary other caller is
 a sleepable thread: interrupt exclusion and operation lifetime are additional
-controller obligations. The PCI owner is connected; its packet-buffer client worker remains to be implemented.
+controller obligations. The PCI owner is connected; its packet-buffer client
+worker remains to be implemented.
 
 ## Mapping, copying and bounds
 
@@ -74,8 +79,10 @@ After validated arguments, RX reads clear caller output before synchronization
 and again after a short copy, so a failed operation cannot leave a stale or
 partial packet in that output. Caller lengths must come from verified RX status,
 never from capacity or an untrusted frame header. No CPU pointer escapes.
-Apple's [synchronize contract](https://developer.apple.com/documentation/kernel/iodmacommand/1547719-synchronize)
-defines those IN/OUT copy directions; [complete](https://developer.apple.com/documentation/kernel/iodmacommand/1811081-complete)
+Apple's [synchronize
+contract](https://developer.apple.com)
+defines those IN/OUT copy directions;
+[complete](https://developer.apple.com)
 requires matching preparation and transfer completion. These API descriptions
 are not a substitute for exact-build ABI and physical DMA validation.
 

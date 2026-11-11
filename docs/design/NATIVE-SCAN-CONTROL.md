@@ -19,7 +19,8 @@ remains passive; all readiness and runtime capability gates stay false.
    worker keeps this exact ticket. Request serials cannot repeat during the
    current lifetime unless `clear()` retires the old owner epoch.
 3. Only after actual RF dwell and its RX processing is finished may the worker
-   call `completeScan(cache, ticket, succeeded)`. A stale, repeated, wrong-serial
+   call `completeScan(cache, ticket, succeeded)`. A stale, repeated,
+   wrong-serial
    or previous-epoch completion returns `InvalidState` without mutating the
    current request. `clear()` removes all scan entries and pending events but
    does **not** reset the generation source. On a 64-bit generation exhaust,
@@ -41,7 +42,8 @@ remains passive; all readiness and runtime capability gates stay false.
    no Apple80211 requests and has no authority to mark a real scan complete.
 
 The underlying serialized owner is responsible for cancellation on stop,
-termination, RF-kill, sleep and power loss. It must call `clear()` and invalidate
+termination, RF-kill, sleep and power loss. It must call `clear()` and
+invalidate
 its real radio work before reopening scan requests. The bridge is intentionally
 not thread-safe: callbacks, cache snapshots, iterator and event acknowledgements
 must share one gate. Native event dispatch failure leaves intent pending so the

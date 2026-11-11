@@ -23,7 +23,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -34,13 +35,20 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — reset and PLL sequencing.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_hw.c` — revision-specific initialization.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_phy.c` — synthesizer/channel and PHY controls.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_calib.c` — calibration sequencing.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p0_initvals.h` — AR9565 register tables and gains.
-- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p1_initvals.h` — AR9565 1.1 radio postamble.
-- `.references/linux/net/wireless/reg.c` — regulatory policy; adapt only supported target scope.
+- `.references/linux/drivers/net/wireless/ath/ath9k/hw.c` — reset and PLL
+  sequencing.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_hw.c` —
+  revision-specific initialization.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_phy.c` —
+  synthesizer/channel and PHY controls.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9003_calib.c` —
+  calibration sequencing.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p0_initvals.h` —
+  AR9565 register tables and gains.
+- `.references/linux/drivers/net/wireless/ath/ath9k/ar9565_1p1_initvals.h` —
+  AR9565 1.1 radio postamble.
+- `.references/linux/net/wireless/reg.c` — regulatory policy; adapt only
+  supported target scope.
 
 ## Objective
 
@@ -53,9 +61,11 @@ live signal or transmission tests.**
 
 - [ ] Implement/review the stated source and integrate on main.
 - [ ] Block radio TX without valid regulatory country and board power data.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -210,15 +220,20 @@ calibration and country/channel
 policy remain blocking; source-only tests do not prove physical reception.
 
 Implement the actual ordered radio executor after A2/A3 contracts exist:
-reset/wake -> PLL -> revision/mode/gain INI phases -> board values -> calibration
+reset/wake -> PLL -> revision/mode/gain INI phases -> board values ->
+calibration
 -> channel/power programming -> RX/automatic-response policy. Handle every
 failure by invalidating affected channel/key/queue/calibration state, with
 quiescence coordinated through the owner. Preserve per-revision choices.
 
-Start from ath9k [hw.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/hw.c)
-(ath9k_hw_init_pll/reset), [ar9003_hw.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_hw.c)
-(mode/gain recipes), [ar9003_calib.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_calib.c)
-(PCI calibration path), and [ar9003_mci.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/ath9k/ar9003_mci.c)
+Start from ath9k
+[hw.c](https://github.com/torvalds/linux)
+(ath9k_hw_init_pll/reset),
+[ar9003_hw.c](https://github.com/torvalds/linux)
+(mode/gain recipes),
+[ar9003_calib.c](https://github.com/torvalds/linux)
+(PCI calibration path), and
+[ar9003_mci.c](https://github.com/torvalds/linux)
 (reset/coexistence sequencing). Scope each port to AR9565, not similarly named
 AR9561/AR956x SoCs. Use ar9003_eeprom.c calibration/power consumers to connect
 real board fields; do not stop at raw summaries.
@@ -226,8 +241,10 @@ real board fields; do not stop at raw summaries.
 Country information from an AP is an input to policy, not sole authority to
 relax EEPROM/board restrictions. Implement the intersection with a trusted
 platform country/channel policy; an unknown origin cannot silently grant TX.
-See Linux Wireless [regulatory processing](https://wireless.docs.kernel.org/en/latest/en/developers/regulatory/processing_rules.html).
-This is a source contract, not a claim that Linux regulatory APIs exist on macOS.
+See Linux Wireless [regulatory
+processing](https://wireless.docs.kernel.org).
+This is a source contract, not a claim that Linux regulatory APIs exist on
+macOS.
 
 Useful fake-clock/register tests: short reset pulse, stalled/backwards clock,
 revision-specific postamble, malformed HT40 geometry, stale calibration epoch,
@@ -235,8 +252,10 @@ and denial of management/data/automatic TX before board and country approval.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
 

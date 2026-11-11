@@ -20,7 +20,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -32,10 +33,17 @@ proof of implementation or runtime success.
 Concrete files for this task (paths are relative to the repository root):
 
 - `.references/linux/net/mac80211/key.c` — key lifecycle and replacement.
-- `.references/linux/net/mac80211/aes_ccm.h` — CCMP authenticated-encryption semantics.
+- `.references/linux/net/mac80211/aes_ccm.h` — CCMP authenticated-encryption
+  semantics.
 - `.references/linux/drivers/net/wireless/ath/key.c` — hardware keycache layout.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/itl80211/openbsd/net80211/ieee80211_crypto_ccmp.c` — independent CCMP source comparison; retain its file-specific notice.
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/src/compat_rtw89/hostap/common/wpa_common.h` — WPA2/EAPOL constants and structures.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `itl80211/openbsd/net80211/ieee80211_crypto_ccmp.c`
+  — independent CCMP source comparison; retain its file-specific notice.
+- Reference project: `.references/AirPort_RTW89`
+  - Revision: `90b6cfc5a69c271688fad188857cfaeb58053dc5`
+  - File: `src/compat_rtw89/hostap/common/wpa_common.h`
+  — WPA2/EAPOL constants and structures.
 
 ## Objective
 
@@ -48,10 +56,13 @@ device/RF tests and kext compilation remain unauthorized.
 ## Acceptance
 
 - [ ] Implement/review the stated source and integrate on main.
-- [ ] Complete safe nonce, keycache, replay and cryptographic lifecycle contracts.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Complete safe nonce, keycache, replay and cryptographic lifecycle
+  contracts.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -187,11 +198,13 @@ advertise them as implemented. WPA3, enterprise authentication and unrelated
 legacy ciphers are not substitutes for completing this baseline.
 
 Use published IEEE 802.11/RSN behavior and the existing crypto design record.
-For hardware key layout consult ath9k [key.c](https://github.com/torvalds/linux/blob/master/drivers/net/wireless/ath/key.c)
+For hardware key layout consult ath9k
+[key.c](https://github.com/torvalds/linux)
 and register definitions, with file-specific notices retained where applicable.
 Do not confuse message codecs with the radio's installed-key state.
 
-Useful host regressions: known algorithm vectors, stale replay counters, duplicate
+Useful host regressions: known algorithm vectors, stale replay counters,
+duplicate
 M3 without key/PN reinstall, mismatched RSNE, malformed wrapped GTK/padding,
 nonce/output overlap, group RSC/PN propagation, timeout and failed key rollback.
 Use synthetic keys only; passing vectors is not cryptographic certification.
@@ -254,8 +267,10 @@ Use synthetic keys only; passing vectors is not cryptographic certification.
   or native data-port execution is claimed. `tools/validate.py --tests`
   reports 534 passed, 36 remaining strict Clang-Tidy failures and zero skips.
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
 

@@ -6,22 +6,90 @@ and structures, NOT yet a functional driver or the complete 802.11 stack.
 
 ## Implemented building blocks
 
-| Component | File | What is implemented |
-| --- | --- | --- |
-| AR9003 descriptor representation | src/hardware/Ar9003Descriptors.* | 128-byte TX pointer layout, four 32-bit DMA buffer addresses and lengths, AR9565 descriptor-id formatting, pointer checksum and link updates; 48-byte RX status parsing and error flags |
-| AR9003 TX controls | src/hardware/Ar9003TxControl.* | Four retry/rate series, per-series power caps, HT40/GI/STBC/antenna selection, CCMP keycache controls, RTS/CTS duration, 36-byte TX completion flags; never enables hardware transmission |
-| DMA safety checks | src/hardware/Ar9003Dma.* | Reject unmapped buffers, 64-to-32-bit truncation, 4-GiB crossing, cache-synchronization and alignment errors; bounded 64-slot TX and RX *metadata* ownership models |
-| Management frames | src/wifi/Frames.* | Bounds-checked 802.11 management/data header parsing, beacons/probe responses, SSID, DS channel, HT and RSN suites, serializers for probe, open authentication and limited WPA2-PSK CCMP association requests |
-| BSS cache | src/wifi/ScanCache.* | Allocation-free maximum 48 APs, expiry, visible/hidden SSID updates, channel/security filtering and RSSI preference |
-| Station protocol state | src/wifi/Station.* | Scan/candidate, authentication and association state transitions; explicit stop at unimplemented WPA2 crypto or network-interface registration |
-| EAPOL-Key parsing | src/wifi/Eapol.* | EAPOL version/length/RSN descriptor and key-info validation, message 1-4 and group 1-2 classification, replay guard requiring confirmed MIC before advancing |
-| WPA2-PSK handshake | src/wifi/Wpa2Supplicant.* | EAPOL messages 2/4, MIC verification, GTK unwrap and pairwise/group key installation through mandatory reviewed crypto callbacks; no active hardware backend |
-| WPA2 primitives | src/wifi/crypto/ | SHA-1/HMAC, PBKDF2, PTK derivation, AES key unwrap and callback bridge; uncompiled and no platform CSPRNG or keycache backend |
-| Data-frame decapsulation | src/wifi/DataFrames.* | LLC/SNAP parsing, Ethernet type, source/destination mapping, checks for protected payload, QoS A-MSDU and fragmentation rejection |
-| Infrastructure data path | src/wifi/DataPath.* | Builds ToDS frames from Ethernet-II/LLC-SNAP, gates outgoing EAPOL versus WPA2 CCMP data, filters received AP-to-station frames by BSSID and decryption integrity; no physical TX/RX or network interface |
-| Link monitoring | src/wifi/LinkMonitor.* | Bounds-checked AP beacon/deauth/disassoc handling, mandatory PMF verification when negotiated, beacon-loss timeout, bounded reconnect backoff; no actual radio scan or reconnect scheduler |
-| Portable coordinator | src/wifi/WifiEngine.* | Connects scan, association, EAPOL, station data TX/RX and link-monitor state without making live PCI or macOS Wi-Fi calls; uncompiled |
-| Legacy scan bridge | src/wifi/LegacyScanBridge.* | Bounded, stable completed BSS snapshots for a future native IO80211 scan-result handler, including exact validated RSN information elements and rate codes |
+
+- **Component:** AR9003 descriptor representation
+  - **File:** src/hardware/Ar9003Descriptors.*
+  - **What is implemented:** 128-byte TX pointer layout, four 32-bit DMA buffer
+    addresses and lengths, AR9565 descriptor-id formatting, pointer checksum and
+    link updates; 48-byte RX status parsing and error flags
+
+- **Component:** AR9003 TX controls
+  - **File:** src/hardware/Ar9003TxControl.*
+  - **What is implemented:** Four retry/rate series, per-series power caps,
+    HT40/GI/STBC/antenna selection, CCMP keycache controls, RTS/CTS duration,
+    36-byte TX completion flags; never enables hardware transmission
+
+- **Component:** DMA safety checks
+  - **File:** src/hardware/Ar9003Dma.*
+  - **What is implemented:** Reject unmapped buffers, 64-to-32-bit truncation,
+    4-GiB crossing, cache-synchronization and alignment errors; bounded 64-slot
+    TX and RX *metadata* ownership models
+
+- **Component:** Management frames
+  - **File:** src/wifi/Frames.*
+  - **What is implemented:** Bounds-checked 802.11 management/data header
+    parsing, beacons/probe responses, SSID, DS channel, HT and RSN suites,
+    serializers for probe, open authentication and limited WPA2-PSK CCMP
+    association requests
+
+- **Component:** BSS cache
+  - **File:** src/wifi/ScanCache.*
+  - **What is implemented:** Allocation-free maximum 48 APs, expiry,
+    visible/hidden SSID updates, channel/security filtering and RSSI preference
+
+- **Component:** Station protocol state
+  - **File:** src/wifi/Station.*
+  - **What is implemented:** Scan/candidate, authentication and association
+    state transitions; explicit stop at unimplemented WPA2 crypto or
+    network-interface registration
+
+- **Component:** EAPOL-Key parsing
+  - **File:** src/wifi/Eapol.*
+  - **What is implemented:** EAPOL version/length/RSN descriptor and key-info
+    validation, message 1-4 and group 1-2 classification, replay guard requiring
+    confirmed MIC before advancing
+
+- **Component:** WPA2-PSK handshake
+  - **File:** src/wifi/Wpa2Supplicant.*
+  - **What is implemented:** EAPOL messages 2/4, MIC verification, GTK unwrap
+    and pairwise/group key installation through mandatory reviewed crypto
+    callbacks; no active hardware backend
+
+- **Component:** WPA2 primitives
+  - **File:** src/wifi/crypto/
+  - **What is implemented:** SHA-1/HMAC, PBKDF2, PTK derivation, AES key unwrap
+    and callback bridge; uncompiled and no platform CSPRNG or keycache backend
+
+- **Component:** Data-frame decapsulation
+  - **File:** src/wifi/DataFrames.*
+  - **What is implemented:** LLC/SNAP parsing, Ethernet type, source/destination
+    mapping, checks for protected payload, QoS A-MSDU and fragmentation
+    rejection
+
+- **Component:** Infrastructure data path
+  - **File:** src/wifi/DataPath.*
+  - **What is implemented:** Builds ToDS frames from Ethernet-II/LLC-SNAP, gates
+    outgoing EAPOL versus WPA2 CCMP data, filters received AP-to-station frames
+    by BSSID and decryption integrity; no physical TX/RX or network interface
+
+- **Component:** Link monitoring
+  - **File:** src/wifi/LinkMonitor.*
+  - **What is implemented:** Bounds-checked AP beacon/deauth/disassoc handling,
+    mandatory PMF verification when negotiated, beacon-loss timeout, bounded
+    reconnect backoff; no actual radio scan or reconnect scheduler
+
+- **Component:** Portable coordinator
+  - **File:** src/wifi/WifiEngine.*
+  - **What is implemented:** Connects scan, association, EAPOL, station data
+    TX/RX and link-monitor state without making live PCI or macOS Wi-Fi calls;
+    uncompiled
+
+- **Component:** Legacy scan bridge
+  - **File:** src/wifi/LegacyScanBridge.*
+  - **What is implemented:** Bounded, stable completed BSS snapshots for a
+    future native IO80211 scan-result handler, including exact validated RSN
+    information elements and rate codes
+
 
 All fifteen C++ translation units were added to the existing Xcode target
 for the **next separately authorized build**.
@@ -160,7 +228,8 @@ for the **next separately authorized build**.
 
 ## Evidence references
 
-- Linux ath9k (local): .references/linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c,
+- Linux ath9k (local):
+  .references/linux/drivers/net/wireless/ath/ath9k/ar9003_mac.c,
   ar9003_mac.h, mac.h, ar9565_1p0_initvals.h, ar9565_1p1_initvals.h
 - Linux cfg80211 LLC/SNAP translation:
   https://github.com/torvalds/linux/blob/v6.12/net/wireless/util.c

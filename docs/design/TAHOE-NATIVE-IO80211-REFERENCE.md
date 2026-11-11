@@ -11,10 +11,10 @@ This is a reference for architectural feasibility, NOT AR9565 validation.
 
 References (read online, never copied into SimpleATH):
 - https://github.com/FolKc9/AirportRtw88
-- https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88AirportLegacy.cpp
-- https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88AirportLegacyInterface.cpp
-- https://github.com/FolKc9/AirportRtw88/blob/main/src/kext/RTW88TahoeNetworkABI.cpp
-- https://github.com/FolKc9/AirportRtw88/blob/main/AirportRtw88Legacy.kext/Contents/Info.plist
+- https://github.com/FolKc9/AirportRtw88
+- https://github.com/FolKc9/AirportRtw88
+- https://github.com/FolKc9/AirportRtw88
+- https://github.com/FolKc9/AirportRtw88
 - https://github.com/FranciumOS-org/AirPort_RTW89
 
 ## Relevant path
@@ -57,21 +57,66 @@ not proof of external link eligibility, callable virtual ABI or availability
 in the owner's loaded Tahoe collections.** The declarations below are
 mangled-name interpretations, not implementation-ready prototypes.
 
-| Source-side operation needed | Observed exact-build candidate | Required verification before use |
-| --- | --- | --- |
-| Register a real wireless interface | `IO80211Controller::attachInterface(OSObject*, IOService*)` | Superclass layout, virtual slots, caller/returned ownership and target-family dependencies. Do **not** substitute legacy `attachInterface(IONetworkInterface**, bool)` |
-| Bring up interface identity | `IO80211SkywalkInterface::init(IOService*, ether_addr*)` | MAC input lifetime, object factory, superclass initialization and interface publication ordering |
-| Start/finish radio scans | `IO80211Controller::scanStarted(scanSource, apple80211_scan_data*)`, `scanDone(scanSource, int)` | Valid scan-source values, true completion timing and event delivery with an active radio/registered controller |
-| Start/finish association | `IO80211Controller::joinStarted(scanSource, joinStatus)`, `joinDone(scanSource, joinStatus)` | Exact join status values, key-install and network-state ordering; never emit RUN/connected from parser success |
-| Map native scan controls | `apple80211setSCAN_REQ(IO80211SkywalkInterface*, apple80211_scan_data*)`, `apple80211getSCAN_RESULT(IO80211SkywalkInterface*, apple80211_scan_result*)` | Concrete request structure layouts, in/out buffer ownership, native selector dispatch and synchronous enumeration rules |
-| Deliver RX packets | `IO80211SkywalkInterface::inputPacket(IO80211NetworkPacket*, packet_info_tag*, ether_header*, bool*, bool)` | Actual packet allocator, queue context, length/headroom, handoff ownership, teardown, failure-release semantics |
-| Handle user/power lifetime | `IO80211SkywalkInterface::newUserClient(task_t, void*, uint32_t, OSDictionary*, IOUserClient**)`, `setPowerState(unsigned long, IOService*)` | User-client entitlements, async callback serialization, gate/sleep interactions and outstanding packet/control requests |
+
+- **Source-side operation needed:** Register a real wireless interface
+  - **Observed exact-build candidate:**
+    `IO80211Controller::attachInterface(OSObject*, IOService*)`
+  - **Required verification before use:** Superclass layout, virtual slots,
+    caller/returned ownership and target-family dependencies. Do **not**
+    substitute legacy `attachInterface(IONetworkInterface**, bool)`
+
+- **Source-side operation needed:** Bring up interface identity
+  - **Observed exact-build candidate:**
+    `IO80211SkywalkInterface::init(IOService*, ether_addr*)`
+  - **Required verification before use:** MAC input lifetime, object factory,
+    superclass initialization and interface publication ordering
+
+- **Source-side operation needed:** Start/finish radio scans
+  - **Observed exact-build candidate:**
+    `IO80211Controller::scanStarted(scanSource, apple80211_scan_data*)`,
+    `scanDone(scanSource, int)`
+  - **Required verification before use:** Valid scan-source values, true
+    completion timing and event delivery with an active radio/registered
+    controller
+
+- **Source-side operation needed:** Start/finish association
+  - **Observed exact-build candidate:**
+    `IO80211Controller::joinStarted(scanSource, joinStatus)`,
+    `joinDone(scanSource, joinStatus)`
+  - **Required verification before use:** Exact join status values, key-install
+    and network-state ordering; never emit RUN/connected from parser success
+
+- **Source-side operation needed:** Map native scan controls
+  - **Observed exact-build candidate:**
+    `apple80211setSCAN_REQ(IO80211SkywalkInterface*, apple80211_scan_data*)`,
+    `apple80211getSCAN_RESULT(IO80211SkywalkInterface*,
+    apple80211_scan_result*)`
+  - **Required verification before use:** Concrete request structure layouts,
+    in/out buffer ownership, native selector dispatch and synchronous
+    enumeration rules
+
+- **Source-side operation needed:** Deliver RX packets
+  - **Observed exact-build candidate:**
+    `IO80211SkywalkInterface::inputPacket(IO80211NetworkPacket*,
+    packet_info_tag*, ether_header*, bool*, bool)`
+  - **Required verification before use:** Actual packet allocator, queue
+    context, length/headroom, handoff ownership, teardown, failure-release
+    semantics
+
+- **Source-side operation needed:** Handle user/power lifetime
+  - **Observed exact-build candidate:**
+    `IO80211SkywalkInterface::newUserClient(task_t, void*, uint32_t,
+    OSDictionary*, IOUserClient**)`, `setPowerState(unsigned long, IOService*)`
+  - **Required verification before use:** User-client entitlements, async
+    callback serialization, gate/sleep interactions and outstanding
+    packet/control requests
+
 
 For exact-symbol lookup, the source evidence includes the mangled identifiers
 `__ZN17IO80211Controller15attachInterfaceEP8OSObjectP9IOService`,
 `__ZN17IO80211Controller8scanDoneE10scanSourcei`,
 `__ZN23IO80211SkywalkInterface4initEP9IOServiceP10ether_addr`, and
-`__ZN23IO80211SkywalkInterface11inputPacketEP20IO80211NetworkPacketP15packet_info_tagP12ether_headerPbb`.
+See the pinned ABI/source value in the evidence index.
 These examples provide testable lookup anchors, **not** calls to import into
 the current passive kext target. The separate
 [25G332 KDK evidence](TAHOE-25G332-KDK.md) records the inactive target
@@ -117,13 +162,43 @@ An AirPort native interface needs **one** authoritative association/key owner,
 not independent macOS and portable handshakes simultaneously. The proposed
 source integration boundary (still unverified for the exact native ABI) is:
 
-| Responsibility | Proposed exclusive owner and fail-closed handoff |
-| --- | --- |
-| UI scan, network choice and credentials | macOS AirPort control client requests scan/join; controller validates selectors, copies requests, and chooses one authorized channel/BSS. Portable `ScanCache` may supply verified results but must never invent radio dwell or SCAN_DONE |
-| 802.11 open authentication and association | Native controller serializes physical MAC TX/RX and calls `WifiEngine`/`Station` for frame parsing/production. OS `joinStarted`/`joinDone` are notifications **after** real state transitions, never a parallel second state machine |
-| WPA2-PSK PMK, PTK, GTK, replay and controlled port | Decide which side owns 4-way handshake **before** enabling adapter. With current source, `Wpa2Supplicant` owns derivation/EAPOL state, while a verified native key backend alone installs hardware keys and validates PN/MIC. If the selected Tahoe Apple80211 contract instead delegates PMK/PTK to the OS and delivers `CIPHER_KEY`, do **not** run the portable handshake in parallel; adapt to the OS-owned protocol and disable conflicting transitions. The implemented modern WCL path now uses driver-owned supplication through the version-2 native owner contract; runtime behavior remains unverified |
-| Network-ready and packet delivery | Open the controlled data port only after real association, authorized channel, pairwise/group key installation and replay protection. OS-owned packet buffers and network stack handle Ethernet-II payload delivery, DHCP, IPv4/IPv6, DNS and TCP; the kext does **not** build a parallel IP stack |
-| Disconnect, sleep, new join, teardown | Work-loop owner closes the controlled port first, revokes queues/user callbacks, quiesces DMA, erases keys/replay state, retires association/scan epochs and then notifies OS. Never publish connected state during recovery or after a stale callback |
+
+- **Responsibility:** UI scan, network choice and credentials
+  - **Proposed exclusive owner and fail-closed handoff:** macOS AirPort control
+    client requests scan/join; controller validates selectors, copies requests,
+    and chooses one authorized channel/BSS. Portable `ScanCache` may supply
+    verified results but must never invent radio dwell or SCAN_DONE
+
+- **Responsibility:** 802.11 open authentication and association
+  - **Proposed exclusive owner and fail-closed handoff:** Native controller
+    serializes physical MAC TX/RX and calls `WifiEngine`/`Station` for frame
+    parsing/production. OS `joinStarted`/`joinDone` are notifications **after**
+    real state transitions, never a parallel second state machine
+
+- **Responsibility:** WPA2-PSK PMK, PTK, GTK, replay and controlled port
+  - **Proposed exclusive owner and fail-closed handoff:** Decide which side owns
+    4-way handshake **before** enabling adapter. With current source,
+    `Wpa2Supplicant` owns derivation/EAPOL state, while a verified native key
+    backend alone installs hardware keys and validates PN/MIC. If the selected
+    Tahoe Apple80211 contract instead delegates PMK/PTK to the OS and delivers
+    `CIPHER_KEY`, do **not** run the portable handshake in parallel; adapt to
+    the OS-owned protocol and disable conflicting transitions. The implemented
+    modern WCL path now uses driver-owned supplication through the version-2
+    native owner contract; runtime behavior remains unverified
+
+- **Responsibility:** Network-ready and packet delivery
+  - **Proposed exclusive owner and fail-closed handoff:** Open the controlled
+    data port only after real association, authorized channel, pairwise/group
+    key installation and replay protection. OS-owned packet buffers and network
+    stack handle Ethernet-II payload delivery, DHCP, IPv4/IPv6, DNS and TCP; the
+    kext does **not** build a parallel IP stack
+
+- **Responsibility:** Disconnect, sleep, new join, teardown
+  - **Proposed exclusive owner and fail-closed handoff:** Work-loop owner closes
+    the controlled port first, revokes queues/user callbacks, quiesces DMA,
+    erases keys/replay state, retires association/scan epochs and then notifies
+    OS. Never publish connected state during recovery or after a stale callback
+
 
 Exact-build KDK nlist candidates include
 `apple80211setASSOCIATE(IO80211SkywalkInterface*, apple80211_assoc_data*)`,
@@ -194,7 +269,8 @@ modern attachInterface(OSObject*,IOService*) entry is at vtable offset 0xdc8
 relative to the first virtual-function entry. NoneProtocol derives from
 OSObject; it is not a legacy IO80211Interface substitute.
 
-The exact `apple80211setSCAN_REQ(IO80211SkywalkInterface*,apple80211_scan_data*)`
+The exact
+`apple80211setSCAN_REQ(IO80211SkywalkInterface*,apple80211_scan_data*)`
 wrapper checks the NoneProtocol metaclass and calls offset 0x1b0. Its legacy
 scan request path must not be confused with the modern InfraProtocol WCL
 scan/association path. The installed compatibility SDK contains legacy and
@@ -206,7 +282,7 @@ A current native Tahoe reference, AirportMtkWlan at commit
 `37aa87eecf9fd2246c0f4ef9879416afa396a105`, independently describes the modern
 controller/InfraProtocol/WCL architecture. It was consulted as API research;
 its GPLv2 implementation and headers were not copied into the driver.
-https://github.com/Arxusion/AirportMtkWlan/tree/37aa87eecf9fd2246c0f4ef9879416afa396a105
+https://github.com/Arxusion/AirportMtkWlan
 
 ## Native work queue and CoreCapture integration — 2026-11-10
 
@@ -292,7 +368,8 @@ Darwin SDK C++14 syntax-only checking; the production-used scan codec passes
 its offline host fixture for truncated requests, 5/6 GHz overlap, SSID filters,
 maximum rate/RSN payload capacity and malformed RSN rejection. No kext
 compilation, link, load, radio or physical traffic test has run. Source/global
-lint is not claimed clean. The subsequent version-2 join and capability implementation below supersedes
+lint is not claimed clean. The subsequent version-2 join and capability
+implementation below supersedes
 the previous missing-control-path snapshot. RF activation, remaining required
 selectors, Bluetooth-host integration and AWDL still prevent a 100% source or
 notebook-readiness claim.
@@ -323,18 +400,42 @@ checked the following facts directly in matching 25G332 IO80211Family (UUID
 `4C2B4969-2B92-3646-9512-C1769BE0F9A4`). These are static ABI observations,
 not loaded-kernel validation, and no implementation bodies were imported.
 
-| Native consumer | Observed requirement |
-| --- | --- |
-| `WCLJoinManager::authAssocCompleteEventHandler`, 0xf47aa | Exact 0x1c event extent |
-| `WCLJoinManager::firstBeaconEventHandler`, 0xf4832 | Exact 0x14 event extent |
-| `WCLJoinManager::connectCompleteEventHandler`, 0xf48b4 | Exact 0xa4 event extent |
-| `WCLJoinRequest::updateFirstBeaconEvent`, 0x11ea12 | BSSID at byte 4, driver status/reason at byte 12, status/reason at bytes 0/2 |
-| `WCLJoinRequest::updateConnectCompleteEvent`, 0x11eb0c | First peer driver status/reason at byte 12, status/reason at bytes 0/2 |
-| `WCLNetManager::handleSupplicantEvent`, 0xec12 | Exact 0x28 event; `updateSupplicantEvent` reads status at byte 8 |
-| `WCLNetManager::linkStatusInd`, 0xd77c | Link-up byte at offset 6 |
-| `WCLDeviceConfiguration::setCardCapbilities`, 0xf04fc | Copies three qwords and one dword: 0x1c bytes total |
-| `WCLDeviceConfiguration::getCardCapbilities`, 0xf0534 | Stored envelope begins at object-data offset 0xc98 |
-| `is6GSupported`, `isHeSupported`, `isEhtSupported` | Bitmap byte 11 bit 6, byte 17 bit 7, byte 17 bit 4, respectively |
+
+- **Native consumer:** `WCLJoinManager::authAssocCompleteEventHandler`, 0xf47aa
+  - **Observed requirement:** Exact 0x1c event extent
+
+- **Native consumer:** `WCLJoinManager::firstBeaconEventHandler`, 0xf4832
+  - **Observed requirement:** Exact 0x14 event extent
+
+- **Native consumer:** `WCLJoinManager::connectCompleteEventHandler`, 0xf48b4
+  - **Observed requirement:** Exact 0xa4 event extent
+
+- **Native consumer:** `WCLJoinRequest::updateFirstBeaconEvent`, 0x11ea12
+  - **Observed requirement:** BSSID at byte 4, driver status/reason at byte 12,
+    status/reason at bytes 0/2
+
+- **Native consumer:** `WCLJoinRequest::updateConnectCompleteEvent`, 0x11eb0c
+  - **Observed requirement:** First peer driver status/reason at byte 12,
+    status/reason at bytes 0/2
+
+- **Native consumer:** `WCLNetManager::handleSupplicantEvent`, 0xec12
+  - **Observed requirement:** Exact 0x28 event; `updateSupplicantEvent` reads
+    status at byte 8
+
+- **Native consumer:** `WCLNetManager::linkStatusInd`, 0xd77c
+  - **Observed requirement:** Link-up byte at offset 6
+
+- **Native consumer:** `WCLDeviceConfiguration::setCardCapbilities`, 0xf04fc
+  - **Observed requirement:** Copies three qwords and one dword: 0x1c bytes
+    total
+
+- **Native consumer:** `WCLDeviceConfiguration::getCardCapbilities`, 0xf0534
+  - **Observed requirement:** Stored envelope begins at object-data offset 0xc98
+
+- **Native consumer:** `is6GSupported`, `isHeSupported`, `isEhtSupported`
+  - **Observed requirement:** Bitmap byte 11 bit 6, byte 17 bit 7, byte 17 bit
+    4, respectively
+
 
 The controller's card-capability getter now supplies that complete modern
 28-byte envelope instead of always returning Unsupported or copying the
@@ -399,15 +500,18 @@ Old-generation or premature next-generation callbacks are dropped, including
 old associations on the same PCI epoch. A changed association invalidates
 queued packets before a new session can be authorized. Only the existing
 serialized `RadioChanged`/`ProviderStopped` notification or an explicit live
-snapshot can advance the consumer epoch and association identity. Provider termination
+snapshot can advance the consumer epoch and association identity. Provider
+termination
 revokes all callbacks. This prevents a delayed old-epoch Ethernet/EAPOL frame
 from being relabeled with a freshly associated epoch merely because the
 consumer mailbox is open. Provider-unsubscribe still joins callbacks before
 releasing mailbox storage; this change does not manufacture physical RX or
 native Wi-Fi readiness.
 
-The portable `tests/test_native_wireless_epoch.cpp` covers zero and matching epochs, stale/premature PCI and association
-generations, terminal epochs and stopped providers. Native source and exact-target linking still require validation
+The portable `tests/test_native_wireless_epoch.cpp` covers zero and matching
+epochs, stale/premature PCI and association
+generations, terminal epochs and stopped providers. Native source and
+exact-target linking still require validation
 on an authorized macOS build; this test is a host policy check only.
 
 An additional notification revision is captured before each provider snapshot.

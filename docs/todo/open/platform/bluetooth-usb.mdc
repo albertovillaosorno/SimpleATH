@@ -20,7 +20,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -32,7 +33,8 @@ proof of implementation or runtime success.
 Concrete files for this task (paths are relative to the repository root):
 
 - `.references/linux/drivers/bluetooth/ath3k.c` — AR3012 firmware protocol.
-- `.references/linux/drivers/bluetooth/btusb_main.c` — USB HCI matches, endpoints and pre-firmware behavior.
+- `.references/linux/drivers/bluetooth/btusb_main.c` — USB HCI matches,
+  endpoints and pre-firmware behavior.
 - `.references/linux/drivers/bluetooth/btusb_qcom.c` — Qualcomm USB details.
 - `.references/linux/net/bluetooth/hci_core.c` — HCI controller lifecycle.
 - `.references/linux/net/bluetooth/hci_event.c` — HCI event handling.
@@ -439,7 +441,8 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   was stopped by the execution limit before producing a fresh report; the
   earlier 630-check report is stale and **not evidence** of current aggregate
   success. No new macOS build was authorized, and the previously successful
-  build at `58dd1da` predates this fix. The macOS Bluetooth host/USB integration,
+  build at `58dd1da` predates this fix. The macOS Bluetooth host/USB
+  integration,
   physical pairing, RF coexistence and AirDrop remain unverified and required;
   the P0 task stays open.
 

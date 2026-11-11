@@ -25,7 +25,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -36,11 +37,20 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/linux/drivers/net/wireless/ath/ath9k/main.c` — ath9k start/stop/reset integration.
-- `.references/linux/drivers/net/wireless/ath/ath9k/recv.c` — RX ownership across the driver.
-- `.references/linux/drivers/net/wireless/ath/ath9k/xmit.c` — TX completion across the driver.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.cpp` — native Wi-Fi request and event integration.
-- `.references/nvidia-macos-driver/7412cdde81447f78da0ebb64216dc258d8beaedb/docs/SLEEP-WAKE.md` — power/recovery research only; no assumption of GPL compatibility.
+- `.references/linux/drivers/net/wireless/ath/ath9k/main.c` — ath9k
+  start/stop/reset integration.
+- `.references/linux/drivers/net/wireless/ath/ath9k/recv.c` — RX ownership
+  across the driver.
+- `.references/linux/drivers/net/wireless/ath/ath9k/xmit.c` — TX completion
+  across the driver.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/WCL/WCL.cpp`
+  — native Wi-Fi request and event integration.
+- Reference project: `.references/nvidia-macos-driver`
+  - Revision: `7412cdde81447f78da0ebb64216dc258d8beaedb`
+  - File: `docs/SLEEP-WAKE.md`
+  — power/recovery research only; no assumption of GPL compatibility.
 
 ## Objective
 
@@ -53,9 +63,11 @@ reconnection in code. Remove placeholders and invented readiness indicators.
 
 - [ ] Implement/review the stated source and integrate on main.
 - [ ] Join source paths without fake readiness, leaks or unsafe error recovery.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -109,14 +121,41 @@ has a real source implementation and the Xcode target selects that path.
 
 ## Required ownership map to implement
 
-| Resource/state | Producer and consumer | Retirement/invalidation boundary |
-| --- | --- | --- |
-| PCI provider and active MMIO capability | Serialized native owner -> NVM/reset/queue clients | Revoke epoch before D0 loss, unmap or close |
-| RX DMA packet | Device -> completion owner -> MAC/native packet input | Preserve backing until completion and every consumer releases it |
-| Scan/BSS result | Bounded parser/cache -> completed snapshot -> native result copy | Ticket/connection generation; never a borrowed mutable DMA pointer |
-| EAPOL and key state | Explicit single supplicant owner -> keycache/data gate | Reject stale connection work; quiesce/remove keys before context release |
-| TX OS packet | Native queue -> MAC/security -> device queue | Completion/drop/cancel must resolve ownership exactly once |
-| Calibration/channel/power permission | Radio/board/country owner -> every TX path | Invalidate on reset, channel/country change, RF-kill and power loss |
+
+- **Resource/state:** PCI provider and active MMIO capability
+  - **Producer and consumer:** Serialized native owner -> NVM/reset/queue
+    clients
+  - **Retirement/invalidation boundary:** Revoke epoch before D0 loss, unmap or
+    close
+
+- **Resource/state:** RX DMA packet
+  - **Producer and consumer:** Device -> completion owner -> MAC/native packet
+    input
+  - **Retirement/invalidation boundary:** Preserve backing until completion and
+    every consumer releases it
+
+- **Resource/state:** Scan/BSS result
+  - **Producer and consumer:** Bounded parser/cache -> completed snapshot ->
+    native result copy
+  - **Retirement/invalidation boundary:** Ticket/connection generation; never a
+    borrowed mutable DMA pointer
+
+- **Resource/state:** EAPOL and key state
+  - **Producer and consumer:** Explicit single supplicant owner -> keycache/data
+    gate
+  - **Retirement/invalidation boundary:** Reject stale connection work;
+    quiesce/remove keys before context release
+
+- **Resource/state:** TX OS packet
+  - **Producer and consumer:** Native queue -> MAC/security -> device queue
+  - **Retirement/invalidation boundary:** Completion/drop/cancel must resolve
+    ownership exactly once
+
+- **Resource/state:** Calibration/channel/power permission
+  - **Producer and consumer:** Radio/board/country owner -> every TX path
+  - **Retirement/invalidation boundary:** Invalidate on reset, channel/country
+    change, RF-kill and power loss
+
 
 Resolve whether native AirPort/OS or the portable supplicant owns each RSN
 step; never let both independently run a handshake or program competing keys.
@@ -125,13 +164,35 @@ packet interface. Do not implement another IP stack inside this kext.
 
 ## Required execution-context map to implement
 
-| Entry/context | Permitted work and cancellation contract |
-| --- | --- |
-| Primary interrupt filter, if selected | Minimal interrupt-safe status/mask/defer operations; no blocking, allocation or command-gate entry. Mapping and callback owner stay retained through delivery drain |
-| Work-loop action / command-gated action | Serialize epochs, queue ownership and short state transitions. A command-gate action can run on the caller's thread under the work-loop gate; thread identity alone does not prove serialization |
-| Sleepable allocation/NVM/reset worker | Retain operation/provider resources, obey one register owner and a bounded cancellation/deadline contract; return under the gate to revalidate epoch before publishing output |
-| Native packet/control callback | Copy or retain inputs according to the verified OS contract; validate connection/scan generation and transfer ownership once. Never retain borrowed request or RX storage past its valid lifetime |
-| Stop / sleep / termination | Reject new work and revoke epochs, quiesce/isolate device access, cancel/drain outstanding operations and deferred callbacks, then release mappings/packets/provider. Never wait under a gate needed by the operation being drained |
+
+- **Entry/context:** Primary interrupt filter, if selected
+  - **Permitted work and cancellation contract:** Minimal interrupt-safe
+    status/mask/defer operations; no blocking, allocation or command-gate entry.
+    Mapping and callback owner stay retained through delivery drain
+
+- **Entry/context:** Work-loop action / command-gated action
+  - **Permitted work and cancellation contract:** Serialize epochs, queue
+    ownership and short state transitions. A command-gate action can run on the
+    caller's thread under the work-loop gate; thread identity alone does not
+    prove serialization
+
+- **Entry/context:** Sleepable allocation/NVM/reset worker
+  - **Permitted work and cancellation contract:** Retain operation/provider
+    resources, obey one register owner and a bounded cancellation/deadline
+    contract; return under the gate to revalidate epoch before publishing output
+
+- **Entry/context:** Native packet/control callback
+  - **Permitted work and cancellation contract:** Copy or retain inputs
+    according to the verified OS contract; validate connection/scan generation
+    and transfer ownership once. Never retain borrowed request or RX storage
+    past its valid lifetime
+
+- **Entry/context:** Stop / sleep / termination
+  - **Permitted work and cancellation contract:** Reject new work and revoke
+    epochs, quiesce/isolate device access, cancel/drain outstanding operations
+    and deferred callbacks, then release mappings/packets/provider. Never wait
+    under a gate needed by the operation being drained
+
 
 Bind these rules to actual functions and locks; the table alone is not an
 implementation. Account for command-gate reentrancy and every call into an OS
@@ -140,9 +201,12 @@ while holding a private lock unless the verified API explicitly requires it.
 Document lock order, sleep eligibility and power acknowledgements for the
 selected Tahoe family rather than inferring them from portable fake tests.
 
-Primary source: [IOCommandGate semantics](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOCommandGate.h),
-[interrupt-filter context](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOFilterInterruptEventSource.h),
-and [IOService lifecycle](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/IOService.h).
+Primary source: [IOCommandGate
+semantics](https://github.com/apple-oss-distributions/xnu),
+[interrupt-filter
+context](https://github.com/apple-oss-distributions/xnu),
+and [IOService
+lifecycle](https://github.com/apple-oss-distributions/xnu).
 
 ## Native security/packet integration evidence (2026-11-10)
 
@@ -226,8 +290,10 @@ traffic on the Dell. The P0 full-pipeline task remains open.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
 

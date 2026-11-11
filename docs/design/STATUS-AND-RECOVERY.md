@@ -63,24 +63,103 @@ not establish that those modules are compiled, wired to hardware or validated.
 
 ## Committed source milestones
 
-| Commit | Change | Verification actually performed |
-| --- | --- | --- |
-| 933a91e | PCI ownership, DMA/power/teardown architecture and exact limits of the stored Tahoe ABI reference | Source/header/reference inspection; Apple documentation consulted |
-| 34d1941 | Portable exclusive PCI session orchestration, read-only register allowlist, cleanup paths and honest registry diagnostics | Static source/diff review; no native adapter or hardware access |
-| d0b9176 | Bounded EEPROM block reconstruction, complete image storage and raw board summary | Static comparison to local permissive ath9k format/algorithms |
-| 56c4564 | AR9565 board gain-index selection without generic chipset fallbacks | Static comparison to ar9003_hw.c and 1.1 aliases |
-| 61a9dd0 | Concurrent descriptor/DMA metadata and management/EAPOL/data-frame modules | Source staged in target; no active DMA, crypto provider or OS interface |
-| b0d729e | Bounded EEPROM chain restoration from an already acquired byte dump | Static bounds/order review; no EEPROM acquisition or runtime tests |
-| 8035879 | Reject first-fragment decapsulation; fix WDS SA/DA and 4 GiB segment crossing | Static comparison to frame/address rules and descriptor bounds |
-| da50d1e | Unique reservation generations reject stale DMA metadata completions | Static ownership/lifetime review; no hardware completion path |
-| bedeba6 | Preserve Atheros descriptor notices and Linux source hashes | File-specific permissive-license and provenance inspection |
-| 121c5fa | Read-only retained-reference/collection symbol inventory and explicit ABI-evidence gaps | Retained JSON inspected; binary-input reader source not exercised |
-| 6bfda6d | Five pinned ath9k EEPROM reconstruction dictionaries and explicit lookup catalog | C++ source generation from pinned packed layouts/initializers; no C/C++ compilation or runtime vectors |
-| 16d791a | Active EEPROM/OTP transaction reader with BAR, identity, word/capture timeout and output checks | Static comparison to permissive ath9k protocols; no backend attached or hardware transaction |
-| 2f971e6 | EEPROM target/CTL power candidates, signed interpolation, HT/rate constraints and EIRP/antenna intersection | Static source comparison only; no calibration, legal-power approval, hardware TPC conversion or TX |
-| 58ccdc7 | Manual copy-only collector for exact installed OS ABI files | Source review only; not executed on the Dell or tested |
-| a3bbad8 | Exact 25G332 KDK acquisition, PCI nlist/export intersection, full wireless candidates and static PCI dSYM observations | Download hash matched published manifest; actual package files statically inspected; no installer, build, tests, process launch or device access |
-| 609265d | Disabled native IOBuffer/IOMapper/IODMACommand packet-buffer resource source with client/gate handoff, 32-bit segment checks and epoch/allocation/submission retirement | Static pinned-header/KDK-symbol review only; no compilation, tests, native mapping or hardware transfer |
+
+- **Commit:** 933a91e
+  - **Change:** PCI ownership, DMA/power/teardown architecture and exact limits
+    of the stored Tahoe ABI reference
+  - **Verification actually performed:** Source/header/reference inspection;
+    Apple documentation consulted
+
+- **Commit:** 34d1941
+  - **Change:** Portable exclusive PCI session orchestration, read-only register
+    allowlist, cleanup paths and honest registry diagnostics
+  - **Verification actually performed:** Static source/diff review; no native
+    adapter or hardware access
+
+- **Commit:** d0b9176
+  - **Change:** Bounded EEPROM block reconstruction, complete image storage and
+    raw board summary
+  - **Verification actually performed:** Static comparison to local permissive
+    ath9k format/algorithms
+
+- **Commit:** 56c4564
+  - **Change:** AR9565 board gain-index selection without generic chipset
+    fallbacks
+  - **Verification actually performed:** Static comparison to ar9003_hw.c and
+    1.1 aliases
+
+- **Commit:** 61a9dd0
+  - **Change:** Concurrent descriptor/DMA metadata and
+    management/EAPOL/data-frame modules
+  - **Verification actually performed:** Source staged in target; no active DMA,
+    crypto provider or OS interface
+
+- **Commit:** b0d729e
+  - **Change:** Bounded EEPROM chain restoration from an already acquired byte
+    dump
+  - **Verification actually performed:** Static bounds/order review; no EEPROM
+    acquisition or runtime tests
+
+- **Commit:** 8035879
+  - **Change:** Reject first-fragment decapsulation; fix WDS SA/DA and 4 GiB
+    segment crossing
+  - **Verification actually performed:** Static comparison to frame/address
+    rules and descriptor bounds
+
+- **Commit:** da50d1e
+  - **Change:** Unique reservation generations reject stale DMA metadata
+    completions
+  - **Verification actually performed:** Static ownership/lifetime review; no
+    hardware completion path
+
+- **Commit:** bedeba6
+  - **Change:** Preserve Atheros descriptor notices and Linux source hashes
+  - **Verification actually performed:** File-specific permissive-license and
+    provenance inspection
+
+- **Commit:** 121c5fa
+  - **Change:** Read-only retained-reference/collection symbol inventory and
+    explicit ABI-evidence gaps
+  - **Verification actually performed:** Retained JSON inspected; binary-input
+    reader source not exercised
+
+- **Commit:** 6bfda6d
+  - **Change:** Five pinned ath9k EEPROM reconstruction dictionaries and
+    explicit lookup catalog
+  - **Verification actually performed:** C++ source generation from pinned
+    packed layouts/initializers; no C/C++ compilation or runtime vectors
+
+- **Commit:** 16d791a
+  - **Change:** Active EEPROM/OTP transaction reader with BAR, identity,
+    word/capture timeout and output checks
+  - **Verification actually performed:** Static comparison to permissive ath9k
+    protocols; no backend attached or hardware transaction
+
+- **Commit:** 2f971e6
+  - **Change:** EEPROM target/CTL power candidates, signed interpolation,
+    HT/rate constraints and EIRP/antenna intersection
+  - **Verification actually performed:** Static source comparison only; no
+    calibration, legal-power approval, hardware TPC conversion or TX
+
+- **Commit:** 58ccdc7
+  - **Change:** Manual copy-only collector for exact installed OS ABI files
+  - **Verification actually performed:** Source review only; not executed on the
+    Dell or tested
+
+- **Commit:** a3bbad8
+  - **Change:** Exact 25G332 KDK acquisition, PCI nlist/export intersection,
+    full wireless candidates and static PCI dSYM observations
+  - **Verification actually performed:** Download hash matched published
+    manifest; actual package files statically inspected; no installer, build,
+    tests, process launch or device access
+
+- **Commit:** 609265d
+  - **Change:** Disabled native IOBuffer/IOMapper/IODMACommand packet-buffer
+    resource source with client/gate handoff, 32-bit segment checks and
+    epoch/allocation/submission retirement
+  - **Verification actually performed:** Static pinned-header/KDK-symbol review
+    only; no compilation, tests, native mapping or hardware transfer
+
 
 Both PCI-session and EEPROM implementations are in the SimpleATH Xcode Sources
 phase. **Neither has been compiled or tested.** No build was made in this work.
@@ -89,7 +168,8 @@ No new target-kernel load or wireless result exists.
 
 The passive IOService does not instantiate the PCI session, read physical
 configuration/MMIO, obtain exclusive ownership, enable bus mastering, allocate
-DMA, request interrupts, or register a network interface. Registry-ID diagnostics
+DMA, request interrupts, or register a network interface. Registry-ID
+diagnostics
 are explicitly marked as potentially spoofed. Passive matching publishes
 `SimpleATHPortableCoreSourcePresent=true` but keeps
 `SimpleATHHardwareCorePresent=false` until an actual PCI owner establishes
@@ -105,7 +185,8 @@ association and traffic remain unverified/not implemented.
    packaged export list and x86_64 nlist. See TAHOE-25G332-KDK.md. Complete
    production collection provenance, pinned-SDK/virtual-method comparison,
    kernel/KPI eligibility and mapper/power contracts. Do not classify missing
-   profile entries as missing OS APIs. Confirm all new compiled imports and relocations
+   profile entries as missing OS APIs. Confirm all new compiled imports and
+   relocations
    only after build authorization. The old RIP-relative/prelink failure is not
    evidence of a successful load or an explanation of every possible cause.
 2. **Native wireless ABI:** the full KDK now supplies constructor/init/vtable

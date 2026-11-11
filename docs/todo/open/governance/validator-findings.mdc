@@ -21,7 +21,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -32,9 +33,14 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/MacKernelSDK/Headers/IOKit/IOService.h` — SDK declarations used by native syntax checks.
-- `.references/ledger.jsonl` — tracked reference input; bulk upstream sources remain outside project lint.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.hpp` — native contract comparison when fixing typed requests.
+- `.references/MacKernelSDK/Headers/IOKit/IOService.h` — SDK declarations used
+  by native syntax checks.
+- `.references/ledger.jsonl` — tracked reference input; bulk upstream sources
+  remain outside project lint.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/WCL/WCL.hpp`
+  — native contract comparison when fixing typed requests.
 
 ## Objective
 
@@ -115,7 +121,8 @@ checkpoint, not an immutable release-wide verdict. The 31 failures are failed
 checks, not the number of individual diagnostics. Group remaining work:
 
 - ABI parsing/reference tools: abi_types.py, inspect_platform_abi.py,
-  kernel_collection.py, macho.py, native_abi.py, native_references.py, profiles.py.
+  kernel_collection.py, macho.py, native_abi.py, native_references.py,
+  profiles.py.
 - Build helpers: build.py, native_payload.py, embed.py, publish.py.
 - Check/generation helpers: audit_codecs.py, check.py,
   generate_ar9300_templates.py, verify.py, verify_native.py.
@@ -129,7 +136,8 @@ peers may already have resolved a listed item.
 
 ## Concurrent full-repository checkpoint, 2026-11-07 14:39 CST
 
-A completed default-on `python3 -B tools/validate.py` recorded `scope=repository`
+A completed default-on `python3 -B tools/validate.py` recorded
+`scope=repository`
 with 159 source files, 402 checks, 227 cached checks, 175 executed checks,
 340 passes, 62 failures, and zero skips. Failed checks were Clang-Tidy (51),
 BasedPyright (7) and Ruff (4). The runner included Clang-Format, Clang-Tidy,
@@ -417,7 +425,8 @@ cache-backed report; the preceding `32401ca` report independently ran
 all 410 checks uncached. **P0 remains OPEN**. No kext build, CI, RF or
 hardware activity occurred.
 
-## Coordinated scan-cache, relocation, PCI and NVM checkpoint, 2026-11-07 18:24 CST
+## Coordinated scan-cache, relocation, PCI and NVM checkpoint, 2026-11-07 18:24
+   CST
 
 Source-only DCO commits pushed on `main` during this continuation:
 `48e6d35` rejects older beacon timestamps before overwriting or evicting a
@@ -561,7 +570,8 @@ The outstanding **52 Clang-Tidy failures are unchanged and P0 remains OPEN**.
 These tests establish only portable host behavior; no native driver build,
 real RF/PCI/DMA execution, CI or hardware test was performed.
 
-## Stable portable Wi-Fi ownership and hidden-SSID checkpoint, 2026-11-07 19:29 CST
+## Stable portable Wi-Fi ownership and hidden-SSID checkpoint, 2026-11-07 19:29
+   CST
 
 Two more independent source-only DCO fixes were pushed on clean `main`:
 `15f4c00` rejects an opaque writable cryptographic provider context that
@@ -593,7 +603,8 @@ they must not be treated as stable checkpoints.
 No mandatory checks were skipped or suppressed; no native driver build,
 RF/PCI/DMA operations, CI or hardware test was performed.
 
-## Five independent DMA, Wi-Fi and patch-helper checkpoints, 2026-11-07 19:47 CST
+## Five independent DMA, Wi-Fi and patch-helper checkpoints, 2026-11-07 19:47
+   CST
 
 A separate source-only continuation coordinated per-file claims and pushed
 five reviewed DCO commits to `main` without changing mandatory lint options,
@@ -645,7 +656,8 @@ are common repeated header issues, **not** exhaustive counts or proof that
 fixing those warnings alone would turn the 52 failing units green. The strict
 policy and its root configuration are unchanged.
 
-## Four portable identity-guard regressions and clean committed checkpoint, 2026-11-07 20:06 CST
+## Four portable identity-guard regressions and clean committed checkpoint,
+   2026-11-07 20:06 CST
 
 A coordinated continuation pushed four further focused **DCO commits** on
 `main`, without relaxing any lint or test requirement:
@@ -683,7 +695,8 @@ byte-for-byte. This is a complete-scope **cache-backed** report, not an
 uncached all-check execution. P0 remains **OPEN**; no native/hardware work or
 lint weakening was authorized or performed.
 
-## Uncached clean-main full report and WPA2/management guards, 2026-11-07 20:32 CST
+## Uncached clean-main full report and WPA2/management guards, 2026-11-07 20:32
+   CST
 
 Three further source-only DCO commits were pushed directly to `main` after
 independent synthetic host regressions failed against the prior source:
@@ -712,7 +725,8 @@ The JSON printed by each invocation exactly matched the saved report.
 
 Crucially, a separate **fully uncached** `python3 -B tools/validate.py
 --no-cache` run on **clean, synced, committed `main` at `d1edb76`** executed
-**all 413 of 413 checks**, with **zero cached**, **361 passing**, **52 failing**,
+**all 413 of 413 checks**, with **zero cached**, **361 passing**, **52
+failing**,
 **zero skipped**, and **no source-snapshot drift**. All failures were strict
 Clang-Tidy translation-unit checks; Clang-Format 23.1.2, Clang-Tidy 23.1.2,
 Ruff check/format 0.16.10, BasedPyright 1.40.1, and requested portable host

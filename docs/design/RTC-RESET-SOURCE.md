@@ -10,7 +10,8 @@ network integration are separate unfinished implementations.
 
 ## Pinned Linux reference and scope
 
-The local `.references/linux/drivers/net/wireless/ath/ath9k/` reference files are
+The local `.references/linux/drivers/net/wireless/ath/ath9k/` reference files
+are
 preserved, with SHA-256 identities recorded in `.references/ledger.jsonl`:
 
 - `hw.c`: first-PCI-attach WA snapshot (near line 605); MAC warm/cold

@@ -70,6 +70,7 @@ The validator requires the project's Python 3.14 tool environment. Keep it
 Ruff/BasedPyright clean using the root configurations. A targeted green report
 does not clear the separate repository-wide validator-findings TODO.
 
-Implementation references: [unittest discovery](https://docs.python.org/3.14/library/unittest.html#test-discovery),
+Implementation references: [unittest
+discovery](https://docs.python.org/3.14/library/unittest.html#test-discovery),
 [subprocess control](https://docs.python.org/3.14/library/subprocess.html),
 and [Clang driver modes](https://clang.llvm.org/docs/CommandGuide/clang.html).

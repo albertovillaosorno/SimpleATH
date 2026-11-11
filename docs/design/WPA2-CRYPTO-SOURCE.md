@@ -221,9 +221,9 @@ References:
 - IEEE Std 802.11-2012, section 11.6.6:
   https://mrncciew.com/wp-content/uploads/2014/10/ieee-802-11-2012.pdf
 - hostapd `src/rsn_supp/wpa.c` (BSD licensed):
-  https://chromium.googlesource.com/chromiumos/third_party/hostap/+/refs/heads/firmware-R130-16032.B-wpa_supplicant-2.10.0/src/rsn_supp/wpa.c
+  https://chromium.googlesource.com
 - hostapd wireless test monitor `wlantest/rx_eapol.c`:
-  https://fuchsia.googlesource.com/third_party/hostap/+/3aed10f3b7f643f288f6aa1c5aef223c5c679b9e/wlantest/rx_eapol.c
+  https://fuchsia.googlesource.com
 
 ## Outbound EAPOL boundary (2026-11-06)
 
@@ -249,7 +249,7 @@ References:
   baseline. If it cannot program that state, it must fail, allowing the
   supplicant's rollback callback to remove all attempted key installs.
 - IEEE Std 802.11i-2004, EAPOL-Key Key RSC field and GTK installation:
-  https://www.normsplash.com/Samples/ISO/914742298/ISO-IEC-8802-11-2005-Amd-6-2006-en-2.pdf
+  https://www.normsplash.com
 - This remains an unimplemented hardware callback contract: no installed
   AR9565 GTK/PN state or actual replay resistance has been demonstrated.
 

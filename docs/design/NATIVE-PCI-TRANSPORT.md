@@ -16,9 +16,11 @@ service whose provider has changed since configuration. A successful claim
 requires no existing provider open, then uses open(owner, 0, nullptr)
 without seizing another client and confirms isOpen(owner). The preflight
 check is not the lock: the provider open protocol arbitrates ownership.
-Apple's [IOPCIDevice source](https://github.com/apple-oss-distributions/IOPCIFamily/blob/main/IOPCIDevice.cpp)
+Apple's [IOPCIDevice
+source](https://github.com/apple-oss-distributions/IOPCIFamily)
 delegates handleOpen to its superclass; the
-[IOService contract](https://github.com/apple/darwin-xnu/blob/main/iokit/IOKit/IOService.h)
+[IOService
+contract](https://github.com/apple/darwin-xnu/blob/main/iokit/IOKit/IOService.h)
 documents single-owner access for the default implementation. These sources
 inform the contract; exact compiled target virtual dispatch still needs review.
 
@@ -41,7 +43,8 @@ The session rejects a 0030 spoof and inherited bus mastering before mapping.
 
 The native map path rechecks memory decode enabled and bus mastering disabled,
 validates the assigned non-prefetchable memory BAR0 type/address, then calls
-mapDeviceMemoryWithRegister(0x10, kIOMapInhibitCache). The PCI family selects its
+mapDeviceMemoryWithRegister(0x10, kIOMapInhibitCache). The PCI family selects
+its
 assigned range by configuration register. No destructive BAR sizing, assumed
 array index, user-injected address or raw physical-memory mapping is used.
 Mapping success requires a nonzero aligned virtual address and a provider map

@@ -25,7 +25,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -38,9 +39,11 @@ Concrete files for this task (paths are relative to the repository root):
 
 - `.references/linux/net/mac80211/scan.c` — scan scheduling and completion.
 - `.references/linux/net/mac80211/mlme.c` — authentication and association.
-- `.references/linux/net/mac80211/rx.c` — receive validation and management frames.
+- `.references/linux/net/mac80211/rx.c` — receive validation and management
+  frames.
 - `.references/linux/net/mac80211/tx.c` — transmit sequencing.
-- `.references/linux/include/linux/ieee80211.h` — 802.11 frame and IE definitions.
+- `.references/linux/include/linux/ieee80211.h` — 802.11 frame and IE
+  definitions.
 
 ## Objective
 
@@ -52,9 +55,11 @@ actual Wi-Fi scan or screenshot required.**
 
 - [ ] Implement/review the stated source and integrate on main.
 - [ ] Reject malformed frames and never invent scan/association success.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -85,10 +90,14 @@ Then implement negotiated rate control, aggregation/BA/reorder limits and
 reconnect scheduling in the actual data path. Do not let configuration booleans
 stand in for radio calibration or permission to transmit an active probe.
 
-Behavior references: [mac80211 scan](https://github.com/torvalds/linux/blob/master/net/mac80211/scan.c),
-[station management](https://github.com/torvalds/linux/blob/master/net/mac80211/mlme.c),
-[RX aggregation](https://github.com/torvalds/linux/blob/master/net/mac80211/agg-rx.c)
-and [TX aggregation](https://github.com/torvalds/linux/blob/master/net/mac80211/agg-tx.c).
+Behavior references: [mac80211
+scan](https://github.com/torvalds/linux/blob/master/net/mac80211/scan.c),
+[station
+management](https://github.com/torvalds/linux/blob/master/net/mac80211/mlme.c),
+[RX
+aggregation](https://github.com/torvalds/linux)
+and [TX
+aggregation](https://github.com/torvalds/linux).
 Consult protocol behavior without importing incompatible implementation code.
 
 Useful regressions: hidden SSID after BSSID/channel/security changes, truncated
@@ -97,7 +106,8 @@ beacon timeout across suspend, and stale events from a previous connection.
 
 The portable `WifiEngine` now tracks a bounded 64-sequence receive history
 per QoS TID plus a separate legacy data class, independently for
-unicast and group-addressed frames on the currently selected association. Only an already accepted, FCS-/DMA-validated and security-gated
+unicast and group-addressed frames on the currently selected association. Only
+an already accepted, FCS-/DMA-validated and security-gated
 non-EAPOL MSDU can advance the history. Retries, repeated sequence numbers,
 and stale out-of-window frames do not emit a second native-delivery action;
 small out-of-order gaps and 12-bit sequence wrapping have explicit behavior.
@@ -117,7 +127,9 @@ supply hardware management-frame integrity or a native reconnect pipeline.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.

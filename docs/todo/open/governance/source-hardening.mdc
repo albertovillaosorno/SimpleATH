@@ -32,7 +32,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -43,10 +44,15 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/linux/docs/process/license-rules.rst` — file-level Linux licensing rules.
-- `.references/MacKernelSDK/Headers/IOKit/IOMemoryDescriptor.h` — mapping and DMA lifetime review.
+- `.references/linux/docs/process/license-rules.rst` — file-level Linux
+  licensing rules.
+- `.references/MacKernelSDK/Headers/IOKit/IOMemoryDescriptor.h` — mapping and
+  DMA lifetime review.
 - `.references/linux/net/mac80211/key.c` — key erasure/replacement review.
-- `.references/nvidia-macos-driver/7412cdde81447f78da0ebb64216dc258d8beaedb/LICENSE` — PolyForm Noncommercial scope; do not treat it as GPL-compatible.
+- Reference project: `.references/nvidia-macos-driver`
+  - Revision: `7412cdde81447f78da0ebb64216dc258d8beaedb`
+  - File: `LICENSE`
+  — PolyForm Noncommercial scope; do not treat it as GPL-compatible.
 - `.references/ledger.jsonl` — scope, hash, destination and license assessments.
 
 ## Objective
@@ -65,10 +71,13 @@ frameworks, kext compilation, CI or hardware diagnostics.
 ## Acceptance
 
 - [ ] Implement/review the stated source and integrate on main.
-- [ ] Record static lint evidence, source safety, provenance and remaining ABI assumptions.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Record static lint evidence, source safety, provenance and remaining ABI
+  assumptions.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -82,7 +91,8 @@ frameworks, kext compilation, CI or hardware diagnostics.
       import evidence. Preserve Linux/SimpleBCM notices; no renamed-driver
       identity or fabricated success claim may substitute for AR9565 support.
 - [ ] Close only when source work is complete and no known source-resolvable
-      blocker remains. Afterwards, continue hardening alongside notebook testing;
+      blocker remains. Afterwards, continue hardening alongside notebook
+      testing;
       reopen source records for newly discovered work.
 
 ## Start here and next implementation step
@@ -107,7 +117,9 @@ do not use endless cosmetic cleanup to avoid a missing native driver path.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.

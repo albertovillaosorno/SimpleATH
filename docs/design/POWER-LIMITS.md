@@ -99,7 +99,8 @@ source inputs used by Linux ath9k's `ar9003_hw_power_control_override`
 without inventing live temperature, additional compensation or hardware
 settings in this parsing step. The independent gated register stage is
 documented below. Invalid structural board admission blocks the output
-and clears stale values. The synthetic C++14 and C++17 sanitizer regressions exercise
+and clears stale values. The synthetic C++14 and C++17 sanitizer regressions
+exercise
 signed values and the power-candidate handoff; focused strict Tidy passes.
 
 The parser alone is **not** a hardware transmitter power-control

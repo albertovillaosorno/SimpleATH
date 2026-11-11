@@ -8,7 +8,8 @@ does not require an experimental build or physical card access.
 The later [exact-build KDK inspection](TAHOE-25G332-KDK.md) supplements the
 retained snapshot below. It supplies IOPCIFamily 2.9, both previously unresolved
 PCI symbols in that package's export list, full wireless nlist candidates and
-matching kernel/wireless/Skywalk UUIDs. The snapshot omissions remain limitations
+matching kernel/wireless/Skywalk UUIDs. The snapshot omissions remain
+limitations
 of that snapshot, not current claims that those APIs are absent. Native ABI
 approval and loaded-image provenance remain incomplete.
 
@@ -122,13 +123,16 @@ path has thus been exercised on those files, without a test suite or driver
 build. The kernel-collection/fileset input path remains unexercised.
 
 Mach-O format references:
-[Apple's loader definitions](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h)
-and [nlist definitions](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/nlist.h).
+[Apple's loader
+definitions](https://github.com/apple-oss-distributions/xnu)
+and [nlist
+definitions](https://github.com/apple-oss-distributions/xnu).
 No Apple implementation code is copied into the tool.
 
 ## Exact-build kernel DMA type observations (static DWARF)
 
-The bounded, source-only [25G332 kernel type record](../evidence/TAHOE-25G332-KERNEL-DMA-TYPES.json)
+The bounded, source-only [25G332 kernel type
+record](../evidence/TAHOE-25G332-KERNEL-DMA-TYPES.json)
 preserves the relevant LLDB type metadata from the already-extracted KDK
 kernel and its matching dSYM. The inspected kernel SHA-256 is
 `a91aad0da9d0a2f545c06859524bb048f4e2e392e46aa12da9fabe652081be53`;
@@ -140,15 +144,39 @@ binary. The LLDB target was created for a file with scripts disabled; no
 process was launched or attached. The original extracted sources remain
 outside the repository.
 
-| KDK type | Observed bytes | Scoped source API evidence |
-| --- | ---: | --- |
-| `IOMapper` | 208 | `copyMapperForDevice(IOService *)` |
-| `IOBufferMemoryDescriptor` | 232 | Both `inTaskWithOptions` factory overloads and `getBytesNoCopy` |
-| `IODMACommand` | 120 | Both `withSpecification` overloads and `setMemoryDescriptor`, `prepare`, `complete`, `synchronize`, `genIOVMSegments`, `clearMemoryDescriptor` |
-| `IOMemoryDescriptor` | 96 | `prepare`, `complete`, `readBytes`, `writeBytes` |
-| `IOMemoryMap` | 88 | `getVirtualAddress`, `getLength` |
-| `IOWorkLoop` | 72 | `inGate`, `onThread` |
-| `IOService` | 136 | `open`, `close`, `isOpen`, `isInactive` |
+
+- **KDK type:** `IOMapper`
+  - **Observed bytes:** 208
+  - **Scoped source API evidence:** `copyMapperForDevice(IOService *)`
+
+- **KDK type:** `IOBufferMemoryDescriptor`
+  - **Observed bytes:** 232
+  - **Scoped source API evidence:** Both `inTaskWithOptions` factory overloads
+    and `getBytesNoCopy`
+
+- **KDK type:** `IODMACommand`
+  - **Observed bytes:** 120
+  - **Scoped source API evidence:** Both `withSpecification` overloads and
+    `setMemoryDescriptor`, `prepare`, `complete`, `synchronize`,
+    `genIOVMSegments`, `clearMemoryDescriptor`
+
+- **KDK type:** `IOMemoryDescriptor`
+  - **Observed bytes:** 96
+  - **Scoped source API evidence:** `prepare`, `complete`, `readBytes`,
+    `writeBytes`
+
+- **KDK type:** `IOMemoryMap`
+  - **Observed bytes:** 88
+  - **Scoped source API evidence:** `getVirtualAddress`, `getLength`
+
+- **KDK type:** `IOWorkLoop`
+  - **Observed bytes:** 72
+  - **Scoped source API evidence:** `inGate`, `onThread`
+
+- **KDK type:** `IOService`
+  - **Observed bytes:** 136
+  - **Scoped source API evidence:** `open`, `close`, `isOpen`, `isInactive`
+
 
 An immediate SDK-versus-KDK declaration distinction matters for the disabled
 `NativeDmaBuffer`: the pinned MacKernelSDK factories return raw pointers, while

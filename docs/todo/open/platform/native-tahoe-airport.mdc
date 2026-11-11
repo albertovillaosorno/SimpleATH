@@ -21,7 +21,8 @@ scope:
 Use `.references/` at the repository root for all retained source research.
 Populate it with `python3 -B tools/references/download.py`; use `--offline`
 to verify existing sources. Search ignored references explicitly with
-`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error' .references/`
+`rg --hidden --no-ignore -g '!**/.git/**' -n 'symbol|register|error'
+.references/`
 and enumerate files with `rg --files --hidden --no-ignore .references/`.
 Whenever a behavior, API or missing implementation is unclear, search these
 sources and the web for the evidence needed (prefer upstream source, published
@@ -32,11 +33,24 @@ proof of implementation or runtime success.
 
 Concrete files for this task (paths are relative to the repository root):
 
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.cpp` — native WCL requests, PMK/association and scan metadata.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/WCL/WCL.hpp` — protocol method contracts.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/AirportItlwmSkywalkInterface.cpp` — Skywalk publication and packet flow.
-- `.references/AirPort_RTW89/90b6cfc5a69c271688fad188857cfaeb58053dc5/src/front/AirPortRTW89Front.cpp` — AirPort front-end lifecycle comparison; legacy-family target differs.
-- `.references/MacKernelSDK/Headers/IOKit/skywalk/IOSkywalkPacketBufferPool.h` — candidate packet-pool API; verify exact native ABI.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/WCL/WCL.cpp`
+  — native WCL requests, PMK/association and scan metadata.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/WCL/WCL.hpp`
+  — protocol method contracts.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/AirportItlwmSkywalkInterface.cpp`
+  — Skywalk publication and packet flow.
+- Reference project: `.references/AirPort_RTW89`
+  - Revision: `90b6cfc5a69c271688fad188857cfaeb58053dc5`
+  - File: `src/front/AirPortRTW89Front.cpp`
+  — AirPort front-end lifecycle comparison; legacy-family target differs.
+- `.references/MacKernelSDK/Headers/IOKit/skywalk/IOSkywalkPacketBufferPool.h` —
+  candidate packet-pool API; verify exact native ABI.
 
 ## Objective
 
@@ -49,10 +63,13 @@ prerequisite.**
 ## Acceptance
 
 - [ ] Implement/review the stated source and integrate on main.
-- [ ] Implement a genuine native interface rather than an Ethernet impersonation.
-- [ ] Ground decisions in public code, published standards and SDK/KDK references.
+- [ ] Implement a genuine native interface rather than an Ethernet
+  impersonation.
+- [ ] Ground decisions in public code, published standards and SDK/KDK
+  references.
 - [ ] Record unresolved assumptions and fail-closed behavior.
-- [ ] Complete with source/static evidence, NEVER requiring a physical Dell test.
+- [ ] Complete with source/static evidence, NEVER requiring a physical Dell
+  test.
 
 ## Required source deliverables
 
@@ -72,7 +89,8 @@ prerequisite.**
 ## Start here and next implementation step
 
 Read TAHOE-NATIVE-IO80211-REFERENCE.md and the exact-build KDK record. The
-current source includes a native controller and physical PCI owner. The retained NativeSkywalk/
+current source includes a native controller and physical PCI owner. The retained
+NativeSkywalk/
 Bridge code is an old Ethernet-wrapper research path, not an AR9565-native
 controller; source presence or renamed identifiers do not close this task.
 
@@ -83,8 +101,10 @@ operations, connect genuine RF/channel activation, and complete packet/CCMP
 ownership across EDMA, MAC and security. Keep UI state tied to actual
 association generations, including stop and resume cancellation.
 
-Apple documents [NetworkingDriverKit](https://developer.apple.com/documentation/networkingdriverkit)
-as Ethernet-only; its interface cannot satisfy native AirPort. Public third-party
+Apple documents
+[NetworkingDriverKit](https://developer.apple.com)
+as Ethernet-only; its interface cannot satisfy native AirPort. Public
+third-party
 legacy-driver examples are architectural references, not exact-25G332 ABI proof.
 A restored legacy family or root patch is outside current authorization and
 cannot be smuggled in as a stock-Tahoe solution.
@@ -107,8 +127,10 @@ ABI blockers visible while implementing the supported source path.
 
 ## Evidence
 
-- Source commits, reference URLs/version/rights, static review and lint diagnostics.
-- Theoretical completeness only; no kext build, device scan, packet logs or hardware claims.
+- Source commits, reference URLs/version/rights, static review and lint
+  diagnostics.
+- Theoretical completeness only; no kext build, device scan, packet logs or
+  hardware claims.
 - Add offline host tests only where material behavior/error paths warrant them;
   run through tools/validate.py --tests without treating them as hardware proof.
 
@@ -154,11 +176,19 @@ fixture and strict SDK C++14 syntax. Full lint and runtime proof are separate.
 
 Additional concrete references for this control-plane implementation:
 
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/AirportItlwm/AirportItlwmV2.cpp` — card capability semantics; unrelated Intel feature masks are not imported.
-- `.references/AirportItlwm-BE200/ff82f3e5647ce3885f5d48417b6356a6a23d2163/include/Airport/apple80211_ioctl.h` — modern WCL capability shape.
-- `.references/MacKernelSDK/Headers/IOKit/80211/apple80211_ioctl.h` — legacy layout comparison, not exact modern ABI authority.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `AirportItlwm/AirportItlwmV2.cpp`
+  — card capability semantics; unrelated Intel feature masks are not imported.
+- Reference project: `.references/AirportItlwm-BE200`
+  - Revision: `ff82f3e5647ce3885f5d48417b6356a6a23d2163`
+  - File: `include/Airport/apple80211_ioctl.h`
+  — modern WCL capability shape.
+- `.references/MacKernelSDK/Headers/IOKit/80211/apple80211_ioctl.h` — legacy
+  layout comparison, not exact modern ABI authority.
 
-Next required native work: full source-derived RF/country/coexistence activation,
+Next required native work: full source-derived RF/country/coexistence
+activation,
 remaining WCL selectors, complete packet/CCMP lifecycle and AWDL host/virtual
 interface integration. Do not close the parent task on inventory or fixture
 success. Continue using `rg` in `.references/` and primary web sources when
