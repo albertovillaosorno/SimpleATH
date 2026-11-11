@@ -50,14 +50,34 @@ PANIC_COUNT = 6
 DRIVER_HASH_LIMIT = 64 * 1024 * 1024
 PREDICATE = (
     '(process == "kernel" AND (eventMessage CONTAINS[c] "SimpleATH" OR '
+    'eventMessage CONTAINS[c] "SimpleRTN" OR '
     'eventMessage CONTAINS[c] "AR9565" OR '
     'eventMessage CONTAINS[c] "IO80211" OR '
     'eventMessage CONTAINS[c] "Skywalk" OR '
+    'eventMessage CONTAINS[c] "corecapture" OR '
+    'eventMessage CONTAINS[c] "IOVersatile" OR '
+    'eventMessage CONTAINS[c] "watchdog" OR '
+    'eventMessage CONTAINS[c] "panic" OR '
     'eventMessage CONTAINS[c] "Bluetooth")) OR '
     'process IN {"airportd", "wifid", "wifip2pd", "bluetoothd", '
     '"sharingd", "useractivityd"} OR '
     'subsystem BEGINSWITH[c] "com.apple.wifi" OR '
     'subsystem BEGINSWITH[c] "com.apple.awdl"'
+)
+BOOT_FAILURE_PREDICATE = (
+    'eventMessage CONTAINS[c] "Previous shutdown cause" OR '
+    'eventMessage CONTAINS[c] "panic(cpu" OR '
+    'eventMessage CONTAINS[c] "watchdog timeout" OR '
+    'eventMessage CONTAINS[c] "IOVersatile" OR '
+    'eventMessage CONTAINS[c] "SimpleATH" OR '
+    'eventMessage CONTAINS[c] "SimpleRTN"'
+)
+NVRAM_KEYS = (
+    "boot-args",
+    "csr-active-config",
+    "7C436110-AB2A-4BBB-A880-FE41995C9F82:boot-args",
+    "7C436110-AB2A-4BBB-A880-FE41995C9F82:csr-active-config",
+    "4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102:opencore-version",
 )
 
 
@@ -375,6 +395,7 @@ def system_probes() -> list[Probe]:
                 "hw.memsize",
                 "kern.osversion",
                 "kern.osrelease",
+                "kern.bootsessionuuid",
                 "machdep.cpu.brand_string",
             ),
         ),
@@ -383,7 +404,10 @@ def system_probes() -> list[Probe]:
             "Authenticated root status",
             ("/usr/bin/csrutil", "authenticated-root", "status"),
         ),
-        Probe("Kernel boot arguments", ("/usr/sbin/nvram", "boot-args")),
+        *[
+            Probe(f"Selected NVRAM: {key}", ("/usr/sbin/nvram", key))
+            for key in NVRAM_KEYS
+        ],
         Probe(
             "Loaded kernel extensions",
             ("/usr/bin/kmutil", "showloaded", "--list-only"),
@@ -572,30 +596,54 @@ def driver_files(report: Report) -> None:
                 report.line(f"Unavailable: {error}")
 
 
-def collect(report: Report, options: Options) -> None:
-    """Gather read-only snapshots and filtered recent unified logs."""
-    for probe in system_probes() + device_probes(options.timeout):
-        capture(probe, report, options.timeout)
-    driver_files(report)
-    recent_reports(report)
-    capture(
-        Probe(
+def unified_log_probes(minutes: int) -> list[Probe]:
+    """Combine wireless diagnostics with historical boot/kernel evidence.
+
+    Returns:
+        Fixed, read-only Unified Logging queries with bounded collection.
+
+    """
+    queries = (
+        (
             "Recent Wi-Fi/Bluetooth/AirDrop/kernel logs",
+            f"{minutes}m",
+            PREDICATE,
+        ),
+        ("Related Wi-Fi/kernel messages (24 hours)", "24h", PREDICATE),
+        ("All kernel messages (2 hours)", "2h", 'process == "kernel"'),
+        (
+            "Boot, shutdown and panic events (24 hours)",
+            "24h",
+            BOOT_FAILURE_PREDICATE,
+        ),
+    )
+    return [
+        Probe(
+            title,
             (
                 "/usr/bin/log",
                 "show",
                 "--style",
                 "compact",
                 "--last",
-                f"{options.minutes}m",
+                duration,
                 "--info",
                 "--predicate",
-                PREDICATE,
+                predicate,
             ),
-        ),
-        report,
-        options.timeout,
-    )
+        )
+        for title, duration, predicate in queries
+    ]
+
+
+def collect(report: Report, options: Options) -> None:
+    """Gather read-only native diagnostics and merged boot/OS evidence."""
+    for probe in system_probes() + device_probes(options.timeout):
+        capture(probe, report, options.timeout)
+    driver_files(report)
+    recent_reports(report)
+    for probe in unified_log_probes(options.minutes):
+        capture(probe, report, options.timeout)
 
 
 def _collect_with_failure_record(report: Report, options: Options) -> None:

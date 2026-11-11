@@ -17,8 +17,8 @@ macOS Wi-Fi support, not an Ethernet device disguised as AirPort.
 The owner's November 10, 2026 USB diagnostic baseline is deliberately free
 of experimental Wi-Fi/Ethernet injections. On the USB EFI, `Kernel -> Add`
 contains neither `SimpleATH.kext` nor the old experimental
-`RealtekRTL8100.kext`. The Realtek bundle was removed; the SimpleATH bundle
-is **retained but inactive**, for a later authorized test. The old AR9565
+`RealtekRTL8100.kext`. Both bundles were removed from the USB EFI; no
+SimpleATH injection is configured. The old AR9565
 PCI `168c:0036` to `168c:0030` device-ID/`IOName` spoof was also removed.
 `Kernel -> Block`, `Kernel -> Patch`, and `Kernel -> Force` are empty. No
 El Capitan `IO80211ElCap.kext`, `corecaptureElCap.kext`,
@@ -63,8 +63,8 @@ See OCLP's [post-install guide][o1] and
 ### Re-enable SimpleATH after a confirmed working baseline
 
 1. First boot macOS with this clean OpenCore configuration. Run
-   `USB/SimpleATH-Collect.command` from the USB data partition and inspect
-   its output under `USB/SimpleATH-Diagnostics/` if diagnostics are needed.
+   `USB/debug/SimpleATH-debug.command` from the USB data partition and
+   inspect the adjacent `SimpleATH-debug-*.log` if diagnostics are needed.
 2. Ensure the new native Intel x86_64 `SimpleATH.kext` build is in
    `EFI/OC/Kexts/SimpleATH.kext`. Keep the **original** AR9565 PCI identity,
    vendor `168c`, device `0036`; do **not** restore the legacy `0030` spoof.
@@ -268,11 +268,15 @@ then run it and share that log in this chat. For a longer history:
 ./tools/debug/SimpleATH-debug.command --minutes 30 --timeout 60
 ```
 
-The report includes OS/kernel/build identity, loaded kexts, available driver
-file hashes, PCI/USB and AirPort/Bluetooth registry entries, hardware profiles,
-interfaces/routing/DNS, AWDL, power state, recent network crash reports and
-filtered Wi-Fi/Bluetooth/AirDrop/kernel logs. Commands have deadlines and
-output limits; missing commands/devices, errors and truncation remain explicit.
+The merged report includes OS/kernel/build identity, a restricted NVRAM
+boot/SIP/OpenCore-key inventory, loaded kexts, available driver file hashes,
+PCI/USB and AirPort/Bluetooth registry entries, hardware profiles,
+interfaces/routing/DNS, AWDL, power state and recent crash reports. It also
+collects the requested recent Wi-Fi/Bluetooth/AirDrop logs, related 24-hour
+messages, the last 2 hours of kernel logs and 24-hour boot/panic signals.
+Commands have deadlines and output limits; missing commands/devices, errors
+and truncation remain explicit. The separate `SimpleATH-Collect.command` has
+been merged into this tool and is no longer needed.
 Logs can contain device/network identifiers and stay excluded from Git.
 The collector does not install/load drivers, change settings, scan radio
 channels, export pairing/password keys or capture network packets. A finished

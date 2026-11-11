@@ -166,3 +166,49 @@ class ManualDebugTests(TestCase):
             for vector in vectors
             for argument in forbidden_arguments
         )
+
+
+class MergedCollectorTests(TestCase):
+    """The single debug tool covers the former USB collector evidence."""
+
+    @staticmethod
+    def test_legacy_collector_nvram_whitelist_is_preserved() -> None:
+        """Request only the approved boot/SIP/OpenCore keys, never nvram -p."""
+        commands = [p.argv for p in debug.system_probes()]
+        for key in debug.NVRAM_KEYS:
+            assert ("/usr/sbin/nvram", key) in commands
+        assert len(debug.NVRAM_KEYS) == 5
+        assert ("/usr/sbin/nvram", "-p") not in commands
+
+    @staticmethod
+    def test_historical_kernel_and_boot_queries_are_bounded() -> None:
+        """The merged collector keeps both short and historical log windows."""
+        probes = debug.unified_log_probes(30)
+        durations = [p.argv[p.argv.index("--last") + 1] for p in probes]
+        assert durations == ["30m", "24h", "2h", "24h"]
+        assert all(p.argv[0] == "/usr/bin/log" for p in probes)
+        assert any("SimpleRTN" in p.argv[-1] for p in probes)
+        assert any("Previous shutdown cause" in p.argv[-1] for p in probes)
+        assert any(p.argv[-1] == 'process == "kernel"' for p in probes)
+        assert not any("delete" in p.argv for p in probes)
+
+    @staticmethod
+    def test_merged_collector_executes_all_queries_once() -> None:
+        """The report composes rather than launching a second script."""
+        report = debug.Report(io.BytesIO())
+        options = debug.Options()
+        with (
+            patch.object(debug, "system_probes", return_value=[]),
+            patch.object(debug, "device_probes", return_value=[]),
+            patch.object(debug, "driver_files"),
+            patch.object(debug, "recent_reports"),
+            patch.object(debug, "capture") as capture,
+        ):
+            debug.collect(report, options)
+        assert capture.call_count == len(
+            debug.unified_log_probes(options.minutes)
+        )
+        actual_titles = [call.args[0].title for call in capture.call_args_list]
+        assert actual_titles == [
+            probe.title for probe in debug.unified_log_probes(15)
+        ]

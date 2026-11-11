@@ -1,5 +1,6 @@
 #!/bin/bash
-# Finder launcher. The Python collector enforces administrator access.
+# Finder launcher for merged macOS system/boot/Wi-Fi diagnostics.
+# The Python collector enforces administrator access.
 set -eu
 SCRIPT_DIRECTORY="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 PYTHON_BIN="$(command -v python3 || true)"
