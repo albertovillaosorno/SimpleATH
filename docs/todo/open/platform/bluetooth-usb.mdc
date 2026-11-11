@@ -417,3 +417,28 @@ files are research input, not linked macOS code or a completed Bluetooth path.
   build validation of the later commits. Native macOS Bluetooth host
   registration, real USB HCI execution, shared-radio coexistence and
   AirDrop remain unimplemented or unverified. This P0 task stays open.
+
+- **LE scanning callback and same-epoch session isolation (2026-11-10):**
+  DCO `dc1a5f6` gives each portable legacy LE scan an independently
+  monotonic local generation, preserved across revoke, completed disable and
+  new sessions. A borrowed host `permit`, advertisement observer, AirDrop-hint
+  observer, or physical USB command callback can synchronously revoke and
+  restart a scan with the **same host USB epoch and Scanning phase**. Old
+  operations now compare both the scan generation and physical transport
+  generation before changing phase, faulting the procedure or forwarding
+  another report in the same controller event. The scan preserves an actual
+  inline HCI disable completion and denies generation exhaustion rather than
+  wrapping. Regressions in the normal host fixture cover revoked Idle state,
+  same-epoch restart, distinct USB epoch replacement, revoked parameter/enable/
+  disable submissions, multi-report isolation, and counter saturation. They
+  reproduced nonzero exits with the unfixed source and passed under C++14 and
+  C++17 ASan+UBSan after the change. Both modified translation units passed
+  their scoped Clang-Tidy policies; Clang-Format and diff checks passed, as did
+  a strict freestanding C++14 `-nostdinc -Wall -Wextra -Werror` source/header
+  syntax check. The `tools/validate.py --tests --json` full-repository attempt
+  was stopped by the execution limit before producing a fresh report; the
+  earlier 630-check report is stale and **not evidence** of current aggregate
+  success. No new macOS build was authorized, and the previously successful
+  build at `58dd1da` predates this fix. The macOS Bluetooth host/USB integration,
+  physical pairing, RF coexistence and AirDrop remain unverified and required;
+  the P0 task stays open.
