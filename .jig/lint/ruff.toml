@@ -66,6 +66,14 @@ ignore = [
 # Test fixtures prioritize observable behavior over docstring, message and
 # numeric-literal cosmetics. Syntax, type, security and correctness rules stay.
 "tests/**/*.py" = [
+  # Host fixtures/utilities intentionally use a lighter style budget.
+  "PT",
+  "DOC",
+  "E501",
+  "I",
+  "T201",
+  "FBT",
+  "EXE001",
   "assert",
   "D",
   "EM",
@@ -81,6 +89,23 @@ ignore = [
 # Tool scripts still run production checks; relax only cosmetic explanations
 # and named-constant/exception-string ceremony, not correctness checks.
 "tools/**/*.py" = [
+  # Host fixtures/utilities intentionally use a lighter style budget.
+  "DOC",
+  "E501",
+  "I",
+  "T201",
+  "FBT",
+  "C901",
+  "PLR",
+  "PLC",
+  "PLW",
+  "FURB",
+  "PIE",
+  "S110",
+  "S404",
+  "S603",
+  "S607",
+  "EXE001",
   "D", 
   "EM", 
   "PLR2004",

@@ -201,11 +201,15 @@ def check_source(root: Path = ROOT) -> list[str]:
                     f"{path}: firmware bytes differ from provenance digest"
                 )
     if "compile_commands.json" in sources:
-        compile_entries = json.loads((root / "compile_commands.json").read_text())
+        compile_entries = json.loads(
+            (root / "compile_commands.json").read_text()
+        )
         for command in compile_entries:
             if Path(command["directory"]).is_absolute():
                 problems.append("Absolute compile working directory")
-            if any(str(value).startswith("/") for value in command["arguments"]):
+            if any(
+                str(value).startswith("/") for value in command["arguments"]
+            ):
                 problems.append("Absolute compile argument path")
     if any(item.get("license") == "NOASSERTION" for item in entries.values()):
         problems.append("Unclassified license in file provenance")

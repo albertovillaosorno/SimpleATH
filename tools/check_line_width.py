@@ -88,7 +88,7 @@ def _c_comments(text: str) -> list[tuple[int, str, bool]]:
                     segments.append(line[i:])
                     i = len(line)
                 else:
-                    segments.append(line[i:end + 2])
+                    segments.append(line[i : end + 2])
                     i = end + 2
                     block = False
                 continue
@@ -132,10 +132,10 @@ def _python_comments(text: str) -> list[tuple[int, str, bool]]:
             if token.type != tokenize.COMMENT:
                 continue
             line = token.line.rstrip("\r\n")
-            only_comment = not line[:token.start[1]].strip()
+            only_comment = not line[: token.start[1]].strip()
             fragment = line if only_comment else token.string
             found.append((token.start[0], fragment, only_comment))
-    except (tokenize.TokenError, IndentationError):
+    except tokenize.TokenError, IndentationError:
         # The Python compiler and source linters separately reject malformed
         # programs; never treat their invalid literals as documentation.
         pass
@@ -150,7 +150,9 @@ def inspect_text(
 ) -> list[tuple[int, int]]:
     """Check Markdown lines or actual comment text, never executable code."""
     if suffix.lower() in DOC_SUFFIXES:
-        entries = [(n, line, True) for n, line in enumerate(text.splitlines(), 1)]
+        entries = [
+            (n, line, True) for n, line in enumerate(text.splitlines(), 1)
+        ]
     elif suffix.lower() in {".py", ".pyi", ".command"}:
         entries = _python_comments(text)
     else:
@@ -198,7 +200,9 @@ def main() -> int:
     findings = check_repository()
     for finding in findings:
         print(finding, file=sys.stderr)
-    print(f"Checked tracked Markdown and code comments: {len(findings)} violations")
+    print(
+        f"Checked tracked Markdown and code comments: {len(findings)} violations"
+    )
     return 1 if findings else 0
 
 

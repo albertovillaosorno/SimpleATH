@@ -35,3 +35,5 @@ build/
 .jig/graph/jig.db
 .jig/graph/jig.db-shm
 .jig/graph/jig.db-wal
+
+# Host paths for Clang are mapped using ignored .cache/clang-tidy symlinks.

@@ -48,11 +48,15 @@ class LineWidthTests(unittest.TestCase):
         self.assertEqual(check_line_width.inspect_text("x" * 80), [])
         self.assertEqual(check_line_width.inspect_text("x" * 81), [(1, 81)])
         self.assertEqual(
-            check_line_width.inspect_text("print(" + "x" * 100 + ")", suffix=".py"),
+            check_line_width.inspect_text(
+                "print(" + "x" * 100 + ")", suffix=".py"
+            ),
             [],
         )
         self.assertEqual(
-            check_line_width.inspect_text("int x = " + "1" * 100, suffix=".cpp"),
+            check_line_width.inspect_text(
+                "int x = " + "1" * 100, suffix=".cpp"
+            ),
             [],
         )
         self.assertEqual(
@@ -63,23 +67,20 @@ class LineWidthTests(unittest.TestCase):
     def test_comments_only_and_inline_comments(self) -> None:
         """Ignore long code, URLs in strings and short inline comments."""
         self.assertEqual(
-            check_line_width.inspect_text(
-                "// " + "a" * 79, suffix=".cpp"
-            ),
+            check_line_width.inspect_text("// " + "a" * 79, suffix=".cpp"),
             [(1, 82)],
         )
         self.assertEqual(
             check_line_width.inspect_text(
                 'const char *url = "https://example.test/a";'
-                + "x" * 90 + " // okay",
+                + "x" * 90
+                + " // okay",
                 suffix=".cpp",
             ),
             [],
         )
         self.assertEqual(
-            check_line_width.inspect_text(
-                "# " + "a" * 79, suffix=".py"
-            ),
+            check_line_width.inspect_text("# " + "a" * 79, suffix=".py"),
             [(1, 81)],
         )
         self.assertEqual(
@@ -93,8 +94,12 @@ class LineWidthTests(unittest.TestCase):
     def test_admits_all_source_and_markdown_variants(self) -> None:
         """Discover C/C++, Python, Markdown and source templates."""
         for name in (
-            "src/driver.cpp", "src/driver.hpp", "tests/test_example.py",
-            "docs/design.md", "docs/todo.mdc", "src/generated.inc",
+            "src/driver.cpp",
+            "src/driver.hpp",
+            "tests/test_example.py",
+            "docs/design.md",
+            "docs/todo.mdc",
+            "src/generated.inc",
             "tests/fixture.cpp.in",
         ):
             with self.subTest(path=name):

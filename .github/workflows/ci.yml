@@ -27,6 +27,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Use current stable Python
         uses: actions/setup-python@v7
@@ -45,7 +46,7 @@ jobs:
           uv pip install --system --python python3 --no-cache \
             --only-binary :all: \
             clang-format==22.1.8 clang-tidy==22.1.8 \
-            ruff==0.17.4 basedpyright==1.40.2 \
+            ruff==0.16.10 basedpyright==1.40.2 \
             nodejs-wheel-binaries==24.19.0
 
       - name: Verify Intel Tahoe toolchain
@@ -71,8 +72,16 @@ jobs:
           }
           echo "SDKROOT=$sdk" >> "$GITHUB_ENV"
 
-      - name: Test Tahoe ABI inheritance against native Apple SDK
-        run: python3 -B -m unittest -q tests.test_tahoe_native_sdk_abi
+      - name: Validate public headers, licensing inventory and commit history
+        run: python3 -B tools/public_contract.py all
+
+      - name: Run every Python test with automatic discovery
+        run: |
+          python3 -B -m unittest discover \
+            -s tests -t . -p 'test_*.py' -v
+
+      - name: Enforce 80-column comments and Markdown
+        run: python3 -B tools/check_line_width.py
 
       - name: Refresh checkout-local Clang-Tidy commands
         run: python3 -B tools/generate_compile_commands.py
