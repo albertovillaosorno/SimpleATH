@@ -1009,6 +1009,16 @@ namespace simpleath
         {
             return;
         }
+        // A physical RF-kill transition can occur after EDMA was started.
+        // Merely discarding a received frame is insufficient: the MAC,
+        // automatic responses and bus mastering would otherwise continue.
+        // Quarantine the queue on the first delivered interrupt and let the
+        // native fault path isolate hardware before revoking RF permission.
+        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        {
+            fault(kIOReturnNotReady);
+            return;
+        }
         inInterruptService_ = true;
         serviceInterruptBodyGated();
         inInterruptService_ = false;
@@ -1067,9 +1077,19 @@ namespace simpleath
                 receiveCompleted();
             }
         }
-        if (gated() && phase_ == NativeQueuePhase::Running && !write(kIer, 1))
+        if (gated() && phase_ == NativeQueuePhase::Running)
         {
-            fault(kIOReturnIOError);
+            // The station or RF-kill lease may have changed inside an RX
+            // completion callback. Never rearm the device on that old lease.
+            if (!callbacks_.radioReady(callbacks_.context, epoch_))
+            {
+                fault(kIOReturnNotReady);
+                return;
+            }
+            if (!write(kIer, 1))
+            {
+                fault(kIOReturnIOError);
+            }
         }
     }
 

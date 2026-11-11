@@ -167,3 +167,11 @@ radio/channel readiness. No receive scan, TX, AirDrop, hardware test, kext
 build/tag, or USB/EFI installation follows from this source change. Strict
 native source syntax passed on the pinned research SDK; the whole-tree
 zero-failure validator remains outstanding.
+
+A subsequent native interrupt-path correction also fails the *running* EDMA
+lease closed when the live RF-kill/physical radio callback is revoked: check
+before servicing the interrupt and after completing any RX/TX callback, before
+rearming the device IER. A failed gate enters the existing DMA fault/physical
+isolation path rather than merely dropping received frames while MAC/automatic
+responses might continue. This is source-only interrupt-time enforcement; it
+does not replace a hardware RF-kill IRQ or prove on-device switching behavior.
