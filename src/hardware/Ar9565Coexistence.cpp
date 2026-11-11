@@ -489,7 +489,9 @@ namespace simpleath
 
         bool submitMciOrRevoke(const RxAgcBackend &backend,
                                CoexistenceProgress &progress,
-                               MciGpmCursor &cursor, MciCoexQuery query)
+                               MciGpmCursor &cursor,
+                               const MciGpmCursor &originalCursor,
+                               MciCoexQuery query)
         {
             if (writeMciCoexCommand(backend, progress, query) &&
                 waitMciCoexCommand(backend, progress))
@@ -498,7 +500,9 @@ namespace simpleath
                 // command completion without changing the owner epoch. Never
                 // publish success for a detached or replaced GPM owner.
                 if (cursor.attached &&
-                    cursor.ownerEpoch == backend.io.ownerEpoch)
+                    cursor.ownerEpoch == backend.io.ownerEpoch &&
+                    cursor.ownerEpoch == originalCursor.ownerEpoch &&
+                    cursor.nextIndex == originalCursor.nextIndex)
                 {
                     return true;
                 }
@@ -875,6 +879,10 @@ namespace simpleath
         {
             return progress;
         }
+        // Snapshot the initial GPM cursor before owner callbacks. A changed
+        // index or epoch is not a valid command completion. A same-index ABA
+        // reattach still requires exclusion by the external native lease.
+        const MciGpmCursor originalCursor = cursor;
         progress.result = CoexistenceResult::InvalidGpm;
         if (query != MciCoexQuery::Version &&
             query != MciCoexQuery::BluetoothStatus)
@@ -944,7 +952,17 @@ namespace simpleath
         {
             return progress;
         }
-        if (!submitMciOrRevoke(stable, progress, cursor, query))
+        // Any cursor swap during read/ack preflight invalidates the lease.
+        if (!cursor.attached ||
+            cursor.ownerEpoch != originalCursor.ownerEpoch ||
+            cursor.nextIndex != originalCursor.nextIndex)
+        {
+            cursor.attached = false;
+            progress.result = CoexistenceResult::OwnershipLost;
+            progress.requiresReset = true;
+            return progress;
+        }
+        if (!submitMciOrRevoke(stable, progress, cursor, originalCursor, query))
         {
             return progress;
         }

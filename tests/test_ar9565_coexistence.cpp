@@ -132,6 +132,8 @@ namespace
             bool failMciCommand {};
             bool bluetoothSleepsAfterCommand {};
             MciGpmCursor *revokeCursorAtCommand {};
+            MciGpmCursor *moveCursorAtCommand {};
+            MciGpmCursor *moveCursorAtInterruptRead {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -176,6 +178,14 @@ namespace
             return false;
         }
         *out = reg->bits;
+        if (offset == kMciInterruptRaw &&
+            mock.moveCursorAtInterruptRead != nullptr)
+        {
+            auto *const cursor = mock.moveCursorAtInterruptRead;
+            cursor->nextIndex = static_cast<uint16_t>((cursor->nextIndex + 1U) %
+                                                      kAr9565MciGpmEntries);
+            mock.moveCursorAtInterruptRead = nullptr;
+        }
         return true;
     }
 
@@ -223,6 +233,12 @@ namespace
             if (mock.revokeCursorAtCommand != nullptr)
             {
                 mock.revokeCursorAtCommand->attached = false;
+            }
+            if (mock.moveCursorAtCommand != nullptr)
+            {
+                mock.moveCursorAtCommand->nextIndex =
+                    (mock.moveCursorAtCommand->nextIndex + 1U) %
+                    kAr9565MciGpmEntries;
             }
         }
         if (mock.invalidateGpmAfterReset && address == kMciCommand2 &&
@@ -1060,12 +1076,12 @@ namespace
                 : scenario == 7U ? CoexistenceResult::ReadbackMismatch
                                  : CoexistenceResult::InvalidGpm;
             if (result.result != expected || result.requiresReset ||
-                !cursor.attached || mock.writes != 0U)
+                !current.attached || mock.writes != 0U)
             {
                 return false;
             }
         }
-        for (size_t scenario = 0U; scenario < 10U; ++scenario)
+        for (size_t scenario = 0U; scenario < 11U; ++scenario)
         {
             Mock mock {};
             MciGpmCursor cursor {};
@@ -1115,11 +1131,17 @@ namespace
                 // not really reach hardware; never issue COMMAND0.
                 mock.skipWrite = 2U;
             }
-            else
+            else if (scenario == 9U)
             {
                 // The hardware send completes, but the MCI/GPM owner is
                 // synchronously replaced while handling COMMAND0.
                 mock.revokeCursorAtCommand = &cursor;
+            }
+            else
+            {
+                // A same-epoch reattach advances the ring pointer without
+                // detaching: still must not grant old command success.
+                mock.moveCursorAtCommand = &cursor;
             }
             const auto result = sendAr9565MciCoexQuery(
                 physicalBoard, evidence, dma, cursor, transmitLease,
@@ -1132,7 +1154,7 @@ namespace
                 : scenario == 4U ? CoexistenceResult::MissingIsolation
                 : scenario == 5U ? CoexistenceResult::ReadbackMismatch
                 : scenario == 6U ? CoexistenceResult::ReadFailed
-                : scenario == 9U ? CoexistenceResult::OwnershipLost
+                : scenario >= 9U ? CoexistenceResult::OwnershipLost
                                  : CoexistenceResult::ReadbackMismatch;
             if (result.result != expected || !result.requiresReset ||
                 cursor.attached || (scenario == 7U && mock.writes != 1U) ||
@@ -1149,6 +1171,26 @@ namespace
                 MciCoexQuery::Version, io(mock));
             if (rejected.result != CoexistenceResult::MissingIsolation ||
                 rejected.requiresReset || mock.writes != priorWrites)
+            {
+                return false;
+            }
+        }
+        // A callback changing the same-epoch GPM pointer during the
+        // pre-send RAW read must not reach TX_PAYLOAD or COMMAND0.
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            mock.moveCursorAtInterruptRead = &cursor;
+            const auto result = sendAr9565MciCoexQuery(
+                physicalBoard, evidence, dma, cursor, transmitLease,
+                MciCoexQuery::BluetoothStatus, io(mock));
+            if (result.result != CoexistenceResult::OwnershipLost ||
+                !result.requiresReset || cursor.attached ||
+                find(mock, kMciCommand0)->bits != 0U || mock.writes != 0U)
             {
                 return false;
             }

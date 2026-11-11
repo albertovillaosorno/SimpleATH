@@ -289,7 +289,8 @@ cursor, a genuine awake Bluetooth host/command lease and MAC auto-responses
 quiesced. Its live MMIO preflight rechecks the rings, MCI enabled state,
 masked interrupts and the hardware remote-sleep bit. A raw W1C command
 completion/failed-send is explicitly acknowledged without erasing unrelated
-GPM receive notifications. A 500-us maximum poll and any ambiguous hardware
+GPM receive notifications. A 500-iteration poll with 1-us delays per retry
+(plus MMIO overhead) and any ambiguous hardware
 write/readback/owner loss retain the full-reset requirement. C++14 and C++17
 ASan/UBSan fixtures cover both request encodings, stale W1C, timeout,
 controller rejection, remote sleep, failures and revoked epochs; direct
@@ -323,3 +324,12 @@ interpret a message as successful BT negotiation. Synthetic C++14/C++17
 fixtures cover recognized, irrelevant and malformed notices. The native
 owner still must synchronize physical GPM DMA, handle actual response
 transactions and prove host Bluetooth arbitration before any real use.
+
+The command sender now snapshots its owner-epoch GPM cursor index before
+MMIO and checks it both before TX payload submission and before returning
+SW_MSG_DONE success. Pre-send callback mutations cannot issue COMMAND0;
+post-command cursor detachment or index changes revoke the cursor and demand
+reset. Sanitized tests cover both exact same-epoch mutation intervals.
+**This does not detect an ABA reattach that restores the same index**:
+the eventual native owner must additionally enforce unique reset generation
+and exclusive serialization across Bluetooth, GPM DMA, reset and commands.

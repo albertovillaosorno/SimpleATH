@@ -231,6 +231,9 @@ namespace simpleath
     // Ambiguous writes, timeout or failed status acknowledgement revoke
     // the live GPM cursor: a full owner reset/reattach is required before
     // any further MCI command. A successful query preserves the cursor.
+    // Synchronous owner callbacks must not advance the cursor while sending;
+    // epoch plus index cannot prove absence of an ABA reattach, so the
+    // exclusive native owner must enforce one monotonic reset generation.
     CoexistenceProgress sendAr9565MciCoexQuery(
         const BoardDataSummary &board, const SharedMciEvidence &evidence,
         const SharedMciDmaBuffers &buffers, MciGpmCursor &cursor,
