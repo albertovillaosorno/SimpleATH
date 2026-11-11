@@ -155,6 +155,16 @@ a new PCI/reset/calibration/channel/scan/key epoch is still required. No
 native asynchronous reset/reconnect coordinator exists yet. Keep this task
 open until an end-to-end, correctly owned recovery path is verified.
 
+A follow-on source fix also routes failed protected M4/Group2 EDMA
+completions, failed deferred protected replies, and terminal Group1 rekey
+failures through this same one-way hardware retirement. The native TX
+availability notification now requires a still-running radio/channel/queue;
+it cannot advertise a newly quarantined ring. A separate EDMA/IRQ fault
+explicitly latches `keyCache_.requiresReset`, including OS-owned WPA2 where
+no driver supplicant callback exists. The source-only
+`test_native_link_retirement_wiring.py` checks these exact call paths; it
+does not establish that a physical AR9565 actually stopped or wiped keys.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.

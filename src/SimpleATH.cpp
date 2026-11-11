@@ -2700,12 +2700,9 @@ class SimpleATH final : public IOService
             }
             else
             {
-                // A new GTK with no protected, queued Group2
-                // is never a valid continuing association.
-                failNativeJoin(kIOReturnNotReady);
-                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
-                                     false);
-                notifyWirelessChange(false);
+                // An unacknowledgeable GTK replacement cannot leave old
+                // key RAM, replay state or live EDMA in this association.
+                retireNativeLink(kIOReturnNotReady);
             }
         }
 
@@ -3317,10 +3314,9 @@ class SimpleATH final : public IOService
                 const IOReturn leaseEnd = self.queues_.endKeyUpdateGated();
                 if (leaseEnd != kIOReturnSuccess)
                 {
-                    self.failNativeJoin(leaseEnd);
-                    self.engine_.radioStopped(
-                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                    self.notifyWirelessChange(false);
+                    // A failed key-update restart cannot reuse keys or
+                    // admit another handshake in the old physical epoch.
+                    self.retireNativeLink(leaseEnd);
                     return true;
                 }
                 if (self.deferredManagementBytes_ != 0)
@@ -3602,10 +3598,10 @@ class SimpleATH final : public IOService
                 self.pendingWpa2Group2Token_ = 0;
                 if (!complete)
                 {
-                    self.failNativeJoin(kIOReturnIOError);
-                    self.engine_.radioStopped(
-                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                    self.notifyWirelessChange(false);
+                    // Completion is terminal for this protected key
+                    // generation. The EDMA TX slot was just retired, so
+                    // attempt same-epoch isolation before hardware erasure.
+                    self.retireNativeLink(kIOReturnIOError);
                 }
             }
             if (token != 0 && token == self.pendingWpa2M4Token_)
@@ -3639,10 +3635,10 @@ class SimpleATH final : public IOService
                 }
                 else
                 {
-                    self.failNativeJoin(kIOReturnIOError);
-                    self.engine_.radioStopped(
-                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                    self.notifyWirelessChange(false);
+                    // Completion is terminal for this protected key
+                    // generation. The EDMA TX slot was just retired, so
+                    // attempt same-epoch isolation before hardware erasure.
+                    self.retireNativeLink(kIOReturnIOError);
                 }
             }
             ++self.transmitCompletions_;
@@ -3658,7 +3654,10 @@ class SimpleATH final : public IOService
             {
                 IOLockLock(self.observerLock_);
                 if (self.wirelessObserver_ != nullptr &&
-                    self.wirelessNotify_ != nullptr && self.epoch_ != 0)
+                    self.wirelessNotify_ != nullptr && self.epoch_ != 0 &&
+                    self.radioOperational_ && self.channelAuthorized_ &&
+                    self.queues_.phase() ==
+                        simpleath::NativeQueuePhase::Running)
                 {
                     self.wirelessNotify_(
                         self.wirelessObserver_,
@@ -3703,6 +3702,11 @@ class SimpleATH final : public IOService
             }
             self.nativePairwiseKeyRevoked_ = true;
             self.nativeGroupKeyRevokedMask_ = kAllGroupKeySlotsRevoked;
+            // In particular the OS-owned supplicant does not call our
+            // driver-owned key removal on reset. A DMA fault cannot borrow
+            // that callback as evidence of hardware-key erasure.
+            self.keyCache_.requiresReset = true;
+            self.setProperty("SimpleATHKeyCacheResetRequired", true);
             memset(&self.protectedRxScratch_[0], 0,
                    sizeof(self.protectedRxScratch_));
             self.engine_.radioStopped(
@@ -3775,10 +3779,9 @@ class SimpleATH final : public IOService
                              kRfPropertyWidthBits);
             if (result != kIOReturnSuccess)
             {
-                self.failNativeJoin(result);
-                self.engine_.radioStopped(
-                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                self.notifyWirelessChange(false);
+                // Deferred protected M4/Group2 could not reach real TX.
+                // Revoke the newly restarted ring and key generation.
+                self.retireNativeLink(result);
             }
         }
 
