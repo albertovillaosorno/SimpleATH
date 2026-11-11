@@ -84,6 +84,7 @@ namespace
     constexpr int kFailedMciReset = 8;
     constexpr int kFailedMciInterrupt = 9;
     constexpr int kFailedMciTransmit = 10;
+    constexpr int kFailedGpmDiagnostic = 11;
 
     struct Register
     {
@@ -761,6 +762,167 @@ namespace
         return true;
     }
 
+    bool sharedGpmDiagnosticTests()
+    {
+        constexpr uint8_t kAgent = 0x0cU;
+        constexpr size_t kTypeField = 4U;
+        constexpr size_t kOpcodeField = 5U;
+        constexpr size_t kDataField0 = 6U;
+        constexpr size_t kDataField1 = 7U;
+        constexpr size_t kDataField2 = 8U;
+        constexpr size_t kSequence0 = 12U;
+        constexpr size_t kSequence1 = 13U;
+        constexpr size_t kSequence2 = 14U;
+        constexpr size_t kSequence3 = 15U;
+        const MciGpmCursor active {kEpoch, 4U, true};
+        const auto make = [&](uint8_t type, uint8_t opcode)
+        {
+            MciGpmMessage frame {};
+            frame.type = type;
+            frame.opcode = opcode;
+            frame.payload[kTypeField] = type;
+            frame.payload[kOpcodeField] = opcode;
+            return frame;
+        };
+        {
+            const auto frame = make(kAgent, 0U);
+            if (inspectAr9565MciGpm(kEpoch, active, frame).kind !=
+                MciGpmDiagnosticKind::PeerVersionQuery)
+            {
+                return false;
+            }
+            const auto status = make(kAgent, 2U);
+            if (inspectAr9565MciGpm(kEpoch, active, status).kind !=
+                MciGpmDiagnosticKind::PeerStatusQuery)
+            {
+                return false;
+            }
+        }
+        {
+            auto frame = make(kAgent, 1U);
+            frame.payload[kDataField0] = 3U;
+            frame.payload[kDataField1] = 7U;
+            const auto notice = inspectAr9565MciGpm(kEpoch, active, frame);
+            if (notice.kind != MciGpmDiagnosticKind::BluetoothVersionResponse ||
+                notice.versionMajor != 3U || notice.versionMinor != 7U ||
+                notice.isCritical || notice.isLinkStatus ||
+                notice.sequence != 0U)
+            {
+                return false;
+            }
+        }
+        {
+            auto frame = make(kAgent, 5U);
+            frame.payload[kDataField0] = 6U;
+            frame.payload[kDataField1] = 2U;
+            const auto notice = inspectAr9565MciGpm(kEpoch, active, frame);
+            if (notice.kind != MciGpmDiagnosticKind::BluetoothProfileNotice ||
+                notice.profileType != 6U || notice.linkId != 2U)
+            {
+                return false;
+            }
+        }
+        {
+            auto frame = make(kAgent, 6U);
+            frame.payload[kDataField0] = 0U;
+            frame.payload[kDataField1] = 7U;
+            frame.payload[kDataField2] = 1U;
+            frame.payload[kSequence0] = 0x12U;
+            frame.payload[kSequence1] = 0x34U;
+            frame.payload[kSequence2] = 0x56U;
+            frame.payload[kSequence3] = 0x78U;
+            const auto notice = inspectAr9565MciGpm(kEpoch, active, frame);
+            if (notice.kind != MciGpmDiagnosticKind::BluetoothStatusNotice ||
+                notice.isLinkStatus || !notice.isCritical ||
+                notice.linkId != 7U || notice.sequence != 0x78563412U)
+            {
+                return false;
+            }
+            frame.payload[kDataField0] = 1U;
+            frame.payload[kDataField1] = 0xffU;
+            const auto link = inspectAr9565MciGpm(kEpoch, active, frame);
+            if (link.kind != MciGpmDiagnosticKind::BluetoothStatusNotice ||
+                !link.isLinkStatus || link.linkId != 0xffU)
+            {
+                return false;
+            }
+        }
+        for (size_t scenario = 0U; scenario < 8U; ++scenario)
+        {
+            auto frame = make(kAgent, 6U);
+            frame.payload[kDataField0] = 0U;
+            frame.payload[kDataField1] = 7U;
+            frame.payload[kDataField2] = 1U;
+            auto cursor = active;
+            uint64_t epoch = kEpoch;
+            if (scenario == 0U)
+            {
+                frame.payload[kDataField0] = 2U;
+            }
+            else if (scenario == 1U)
+            {
+                frame.payload[kDataField1] = 8U;
+            }
+            else if (scenario == 2U)
+            {
+                frame.payload[kDataField2] = 2U;
+            }
+            else if (scenario == 3U)
+            {
+                frame.payload[kOpcodeField] = 0xffU;
+            }
+            else if (scenario == 4U)
+            {
+                frame.type = 0xfeU;
+            }
+            else if (scenario == 5U)
+            {
+                cursor.ownerEpoch++;
+            }
+            else if (scenario == 6U)
+            {
+                epoch = 0U;
+            }
+            else
+            {
+                cursor.attached = false;
+            }
+            const auto diagnostic = inspectAr9565MciGpm(epoch, cursor, frame);
+            const auto expected = scenario < 5U
+                                      ? MciGpmDiagnosticKind::InvalidPayload
+                                      : MciGpmDiagnosticKind::OwnershipLost;
+            if (diagnostic.kind != expected || diagnostic.versionMajor != 0U ||
+                diagnostic.linkId != 0U || diagnostic.sequence != 0U ||
+                diagnostic.isCritical || diagnostic.isLinkStatus)
+            {
+                return false;
+            }
+        }
+        {
+            auto frame = make(kAgent, 5U);
+            frame.payload[kDataField0] = 0U;
+            if (inspectAr9565MciGpm(kEpoch, active, frame).kind !=
+                MciGpmDiagnosticKind::InvalidPayload)
+            {
+                return false;
+            }
+            frame.payload[kDataField0] = 7U;
+            if (inspectAr9565MciGpm(kEpoch, active, frame).kind !=
+                MciGpmDiagnosticKind::InvalidPayload)
+            {
+                return false;
+            }
+        }
+        if (inspectAr9565MciGpm(kEpoch, active, make(0xfeU, 1U)).kind !=
+                MciGpmDiagnosticKind::Unrelated ||
+            inspectAr9565MciGpm(kEpoch, active, make(kAgent, 0xffU)).kind !=
+                MciGpmDiagnosticKind::Unrelated)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool sharedMciTransmitTests()
     {
         const auto physicalBoard = board();
@@ -1398,6 +1560,10 @@ int main()
     if (!sharedMciTransmitTests())
     {
         return kFailedMciTransmit;
+    }
+    if (!sharedGpmDiagnosticTests())
+    {
+        return kFailedGpmDiagnostic;
     }
     if (!sharedMciInterruptTests())
     {

@@ -1046,6 +1046,25 @@ namespace simpleath
         constexpr size_t kMciGpmOpcodeByte = 5U;
         constexpr uint32_t kMciGpmLengthMask = 0xffffU;
         constexpr uint32_t kMciGpmPointerShift = 16U;
+        constexpr size_t kCoexMajorByte = 6U;
+        constexpr size_t kCoexMinorByte = 7U;
+        constexpr size_t kCoexStatusTypeByte = 6U;
+        constexpr size_t kCoexStatusHandleByte = 7U;
+        constexpr size_t kCoexStatusStateByte = 8U;
+        constexpr size_t kCoexSequence0 = 12U;
+        constexpr size_t kCoexSequence1 = 13U;
+        constexpr size_t kCoexSequence2 = 14U;
+        constexpr size_t kCoexSequence3 = 15U;
+        constexpr uint32_t kCoexSequenceShift1 = 8U;
+        constexpr uint32_t kCoexSequenceShift2 = 16U;
+        constexpr uint32_t kCoexSequenceShift3 = 24U;
+        constexpr uint8_t kCoexProfileMax = 7U;
+        constexpr uint8_t kCoexStatusHandleMax = 8U;
+        constexpr uint8_t kCoexOpcodeVersionQuery = 0U;
+        constexpr uint8_t kCoexOpcodeVersionResponse = 1U;
+        constexpr uint8_t kCoexOpcodeStatusQuery = 2U;
+        constexpr uint8_t kCoexOpcodeProfileInfo = 5U;
+        constexpr uint8_t kCoexOpcodeStatusUpdate = 6U;
 
         bool validGpmRegister(uint32_t gpmRegister)
         {
@@ -1083,6 +1102,92 @@ namespace simpleath
             return ring + (index * kMciGpmEntryBytes);
         }
     } // namespace
+
+    MciGpmDiagnostic inspectAr9565MciGpm(uint64_t ownerEpoch,
+                                         const MciGpmCursor &cursor,
+                                         const MciGpmMessage &message)
+    {
+        MciGpmDiagnostic diagnostic {};
+        diagnostic.kind = MciGpmDiagnosticKind::OwnershipLost;
+        if (ownerEpoch == 0U || !cursor.attached ||
+            cursor.ownerEpoch != ownerEpoch ||
+            cursor.nextIndex >= kAr9565MciGpmEntries)
+        {
+            return diagnostic;
+        }
+        diagnostic.kind = MciGpmDiagnosticKind::InvalidPayload;
+        if (message.type != message.payload[kMciGpmTypeByte] ||
+            message.opcode != message.payload[kMciGpmOpcodeByte])
+        {
+            return diagnostic;
+        }
+        diagnostic.kind = MciGpmDiagnosticKind::Unrelated;
+        if (message.type != kMciCoexAgent)
+        {
+            return diagnostic;
+        }
+        // Linux ath9k ar9003_mci_process_gpm_extra / ath_mci_msg.
+        // These MCI opcode interpretations are diagnostics ONLY, never
+        // evidence that a sent query has been answered or that BT is ready.
+        switch (message.opcode)
+        {
+            case kCoexOpcodeVersionQuery: // MCI_GPM_COEX_VERSION_QUERY
+                diagnostic.kind = MciGpmDiagnosticKind::PeerVersionQuery;
+                break;
+            case kCoexOpcodeVersionResponse: // MCI_GPM_COEX_VERSION_RESPONSE
+                diagnostic.kind =
+                    MciGpmDiagnosticKind::BluetoothVersionResponse;
+                diagnostic.versionMajor = message.payload[kCoexMajorByte];
+                diagnostic.versionMinor = message.payload[kCoexMinorByte];
+                break;
+            case kCoexOpcodeStatusQuery: // MCI_GPM_COEX_STATUS_QUERY
+                diagnostic.kind = MciGpmDiagnosticKind::PeerStatusQuery;
+                break;
+            case kCoexOpcodeProfileInfo: // MCI_GPM_COEX_BT_PROFILE_INFO
+                diagnostic.profileType = message.payload[kCoexStatusTypeByte];
+                if (diagnostic.profileType == 0U ||
+                    diagnostic.profileType >= kCoexProfileMax)
+                {
+                    diagnostic = {};
+                    diagnostic.kind = MciGpmDiagnosticKind::InvalidPayload;
+                    return diagnostic;
+                }
+                diagnostic.linkId = message.payload[kCoexStatusHandleByte];
+                diagnostic.kind = MciGpmDiagnosticKind::BluetoothProfileNotice;
+                break;
+            case kCoexOpcodeStatusUpdate: // MCI_GPM_COEX_BT_STATUS_UPDATE
+                // ath_mci_process_status accepts only eight host profile
+                // handles; link-status messages are informational, never
+                // authority to alter the host radio priority state here.
+                if (message.payload[kCoexStatusTypeByte] > 1U ||
+                    message.payload[kCoexStatusStateByte] > 1U ||
+                    (message.payload[kCoexStatusTypeByte] == 0U &&
+                     message.payload[kCoexStatusHandleByte] >=
+                         kCoexStatusHandleMax))
+                {
+                    diagnostic.kind = MciGpmDiagnosticKind::InvalidPayload;
+                    return diagnostic;
+                }
+                diagnostic.kind = MciGpmDiagnosticKind::BluetoothStatusNotice;
+                diagnostic.isLinkStatus =
+                    message.payload[kCoexStatusTypeByte] != 0U;
+                diagnostic.linkId = message.payload[kCoexStatusHandleByte];
+                diagnostic.isCritical =
+                    message.payload[kCoexStatusStateByte] != 0U;
+                diagnostic.sequence =
+                    static_cast<uint32_t>(message.payload[kCoexSequence0]) |
+                    (static_cast<uint32_t>(message.payload[kCoexSequence1])
+                     << kCoexSequenceShift1) |
+                    (static_cast<uint32_t>(message.payload[kCoexSequence2])
+                     << kCoexSequenceShift2) |
+                    (static_cast<uint32_t>(message.payload[kCoexSequence3])
+                     << kCoexSequenceShift3);
+                break;
+            default:
+                break;
+        }
+        return diagnostic;
+    }
 
     MciGpmResult attachAr9565MciGpm(uint64_t ownerEpoch, uint32_t gpmRegister,
                                     MciGpmCursor &cursor)

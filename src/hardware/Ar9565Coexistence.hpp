@@ -139,6 +139,39 @@ namespace simpleath
             uint8_t payload[kAr9565MciGpmMessageBytes] {};
     };
 
+    enum class MciGpmDiagnosticKind : uint8_t
+    {
+        OwnershipLost,
+        InvalidPayload,
+        Unrelated,
+        PeerVersionQuery,
+        PeerStatusQuery,
+        BluetoothVersionResponse,
+        BluetoothProfileNotice,
+        BluetoothStatusNotice,
+    };
+
+    struct MciGpmDiagnostic
+    {
+            MciGpmDiagnosticKind kind {MciGpmDiagnosticKind::Unrelated};
+            uint8_t versionMajor {};
+            uint8_t versionMinor {};
+            uint8_t profileType {};
+            uint8_t linkId {};
+            bool isLinkStatus {};
+            bool isCritical {};
+            uint32_t sequence {};
+    };
+
+    // Inspect a COPIED 16-byte MCI GPM after the native owner synchronized
+    // coherent RX DMA and consumed the ring. This is only a source-level
+    // diagnostic parser: even a valid version/status notice is UNTRUSTED
+    // information, not a recognized lease, protocol negotiation, regulatory
+    // permission, or any RF/BT/TX/RX readiness grant. No DMA/MMIO performed.
+    MciGpmDiagnostic inspectAr9565MciGpm(uint64_t ownerEpoch,
+                                         const MciGpmCursor &cursor,
+                                         const MciGpmMessage &message);
+
     // Initialize a GPM cursor to the LIVE hardware write pointer after an
     // independently authorized, synchronized coherent-DMA ring is staged and
     // MCI RX has been reset. Prior messages are intentionally discarded.

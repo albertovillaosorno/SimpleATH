@@ -310,3 +310,16 @@ denials leave the cursor attached and perform no writes. Synthetic regression
 coverage includes rejected second sends, stale callbacks and unreadable
 status before transmission. These are owner-safety constraints, **not**
 proof of a live Bluetooth host handshake or physical MCI bus arbitration.
+
+The source-only GPM RX reader now also exposes a **read-only coex notice
+diagnostic** for copied 16-byte MCI messages. Based on the pinned Linux
+`ar9003_mci_process_gpm_extra`, `ath_mci_msg`, `ar9003_mci.h` and `mci.h`,
+this recognizes inbound version/status queries, peer Bluetooth version
+responses and profile/status notifications. It rejects detached/stale epochs,
+message header/byte mismatches, invalid profile types and out-of-range BT
+status fields, and parses the status sequence as explicit little-endian
+bytes. The parser does not touch MMIO/DMA, change antenna priorities or
+interpret a message as successful BT negotiation. Synthetic C++14/C++17
+fixtures cover recognized, irrelevant and malformed notices. The native
+owner still must synchronize physical GPM DMA, handle actual response
+transactions and prove host Bluetooth arbitration before any real use.
