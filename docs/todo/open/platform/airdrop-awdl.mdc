@@ -474,3 +474,22 @@ read-only *packet admission*, not IPv6 delivery to a macOS AWDL interface,
 a completed BLE handoff, RF channel/timing authorization, peer trust or an
 AirDrop transfer. The production RF path remains incomplete; this P0 TODO
 stays open.
+
+## Source progress — 2026-11-10: directed native MIF observation
+
+`receiveNativeAwdl` now resolves the physical station MAC once per valid
+single-MPDU observation before feeding either AWDL MIF or IPv6 traffic to the
+peer table. `AwdlNeighbors::observeMifForLocal` admits only MIF action frames
+addressed to the local station, the AWDL group BSSID, or broadcast. A
+promiscuously observed MIF unicast to a third-party station cannot refresh
+the peer's synchronization and election clocks or consume its MAC sequence;
+self-sourced management traffic is rejected as an invalid native peer.
+The existing portable `observeMif` stays available for explicitly scoped
+parser tests and independently authorized controller callers.
+
+Focused C++14 and C++17 ASan/UBSan fixtures cover third-party unicast,
+subsequent retransmission to the actual station, broadcast, AWDL BSSID and
+physical-identity rejection. Both AWDL source and test pass strict Clang-Tidy
+and formatting; native owner source passes SDK syntax. No physical RF,
+channel sharing, BLE ownership, peer authentication, native AWDL interface,
+TX authorization or AirDrop transfer is established by this observer.

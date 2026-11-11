@@ -992,6 +992,51 @@ namespace simpleath
             return Result::Ok;
         }
 
+        Result AwdlNeighbors::observeMifForLocal(uint64_t nowMs,
+                                                 const Mac &local,
+                                                 const uint8_t *frame,
+                                                 size_t bytes)
+        {
+            if (overlaps(&local, sizeof(local), this, sizeof(*this)) ||
+                overlaps(frame, bytes, this, sizeof(*this)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (!validStationMac(local))
+            {
+                return Result::InvalidAddress;
+            }
+            AwdlAction action {};
+            const Result parsed = parseAwdlAction(frame, bytes, action);
+            if (parsed != Result::Ok)
+            {
+                return parsed;
+            }
+            if (sameMac(action.header.source, local))
+            {
+                return Result::InvalidAddress;
+            }
+            constexpr Mac kBroadcast {
+                {
+                    0xffU,
+                    0xffU,
+                    0xffU,
+                    0xffU,
+                    0xffU,
+                    0xffU,
+                },
+            };
+            const Mac &destination = action.header.destination;
+            if (!sameMac(destination, local) &&
+                !sameMac(destination, kBroadcast) &&
+                __builtin_memcmp(&destination.bytes, &kAwdlBssid,
+                                 kMacAddressBytes) != 0)
+            {
+                return Result::UnsupportedFrame;
+            }
+            return observeMif(nowMs, frame, bytes);
+        }
+
         Result AwdlNeighbors::observeIpv6(uint64_t nowMs, const uint8_t *frame,
                                           size_t bytes)
         {

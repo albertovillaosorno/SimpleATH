@@ -191,6 +191,12 @@ namespace simpleath
 
                 Result observeMif(uint64_t nowMs, const uint8_t *frame,
                                   size_t bytes);
+                // Native action RX: admit only MIFs for this station,
+                // broadcast or the documented AWDL BSSID address. A frame
+                // unicast to an unrelated station cannot renew a peer's MIF
+                // timing/election lease even if monitor-mode RX saw it.
+                Result observeMifForLocal(uint64_t nowMs, const Mac &local,
+                                          const uint8_t *frame, size_t bytes);
                 Result observeIpv6(uint64_t nowMs, const uint8_t *frame,
                                    size_t bytes);
                 // Native RX admission: an AWDL IPv6 MPDU may refresh a

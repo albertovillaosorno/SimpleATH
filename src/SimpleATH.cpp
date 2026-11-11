@@ -2638,11 +2638,20 @@ class SimpleATH final : public IOService
             {
                 return;
             }
+            const auto *board = board_.view(epoch_);
+            if (!stationMacProgrammed_ || board == nullptr)
+            {
+                return;
+            }
+            simpleath::ieee80211::Mac local {};
+            __builtin_memcpy(&local.bytes[0], &board->summary.mac[0],
+                             sizeof(local.bytes));
             const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
             if (header.type == simpleath::ieee80211::FrameType::Management &&
                 header.subtype == kAwdlActionSubtype)
             {
-                if (awdlNeighbors_.observeMif(now, frame, mpduBytes) ==
+                if (awdlNeighbors_.observeMifForLocal(now, local, frame,
+                                                      mpduBytes) ==
                     simpleath::ieee80211::Result::Ok)
                 {
                     ++awdlReceivedMifs_;
@@ -2656,14 +2665,6 @@ class SimpleATH final : public IOService
                 // Only data addressed to our physical station (or the
                 // matching IPv6 multicast group) may refresh peer state.
                 // This is not an AirDrop authorization or native IP RX.
-                const auto *board = board_.view(epoch_);
-                if (!stationMacProgrammed_ || board == nullptr)
-                {
-                    return;
-                }
-                simpleath::ieee80211::Mac local {};
-                __builtin_memcpy(&local.bytes[0], &board->summary.mac[0],
-                                 sizeof(local.bytes));
                 (void)awdlNeighbors_.observeIpv6ForLocal(now, local, frame,
                                                          mpduBytes);
             }

@@ -2108,6 +2108,85 @@ namespace
                peers.find(fixture.source, kNeighborExpiredMs, neighbor);
     }
 
+    bool neighborMifNativeDestinationAdmission()
+    {
+        NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
+        const Mac local {{0x02U, 0x66U, 0x77U, 0x88U, 0x99U, 0xaaU}};
+        const Mac other {{0x02U, 0x66U, 0x77U, 0x88U, 0x99U, 0xbbU}};
+        const Mac broadcast {{
+            0xffU,
+            0xffU,
+            0xffU,
+            0xffU,
+            0xffU,
+            0xffU,
+        }};
+        const Mac group {{0x00U, 0x25U, 0x00U, 0xffU, 0x94U, 0x73U}};
+        constexpr size_t kDestinationOffset = 4U;
+        const auto setDestination = [&](const Mac &destination)
+        {
+            __builtin_memcpy(&fixture.frame.at(kDestinationOffset),
+                             &destination.bytes, sizeof(destination.bytes));
+        };
+        AwdlNeighbors peers {};
+        AwdlNeighbor observed {};
+        setDestination(other);
+        if (peers.observeMifForLocal(kNeighborFirstSeenMs, local,
+                                     fixture.frame.data(), fixture.length) !=
+                Result::UnsupportedFrame ||
+            peers.find(fixture.source, kNeighborFirstSeenMs, observed))
+        {
+            return false;
+        }
+        setDestination(broadcast);
+        if (peers.observeMifForLocal(kNeighborFirstSeenMs, local,
+                                     fixture.frame.data(),
+                                     fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs, observed) ||
+            observed.lastMifMs != kNeighborFirstSeenMs)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, 1U);
+        setDestination(other);
+        if (peers.observeMifForLocal(kNeighborFirstSeenMs + 1U, local,
+                                     fixture.frame.data(), fixture.length) !=
+                Result::UnsupportedFrame ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 1U, observed) ||
+            observed.macSequence != 0U ||
+            observed.lastMifMs != kNeighborFirstSeenMs)
+        {
+            return false;
+        }
+        setDestination(local);
+        if (peers.observeMifForLocal(kNeighborFirstSeenMs + 2U, local,
+                                     fixture.frame.data(),
+                                     fixture.length) != Result::Ok)
+        {
+            return false;
+        }
+        setNeighborMacSequence(fixture, 2U);
+        setDestination(group);
+        if (peers.observeMifForLocal(kNeighborFirstSeenMs + 3U, local,
+                                     fixture.frame.data(),
+                                     fixture.length) != Result::Ok ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 3U, observed) ||
+            observed.macSequence != 2U ||
+            observed.lastMifMs != kNeighborFirstSeenMs + 3U ||
+            peers.observeMifForLocal(kNeighborFirstSeenMs + 4U, fixture.source,
+                                     fixture.frame.data(), fixture.length) !=
+                Result::InvalidAddress ||
+            peers.observeMifForLocal(kNeighborFirstSeenMs + 5U, Mac {},
+                                     fixture.frame.data(), fixture.length) !=
+                Result::InvalidAddress ||
+            !peers.find(fixture.source, kNeighborFirstSeenMs + 5U, observed) ||
+            observed.lastMifMs != kNeighborFirstSeenMs + 3U)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool neighborIpv6NativeDestinationAdmission()
     {
         NeighborFixture fixture = makeNeighborFixture(kNeighborSourceLast);
@@ -2437,6 +2516,11 @@ int main()
     {
         constexpr int kNeighborCapacityFailure = 11;
         return kNeighborCapacityFailure;
+    }
+    if (!neighborMifNativeDestinationAdmission())
+    {
+        constexpr int kMifDestinationAdmissionFailure = 23;
+        return kMifDestinationAdmissionFailure;
     }
     if (!neighborIpv6NativeDestinationAdmission())
     {
