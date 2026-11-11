@@ -113,6 +113,15 @@ preflight, even if earlier MMIO callbacks modify caller-owned EEPROM bytes.
 Synthetic C++14/C++17 sanitizer fixtures, direct strict Clang-Tidy and
 formatting passed. This is a source-only TOCTOU correction, **not** evidence
 that the native PCI owner executes the full RF sequence.
+The receive-only RF orchestrator now rejects mismatched read, write or
+microsecond-delay callbacks across its RF-bus, tuning and baseband stages
+before any register access. Only the phase-specific write-permit callback
+may differ. An epoch/context/BAR token without an identical physical
+transport is not sufficient to attribute writes to one hardware session.
+The synthetic three-way split-transport regression first failed on the
+previous implementation, then passed after the fix. This does not supply
+the missing native coexistence, crystal or regulatory evidence and does not
+activate the radio.
 The receive-only RF source orchestrator now caches AR9565 ANI first-step and
 spur-immunity register defaults from its applied, epoch-current PHY after
 receiver calibration. `Ar9565Ani` also provides bounded ath9k-relative

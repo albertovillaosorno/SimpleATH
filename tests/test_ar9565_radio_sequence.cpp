@@ -40,6 +40,7 @@ namespace
         Mode = 15,
         BoardSnapshot = 16,
         Ani = 17,
+        SplitBackend = 18,
     };
 
     constexpr uint64_t kEpoch = 69;
@@ -203,6 +204,23 @@ namespace
         }
     }
 
+    // Physically equivalent fake operations at distinct callback addresses.
+    // A phase may not smuggle a second MMIO transport into one RF epoch.
+    bool alternateRead(void *context, uint32_t offset, uint32_t *value)
+    {
+        return read(context, offset, value);
+    }
+
+    bool alternateWrite(void *context, uint32_t offset, uint32_t value)
+    {
+        return write(context, offset, value);
+    }
+
+    void alternateDelay(void *context, uint32_t micros)
+    {
+        delay(context, micros);
+    }
+
     RadioSequenceBackends backends(Fake &fake)
     {
         const RfIniBackend normal {
@@ -283,6 +301,40 @@ namespace
         return runAr9565ReceiveOnlyRadioSequence(
             image, request, TxGainProfile::LowOb, RxGainProfile::Standard,
             BoardModalDiversity::WlanOnly, permission, backends(fake));
+    }
+
+    int checkSplitBackendTransport()
+    {
+        constexpr int kVariants = 3;
+        for (int variant = 0; variant < kVariants; ++variant)
+        {
+            Fake fake {};
+            auto mixed = backends(fake);
+            if (variant == 0)
+            {
+                mixed.tuning.io.write32 = alternateWrite;
+            }
+            else if (variant == 1)
+            {
+                mixed.rfBus.read32 = alternateRead;
+            }
+            else
+            {
+                mixed.baseband.io.delayMicros = alternateDelay;
+            }
+            const auto result = runAr9565ReceiveOnlyRadioSequence(
+                board(), channel(), TxGainProfile::LowOb,
+                RxGainProfile::Standard, BoardModalDiversity::WlanOnly,
+                authorized(), mixed);
+            if (result.result != RadioSequenceResult::InvalidBackend ||
+                result.stage != RadioSequenceStage::Preflight ||
+                result.requiresReset || fake.writes != 0U || fake.reads != 0U ||
+                fake.permits != 0U)
+            {
+                return static_cast<int>(TestExit::SplitBackend);
+            }
+        }
+        return 0;
     }
 
     int checkAdmissionAndChannelModes()
@@ -406,6 +458,11 @@ int main()
         originalBoard.bytes[0] != kTamperedEepromVersion)
     {
         return static_cast<int>(TestExit::BoardSnapshot);
+    }
+    const int splitBackend = checkSplitBackendTransport();
+    if (splitBackend != 0)
+    {
+        return splitBackend;
     }
     const int admission = checkAdmissionAndChannelModes();
     if (admission != 0)

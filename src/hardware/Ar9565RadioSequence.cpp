@@ -30,9 +30,15 @@ namespace simpleath
 
         bool sameOwner(const RfIniBackend &left, const RfIniBackend &right)
         {
+            // Only permitWrite may vary between RF-bus, tuning and PHY
+            // stages. Reads, writes and delays MUST use one physical BAR
+            // transport: sharing an epoch token alone does not establish
+            // register-owner identity.
             return left.context == right.context &&
                    left.ownerEpoch == right.ownerEpoch &&
-                   left.barLengthBytes == right.barLengthBytes;
+                   left.barLengthBytes == right.barLengthBytes &&
+                   left.write32 == right.write32 &&
+                   left.delayMicros == right.delayMicros;
         }
 
         bool validChannel(const RfChannelRequest &request)
@@ -90,6 +96,8 @@ namespace simpleath
             io.barLengthBytes == 0 || io.permitWrite == nullptr ||
             io.write32 == nullptr || io.delayMicros == nullptr ||
             stable.baseband.read32 == nullptr ||
+            stable.rfBus.read32 != stable.baseband.read32 ||
+            stable.tuning.read32 != stable.baseband.read32 ||
             !sameOwner(stable.rfBus.io, io) || !sameOwner(stable.tuning.io, io))
         {
             return progress;
