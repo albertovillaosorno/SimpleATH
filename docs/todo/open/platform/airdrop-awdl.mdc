@@ -73,9 +73,12 @@ into the bounded `AwdlNeighbors` table. The observer requires the **physical**
 radio to be operational, channel authorization, a separately confirmed native
 receive channel of **6**, an EDMA-valid frame with no reported CRC error, and
 a bounded FCS-present MPDU. It strips exactly the four-byte FCS, parses the
-802.11 frame header, admits complete channel-6 MIF action frames through
-`observeMif` and refreshes already-observed peers from complete AWDL IPv6
-data with `observeIpv6`. A successful MIF increments a diagnostic receive
+802.11 frame header, and passes complete MIF actions and AWDL IPv6
+data to `observeMifForLocal` and `observeIpv6ForLocal`, respectively. Both
+require the current, physically programmed NVM station address, not an
+inferred packet destination; only locally directed, broadcast or AWDL-group
+MIFs and locally directed or correctly mapped multicast IPv6 can renew
+observed peer state. A successful MIF increments a diagnostic receive
 counter; it is **not** a synthesized AirDrop discovery event or registration.
 The table is cleared on native DMA faults and physical radio shutdown.
 
