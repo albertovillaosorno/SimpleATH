@@ -198,6 +198,8 @@ namespace simpleath
                 clearAdvertising(state);
                 return LeAdvertisingResult::Ok;
             }
+            const uint64_t issuedGeneration = state.generation;
+            const uint64_t issuedEpoch = state.epoch;
             bool sent = false;
             if (state.phase == LeAdvertisingPhase::AwaitParameters)
             {
@@ -218,6 +220,17 @@ namespace simpleath
             {
                 state.phase = LeAdvertisingPhase::Advertising;
                 return LeAdvertisingResult::Ok;
+            }
+            // A native USB command callback can synchronously revoke this
+            // advertising producer and start a successor on the SAME USB
+            // epoch, with the SAME pending phase. Never fault or validate
+            // that replacement using the obsolete command's result.
+            if (state.generation != issuedGeneration ||
+                state.epoch != issuedEpoch)
+            {
+                return sent && state.phase == LeAdvertisingPhase::Idle
+                           ? LeAdvertisingResult::Ok
+                           : LeAdvertisingResult::OwnershipLost;
             }
             if (!sent)
             {
@@ -270,6 +283,44 @@ namespace simpleath
             // Command Status success does not complete a pending LE procedure.
             return commandComplete ? completeCommand(state, transport, host)
                                    : LeAdvertisingResult::Ignored;
+        }
+
+        struct InitialSubmission
+        {
+                uint64_t generation;
+                uint16_t interval;
+        };
+
+        LeAdvertisingResult submitInitialParameters(
+            LeAdvertisingState &state, UsbHciState &transport,
+            const UsbHciHostCallbacks &host, const LeAdvertisingOwner &owner,
+            InitialSubmission submission)
+        {
+            state.phase = LeAdvertisingPhase::AwaitParameters;
+            const bool submitted =
+                sendParameters(transport, host, submission.interval);
+            if (state.generation != submission.generation ||
+                state.epoch != owner.epoch)
+            {
+                return LeAdvertisingResult::OwnershipLost;
+            }
+            if (!submitted)
+            {
+                return fault(state, LeAdvertisingResult::TransportFailed);
+            }
+            if (state.phase == LeAdvertisingPhase::Faulted)
+            {
+                return LeAdvertisingResult::Faulted;
+            }
+            const LeAdvertisingPhase previousPhase = state.phase;
+            const uint64_t previousEpoch = state.epoch;
+            const uint64_t previousGeneration = state.generation;
+            if (!authorized(state, transport, host, owner))
+            {
+                return lostAuthorization(state, previousPhase, previousEpoch,
+                                         previousGeneration);
+            }
+            return LeAdvertisingResult::Ok;
         }
     } // namespace
 
@@ -373,26 +424,8 @@ namespace simpleath
         {
             state.data.at(index) = approved.at(index);
         }
-        state.phase = LeAdvertisingPhase::AwaitParameters;
-        if (!sendParameters(transport, host, interval))
-        {
-            return fault(state, LeAdvertisingResult::TransportFailed);
-        }
-        if (state.phase == LeAdvertisingPhase::Faulted)
-        {
-            return LeAdvertisingResult::Faulted;
-        }
-        {
-            const LeAdvertisingPhase previousPhase = state.phase;
-            const uint64_t previousEpoch = state.epoch;
-            const uint64_t previousGeneration = state.generation;
-            if (!authorized(state, transport, host, owner))
-            {
-                return lostAuthorization(state, previousPhase, previousEpoch,
-                                         previousGeneration);
-            }
-        }
-        return LeAdvertisingResult::Ok;
+        return submitInitialParameters(state, transport, host, owner,
+                                       {activeGeneration, interval});
     }
 
     LeAdvertisingResult endLeAdvertising(LeAdvertisingState &state,
@@ -428,7 +461,18 @@ namespace simpleath
             return LeAdvertisingResult::Ok;
         }
         state.phase = LeAdvertisingPhase::AwaitDisable;
-        if (!sendEnable(transport, host, false))
+        const uint64_t issuedGeneration = state.generation;
+        const uint64_t issuedEpoch = state.epoch;
+        const bool sent = sendEnable(transport, host, false);
+        if (state.generation != issuedGeneration || state.epoch != issuedEpoch)
+        {
+            // A confirmed inline disable retires the original procedure.
+            // A callback that already started a successor must be rejected.
+            return sent && state.phase == LeAdvertisingPhase::Idle
+                       ? LeAdvertisingResult::Ok
+                       : LeAdvertisingResult::OwnershipLost;
+        }
+        if (!sent)
         {
             return fault(state, LeAdvertisingResult::TransportFailed);
         }
@@ -490,8 +534,17 @@ namespace simpleath
         {
             return LeAdvertisingResult::Ignored;
         }
+        const uint64_t issuedGeneration = state.generation;
+        const uint64_t issuedEpoch = state.epoch;
         const LeAdvertisingResult result = acceptCommandEvent(
             state, transport, host, event, bytes, type == kCommandComplete);
+        if (state.generation != issuedGeneration || state.epoch != issuedEpoch)
+        {
+            return result == LeAdvertisingResult::Ok &&
+                           state.phase == LeAdvertisingPhase::Idle
+                       ? LeAdvertisingResult::Ok
+                       : LeAdvertisingResult::OwnershipLost;
+        }
         if (result == LeAdvertisingResult::Ok &&
             state.phase != LeAdvertisingPhase::Idle)
         {

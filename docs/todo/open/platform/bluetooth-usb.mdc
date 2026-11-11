@@ -555,3 +555,21 @@ native transport class, **but it is not a verified macOS Tahoe 25G332
 export or behavioral contract**. Native Apple build, actual loaded symbol
 resolution, Bluetooth pairing, LE/AirDrop and coexistence remain unverified.
 The source-only checks cannot establish physical Bluetooth readiness.
+
+## Source progress — LE advertising command callback ownership
+
+The portable legacy LE advertising producer now snapshots its advertising
+generation and host owner epoch before each asynchronous/reentrant command
+submission. A synchronous USB control callback can complete the old HCI
+command, revoke the advertising producer, and start a replacement session
+on the **same physical USB epoch and pending advertising phase**.
+The obsolete invocation must return `OwnershipLost` rather than validating
+the successor's permissions or publishing a false old-operation success.
+A failed old command likewise cannot fault a newly established session.
+Genuine inline disable confirmation still retires the old producer to Idle
+and returns success. The bounded synthetic USB fixture first reproduced
+a nonzero failure with the previous implementation, then covered
+replacement during begin, controller step advancement and disable.
+These C++14/C++17 ASan+UBSan tests and scoped strict Clang-Tidy/format
+checks provide source-only evidence, not live Bluetooth advertising,
+AirDrop pairing or Tahoe HCI ABI verification.

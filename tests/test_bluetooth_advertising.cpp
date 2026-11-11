@@ -77,6 +77,7 @@ namespace
             bool reenterOnPermit {};
             bool revokeStateOnPermit {};
             bool replaceSamePhaseOnPermit {};
+            bool replaceSamePhaseOnCommand {};
             LeAdvertisingResult (*replaceSamePhase)(void *) {};
             bool stopOnAuthorization {};
             bool revokeStateOnAuthorization {};
@@ -185,6 +186,12 @@ namespace
         }
         fake.commandSizes.at(fake.commandCount) = bytes;
         ++fake.commandCount;
+        if (fake.replaceSamePhaseOnCommand && fake.replaceSamePhase != nullptr)
+        {
+            fake.replaceSamePhaseOnCommand = false;
+            fake.reentryResult = fake.replaceSamePhase(fake.reentryContext);
+            return fake.reentryResult == LeAdvertisingResult::Ok;
+        }
         const InlineReply reply = fake.inlineReply;
         fake.inlineReply = InlineReply::None;
         if (reply == InlineReply::None)
@@ -250,6 +257,28 @@ namespace
                                        kParametersComplete.data(),
                                        kParametersComplete.size()) !=
                     UsbHciStatus::Ok)
+                {
+                    return LeAdvertisingResult::Faulted;
+                }
+                return fixture.begin();
+            }
+
+            static LeAdvertisingResult replacePendingCommand(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                // The old command is still pending at the USB boundary.
+                // Settle that exact HCI completion before beginning the
+                // successor under the same physical USB epoch.
+                const size_t prior = fixture.fake_.commandCount - 1U;
+                const uint8_t opcode = fixture.fake_.commands.at(prior).at(0U);
+                const auto &complete =
+                    opcode == kAdvertDataOpcode     ? kDataComplete
+                    : opcode == kAdvertEnableOpcode ? kEnableComplete
+                                                    : kParametersComplete;
+                fixture.revoke();
+                if (receiveUsbHciEvent(fixture.transport_, fixture.host(),
+                                       complete.data(),
+                                       complete.size()) != UsbHciStatus::Ok)
                 {
                     return LeAdvertisingResult::Faulted;
                 }
@@ -787,6 +816,68 @@ namespace
                    : (__LINE__ % kDiagnosticModulo) + 1;
     }
 
+    int staleCommandCompletion()
+    {
+        Fixture fixture {};
+        if (!fixture.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        fixture.fake().replaceSamePhaseOnCommand = true;
+        fixture.fake().replaceSamePhase = Fixture::replaceAwaitParameters;
+        fixture.fake().reentryContext = &fixture;
+        // The physical USB epoch and pending phase can match after a
+        // synchronous firmware-host callback retires and restarts the LE
+        // producer. The old begin cannot publish the successor's success.
+        return fixture.begin() == LeAdvertisingResult::OwnershipLost &&
+                       fixture.fake().reentryResult ==
+                           LeAdvertisingResult::Ok &&
+                       fixture.phase() == LeAdvertisingPhase::AwaitParameters &&
+                       fixture.epoch() == kOwnerEpoch &&
+                       fixture.fake().commandCount == 2U &&
+                       !fixture.stopRequested()
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
+    }
+
+    int staleAdvanceAndDisable()
+    {
+        Fixture advancing {};
+        if (!advancing.attach() || advancing.begin() != LeAdvertisingResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        advancing.fake().replaceSamePhaseOnCommand = true;
+        advancing.fake().replaceSamePhase = Fixture::replacePendingCommand;
+        advancing.fake().reentryContext = &advancing;
+        if (advancing.completeParameters() !=
+                LeAdvertisingResult::OwnershipLost ||
+            advancing.fake().reentryResult != LeAdvertisingResult::Ok ||
+            advancing.phase() != LeAdvertisingPhase::AwaitParameters ||
+            advancing.fake().commandCount != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+
+        Fixture disabling {};
+        if (!disabling.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        disabling.fake().replaceSamePhaseOnCommand = true;
+        disabling.fake().replaceSamePhase = Fixture::replacePendingCommand;
+        disabling.fake().reentryContext = &disabling;
+        if (disabling.stop() != LeAdvertisingResult::OwnershipLost ||
+            disabling.fake().reentryResult != LeAdvertisingResult::Ok ||
+            disabling.phase() != LeAdvertisingPhase::AwaitParameters ||
+            disabling.epoch() != kOwnerEpoch ||
+            disabling.fake().commandCount != 5U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int errorsAndOwnership()
     {
         Fixture failed {};
@@ -879,6 +970,14 @@ int main()
     if (const int replaced = sameEpochPhaseReplacement())
     {
         return replaced;
+    }
+    if (const int stale = staleCommandCompletion())
+    {
+        return stale;
+    }
+    if (const int stale = staleAdvanceAndDisable())
+    {
+        return stale;
     }
     if (const int inlineResult = inlineControllerResponses())
     {
