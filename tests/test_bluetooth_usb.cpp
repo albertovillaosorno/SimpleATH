@@ -1163,6 +1163,58 @@ namespace
                state.commandWindow.credits == 1U;
     }
 
+    bool testLeCommandCompleteStatusShape()
+    {
+        // Each implemented legacy LE advertising/scan control command has
+        // exactly one status octet in its Command Complete return parameters.
+        // A shortened or extended response must not retire the outstanding
+        // procedure or mint controller-command credits.
+        constexpr UsbHciEndpoints kEndpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        constexpr std::array<uint8_t, 5U> kLeOpcodes {
+            0x06U, 0x08U, 0x0aU, 0x0bU, 0x0cU,
+        };
+        for (const uint8_t opcode : kLeOpcodes)
+        {
+            for (const bool extraStatusByte : {false, true})
+            {
+                UsbFake fake = newFake();
+                UsbHciState state {};
+                const std::array<uint8_t, 3U> command {opcode, 0x20U, 0U};
+                const std::array<uint8_t, 5U> missingStatus {
+                    0x0eU, 3U, 1U, opcode, 0x20U,
+                };
+                const std::array<uint8_t, 7U> extraStatus {
+                    0x0eU, 5U, 1U, opcode, 0x20U, 0U, 0U,
+                };
+                if (attachUsbHci(state, kEndpoints, host(fake)) !=
+                        UsbHciStatus::Ok ||
+                    sendUsbHciCommand(state, host(fake), command.data(),
+                                      command.size()) != UsbHciStatus::Ok)
+                {
+                    return false;
+                }
+                const UsbHciStatus result =
+                    extraStatusByte ? receiveUsbHciEvent(state, host(fake),
+                                                         extraStatus.data(),
+                                                         extraStatus.size())
+                                    : receiveUsbHciEvent(state, host(fake),
+                                                         missingStatus.data(),
+                                                         missingStatus.size());
+                if (result != UsbHciStatus::MalformedPacket || !state.faulted ||
+                    !state.commandWindow.pending ||
+                    state.commandWindow.credits != 0U || fake.delivered != 0U)
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     constexpr std::array<uint8_t, 3U> kLeReadSize {
         0x02U,
         0x20U,
@@ -2262,6 +2314,11 @@ int main()
     {
         constexpr int kLePreliminaryStatusFailure = 13;
         return kLePreliminaryStatusFailure;
+    }
+    if (!testLeCommandCompleteStatusShape())
+    {
+        constexpr int kLeCompletionShapeFailure = 30;
+        return kLeCompletionShapeFailure;
     }
     if (!testDedicatedLeCredits())
     {

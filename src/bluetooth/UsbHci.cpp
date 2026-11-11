@@ -449,6 +449,15 @@ namespace simpleath
                 return UsbHciStatus::MalformedPacket;
             }
             const uint16_t opcode = little16(packet, complete ? 3U : 4U);
+            // The five implemented legacy LE advertising/scanning setters
+            // return precisely one status octet. Reject missing or additional
+            // parameters before retiring a command or updating its credits.
+            // Other HCI opcodes legitimately have variable return payloads.
+            if (complete && leProcedureNeedsComplete(opcode) &&
+                bytes != kCommandCompletePrefixBytes + 1U)
+            {
+                return UsbHciStatus::MalformedPacket;
+            }
             UsbHciCommandWindow &commands = state.commandWindow;
             // A successful preliminary Command Status may precede a CC
             // for Reset or Read Buffer Size, with the ACL gate still pending.
