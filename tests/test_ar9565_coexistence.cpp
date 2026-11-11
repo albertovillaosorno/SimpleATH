@@ -936,6 +936,42 @@ namespace
         {
             return false;
         }
+        // Exercise the real copied GPM ring cursor before classification.
+        // A subsequent DMA buffer mutation must not affect the diagnostic.
+        {
+            constexpr uint32_t kGpmRegisterZero = kAr9565MciGpmEntries;
+            constexpr uint32_t kGpmRegisterOne =
+                (1U << 16U) | kAr9565MciGpmEntries;
+            std::array<uint8_t, kAr9565MciGpmBytes> ring {};
+            ring.fill(0xfeU);
+            MciGpmCursor cursor {};
+            if (attachAr9565MciGpm(kEpoch, kGpmRegisterZero, cursor) !=
+                MciGpmResult::Empty)
+            {
+                return false;
+            }
+            ring.at(kTypeField) = kAgent;
+            ring.at(kOpcodeField) = 1U;
+            ring.at(kDataField0) = 3U;
+            ring.at(kDataField1) = 4U;
+            MciGpmMessage copied {};
+            if (nextAr9565MciGpm(kEpoch, kGpmRegisterOne, ring.data(),
+                                 ring.size(), cursor,
+                                 copied) != MciGpmResult::Message)
+            {
+                return false;
+            }
+            ring.at(kDataField0) = 0xffU;
+            ring.at(kDataField1) = 0xffU;
+            const auto diagnostic = inspectAr9565MciGpm(kEpoch, cursor, copied);
+            if (diagnostic.kind !=
+                    MciGpmDiagnosticKind::BluetoothVersionResponse ||
+                diagnostic.versionMajor != 3U ||
+                diagnostic.versionMinor != 4U || cursor.nextIndex != 1U)
+            {
+                return false;
+            }
+        }
         return true;
     }
 
