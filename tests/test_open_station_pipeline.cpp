@@ -382,56 +382,6 @@ namespace
         link.rfReady = true;
         link.channelPermitted = true;
 
-        // An OPEN A-MSDU shares the same per-TID sequence ledger as ordinary
-        // QoS MPDUs. It is all-or-nothing and cannot be delivered twice.
-        uint8_t aggregate[26U + 23U + 1U + 23U] {};
-        std::memcpy(aggregate, qos, 26U);
-        aggregate[22U] = 0x10U; // Sequence 1 on TID 2.
-        aggregate[23U] = 0U;
-        aggregate[24U] = 0x82U;
-        for (size_t index = 0; index < 2U; ++index)
-        {
-            uint8_t *const subframe = aggregate + (index == 0U ? 26U : 50U);
-            if (index == 0U)
-            {
-                std::memcpy(subframe, kStation, 6U);
-            }
-            else
-            {
-                std::memset(subframe, 0xff, 6U);
-            }
-            std::memcpy(subframe + 6U, kAp, 6U);
-            subframe[13U] = 9U;
-            subframe[14U] = 0xaaU;
-            subframe[15U] = 0xaaU;
-            subframe[16U] = 3U;
-            subframe[20U] = 0x08U;
-            subframe[22U] = static_cast<uint8_t>('A' + index);
-        }
-        AmsduPayload aggregates {};
-        if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
-                                     syntheticTrust,
-                                     aggregates) != EngineResult::Ok ||
-            aggregates.count != 2U ||
-            aggregates.subframes[0].payload[0] != 'A' ||
-            aggregates.subframes[1].payload[0] != 'B' ||
-            engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
-                                     syntheticTrust,
-                                     aggregates) != EngineResult::NoAction ||
-            aggregates.count != 0U)
-        {
-            return 69;
-        }
-        aggregate[22U] = 0x20U; // New sequence, invalid foreign recipient.
-        aggregate[50U + 1U] = 0xeeU;
-        if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate),
-                                     syntheticTrust, aggregates) !=
-                EngineResult::InvalidReceivedFrame ||
-            aggregates.count != 0U)
-        {
-            return 70;
-        }
-
         uint8_t ethernet[17] {};
         std::memcpy(ethernet, kAp, 6);
         std::memcpy(ethernet + 6, kStation, 6);
@@ -735,10 +685,10 @@ namespace
     // Synthetic wire-format literals and fixed-size packet buffers are
     // intentional in this regression fixture; production uses the checked
     // parser/serializer and bound CCMP key owner.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*bounds-pointer-arithmetic)
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedWpa2Transmit()
     {
         // The MIC here is synthetic; only Wpa2Supplicant may authenticate
@@ -906,17 +856,17 @@ namespace
                tx.lastTransmittedPn() == 2U;
     }
 
-// NOLINTEND(readability-function-cognitive-complexity)
-// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(readability-function-cognitive-complexity)
+    // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTEND(*bounds-pointer-arithmetic)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 
     // A synthetic authenticated AP MPDU must cross CCMP and the ordinary
     // station receiver together. No DMA or native network stack is involved.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*bounds-pointer-arithmetic)
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedWpa2Receive()
     {
         constexpr uint64_t kEpoch = 992U;
@@ -1116,18 +1066,18 @@ namespace
         return std::memcmp(scratch, zero, sizeof(scratch)) == 0;
     }
 
-// NOLINTEND(readability-function-cognitive-complexity)
-// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(readability-function-cognitive-complexity)
+    // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTEND(*bounds-pointer-arithmetic)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 
     // Regression against independently generated OpenSSL AES-CCM group
     // ciphertext/MIC (same vector as standalone test_ccmp.cpp). Exercise
     // both CCMP and native-bound LLC/MSDU admission, not just decryption.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*bounds-pointer-arithmetic)
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedGtkMulticastReceive()
     {
         constexpr uint64_t kEpoch = 995U;
@@ -1195,18 +1145,18 @@ namespace
         return true;
     }
 
-// NOLINTEND(readability-function-cognitive-complexity)
-// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(readability-function-cognitive-complexity)
+    // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTEND(*bounds-pointer-arithmetic)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 
     // The native owner must have already verified CCMP MIC/PN and stripped
     // ExtIV/MIC; the fixture feeds the resulting plaintext MPDU with its
     // protected-frame bit preserved. This does not prove hardware RX.
-// NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTBEGIN(readability-function-cognitive-complexity)
+    // NOLINTBEGIN(*avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTBEGIN(*bounds-pointer-arithmetic)
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTBEGIN(readability-function-cognitive-complexity)
     bool protectedGroup1RxAdmission()
     {
         constexpr size_t kGroup1Bytes = 139U;
@@ -1297,10 +1247,10 @@ namespace
                parsed.payload == nullptr;
     }
 
-// NOLINTEND(readability-function-cognitive-complexity)
-// NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-// NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-// NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+    // NOLINTEND(readability-function-cognitive-complexity)
+    // NOLINTEND(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+    // NOLINTEND(*bounds-pointer-arithmetic)
+    // NOLINTEND(*avoid-magic-numbers,readability-magic-numbers)
 
     bool rejectUnboundWpa2Eapol()
     {
@@ -2520,6 +2470,55 @@ int main()
         action.kind != ActionKind::None)
     {
         return 67;
+    }
+
+    // An OPEN A-MSDU shares the same per-TID sequence ledger as ordinary
+    // QoS MPDUs. It is all-or-nothing and cannot be delivered twice.
+    uint8_t aggregate[26U + 23U + 1U + 23U] {};
+    std::memcpy(aggregate, qos, 26U);
+    aggregate[22U] = 0x10U; // Sequence 1 on TID 2.
+    aggregate[23U] = 0U;
+    aggregate[24U] = 0x82U;
+    for (size_t index = 0; index < 2U; ++index)
+    {
+        uint8_t *const subframe = aggregate + (index == 0U ? 26U : 50U);
+        if (index == 0U)
+        {
+            std::memcpy(subframe, kStation, 6U);
+        }
+        else
+        {
+            std::memset(subframe, 0xff, 6U);
+        }
+        std::memcpy(subframe + 6U, kAp, 6U);
+        subframe[13U] = 9U;
+        subframe[14U] = 0xaaU;
+        subframe[15U] = 0xaaU;
+        subframe[16U] = 3U;
+        subframe[20U] = 0x08U;
+        subframe[22U] = static_cast<uint8_t>('A' + index);
+    }
+    AmsduPayload aggregates {};
+    if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate), syntheticTrust,
+                                 aggregates) != EngineResult::Ok ||
+        aggregates.count != 2U || aggregates.subframes[0].payload[0] != 'A' ||
+        aggregates.subframes[1].payload[0] != 'B' ||
+        engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate), syntheticTrust,
+                                 aggregates) != EngineResult::NoAction ||
+        aggregates.count != 0U)
+    {
+        return 69;
+    }
+    aggregate[22U] = 0x20U; // New sequence, invalid foreign recipient.
+    // A unicast DA which differs from the associated station must fail.
+    aggregate[50U] = 0x02U;
+    aggregate[50U + 1U] = 0xeeU;
+    if (engine.acceptOpenAmsduRx(aggregate, sizeof(aggregate), syntheticTrust,
+                                 aggregates) !=
+            EngineResult::InvalidReceivedFrame ||
+        aggregates.count != 0U)
+    {
+        return 70;
     }
 
     uint8_t ethernet[17] {};
