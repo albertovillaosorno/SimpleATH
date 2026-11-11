@@ -380,3 +380,30 @@ windows. It is not a collector: a real native MIB owner must still own and
 sample the counters, ensure no concurrent MIB clear/wrap or channel change,
 configure timing-error masks, schedule measured windows, and run adaptation
 under a valid receive-only radio policy. No change here enables RF.
+
+### Physical ANI/MIB sampler source (November 10, 2026)
+
+`src/hardware/Ar9565AniMib.{hpp,cpp}` adds a production-target, real-MMIO
+counter acquisition adapter based on pinned ath9k `ani.c`, `ath/hw.c`,
+`ath/reg.h` and `ath9k/reg.h`. Given a native owner's *exclusive* MIB lease,
+verified same-epoch channel/INI evidence and monotonic timestamp, it freezes
+AR_MIBC, zeros the cycle/PHY error counters, programs and checks OFDM/CCK
+masks, then unfreezes. Later captures freeze CCCNT/RFCNT/TFCNT and
+PHY_ERR_1/2 with mask/readback checks and a bounded five-second sampling
+interval. It hands real counter snapshots to `deriveAr9565AniErrorWindow`.
+No transmit, receiver authorization or synthetic counter data is introduced.
+
+Every physical access rechecks the lease; partial/ambiguous writes, changed
+masks, saturated counters, stale sampling or a lost epoch invalidate the
+counter session. The collector separately rejects invalid HT20/HT40 channel
+geometry and changed silicon/reference-crystal identity, and invalidates an
+active counter epoch when physical RF authorization disappears. A same-epoch
+restart cannot erase its reset obligation. C++14/C++17 offline sanitized PCI
+fixtures cover paired captures, malformed geometry, missing radio permission,
+read/write faults, callback revocation, MIB drift and reinitialization.
+
+**Still required:** the live native PCI owner does not yet call the new
+sampler, claim and serialize actual MIB ownership against all other consumers,
+or feed a work-loop scheduler and safe ANI register adaptation. Physical
+channel/RF/BT/country and receiver proofs are still absent. Host fixtures
+cannot verify macOS kernel MMIO, real RF behaviour or AirDrop operation.

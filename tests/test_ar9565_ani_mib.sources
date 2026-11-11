@@ -1,0 +1,4 @@
+src/hardware/Ar9565AniMib.cpp
+src/hardware/Ar9565Ani.cpp
+src/hardware/Ar9565Core.cpp
+src/hardware/Ar9565InitCatalog.cpp
