@@ -114,6 +114,28 @@ boot still cannot arm the watchdog in practice because RF/channel startup and
 native packet queues remain unverified; it does not prove hardware keycache
 scrub, interrupt service, reconnection or physical Wi-Fi operation.
 
+### Link-loss hardware-key and reconnect gap (source audit, 2026-11-11)
+
+`SimpleATH::retireNativeLink` closes the native data port, revokes software
+PTK/GTK CCMP sessions, clears protected fragments and invalidates the
+association watchdog. **It does not erase the hardware AR9565 keycache,
+quiesce EDMA, or reset the portable station to a fresh scan.** The hardware
+keycache wipe in `stopHardware` occurs only after queue isolation and MAC
+quiescence; `nativeRemoveKeys` attempts a serialized key update/erase and
+marks the radio reset-required when erasure cannot be established. Neither
+function is invoked by the current AP deauthentication or beacon-timeout
+`retireNativeLink` path. Thus a disconnected link cannot be considered ready
+for another association merely because its software keys were revoked.
+
+Next integration step: make one command-gated, same-epoch link-loss owner
+quiesce all data TX/RX and automatic responses before keycache erasure; if
+this cannot be proven, quarantine radio/queue use until a full reset. Retire
+the old station/scan/association generation and require fresh channel,
+regulatory, peer, key and PN evidence before reconnect. Include fake queue
+lease and failed-erasure regressions. Do not call the current `nativeRemoveKeys`
+from an unproven callback context or claim a hardware scrub from the existing
+software-only revocation.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.
