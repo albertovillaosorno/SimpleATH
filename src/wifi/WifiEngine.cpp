@@ -1380,6 +1380,18 @@ namespace simpleath
             }
             if (header.type == FrameType::Data)
             {
+                // A delayed same-workloop timer must not let otherwise
+                // valid Ethernet/EAPOL data cross an expired AP-beacon lease.
+                // Ordinary DATA cannot substitute for an observed beacon.
+                const LinkMonitorResult deadline = link_.observeTimeout(nowMs);
+                if (deadline == LinkMonitorResult::Ok)
+                {
+                    return emitPrepared(ActionKind::LinkLost, 0, action);
+                }
+                if (deadline == LinkMonitorResult::InvalidClock)
+                {
+                    return EngineResult::InvalidReceivedFrame;
+                }
                 return handleData(complete.bytes, complete.length, trust, out,
                                   capacity, action);
             }

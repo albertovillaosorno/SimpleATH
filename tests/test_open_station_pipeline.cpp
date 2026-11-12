@@ -2594,7 +2594,36 @@ int main()
     {
         return 8;
     }
-    engine.radioStopped(2000, false);
+    // A DATA callback may precede an overdue beacon watchdog. It must
+    // expire the missed-beacon lease before accepting new Ethernet payload.
+    // No new sequence or verified FCS may extend AP beacon liveness.
+    incoming[22] = 0x30U; // New data sequence, beyond previous RX history.
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 2220}, tx, sizeof(tx),
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::ReceivedPayload)
+    {
+        return 72;
+    }
+    incoming[22] = 0x40U;
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 2221}, tx, sizeof(tx),
+                        action) != EngineResult::Ok ||
+        action.kind != ActionKind::LinkLost ||
+        engine.linkStatus().state != LinkState::ReconnectPending ||
+        engine.linkStatus().reason != LinkLoss::BeaconTimeout ||
+        engine.checkBeaconTimeout(2222, action) != EngineResult::NoAction)
+    {
+        return 73;
+    }
+    if (engine.acceptRx(incoming, sizeof(incoming), verifiedRxWithFcs,
+                        {-42, 2222}, tx, sizeof(tx),
+                        action) != EngineResult::InvalidState ||
+        action.kind != ActionKind::None)
+    {
+        return 74;
+    }
+    engine.radioStopped(2300, false);
     if (engine.copyAssociatedBss(associatedBss) || associatedBss.occupied)
     {
         return kAssociatedBssSnapshotFailure;

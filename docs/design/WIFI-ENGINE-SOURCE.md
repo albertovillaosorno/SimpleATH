@@ -33,7 +33,9 @@ The new WifiEngine interface wires together existing portable modules:
   management callback arriving beyond the missed-beacon deadline now performs
   the same link-loss transition as the timer, before a late beacon can renew
   the expired lease. This is source-only timer-ordering protection, not native
-  workloop or over-the-air validation.
+  workloop or over-the-air validation. The common trusted DATA callback
+  also expires a missed-beacon lease before admitting ordinary MSDU or EAPOL
+  payload; an out-of-order monotonic observation cannot bypass this gate.
 
 The caller passes a separate receive-trust report from a real device
 backend. Such a backend is NOT implemented: the flags must never be
