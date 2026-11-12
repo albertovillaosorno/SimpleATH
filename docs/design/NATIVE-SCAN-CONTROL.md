@@ -216,3 +216,17 @@ local WCL identity before stale provider data is projected as OS link-up.
 The getter that reports physical 802.11 association remains distinct from
 this WCL link-up notification. No live Tahoe UI or physical association
 transition was observed in these offline wiring checks.
+
+## Native receive quarantine after a failed power-off (2026-11-12)
+
+The transport now latches an explicit OS power-off request before entering the
+physical PCI owner's stop callback. Whether that callback succeeds or fails,
+ordinary Ethernet and EAPOL receive authorization, association identity and
+queued receive bytes are immediately revoked. A failed stop preserves event
+and scan completion tickets for their own acknowledgement; it does not prove
+physical DMA was quiesced. A stale positive owner snapshot cannot regrant
+receive authorization or publish radio availability while the off-intent
+latch remains set. Only a successful power-on callback or a fresh bind clears
+that local latch, after which a new validated snapshot establishes live state.
+This protects native mailbox admission, not hardware safety or actual power-off
+on macOS. Offline source-wiring checks cover ordering and the recovery gate.

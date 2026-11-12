@@ -272,6 +272,7 @@ namespace simpleath
                                          : 0U;
             providerStopped_ = false;
             IOLockLock(lock);
+            powerOffRequested_ = false;
             eapolReceiveAuthorized_ =
                 snapshotValue.radioAvailable && snapshotValue.powered &&
                 snapshotValue.associated && !snapshotValue.rfKillBlocked;
@@ -294,6 +295,7 @@ namespace simpleath
                 associationGeneration_ = 0;
                 callbackRevision_ = 0;
                 providerStopped_ = false;
+                powerOffRequested_ = false;
                 IOLockFree(lock);
                 provider->release();
                 return result;
@@ -322,6 +324,7 @@ namespace simpleath
                 IOLockLock(mailboxLock_);
                 epoch_ = 0;
                 providerStopped_ = true;
+                powerOffRequested_ = true;
                 invalidateMailboxes();
                 IOLockUnlock(mailboxLock_);
             }
@@ -375,7 +378,8 @@ namespace simpleath
                 return result == kIOReturnSuccess ? kIOReturnNotReady : result;
             }
             IOLockLock(mailboxLock_);
-            if (!acceptWirelessSnapshot(current.epoch, epoch_, startingRevision,
+            if (powerOffRequested_ ||
+                !acceptWirelessSnapshot(current.epoch, epoch_, startingRevision,
                                         callbackRevision_, providerStopped_))
             {
                 IOLockUnlock(mailboxLock_);
@@ -426,11 +430,34 @@ namespace simpleath
             {
                 return kIOReturnNotReady;
             }
+            if (!on)
+            {
+                // A rejected physical shutdown cannot be interpreted as
+                // continued permission to deliver the old association's
+                // frames. Revoke before entering the provider gate, without
+                // discarding scan-completion or control-event identities.
+                IOLockLock(mailboxLock_);
+                powerOffRequested_ = true;
+                receiveAuthorized_ = false;
+                eapolReceiveAuthorized_ = false;
+                associationGeneration_ = 0;
+                receiveHead_ = receiveCount_ = 0;
+                memset(&frames_[0], 0, sizeof(frames_));
+                IOLockUnlock(mailboxLock_);
+            }
             const IOReturn result = owner_.setPower(owner_.context, on);
             if (result == kIOReturnSuccess && !on)
             {
                 IOLockLock(mailboxLock_);
                 invalidateMailboxes();
+                IOLockUnlock(mailboxLock_);
+            }
+            else if (result == kIOReturnSuccess && on)
+            {
+                // The owner's successful startup may now be sampled anew;
+                // a failed resume must not clear an earlier off request.
+                IOLockLock(mailboxLock_);
+                powerOffRequested_ = false;
                 IOLockUnlock(mailboxLock_);
             }
             return result;

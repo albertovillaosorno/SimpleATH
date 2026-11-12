@@ -85,6 +85,64 @@ class NativeSnapshotFailureWiring(unittest.TestCase):
         assert "invalidateMailboxes();" not in failed
 
 
+class NativePowerOffAdmissionWiring(unittest.TestCase):
+    @staticmethod
+    def test_failed_power_off_keeps_receive_and_snapshot_revoked() -> None:
+        header = (
+            ROOT / "src/platform/tahoe/TahoeWirelessTransport.hpp"
+        ).read_text(encoding="utf-8")
+        assert "bool powerOffRequested_ {false};" in header
+        power = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::setPower(bool on)", 1
+        )[1].split("TahoeWirelessTransport::setMac(", 1)[0]
+        before = power.split("owner_.setPower(owner_.context, on);", 1)[0]
+        for required in (
+            "if (!on)",
+            "IOLockLock(mailboxLock_);",
+            "powerOffRequested_ = true;",
+            "receiveAuthorized_ = false;",
+            "eapolReceiveAuthorized_ = false;",
+            "associationGeneration_ = 0;",
+            "receiveHead_ = receiveCount_ = 0;",
+            "memset(&frames_[0], 0, sizeof(frames_));",
+            "IOLockUnlock(mailboxLock_);",
+        ):
+            assert required in before, required
+        assert before.index("powerOffRequested_ = true;") < before.index(
+            "memset(&frames_[0]"
+        )
+        assert "invalidateMailboxes();" not in before
+        # A failed stop does not lift the power-off latch, and the existing
+        # successful-stop branch still retires all old scan/receive tickets.
+        assert "if (result == kIOReturnSuccess && !on)" in power
+        success_on = power.split(
+            "else if (result == kIOReturnSuccess && on)", 1
+        )[1].split("return result;", 1)[0]
+        assert "powerOffRequested_ = false;" in success_on
+        assert "powerOffRequested_ = false;" not in before
+        assert (
+            "powerOffRequested_ = false;"
+            not in power.split("if (result == kIOReturnSuccess && !on)", 1)[
+                1
+            ].split("else if (result == kIOReturnSuccess && on)", 1)[0]
+        )
+        snapshot = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::snapshot(WirelessSnapshot &out)",
+            1,
+        )[1].split("IOReturn TahoeWirelessTransport::setPower(bool on)", 1)[0]
+        assert (
+            "if (powerOffRequested_ ||\n"
+            "                !acceptWirelessSnapshot("
+        ) in snapshot
+        assert snapshot.index(
+            "IOLockLock(mailboxLock_);",
+            snapshot.index("const IOReturn result = owner_.snapshot"),
+        ) < snapshot.index("if (powerOffRequested_ ||")
+        bind = TRANSPORT.split("IOReturn TahoeWirelessTransport::bind(", 1)[1]
+        bind = bind.split("void TahoeWirelessTransport::unbind()", 1)[0]
+        assert "powerOffRequested_ = false;" in bind
+
+
 class NativeWirelessEventWiring(unittest.TestCase):
     @staticmethod
     def test_event_abi_remains_shared_and_ordered() -> None:

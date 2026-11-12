@@ -142,6 +142,10 @@ namespace simpleath
                 uint64_t previousScanGeneration_ {0};
                 bool subscribed_ {false};
                 bool providerStopped_ {false};
+                // An explicit radio-off request revokes local RX and stale
+                // owner snapshots even when the physical stop reports an
+                // error. Only a successful power-on or fresh bind lifts it.
+                bool powerOffRequested_ {false};
                 // EAPOL handshakes precede the data-port authorization.
                 // Both grants come from the same live provider snapshot and
                 // are revoked by radio/association/epoch change.
