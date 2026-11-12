@@ -1022,8 +1022,11 @@ void SimpleATHInfraProtocol::poll()
             break;
         }
         if (event == simpleath::tahoe::WirelessEvent::ScanFinished &&
-            epoch == scanEpoch_)
+            simpleath::tahoe::acceptWirelessScanCompletion(
+                epoch, scanEpoch_, live, state.scanning))
         {
+            // A late completion from an older same-epoch scan cannot
+            // finish the new scan before its real radio dwell has ended.
             finishScan(false);
         }
     }

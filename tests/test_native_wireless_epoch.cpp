@@ -74,6 +74,65 @@ namespace
         return fake.keyEraseSucceeds;
     }
 
+    struct FakeWirelessEvent
+    {
+            simpleath::tahoe::WirelessEvent event {};
+            uint64_t epoch {};
+    };
+
+    bool checkCriticalWirelessEventRetention()
+    {
+        using simpleath::tahoe::evictWirelessNoncriticalEvent;
+        using simpleath::tahoe::WirelessEvent;
+        // Logical order wraps at index two: completion, TX wakeup,
+        // association update, completion. A new completion displaces the
+        // oldest noncritical event without reordering either completion.
+        FakeWirelessEvent wrapped[4] {};
+        wrapped[2] = {WirelessEvent::ScanFinished, 41U};
+        wrapped[3] = {WirelessEvent::TransmitAvailable, 41U};
+        wrapped[0] = {WirelessEvent::AssociationChanged, 42U};
+        wrapped[1] = {WirelessEvent::ScanFinished, 42U};
+        if (!evictWirelessNoncriticalEvent(wrapped, 2U, 4U))
+        {
+            return false;
+        }
+        wrapped[1] = {WirelessEvent::ScanFinished, 43U};
+        if (wrapped[2].event != WirelessEvent::ScanFinished ||
+            wrapped[2].epoch != 41U ||
+            wrapped[3].event != WirelessEvent::AssociationChanged ||
+            wrapped[3].epoch != 42U ||
+            wrapped[0].event != WirelessEvent::ScanFinished ||
+            wrapped[0].epoch != 42U ||
+            wrapped[1].event != WirelessEvent::ScanFinished ||
+            wrapped[1].epoch != 43U)
+        {
+            return false;
+        }
+        // A saturated mailbox containing only non-discardable completion
+        // intents must reject a new event, not erase a pending SCAN_DONE.
+        FakeWirelessEvent completions[2] {
+            {WirelessEvent::ScanFinished, 50U},
+            {WirelessEvent::ProviderStopped, 50U},
+        };
+        if (evictWirelessNoncriticalEvent(completions, 0U, 2U) ||
+            evictWirelessNoncriticalEvent(completions, 1U, 1U) ||
+            evictWirelessNoncriticalEvent(completions, 2U, 2U) ||
+            completions[0].epoch != 50U || completions[1].epoch != 50U)
+        {
+            return false;
+        }
+        FakeWirelessEvent regular[2] {
+            {WirelessEvent::RadioChanged, 1U},
+            {WirelessEvent::TransmitAvailable, 2U},
+        };
+        if (!evictWirelessNoncriticalEvent(regular, 0U, 2U) ||
+            regular[0].epoch != 2U || regular[1].epoch != 0U)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool checkNativeLinkRetirement()
     {
         using simpleath::NativeLinkRetirementBackend;
@@ -328,6 +387,23 @@ int main()
     if (!mayDeliverWirelessData(data))
     {
         return kPrematureDataFailure;
+    }
+    using simpleath::tahoe::acceptWirelessScanCompletion;
+    constexpr int kStaleScanCompletionFailure = 12;
+    if (!acceptWirelessScanCompletion(first, first, true, false) ||
+        !acceptWirelessScanCompletion(latest, latest, true, false) ||
+        acceptWirelessScanCompletion(0, first, true, false) ||
+        acceptWirelessScanCompletion(first, 0, true, false) ||
+        acceptWirelessScanCompletion(first, second, true, false) ||
+        acceptWirelessScanCompletion(first, first, false, false) ||
+        acceptWirelessScanCompletion(first, first, true, true))
+    {
+        return kStaleScanCompletionFailure;
+    }
+    constexpr int kCriticalEventFailure = 11;
+    if (!checkCriticalWirelessEventRetention())
+    {
+        return kCriticalEventFailure;
     }
     constexpr int kLinkRetirementFailure = 10;
     return static_cast<int>(!checkNativeLinkRetirement()) *

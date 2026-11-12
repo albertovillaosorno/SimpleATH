@@ -38,6 +38,7 @@
 #define SIMPLEATH_TAHOE_NATIVE_WIRELESS_OWNER_HPP
 
 #include "../../wifi/LegacyScanBridge.hpp"
+#include "NativeWirelessEpoch.hpp"
 #include "TahoeJoinSession.hpp"
 #include <IOKit/IOReturn.h>
 #include <IOKit/IOWorkLoop.h>
@@ -57,16 +58,6 @@ namespace simpleath
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
         constexpr size_t kWirelessPmkBytes = 32;
-
-        enum class WirelessEvent : uint32_t
-        {
-            RadioChanged,
-            ScanFinished,
-            AssociationChanged,
-            LinkChanged,
-            TransmitAvailable,
-            ProviderStopped,
-        };
 
         struct WirelessSnapshot
         {

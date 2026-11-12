@@ -38,12 +38,72 @@
 // Epoch policy for provider-to-Tahoe Ethernet callbacks. Portable by design.
 #ifndef SIMPLEATH_TAHOE_NATIVE_WIRELESS_EPOCH_HPP
 #define SIMPLEATH_TAHOE_NATIVE_WIRELESS_EPOCH_HPP
+#include <stddef.h>
 #include <stdint.h>
 
 namespace simpleath
 {
     namespace tahoe
     {
+        // Provider-to-controller notifications retain their wire values.
+        // The final provider event is terminal; ScanFinished is a one-shot
+        // completion that must not be displaced by high-rate TX wakeups.
+        enum class WirelessEvent : uint32_t
+        {
+            RadioChanged,
+            ScanFinished,
+            AssociationChanged,
+            LinkChanged,
+            TransmitAvailable,
+            ProviderStopped,
+        };
+
+        // Called only while holding the native mailbox lock. A full bounded
+        // ring may discard one ordinary notification to make room for a real
+        // scan completion. Preserve all earlier scan completions and their
+        // order even when the ring wraps. The caller decrements count and
+        // appends its new event at the newly freed logical tail.
+        template <typename Record, size_t Capacity>
+        inline bool evictWirelessNoncriticalEvent(Record (&ring)[Capacity],
+                                                  size_t head, size_t count)
+        {
+            if (Capacity == 0U || head >= Capacity || count != Capacity)
+            {
+                return false;
+            }
+            for (size_t offset = 0; offset < count; ++offset)
+            {
+                const size_t index = (head + offset) % Capacity;
+                if (ring[index].event == WirelessEvent::ScanFinished ||
+                    ring[index].event == WirelessEvent::ProviderStopped)
+                {
+                    continue;
+                }
+                for (size_t shift = offset; shift + 1U < count; ++shift)
+                {
+                    ring[(head + shift) % Capacity] =
+                        ring[(head + shift + 1U) % Capacity];
+                }
+                ring[(head + count - 1U) % Capacity] = {};
+                return true;
+            }
+            return false;
+        }
+
+        // SCAN_DONE carries only the PCI epoch, not a scan generation.
+        // A delayed event from a previous scan in the same epoch must never
+        // terminate a NEW physical dwell. The live provider must first
+        // report that its radio scan has actually ended; failed/cancelled
+        // results are still verified by the native scanNext generation.
+        inline bool acceptWirelessScanCompletion(uint64_t eventEpoch,
+                                                 uint64_t activeScanEpoch,
+                                                 bool providerLive,
+                                                 bool physicalScanRunning)
+        {
+            return providerLive && eventEpoch != 0U &&
+                   eventEpoch == activeScanEpoch && !physicalScanRunning;
+        }
+
         // Ordinary Skywalk Ethernet is a later stage than the physical
         // association and pre-port EAPOL exchange. The radio must have
         // observed a beacon from the selected AP before a controlled port

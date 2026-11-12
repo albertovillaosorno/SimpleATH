@@ -753,9 +753,21 @@ namespace simpleath
             }
             if (event == WirelessEvent::ProviderStopped)
             {
+                // All earlier notifications belong to a dead provider.
+                // A saturated mailbox must still deliver its terminal event.
                 self.providerStopped_ = true;
                 self.epoch_ = 0;
-                self.scanGeneration_ = 0;
+                self.invalidateMailboxes();
+            }
+            if (event == WirelessEvent::ScanFinished &&
+                self.eventCount_ == kEventCapacity &&
+                evictWirelessNoncriticalEvent(self.events_, self.eventHead_,
+                                              self.eventCount_))
+            {
+                // Preserve every older scan completion, including across
+                // circular wrap, rather than losing SCAN_DONE to TX wakeups.
+                --self.eventCount_;
+                ++self.eventDrops_;
             }
             if (self.eventCount_ == kEventCapacity)
             {

@@ -214,3 +214,18 @@ This source integration does not authorize RF, prove Tahoe interface acceptance
 or complete the remaining channel/regulatory/coexistence and AWDL paths. The
 source wiring fixture and register-level fake test cover the boundary without
 claiming device execution.
+
+### Native Tahoe event completion retention — 2026-11-12
+
+The producer-to-Tahoe transport now gives terminal provider shutdown its own
+mailbox slot by discarding stale queued notifications, and a full event ring
+may replace a noncritical notification with `ScanFinished` while preserving
+older scan completions and FIFO order across circular wrap. Previously, a
+burst of TX notifications could drop the only scan completion, leaving WCL
+waiting without a corresponding native event. The WCL consumer additionally
+checks a fresh physical-owner snapshot: a delayed same-PCI-epoch scan-finished
+event cannot complete a newer scan while the radio reports an active dwell.
+Generation-specific results still pass through the existing provider-side
+`scanNext` check. C++14/C++17 sanitizer fixtures and source-wiring checks
+exercise the portable policy and production call sites. These source checks
+do not establish physical scan/RF readiness or Tahoe ABI runtime acceptance.
