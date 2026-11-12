@@ -386,6 +386,17 @@ namespace simpleath
         {
             return LeAdvertisingResult::OwnershipLost;
         }
+        // A policy callback can detach and reattach the USB HCI adapter
+        // under the SAME owner epoch. Its old approval must never authorize
+        // commands on a newly created transport generation.
+        const uint64_t transportGeneration = transport.generation;
+        const auto transportCurrent = [&]
+        {
+            return transport.attached && !transport.faulted &&
+                   transport.epoch == owner.epoch &&
+                   host.ownerEpoch == owner.epoch &&
+                   transport.generation == transportGeneration;
+        };
         // Take a private immutable snapshot before calling external policy.
         // Reserve the state before invoking ANY owner callback: both permit
         // and authorize may synchronously reenter this producer. Until the
@@ -405,7 +416,7 @@ namespace simpleath
         {
             return LeAdvertisingResult::OwnershipLost;
         }
-        if (!permitted)
+        if (!permitted || !transportCurrent())
         {
             clearAdvertising(state);
             return LeAdvertisingResult::OwnershipLost;
@@ -422,6 +433,11 @@ namespace simpleath
         {
             return LeAdvertisingResult::OwnershipLost;
         }
+        if (!transportCurrent())
+        {
+            clearAdvertising(state);
+            return LeAdvertisingResult::OwnershipLost;
+        }
         if (!approvedByHost)
         {
             clearAdvertising(state);
@@ -435,17 +451,14 @@ namespace simpleath
         // Recheck physical transport and both callbacks after authorization.
         // A callback can synchronously detach the old USB function and
         // replace it before returning a stale successful policy result.
-        const bool transportLive = transport.attached && !transport.faulted &&
-                                   transport.epoch == owner.epoch &&
-                                   host.ownerEpoch == owner.epoch;
         const bool stillPermitted =
-            transportLive && owner.permit(owner.context, owner.epoch);
+            transportCurrent() && owner.permit(owner.context, owner.epoch);
         if (state.phase != LeAdvertisingPhase::Authorizing ||
             state.epoch != owner.epoch || state.generation != activeGeneration)
         {
             return LeAdvertisingResult::OwnershipLost;
         }
-        if (!stillPermitted)
+        if (!stillPermitted || !transportCurrent())
         {
             clearAdvertising(state);
             return LeAdvertisingResult::OwnershipLost;

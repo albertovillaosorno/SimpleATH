@@ -106,6 +106,11 @@ namespace
             std::array<size_t, kMaxCommands> commandSizes {};
             size_t commandCount {};
             size_t authorizations {};
+            size_t permitCalls {};
+            size_t rebindOnPermitCall {};
+            bool rebindOnAuthorization {};
+            bool rebound {};
+            bool (*rebindTransport)(void *) {};
             bool valid {true};
             bool allowAdvertising {true};
             bool revokeOnAuthorization {};
@@ -133,6 +138,14 @@ namespace
     bool permit(void *context, uint64_t epoch)
     {
         auto &fake = *static_cast<Fake *>(context);
+        ++fake.permitCalls;
+        if (fake.permitCalls == fake.rebindOnPermitCall &&
+            fake.rebindTransport != nullptr)
+        {
+            // The nested attach also calls permit; disarm before reentry.
+            fake.rebindOnPermitCall = 0U;
+            fake.rebound = fake.rebindTransport(fake.reentryContext);
+        }
         if (fake.revokeStateOnPermit && fake.revokeState != nullptr)
         {
             fake.revokeStateOnPermit = false;
@@ -156,6 +169,11 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.authorizations;
+        if (fake.rebindOnAuthorization && fake.rebindTransport != nullptr)
+        {
+            fake.rebindOnAuthorization = false;
+            fake.rebound = fake.rebindTransport(fake.reentryContext);
+        }
         if (fake.reenterOnAuthorization && fake.reenter != nullptr)
         {
             fake.reenterOnAuthorization = false;
@@ -280,6 +298,15 @@ namespace
             static LeAdvertisingResult reenterBegin(void *context)
             {
                 return static_cast<Fixture *>(context)->begin();
+            }
+
+            static bool rebindTransport(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                // Even the SAME USB owner epoch can have a new native HCI
+                // session and endpoint pipes after a synchronous rebind.
+                detachUsbHci(fixture.transport_);
+                return fixture.attach();
             }
 
             static LeAdvertisingResult replaceAwaitParameters(void *context)
@@ -708,6 +735,50 @@ namespace
         return 0;
     }
 
+    int sameEpochTransportReplacementDuringPolicy()
+    {
+        // Rebind at either permit, or inside actual advertising approval.
+        // The prior request must not submit an HCI command on the replacement
+        // USB session despite identical owner epochs and endpoint addresses.
+        constexpr size_t kVariants = 3U;
+        for (size_t variant = 0U; variant < kVariants; ++variant)
+        {
+            Fixture fixture {};
+            if (!fixture.attach())
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+            auto &fake = fixture.fake();
+            fake.reentryContext = &fixture;
+            fake.rebindTransport = Fixture::rebindTransport;
+            if (variant == 1U)
+            {
+                fake.rebindOnAuthorization = true;
+            }
+            else
+            {
+                fake.rebindOnPermitCall =
+                    fake.permitCalls + (variant == 0U ? 1U : 2U);
+            }
+            if (fixture.begin() != LeAdvertisingResult::OwnershipLost ||
+                !fake.rebound || fake.commandCount != 0U ||
+                fixture.phase() != LeAdvertisingPhase::Idle ||
+                fixture.epoch() != 0U)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+            // The surviving USB session may start a fresh, separately
+            // authorized producer; the stale call must not fault it.
+            if (fixture.begin() != LeAdvertisingResult::Ok ||
+                fake.commandCount != 1U ||
+                fixture.phase() != LeAdvertisingPhase::AwaitParameters)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+        }
+        return 0;
+    }
+
     int inlineControllerResponses()
     {
         Fixture rejectedBegin {};
@@ -1014,6 +1085,10 @@ int main()
     if (const int stale = staleAdvanceAndDisable())
     {
         return stale;
+    }
+    if (const int replacedUsb = sameEpochTransportReplacementDuringPolicy())
+    {
+        return replacedUsb;
     }
     if (const int inlineResult = inlineControllerResponses())
     {
