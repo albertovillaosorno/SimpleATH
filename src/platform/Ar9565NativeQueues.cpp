@@ -831,7 +831,13 @@ namespace simpleath
     {
         // No command-gate or same-epoch device evidence: never claim a wipe
         // lease. Even on failure the owner must require a complete reset.
-        if (!gated() || !attached_ || phase_ != NativeQueuePhase::Running)
+        // A terminal M3 failure can occur after beginKeyUpdateGated has
+        // already isolated the MAC/DMA. Prepared without that authenticated
+        // lease is only an idle mapping and is never an erasure permit.
+        const bool running = phase_ == NativeQueuePhase::Running;
+        const bool keyLeaseIsolated =
+            phase_ == NativeQueuePhase::Prepared && keyUpdateIsolated_;
+        if (!gated() || !attached_ || (!running && !keyLeaseIsolated))
         {
             return false;
         }
@@ -844,6 +850,7 @@ namespace simpleath
         phase_ = NativeQueuePhase::Quarantined;
         keyUpdateIsolated_ = false;
         keyUpdateRestartPending_ = false;
+        keyUpdateFaultPending_ = false;
         linkRetirementIsolated_ = isolated && noOutstandingTransmit;
         return linkRetirementIsolated_;
     }

@@ -172,6 +172,14 @@ reset software station state while leaving automatic MAC responses, EDMA and
 key RAM live. This closes a source-level path only; it does not enable a
 post-reset reconnect or establish actual hardware queue isolation.
 
+The native key-update isolation lease now also supports terminal link
+quarantine while the ring is Prepared, not only while Running. An invalid
+or missing protected M4 construction leaves this lease quarantined instead
+of restarting an already-installed PTK/GTK epoch. The native owner refuses
+an untracked direct M4 and checks mirrored CCMP sessions before resuming
+its deferred M4/Group2 transmit. Source-wiring checks cover these guards;
+real bus isolation and key RAM erasure remain unverified.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.

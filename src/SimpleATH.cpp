@@ -3298,19 +3298,23 @@ class SimpleATH final : public IOService
                 self.queues_.keyUpdateIsolatedGated();
             if (hardwareKeyUpdate)
             {
-                // The durable management buffer is not borrowed DMA. M4
-                // cannot be handed to TX until the queue has actually
-                // restarted after the current RX callback unwinds.
-                if (result == simpleath::ieee80211::EngineResult::Ok &&
-                    action.kind ==
-                        simpleath::ieee80211::ActionKind::TransmitEapol &&
-                    action.bytes >= kMinimumMpduBytes &&
-                    action.bytes <= sizeof(self.managementReply_))
+                // A key-install callback has already isolated physical
+                // DMA. Never restart that old key epoch if M4 construction
+                // fails or the supplicant produces no bounded EAPOL reply.
+                if (result != simpleath::ieee80211::EngineResult::Ok ||
+                    action.kind !=
+                        simpleath::ieee80211::ActionKind::TransmitEapol ||
+                    action.bytes < kMinimumMpduBytes ||
+                    action.bytes > sizeof(self.managementReply_))
                 {
-                    self.deferredManagementBytes_ = action.bytes;
-                    self.deferredManagementEpoch_ = self.epoch_;
-                    self.deferredJoinRequestId_ = self.joinRequestId_;
+                    self.retireNativeLink(kIOReturnNotReady);
+                    return true;
                 }
+                // The durable management buffer is not borrowed DMA. M4
+                // cannot reach TX until the RX DMA borrower has unwound.
+                self.deferredManagementBytes_ = action.bytes;
+                self.deferredManagementEpoch_ = self.epoch_;
+                self.deferredJoinRequestId_ = self.joinRequestId_;
                 const IOReturn leaseEnd = self.queues_.endKeyUpdateGated();
                 if (leaseEnd != kIOReturnSuccess)
                 {
@@ -3407,6 +3411,19 @@ class SimpleATH final : public IOService
                 action.bytes >= kMinimumMpduBytes &&
                 action.bytes <= sizeof(self.managementReply_))
             {
+                // Driver-owned M4 follows a physical key-update lease and
+                // must be tracked through a real EDMA completion. A direct
+                // send after key installation has no M4 token/ACK owner.
+                if (action.kind ==
+                        simpleath::ieee80211::ActionKind::TransmitEapol &&
+                    !self.engine_.osSupplicantOwnsWpa2() &&
+                    self.engine_.stationState() ==
+                        simpleath::ieee80211::StationState::
+                            HardwareKeysInstalled)
+                {
+                    self.retireNativeLink(kIOReturnNotReady);
+                    return true;
+                }
                 const IOReturn submitted = self.submitPreparedTransmit(
                     &self.managementReply_[0], action.bytes);
                 self.setProperty("SimpleATHManagementTransmitResult",
@@ -3732,8 +3749,15 @@ class SimpleATH final : public IOService
             {
                 return;
             }
+            // M4/Group2 may only enter EDMA with the mirrored CCMP keys
+            // from this live key epoch. A missing session is terminal, not
+            // permission to send an untracked reply.
+            const bool sessionsReady = !self.engine_.osSupplicantOwnsWpa2() &&
+                                       self.nativePairwiseTx_.installed() &&
+                                       self.nativePairwiseRx_.installed() &&
+                                       self.nativeGroupInstalled();
             const bool stillOwned =
-                epoch != 0 && epoch == self.epoch_ &&
+                sessionsReady && epoch != 0 && epoch == self.epoch_ &&
                 epoch == self.deferredManagementEpoch_ &&
                 self.joinEpoch_ == epoch && self.deferredJoinRequestId_ != 0 &&
                 self.joinRequestId_ == self.deferredJoinRequestId_ &&

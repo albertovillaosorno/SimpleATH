@@ -116,6 +116,48 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "self.retireNativeLink(result);" in deferred
 
     @staticmethod
+    def test_key_update_failure_quarantines_isolated_dma() -> None:
+        queue = body(
+            QUEUE,
+            "bool NativeQueues::retireLinkGated()",
+            "bool NativeQueues::linkRetirementIsolatedGated()",
+        )
+        # After M3 key installation DMA is Prepared, not Running.
+        assert "phase_ == NativeQueuePhase::Prepared &&" in queue
+        assert "keyUpdateIsolated_" in queue
+        assert "phase_ = NativeQueuePhase::Quarantined;" in queue
+        lease = body(
+            OWNER,
+            "finishNativeRxKeyLease(simpleath::ieee80211::EngineResult result,",
+            "observeNativeAssociatedBeacon(",
+        )
+        assert "self.retireNativeLink(kIOReturnNotReady);" in lease
+        assert lease.index(
+            "self.retireNativeLink(kIOReturnNotReady);"
+        ) < lease.index("self.queues_.endKeyUpdateGated();")
+
+    @staticmethod
+    def test_driver_m4_requires_deferred_completion_tracking() -> None:
+        immediate = body(
+            OWNER,
+            "bool sendNativeManagementResponse(",
+            "static void queueReceived(",
+        )
+        assert "self.retireNativeLink(kIOReturnNotReady);" in immediate
+        assert "HardwareKeysInstalled" in immediate
+        deferred = body(
+            OWNER,
+            "static void queueKeyUpdateResumed(",
+            "static void queueInterrupt(",
+        )
+        assert "self.nativePairwiseTx_.installed()" in deferred
+        assert "self.nativePairwiseRx_.installed()" in deferred
+        assert "self.nativeGroupInstalled()" in deferred
+        assert deferred.index("self.nativeGroupInstalled()") < deferred.index(
+            "self.submitPreparedTransmit("
+        )
+
+    @staticmethod
     def test_device_fault_latches_reset_before_software_cleanup() -> None:
         fault = body(
             OWNER,
