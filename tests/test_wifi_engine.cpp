@@ -765,9 +765,8 @@ namespace
             return __LINE__ % kFailureModulo + 1;
         }
         corrupt = requestBytes;
-        corrupt.at(27) = 0x17;
-        corrupt.at(28) = 0x00; // Still window 0? No: lower 6 bits remain.
-        corrupt.at(27) = 0x17 & 0x3f;
+        corrupt.at(27) &= 0x3f;
+        corrupt.at(28) = 0x00; // A zero receive window is invalid.
         if (parseAddbaRequest(corrupt.data(), corrupt.size(), request) !=
                 Result::InvalidFrame ||
             parseAddbaRequest(requestBytes.data(), 32, request) !=
@@ -880,6 +879,83 @@ namespace
                             {-41, 1013}, reply.data(), reply.size(),
                             action) != EngineResult::NoAction ||
             action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        return 0;
+    }
+
+    // Bound every valid 10-bit BlockAck window/TID while preserving the
+    // exact refusal wire layout; none of these proposals creates an RX lease.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    int checkedBlockAckBoundaries()
+    {
+        auto frame = addbaRequest();
+        AddbaRequest request {};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, 33> response {};
+        constexpr std::array<uint16_t, 7> kWindows {
+            {1U, 2U, 15U, 63U, 64U, 256U, 1023U}};
+        for (uint16_t window : kWindows)
+        {
+            const uint16_t tid = static_cast<uint16_t>(window & 15U);
+            const uint16_t parameters =
+                static_cast<uint16_t>((window << 6U) | (tid << 2U) | 1U);
+            frame.at(27) = static_cast<uint8_t>(parameters);
+            frame.at(28) = static_cast<uint8_t>(parameters >> 8U);
+            if (parseAddbaRequest(frame.data(), frame.size(), request) !=
+                    Result::Ok ||
+                request.bufferSize != window || request.tid != tid ||
+                request.immediate || !request.amsduPermitted)
+            {
+                return __LINE__ % kFailureModulo + 1;
+            }
+            size_t written = 0;
+            if (makeAddbaDecline(station, ap, request, 73, response.data(),
+                                 response.size(), written) != Result::Ok ||
+                written != response.size() || response.at(22) != 0x90 ||
+                response.at(23) != 0x04 || response.at(27) != 37 ||
+                response.at(28) != 0)
+            {
+                return __LINE__ % kFailureModulo + 1;
+            }
+            const uint16_t refusal = static_cast<uint16_t>(
+                response.at(29) |
+                (static_cast<uint16_t>(response.at(30)) << 8U));
+            if (refusal !=
+                static_cast<uint16_t>((window << 6U) | (tid << 2U) | 2U))
+            {
+                return __LINE__ % kFailureModulo + 1;
+            }
+        }
+        size_t written = 999;
+        if (makeAddbaDecline(station, ap, request, 4096, response.data(),
+                             response.size(),
+                             written) != Result::InvalidFrame ||
+            written != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        written = 999;
+        // A public serializer must also reject a forged management header,
+        // even if its addresses happen to match the associated station.
+        request.header.moreFragments = true;
+        if (makeAddbaDecline(station, ap, request, 1, response.data(),
+                             response.size(),
+                             written) != Result::InvalidFrame ||
+            written != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        request.header.moreFragments = false;
+        written = 999;
+        const uint8_t dialogue = request.dialogToken;
+        // Overlapping output and *request* is rejected before writing.
+        auto *aliased = reinterpret_cast<uint8_t *>(&request);
+        if (makeAddbaDecline(station, ap, request, 1, aliased, sizeof(request),
+                             written) != Result::OverlappingBuffers ||
+            written != 999 || request.dialogToken != dialogue)
         {
             return __LINE__ % kFailureModulo + 1;
         }
@@ -1246,6 +1322,11 @@ int main()
     if (blockAck != 0)
     {
         return blockAck;
+    }
+    const int boundaries = checkedBlockAckBoundaries();
+    if (boundaries != 0)
+    {
+        return boundaries;
     }
     const int aggregate = verifiedNativeAggregateRx();
     return aggregate == 0 ? verifiedNativeOrdinarySequenceRx() : aggregate;

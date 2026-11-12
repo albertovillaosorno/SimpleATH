@@ -1533,7 +1533,10 @@ namespace simpleath
                 !sameMac(request.header.source, bssid) ||
                 !sameMac(request.header.bssid, bssid) ||
                 !sameMac(request.header.destination, station) ||
-                request.header.protectedFrame ||
+                request.header.protectedFrame || request.header.moreFragments ||
+                request.header.fragment != 0U || request.header.toDs ||
+                request.header.fromDs ||
+                request.header.headerLength != kManagementHeaderBytes ||
                 request.header.type != FrameType::Management ||
                 request.header.subtype != 13U)
             {

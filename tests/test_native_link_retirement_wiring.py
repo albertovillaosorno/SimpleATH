@@ -42,6 +42,10 @@ OWNER = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
 QUEUE = (ROOT / "src/platform/Ar9565NativeQueues.cpp").read_text(
     encoding="utf-8"
 )
+ENGINE = (ROOT / "src/wifi/WifiEngine.cpp").read_text(encoding="utf-8")
+DESCRIPTORS = (ROOT / "src/hardware/Ar9003Descriptors.cpp").read_text(
+    encoding="utf-8"
+)
 TRANSPORT = (ROOT / "src/platform/tahoe/TahoeWirelessTransport.cpp").read_text(
     encoding="utf-8"
 )
@@ -56,6 +60,79 @@ def body(source: str, before: str, after: str) -> str:
     tail = source.split(before, 1)[1]
     assert tail.count(after) >= 1, after
     return tail.split(after, 1)[0]
+
+
+class NativeBlockAckDeclineWiring(unittest.TestCase):
+    """A parsed ADDBA must never silently enable aggregated RX or native TX."""
+
+    @staticmethod
+    def test_only_associated_ap_requests_reach_negative_response() -> None:
+        management = body(
+            ENGINE,
+            "EngineResult WifiEngine::handleManagement(",
+            "EngineResult WifiEngine::packageEapol(",
+        )
+        assert (
+            management.index("link_.status().state == LinkState::Associated")
+            < management.index("sameMac(header.source,")
+            < management.index("sameMac(header.destination, stationAddress_)")
+            < management.index("parseAddbaRequest(frame, length, request)")
+            < management.index("makeAddbaDecline(")
+            < management.index("ActionKind::TransmitAddbaDecline")
+        )
+        assert "Result::BufferTooSmall" in management
+        assert "Result::NullBuffer" in management
+        assert "return EngineResult::InvalidReceivedFrame;" in management
+
+    @staticmethod
+    def test_native_decline_never_bypasses_physical_transmit_lease() -> None:
+        response = body(
+            OWNER,
+            "bool sendNativeManagementResponse(",
+            "static void queueReceived(",
+        )
+        decline = body(
+            response,
+            "// BlockAck agreements are NOT implemented:",
+            "return false;",
+        )
+        assert "ActionKind::TransmitAddbaDecline" in decline
+        assert "action.bytes != kAddbaResponseBytes" in decline
+        assert "self.controlledPortAuthorized_" in decline
+        assert "!self.canSubmitTransmit()" in decline
+        assert "self.verifyNativeAssociationLease(" in decline
+        assert "LinkState::Associated" in decline
+        assert (
+            decline.index("!self.canSubmitTransmit()")
+            < decline.index("self.verifyNativeAssociationLease(")
+            < decline.index("self.managementReply_[kManagementSequenceOffset]")
+            < decline.index("self.submitPreparedTransmit(")
+            < decline.index("if (submitted == kIOReturnSuccess)")
+        )
+        assert "self.txSequence_ << kSequenceFragmentBits" in decline
+        assert "self.txSequence_ + 1U" in decline
+        assert "self.retireNativeLink(submitted);" in decline
+        assert "self.engine_.radioStopped(" not in decline
+        assert "self.queues_.startGated(" not in decline
+
+    @staticmethod
+    def test_edma_rejects_aggregate_before_receive_delivery() -> None:
+        decoder = body(
+            DESCRIPTORS,
+            "bool admissibleRxMpdu(",
+            "DescriptorError decodeRxStatus(",
+        )
+        assert (
+            "!status.aggregated" in decoder
+            and "!status.aggregationFirst" in decoder
+            and "!status.aggregationContinues" in decoder
+        )
+        receive = body(
+            OWNER,
+            "static void queueReceived(",
+            "static void" + chr(10) + "        queueTransmitted(",
+        )
+        assert "edma::admissibleRxMpdu(status, bytes)" in receive
 
 
 class NativeLocalLeaveWiring(unittest.TestCase):
