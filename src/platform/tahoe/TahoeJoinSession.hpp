@@ -124,7 +124,7 @@ namespace simpleath
                         return NoJoinNotice;
                     }
                     if (value.epoch != epoch_ ||
-                        value.requestId != requestId_ ||
+                        value.requestId != requestId_ || value.status != 0 ||
                         value.phase == NativeJoinPhase::Failed ||
                         value.phase == NativeJoinPhase::Idle)
                     {

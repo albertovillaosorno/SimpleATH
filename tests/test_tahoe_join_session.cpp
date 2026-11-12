@@ -150,6 +150,37 @@ namespace
         return join.observe(state) == FailureNotice;
     }
 
+    bool failedStatusCannotAdvance()
+    {
+        // A source adapter can report failure before it updates its phase.
+        // Do not announce Association/Beacon/Connection from a stale Ready
+        // snapshot whose result explicitly failed.
+        JoinSession pending;
+        auto state = associated();
+        state.phase = NativeJoinPhase::Ready;
+        state.beaconObserved = true;
+        state.controlledPortOpen = true;
+        state.status = -7;
+        if (!pending.begin(kObservedEpoch, kFirstRequestId, kAp.data(), true) ||
+            pending.observe(state) != FailureNotice || pending.active() ||
+            pending.observe(state) != NoJoinNotice)
+        {
+            return false;
+        }
+        JoinSession connected;
+        state.status = 0;
+        if (!connected.begin(kObservedEpoch, kFirstRequestId, kAp.data(),
+                             true) ||
+            connected.observe(state) != (AssociationNotice | BeaconNotice |
+                                         SupplicantNotice | ConnectionNotice))
+        {
+            return false;
+        }
+        state.status = -7;
+        return connected.observe(state) == DisconnectionNotice &&
+               !connected.active() && connected.observe(state) == NoJoinNotice;
+    }
+
     bool openAndFailure()
     {
         JoinSession join;
@@ -272,6 +303,10 @@ int main()
     if (!wireContracts())
     {
         return 4;
+    }
+    if (!failedStatusCannotAdvance())
+    {
+        return 5;
     }
     return 0;
 }

@@ -171,3 +171,12 @@ station initialization and link down respectively; a positive or stale owner
 snapshot cannot restore a stopped WCL interface. This is an offline
 source-level guard, not evidence that Tahoe has consumed a state event or
 that physical RF shutdown succeeded.
+
+## Native WCL association result consistency (2026-11-12)
+
+The portable `JoinSession` now treats any nonzero provider join status as
+terminal even if a phase snapshot still says Handshaking or Ready. It cannot
+produce association, supplicant, beacon or connection success notices from
+that inconsistent observation; a previously connected join emits its one
+disconnection intent instead. Portable tests exercise failed status before
+association and after an established join, with no real Tahoe callbacks.
