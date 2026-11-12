@@ -406,20 +406,36 @@ namespace
             return false;
         }
         advertisement = wpa2Beacon();
-        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
-                            {-40, 1054U}, tx.data(), tx.size(),
-                            action) != EngineResult::NoAction ||
-            engine.linkStatus().acceptedBeacons != 1U ||
-            engine.linkStatus().lastBeaconMs != 1054U)
+        advertisement.at(44) = 0x8cU; // Unnegotiated mandatory 6-Mbps rate.
+        if (!reject(advertisement, 1054U))
         {
             return false;
         }
-        std::memset(&advertisement.at(38), 0, kSsid.size());
+        advertisement = wpa2Beacon();
         if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
                             {-40, 1055U}, tx.data(), tx.size(),
                             action) != EngineResult::NoAction ||
-            engine.linkStatus().acceptedBeacons != 2U ||
+            engine.linkStatus().acceptedBeacons != 1U ||
             engine.linkStatus().lastBeaconMs != 1055U)
+        {
+            return false;
+        }
+        advertisement.at(45) = 0x0cU; // Newly optional 6-Mbps rate is safe.
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 1056U}, tx.data(), tx.size(),
+                            action) != EngineResult::NoAction ||
+            engine.linkStatus().acceptedBeacons != 2U ||
+            engine.linkStatus().lastBeaconMs != 1056U)
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        std::memset(&advertisement.at(38), 0, kSsid.size());
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 1057U}, tx.data(), tx.size(),
+                            action) != EngineResult::NoAction ||
+            engine.linkStatus().acceptedBeacons != 3U ||
+            engine.linkStatus().lastBeaconMs != 1057U)
         {
             return false;
         }
@@ -429,14 +445,14 @@ namespace
         advertisement = wpa2Beacon();
         advertisement.at(48) = 11U;
         if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
-                            {-40, 2256U}, tx.data(), tx.size(),
+                            {-40, 2258U}, tx.data(), tx.size(),
                             action) != EngineResult::Ok ||
             action.kind != ActionKind::LinkLost ||
             engine.linkStatus().reason != LinkLoss::BeaconTimeout ||
             engine.linkStatus().state != LinkState::ReconnectPending ||
-            engine.linkStatus().acceptedBeacons != 2U ||
-            engine.linkStatus().lastBeaconMs != 1055U ||
-            engine.checkBeaconTimeout(2257U, action) != EngineResult::NoAction)
+            engine.linkStatus().acceptedBeacons != 3U ||
+            engine.linkStatus().lastBeaconMs != 1057U ||
+            engine.checkBeaconTimeout(2259U, action) != EngineResult::NoAction)
         {
             return false;
         }

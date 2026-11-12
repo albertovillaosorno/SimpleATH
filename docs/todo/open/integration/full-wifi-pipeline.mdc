@@ -669,3 +669,9 @@ A delayed watchdog cannot be bypassed by a changed-policy beacon: the
 associated AP deadline is checked before policy parsing, and an already
 expired lease still emits one terminal `LinkLost` action (portable fixture
 covers wrong-channel RX after the last valid hidden beacon).
+
+Legacy PHY basic-rate drift is also rejected: each newly advertised *basic*
+rate must already be in the station's selected association rate intersection.
+New optional rates are permitted, preserving safe AP rate-set extensions.
+The WPA2 host regression exercises both cases before the normal beacon
+watchdog and one-shot late-loss path.

@@ -216,6 +216,24 @@ namespace simpleath
                 {
                     return false;
                 }
+                // A newly mandatory legacy PHY rate was never negotiated
+                // with this station. Refuse a beacon that silently promotes
+                // it from optional/absent to basic; new optional rates do
+                // not invalidate an existing association.
+                constexpr uint8_t kBasicRateFlag = 0x80U;
+                size_t examined = 0U;
+                for (const uint8_t rate : advertised.rates)
+                {
+                    if (examined++ == advertised.rateCount)
+                    {
+                        break;
+                    }
+                    if ((rate & kBasicRateFlag) != 0U &&
+                        !associationRateSupported(selected, rate))
+                    {
+                        return false;
+                    }
+                }
                 return advertised.hiddenSsid ||
                        (advertised.ssidLength == selected.ssidLength &&
                         __builtin_memcmp(&advertised.ssid[0], &selected.ssid[0],
