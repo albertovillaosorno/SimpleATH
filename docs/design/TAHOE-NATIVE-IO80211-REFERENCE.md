@@ -652,3 +652,10 @@ This reports the OS-visible **logical** radio state, not verified PCI/RF
 power isolation, macOS UI reception or a successful on-device power cycle.
 The physical owner error continues to be returned from the setting callback.
 The host regression checks the native source ordering without invoking Tahoe.
+
+A failed physical off request can also leave an old completed BSS ticket
+resident in the transport. Its enumeration now checks the same logical-off
+latch under the mailbox lock, so WCL cannot read previously observed scan
+results after radio shutdown was requested. It does not block native
+scan-completion acknowledgement: terminal event identities still need exact
+retirement even while BSS reads are unavailable.

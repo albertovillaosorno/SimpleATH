@@ -176,6 +176,27 @@ class NativePowerStatusWiring(unittest.TestCase):
             getter.index("out->numRadios = 1;")
         )
 
+    @staticmethod
+    def test_logical_power_off_also_revokes_scan_result_enumeration() -> None:
+        bss = TRANSPORT.split(
+            "TahoeWirelessTransport::nextBss(uint64_t generation,", 1
+        )[1].split("TahoeWirelessTransport::connect(", 1)[0]
+        assert "IOLockLock(mailboxLock_);" in bss
+        assert "!powerOffRequested_ &&" in bss
+        assert "generation == scanGeneration_" in bss
+        assert "generation == previousScanGeneration_" in bss
+        assert bss.index("!powerOffRequested_ &&") < bss.index(
+            "IOLockUnlock(mailboxLock_);"
+        )
+        assert bss.index("IOLockUnlock(mailboxLock_);") < bss.index(
+            "owner_.nextBss(owner_.context, generation, &out)"
+        )
+        # Terminal intent retirement is independent of BSS visibility.
+        ack = TRANSPORT.split(
+            "TahoeWirelessTransport::acknowledgeScanCompletion(", 1
+        )[1].split("TahoeWirelessTransport::nextBss(", 1)[0]
+        assert "powerOffRequested_" not in ack
+
 
 class NativePollEventSequencingWiring(unittest.TestCase):
     @staticmethod

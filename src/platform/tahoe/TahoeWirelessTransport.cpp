@@ -628,8 +628,12 @@ namespace simpleath
             // The completed results from the preceding generation remain
             // enumerable while a new physical scan is in progress. The PCI
             // owner's ticket check still determines snapshot eligibility.
-            const bool current = generation == scanGeneration_ ||
-                                 generation == previousScanGeneration_;
+            // Power-off can fail while a completed BSS ticket remains in
+            // the mailbox. Do not enumerate its former RF observations once
+            // the OS has logically revoked this radio session.
+            const bool current =
+                !powerOffRequested_ && (generation == scanGeneration_ ||
+                                        generation == previousScanGeneration_);
             IOLockUnlock(mailboxLock_);
             return current ? owner_.nextBss(owner_.context, generation, &out)
                            : kIOReturnNotReady;
