@@ -368,6 +368,14 @@ namespace simpleath
                     return cache_;
                 }
 
+                // The AID is nonzero only after the selected AP's validated
+                // association response. Native hardware must program its
+                // BSSID/AID before publishing that link to the OS.
+                uint16_t associationId() const
+                {
+                    return station_.associationId();
+                }
+
                 StationState stationState() const
                 {
                     return station_.state();

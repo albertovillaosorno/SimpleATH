@@ -64,7 +64,11 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "self.linkWatchEpoch_ = self.epoch_;" in connect
         assert "self.linkWatchAssociationGeneration_ = 0;" in connect
         assert "self.retireNativeLink(kIOReturnNotReady);" in connect
-        assert "self.failNativeJoin(sent);" in connect
+        assert "self.retireNativeBssidEpoch(sent);" in connect
+        assert connect.index("self.programNativeBssid(") < connect.index(
+            "self.engine_.requestAuthentication("
+        )
+        assert "request.channel != self.verifiedReceiveChannel_" in connect
 
     @staticmethod
     def test_late_association_cannot_bypass_join_deadline() -> None:
@@ -86,6 +90,27 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
             < association.index("joinWatchStartedMs_ = 0;")
         )
         assert "joinWatchRequestId_ != joinRequestId_" in association
+
+    @staticmethod
+    def test_ap_association_aid_must_be_written_before_native_link_up() -> None:
+        association = body(
+            "void recordNativeAssociation()", "void receiveNativeAwdl("
+        )
+        assert (
+            association.index("engine_.associationId() == 0")
+            < association.index("!programNativeBssid(")
+            < association.index("++associationGeneration_;")
+        )
+        assert (
+            "associated.beacon.channel != verifiedReceiveChannel_"
+            in association
+        )
+        owner = body(
+            "bool programNativeBssid(", "// Workloop timers are not ordered"
+        )
+        assert "programAr9565AssociationBssid(" in owner
+        assert "liveBssidPermit" in owner
+        assert "retireNativeBssidEpoch(kIOReturnNotReady);" in owner
 
     @staticmethod
     def test_pending_deadline_closes_hardware_before_beacon_liveness() -> None:

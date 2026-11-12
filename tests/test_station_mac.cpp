@@ -43,6 +43,8 @@ namespace
 {
     constexpr uint32_t kStationIdLow = 0x8000U;
     constexpr uint32_t kStationIdHigh = 0x8004U;
+    constexpr uint32_t kBssidRegisterLow = 0x8008U;
+    constexpr uint32_t kBssidRegisterHigh = 0x800cU;
     constexpr uint32_t kBssidMaskLow = 0x80e0U;
     constexpr uint32_t kBssidMaskHigh = 0x80e4U;
     constexpr uint32_t kBarBytes = 0x9000U;
@@ -70,6 +72,8 @@ namespace
     {
             uint32_t low {0};
             uint32_t high {kOriginalHigh};
+            uint32_t bssidLow {0};
+            uint32_t bssidHigh {0xfe000000U};
             uint32_t maskLow {0};
             uint32_t maskHigh {0};
             uint64_t epoch {kEpoch};
@@ -81,6 +85,8 @@ namespace
             bool rejectReads {false};
             bool mismatchReadback {false};
             bool mismatchMaskReadback {false};
+            bool mismatchBssidReadback {false};
+            uint8_t *borrowedBssid {nullptr};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -110,6 +116,16 @@ namespace
         if (offset == kStationIdHigh)
         {
             *value = hw.high;
+            return true;
+        }
+        if (offset == kBssidRegisterLow)
+        {
+            *value = hw.bssidLow;
+            return true;
+        }
+        if (offset == kBssidRegisterHigh)
+        {
+            *value = hw.bssidHigh ^ (hw.mismatchBssidReadback ? 1U : 0U);
             return true;
         }
         if (offset == kBssidMaskLow)
@@ -143,6 +159,20 @@ namespace
         if (offset == kStationIdHigh)
         {
             hw.high = value;
+            return true;
+        }
+        if (offset == kBssidRegisterLow)
+        {
+            hw.bssidLow = value;
+            if (hw.borrowedBssid != nullptr)
+            {
+                hw.borrowedBssid[4] = 0x01U;
+            }
+            return true;
+        }
+        if (offset == kBssidRegisterHigh)
+        {
+            hw.bssidHigh = value;
             return true;
         }
         if (offset == kBssidMaskLow)
@@ -224,6 +254,116 @@ namespace
         return 0;
     }
 
+    simpleath::MacIdentityProgress programBssid(Hardware &hw,
+                                                const uint8_t *bssid,
+                                                uint16_t aid,
+                                                FixtureOptions options = {})
+    {
+        const simpleath::RegisterBus bus {&hw, read, write, options.bar};
+        return simpleath::programAr9565AssociationBssid(bus, bssid, aid,
+                                                        options.epoch, permit);
+    }
+
+    int checkBssidProgramming()
+    {
+        using simpleath::MacIdentityResult;
+        constexpr uint8_t selected[6] {2, 0x24U, 0x68U, 0x13U, 0x55U, 0x99U};
+        Hardware start;
+        const auto first = programBssid(start, selected, 0);
+        if (first.result != MacIdentityResult::Ok || first.requiresReset ||
+            first.completedWrites != 2U || start.permits != 5U ||
+            start.reads != 2U || start.bssidLow != 0x13682402U ||
+            start.bssidHigh != 0x00009955U)
+        {
+            return 9;
+        }
+        Hardware linked;
+        const auto accepted = programBssid(linked, selected, 2007U);
+        if (accepted.result != MacIdentityResult::Ok ||
+            linked.bssidHigh != 0x07d79955U)
+        {
+            return 10;
+        }
+        constexpr uint8_t empty[6] {};
+        constexpr uint8_t multicast[6] {3, 1, 2, 3, 4, 5};
+        Hardware invalid;
+        if (programBssid(invalid, selected, 2008U).result !=
+                MacIdentityResult::InvalidMac ||
+            programBssid(invalid, nullptr, 0).result !=
+                MacIdentityResult::InvalidMac ||
+            programBssid(invalid, empty, 0).result !=
+                MacIdentityResult::InvalidMac ||
+            programBssid(invalid, multicast, 0).result !=
+                MacIdentityResult::InvalidMac ||
+            programBssid(invalid, selected, 0, {0, kBarBytes}).result !=
+                MacIdentityResult::InvalidBackend ||
+            programBssid(invalid, selected, 0, {kEpoch, kBssidRegisterHigh})
+                    .result != MacIdentityResult::InvalidBackend ||
+            invalid.reads != 0 || invalid.writes != 0 || invalid.permits != 0)
+        {
+            return 11;
+        }
+        Hardware denied;
+        denied.epoch = 0;
+        const auto preflight = programBssid(denied, selected, 0);
+        if (preflight.result != MacIdentityResult::OwnershipLost ||
+            preflight.requiresReset || denied.writes != 0)
+        {
+            return 12;
+        }
+        for (unsigned int index = 1; index <= 2U; ++index)
+        {
+            Hardware broken;
+            broken.failOnWrite = index;
+            const auto rejected = programBssid(broken, selected, 0);
+            if (rejected.result != MacIdentityResult::WriteFailed ||
+                !rejected.requiresReset ||
+                rejected.completedWrites != index - 1U)
+            {
+                return 13;
+            }
+        }
+        for (unsigned int index = 1; index <= 5U; ++index)
+        {
+            Hardware revoked;
+            revoked.revokeOnPermit = index;
+            const auto rejected = programBssid(revoked, selected, 0);
+            const size_t writes = index == 1U ? 0U : (index == 2U ? 1U : 2U);
+            if (rejected.result != MacIdentityResult::OwnershipLost ||
+                rejected.requiresReset != (index != 1U) ||
+                rejected.completedWrites != writes)
+            {
+                return 14;
+            }
+        }
+        Hardware unreadable;
+        unreadable.rejectReads = true;
+        const auto badRead = programBssid(unreadable, selected, 0);
+        if (badRead.result != MacIdentityResult::ReadFailed ||
+            !badRead.requiresReset || badRead.completedWrites != 2U)
+        {
+            return 15;
+        }
+        Hardware mismatched;
+        mismatched.mismatchBssidReadback = true;
+        const auto badValue = programBssid(mismatched, selected, 0);
+        if (badValue.result != MacIdentityResult::ReadbackMismatch ||
+            !badValue.requiresReset || badValue.completedWrites != 2U)
+        {
+            return 16;
+        }
+        uint8_t mutableBssid[6] {2, 0x24U, 0x68U, 0x13U, 0x55U, 0x99U};
+        Hardware changing;
+        changing.borrowedBssid = mutableBssid;
+        const auto snapshot = programBssid(changing, mutableBssid, 42U);
+        if (snapshot.result != MacIdentityResult::Ok || mutableBssid[4] != 1U ||
+            changing.bssidHigh != 0x002a9955U)
+        {
+            return 17;
+        }
+        return 0;
+    }
+
 } // namespace
 
 int main()
@@ -295,5 +435,5 @@ int main()
     {
         return kFailedBackendCase;
     }
-    return 0;
+    return checkBssidProgramming();
 }

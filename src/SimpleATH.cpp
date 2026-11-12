@@ -1207,7 +1207,8 @@ class SimpleATH final : public IOService
             // A scan-cache candidate is not RF authority. An OS join must
             // follow a real authorized channel tune and complete TX policy;
             // otherwise do not consume the candidate/handshake state.
-            if (board == nullptr || !self.canSubmitTransmit())
+            if (board == nullptr || !self.canSubmitTransmit() ||
+                request.channel != self.verifiedReceiveChannel_)
             {
                 self.failNativeJoin(kIOReturnNotReady);
                 return kIOReturnNotReady;
@@ -1252,6 +1253,13 @@ class SimpleATH final : public IOService
                 self.failNativeJoin(failure);
                 return failure;
             }
+            // The PCU's exact BSSID match must follow the chosen, physically
+            // tuned AP, not a stale scan cache or an OS-supplied guest BSSID.
+            // Program the pre-association AID=0 before the first auth TX.
+            if (!self.programNativeBssid(&request.bssid[0], 0))
+            {
+                return kIOReturnNotReady;
+            }
             simpleath::ieee80211::EngineAction frame {};
             const auto prepared = self.engine_.requestAuthentication(
                 self.txSequence_, &self.managementReply_[0],
@@ -1270,9 +1278,9 @@ class SimpleATH final : public IOService
             {
                 // Never retain a selected/authenticating station when its
                 // initial on-air request failed or was not actually queued.
-                self.engine_.radioStopped(
-                    nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                self.failNativeJoin(sent);
+                // BSSID was committed even if the first management frame
+                // could not be queued. Never reuse that physical epoch.
+                self.retireNativeBssidEpoch(sent);
                 return sent;
             }
             self.txSequence_ =
@@ -1849,6 +1857,37 @@ class SimpleATH final : public IOService
                    txSafety_.transmitPowerLimitsValidated &&
                    txSafety_.rfKillUnblocked && txSafety_.radioAwake &&
                    txSafety_.dmaMappingValid && liveRfKillUnblocked();
+        }
+
+        void retireNativeBssidEpoch(IOReturn error)
+        {
+            retireNativeLink(error);
+            // An ambiguous identity write (or a later TX failure) cannot
+            // inherit the PCU BSSID/AID state in another attempted join.
+            keyCache_.requiresReset = true;
+            setProperty("SimpleATHKeyCacheResetRequired", true);
+        }
+
+        bool programNativeBssid(const uint8_t bssid[6], uint16_t aid)
+        {
+            const auto bus = backend_.activeRegisters();
+            const simpleath::RegisterBus registers {
+                &access_,
+                readRegister,
+                writeRegister,
+                bus.barLengthBytes,
+            };
+            const auto progress = simpleath::programAr9565AssociationBssid(
+                registers, bssid, aid, epoch_, liveBssidPermit);
+            setProperty("SimpleATHLastBssidProgramResult",
+                        static_cast<uint32_t>(progress.result),
+                        kRfPropertyWidthBits);
+            if (progress.result != simpleath::MacIdentityResult::Ok)
+            {
+                retireNativeBssidEpoch(kIOReturnNotReady);
+                return false;
+            }
+            return true;
         }
 
         // Workloop timers are not ordered ahead of OS TX, key completions
@@ -2644,6 +2683,17 @@ class SimpleATH final : public IOService
                    !self.radioOperational_ && !self.channelAuthorized_;
         }
 
+        // This permit is valid only for a running, truly authorized native
+        // station and a free TX descriptor. The PHY still belongs to the same
+        // serialized live PCI epoch, but a stale scan selection cannot grant
+        // PCU BSSID/AID register access or automatic TX authority.
+        static bool liveBssidPermit(void *context, uint64_t epoch)
+        {
+            auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            return epoch == self.epoch_ && nvmOwner(context) &&
+                   self.canSubmitTransmit() && self.queues_.hasTransmitSpace();
+        }
+
         static bool rfBoardPermit(void *context, uint64_t epoch)
         {
             const auto &self = *static_cast<RegisterAccess *>(context)->owner;
@@ -3249,6 +3299,22 @@ class SimpleATH final : public IOService
                 retireNativeLink(kIOReturnNotReady);
                 engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
                                      false);
+                return;
+            }
+            // Source parser accepts only AID 1..2007 from the exact BSSID.
+            // PCU hardware must match the same AID before the OS sees link-up.
+            simpleath::ieee80211::Bss associated {};
+            if (!engine_.copyAssociatedBss(associated) ||
+                associated.beacon.channel != verifiedReceiveChannel_ ||
+                engine_.associationId() == 0 ||
+                !programNativeBssid(&joinBssid_[0], engine_.associationId()))
+            {
+                // programNativeBssid already retires a failed physical write.
+                // An invalid software AID/channel also ends this join epoch.
+                if (radioOperational_)
+                {
+                    retireNativeBssidEpoch(kIOReturnNotReady);
+                }
                 return;
             }
             ++associationGeneration_;

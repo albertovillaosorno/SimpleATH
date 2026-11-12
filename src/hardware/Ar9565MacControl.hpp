@@ -102,6 +102,19 @@ namespace simpleath
                             const uint8_t mac[kPermanentMacBytes],
                             uint64_t epoch, bool (*permit)(void *, uint64_t));
 
+    // Select the exact hardware BSSID and association ID. aid=0 is the
+    // pre-association probe/authentication state; 1..2007 is accepted only
+    // after a valid AP association response. Invalid/multicast identities
+    // never reach MMIO. The caller serializes this with the physical RX/TX
+    // owner and must establish a same-epoch live radio and free TX descriptor
+    // before EACH register access. An attempted write is ambiguous until
+    // both values are read back and ownership rechecked; any failure then
+    // requires retiring the entire hardware epoch, not a local retry.
+    // Source: Linux ath9k hw.c ath9k_hw_write_associd, reg.h AR_BSS_ID{0,1}.
+    MacIdentityProgress programAr9565AssociationBssid(
+        const RegisterBus &supplied, const uint8_t bssid[kPermanentMacBytes],
+        uint16_t aid, uint64_t epoch, bool (*permit)(void *, uint64_t));
+
     // The exclusive PCI owner serializes this with power and reset. The bus
     // revalidates D0/ownership on every access, drains posted writes, and must
     // refuse access after revocation. PCI bus mastering must already be off.
