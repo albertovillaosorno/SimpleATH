@@ -636,3 +636,16 @@ System power-manager callbacks retain their required implied acknowledgement
 semantics and do not claim hardware success. Offline source regressions cover
 this path. This does not implement RF initialization or demonstrate a physical
 power transition, clean device quiescence, or macOS acceptance.
+
+## Native software-CCMP transmit descriptor admission (2026-11-12)
+
+The native EDMA submitter now requires the outgoing 802.11 Protected bit to
+match the caller's software-CCMP evidence exactly. All native TX descriptors
+use hardware CLEAR (the native CCMP session has already built the full
+ExtIV/MIC); a protected MPDU can enter that descriptor only with the live
+pairwise CCMP TX session and explicit software-protected call site. Clear
+M2/M4, authentication, association, ADDBA refusal and Open data cannot
+reuse the protected path. Deferred Group2 explicitly supplies the protected
+call-site flag while clear M4 does not. The source-level regression follows
+the post-gate data and deferred-management paths. This is source admission,
+not physical transmit proof, calibrated RF readiness, or WPA2 certification.

@@ -2241,9 +2241,15 @@ class SimpleATH final : public IOService
             __builtin_memcpy(&frameControl, frame, sizeof(frameControl));
             constexpr uint16_t kProtectedFrameControl =
                 static_cast<uint16_t>(kProtectedFrameFlag) << kByteBits;
-            if (softwareProtected &&
-                (!nativePairwiseTx_.installed() ||
-                 (frameControl & kProtectedFrameControl) == 0))
+            const bool headerProtected =
+                (frameControl & kProtectedFrameControl) != 0;
+            // The descriptor is ALWAYS hardware-CLEAR. Only the approved
+            // software CCMP serializer may submit a Protected MPDU, and its
+            // entire PN/MIC-authenticated frame must carry the Protected bit.
+            // Conversely a deferred clear M4 or native management frame must
+            // not smuggle protected bytes through the clear transmit path.
+            if (softwareProtected != headerProtected ||
+                (softwareProtected && !nativePairwiseTx_.installed()))
             {
                 return kIOReturnNotReady;
             }

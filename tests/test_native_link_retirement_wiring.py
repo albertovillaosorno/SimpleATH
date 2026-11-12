@@ -164,6 +164,47 @@ class NativeBlockAckDeclineWiring(unittest.TestCase):
         assert "edma::admissibleRxMpdu(status, bytes)" in receive
 
 
+class NativeProtectedTransmitWiring(unittest.TestCase):
+    """A hardware-CLEAR descriptor must match the software CCMP on-air bit."""
+
+    @staticmethod
+    def test_protected_header_requires_authenticated_ccmp_owner() -> None:
+        submit = body(
+            OWNER,
+            "IOReturn submitPreparedTransmit(",
+            "// Clear EAPOL M2/M4 is permitted",
+        )
+        assert (
+            submit.index("const bool headerProtected =")
+            < submit.index("softwareProtected != headerProtected")
+            < submit.index("nativePairwiseTx_.installed()")
+            < submit.index("control.crypto = simpleath::edma::TxCrypto::Clear;")
+            < submit.index("queues_.transmitGated(")
+        )
+        assert "TxCrypto::Clear" in submit
+        assert "return kIOReturnNotReady;" in submit
+
+    @staticmethod
+    def test_deferred_group2_is_protected_and_m4_is_clear() -> None:
+        resume = body(
+            OWNER,
+            "static void queueKeyUpdateResumed(",
+            "static void queueInterrupt(",
+        )
+        assert "const bool group2 = self.deferredGroup2_;" in resume
+        assert "bytes, group2)" in resume
+        assert "sessionsReady" in resume
+        assert "self.retireNativeLink(result);" in resume
+        data = body(
+            OWNER,
+            "static IOReturn ownerTransmitEthernetAction(",
+            "static IOReturn ownerTransmitEthernet(",
+        )
+        assert "self->submitPreparedTransmit(" in data
+        assert "action.bytes, softwareProtected)" in data
+        assert "self->prepareNativeEncryptedEthernet(" in data
+
+
 class NativeLocalLeaveWiring(unittest.TestCase):
     """Trace terminal local-leave TX and bounded retirement contracts."""
 
