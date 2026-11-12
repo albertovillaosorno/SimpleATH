@@ -306,5 +306,37 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "pendingScanAckGeneration_ = 0;" in poll
 
 
+class NativeWirelessObserverRebindWiring(unittest.TestCase):
+    """Check that a new native listener inherits no orphan scan intent."""
+
+    @staticmethod
+    def test_new_observer_retires_orphan_scan_before_registration() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        subscribe = provider.split("static IOReturn ownerSubscribeAction(", 1)[
+            1
+        ]
+        subscribe = subscribe.split("static IOReturn ownerSubscribe(", 1)[0]
+        assert "const bool vacant = self.wirelessObserver_ == nullptr;" in (
+            subscribe
+        )
+        assert "if (!vacant)" in subscribe
+        assert "self.abortActiveNativeScan();" in subscribe
+        assert "self.scanBridge_.clear();" in subscribe
+        assert "self.completedScanTicket_ = {};" in subscribe
+        assert "self.notifiedScanGeneration_ = 0;" in subscribe
+        assert subscribe.index("self.abortActiveNativeScan();") < (
+            subscribe.index("self.wirelessObserver_ = request.observer;")
+        )
+        assert subscribe.index("self.scanBridge_.clear();") < (
+            subscribe.index("self.wirelessObserver_ = request.observer;")
+        )
+        unsubscribe = provider.split("static void ownerUnsubscribe(", 1)[1]
+        unsubscribe = unsubscribe.split("void notifyWirelessChange(", 1)[0]
+        assert "IOLockLock(self.observerLock_);" in unsubscribe
+        assert "self.wirelessObserver_ = nullptr;" in unsubscribe
+        assert "self.scanBridge_.clear();" not in unsubscribe
+        assert "owner_.unsubscribe(owner_.context, this);" in TRANSPORT
+
+
 if __name__ == "__main__":
     unittest.main()

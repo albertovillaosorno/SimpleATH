@@ -2488,6 +2488,23 @@ class SimpleATH final : public IOService
                 return kIOReturnNotReady;
             }
             IOLockLock(self.observerLock_);
+            const bool vacant = self.wirelessObserver_ == nullptr;
+            IOLockUnlock(self.observerLock_);
+            if (!vacant)
+            {
+                return kIOReturnExclusiveAccess;
+            }
+            // Unsubscribe must be able to join callbacks after the PCI gate
+            // has stopped, so it cannot safely mutate the engine. A new
+            // subscription is serialized here on the live owner gate: retire
+            // any scan or unacknowledged terminal ticket from the former
+            // consumer before handing this epoch to a replacement observer.
+            // Do not synthesize SCAN_DONE for the new OS consumer.
+            (void)self.abortActiveNativeScan();
+            self.scanBridge_.clear();
+            self.completedScanTicket_ = {};
+            self.notifiedScanGeneration_ = 0;
+            IOLockLock(self.observerLock_);
             IOReturn registered = kIOReturnExclusiveAccess;
             if (self.wirelessObserver_ == nullptr)
             {

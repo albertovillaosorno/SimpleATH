@@ -594,6 +594,12 @@ it on success or PCI replacement. A newly accepted scan supersedes it only
 after the physical owner has accepted the successor generation.
 No mailbox lock is held during any provider call, and the provider's callback
 never enters the native controller's gate.
+A new native subscription retires any orphan scan, old bridge completion,
+result snapshot and successful-handoff deduplication marker under the PCI
+owner gate before publishing its observer callback. The old unsubscribe itself
+only joins callbacks under the independent lock, since the owner gate may have
+already stopped. An orphan scan cannot strand a fresh consumer in the same
+live PCI epoch; no old SCAN_DONE is transferred across observers.
 
 The WCL event wrapper `wirelessPost` returns `void`, and the exact 25G332 OS
 consumer contract remains unverified. Thus even the new post-invocation

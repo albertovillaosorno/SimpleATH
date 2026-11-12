@@ -90,6 +90,15 @@ it after the worker finishes. The same identity retry applies when a normal
 `SCAN_DONE` is posted but its provider acknowledgement fails; otherwise the
 bridge can remain `EventPending` and block later scans. Only the matching
 bridge intent may be retired, never a successor generation.
+
+A provider unsubscribe remains independent of the PCI gate so callbacks can
+join safely even after the work loop has been removed. The *next* subscriber,
+under the live owner's serialized gate, cancels any former observer's physical
+scan and clears its old bridge ticket, completion and deduplication identity
+before publishing the replacement callback. Without this handover an old
+unacknowledged `EventPending` completion could permanently block the new
+consumer, which has no previous scan request to acknowledge. The new native
+observer must initiate a fresh scan; it is never sent a fabricated old event.
 The callback takes only an observer lock and the transport mailbox lock;
 no provider callback enters the child's work-loop gate. The child drops its
 mailbox lock before calling the provider acknowledgement gate.
