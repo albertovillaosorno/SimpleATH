@@ -641,3 +641,15 @@ partial-data rollback with C++ sanitizers. This software stage is **not**
 called by a native MCI IRQ/DMA worker and does not synchronize device DMA,
 prevent a real producer full-wrap, negotiate Bluetooth coexistence, or turn on
 Wi-Fi/AirDrop. A copied IRQ result alone never authorizes radio readiness.
+
+## Source progress — immutable LE report batch while observers execute
+
+The portable LE advertising-report consumer now copies the bounded received
+HCI event into private storage before validating its report headers and AD
+structures. Every report in that batch is then decoded from the same snapshot,
+not from mutable borrowed USB data after an observer returns. This closes a
+validation-to-delivery gap where the first report callback could alter later
+report bytes without another validation pass. `test_bluetooth_le.cpp` covers a
+callback mutating the second report while both observations must still match
+the previously validated image. These are source-only host tests; native
+Bluetooth host callbacks, physical USB ownership and AirDrop remain unverified.

@@ -501,12 +501,26 @@ namespace simpleath
                                           const LeDiscoveryOwner &owner,
                                           const uint8_t *event, size_t bytes)
         {
-            if (!validReports(event, bytes))
+            if (event == nullptr || bytes > kUsbHciMaxEventBytes)
+            {
+                return LeDiscoveryResult::MalformedEvent;
+            }
+            // Validate and later dispatch the exact same byte image. An
+            // observer may reuse or modify the borrowed USB event buffer
+            // during delivery of the first report; otherwise later reports
+            // would be read after their original validation had expired.
+            UsbBytes<uint8_t, kUsbHciMaxEventBytes> snapshot {};
+            for (size_t index = 0U; index < bytes; ++index)
+            {
+                snapshot.at(index) = *usbByteOffset(event, index);
+            }
+            const uint8_t *const accepted = snapshot.data();
+            if (!validReports(accepted, bytes))
             {
                 return LeDiscoveryResult::MalformedEvent;
             }
             size_t offset = kEventHeader + kAdvertisingHeaderBytes;
-            const size_t count = *usbByteOffset(event, 3U);
+            const size_t count = *usbByteOffset(accepted, 3U);
             for (size_t index = 0U; index < count; ++index)
             {
                 if (!authorized(state, transport, host, owner))
@@ -514,22 +528,22 @@ namespace simpleath
                     return LeDiscoveryResult::OwnershipLost;
                 }
                 LeLegacyAdvertisement report {};
-                report.eventType = *usbByteOffset(event, offset);
-                report.addressType = *usbByteOffset(event, offset + 1U);
+                report.eventType = *usbByteOffset(accepted, offset);
+                report.addressType = *usbByteOffset(accepted, offset + 1U);
                 for (size_t address = 0U; address < kLeAddressBytes; ++address)
                 {
                     report.address.at(address) =
-                        *usbByteOffset(event, offset + 2U + address);
+                        *usbByteOffset(accepted, offset + 2U + address);
                 }
                 report.dataBytes =
-                    *usbByteOffset(event, offset + kAdvertDataLengthOffset);
+                    *usbByteOffset(accepted, offset + kAdvertDataLengthOffset);
                 for (size_t payload = 0U; payload < report.dataBytes; ++payload)
                 {
                     report.data.at(payload) = *usbByteOffset(
-                        event, offset + kReportHeaderBytes + payload);
+                        accepted, offset + kReportHeaderBytes + payload);
                 }
                 report.rssi = static_cast<int8_t>(*usbByteOffset(
-                    event, offset + kReportHeaderBytes + report.dataBytes));
+                    accepted, offset + kReportHeaderBytes + report.dataBytes));
                 offset += kReportHeaderBytes + report.dataBytes + 1U;
                 // A passive scan never solicits SCAN_RSP. Even if another
                 // controller user emits one unexpectedly, do not attribute

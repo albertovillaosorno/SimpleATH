@@ -1397,6 +1397,32 @@ namespace
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
+        // The first observer may still hold the source of a borrowed USB
+        // event (or a reused transfer buffer). Its mutation of a later
+        // report cannot change a batch that was already validated.
+        Fixture mutableBatch {};
+        if (!mutableBatch.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        auto original = packet;
+        mutableBatch.fake().reportContext = &packet;
+        mutableBatch.fake().onFirstReport = [](void *context) -> bool
+        {
+            auto &source =
+                *static_cast<std::array<uint8_t, kMultiReportBytes> *>(context);
+            source.at(kSecondReportOffset + kReportDataLengthOffset + 1U) =
+                0xffU;
+            return true;
+        };
+        if (mutableBatch.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::Ok ||
+            mutableBatch.fake().reports != kTwoReports ||
+            mutableBatch.phase() != LeScanPhase::Scanning || packet == original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        packet = original;
         // The owner can cancel from the first report callback. The second
         // already-validated report must not escape the canceled scan.
         Fixture canceled {};
