@@ -411,6 +411,15 @@ namespace
         {
             return false;
         }
+        // Probe responses share the same policy gate as passive beacons.
+        auto probe = wpa2Beacon();
+        probe.at(0) = 0x50U;
+        std::memcpy(&probe.at(4), kStation.data(), kStation.size());
+        probe.at(48) = 11U;
+        if (!reject(probe, 1054U))
+        {
+            return false;
+        }
         advertisement = wpa2Beacon();
         if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
                             {-40, 1055U}, tx.data(), tx.size(),
@@ -420,22 +429,31 @@ namespace
         {
             return false;
         }
-        advertisement.at(45) = 0x0cU; // Newly optional 6-Mbps rate is safe.
-        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
-                            {-40, 1056U}, tx.data(), tx.size(),
+        probe.at(48) = 6U;
+        if (engine.acceptRx(probe.data(), probe.size(), kTrust, {-40, 1056U},
+                            tx.data(), tx.size(),
                             action) != EngineResult::NoAction ||
             engine.linkStatus().acceptedBeacons != 2U ||
             engine.linkStatus().lastBeaconMs != 1056U)
         {
             return false;
         }
-        advertisement = wpa2Beacon();
-        std::memset(&advertisement.at(38), 0, kSsid.size());
+        advertisement.at(45) = 0x0cU; // Newly optional 6-Mbps rate is safe.
         if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
                             {-40, 1057U}, tx.data(), tx.size(),
                             action) != EngineResult::NoAction ||
             engine.linkStatus().acceptedBeacons != 3U ||
             engine.linkStatus().lastBeaconMs != 1057U)
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        std::memset(&advertisement.at(38), 0, kSsid.size());
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 1058U}, tx.data(), tx.size(),
+                            action) != EngineResult::NoAction ||
+            engine.linkStatus().acceptedBeacons != 4U ||
+            engine.linkStatus().lastBeaconMs != 1058U)
         {
             return false;
         }
@@ -445,14 +463,14 @@ namespace
         advertisement = wpa2Beacon();
         advertisement.at(48) = 11U;
         if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
-                            {-40, 2258U}, tx.data(), tx.size(),
+                            {-40, 2259U}, tx.data(), tx.size(),
                             action) != EngineResult::Ok ||
             action.kind != ActionKind::LinkLost ||
             engine.linkStatus().reason != LinkLoss::BeaconTimeout ||
             engine.linkStatus().state != LinkState::ReconnectPending ||
-            engine.linkStatus().acceptedBeacons != 3U ||
-            engine.linkStatus().lastBeaconMs != 1057U ||
-            engine.checkBeaconTimeout(2259U, action) != EngineResult::NoAction)
+            engine.linkStatus().acceptedBeacons != 4U ||
+            engine.linkStatus().lastBeaconMs != 1058U ||
+            engine.checkBeaconTimeout(2260U, action) != EngineResult::NoAction)
         {
             return false;
         }

@@ -675,3 +675,7 @@ rate must already be in the station's selected association rate intersection.
 New optional rates are permitted, preserving safe AP rate-set extensions.
 The WPA2 host regression exercises both cases before the normal beacon
 watchdog and one-shot late-loss path.
+
+Directed AP probe responses also use the exact same associated-policy and
+beacon-deadline gate; synthetic WPA2 tests now exercise both a wrong-channel
+probe response and a matching one as explicit separate RX subtypes.
