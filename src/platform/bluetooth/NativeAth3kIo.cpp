@@ -586,8 +586,10 @@ namespace simpleath
                 ownerCurrent && (kind == UsbHciPacketKind::Event
                                      ? native.stream.events.used != 0U
                                      : native.stream.acl.used != 0U);
+            UsbHciOwnerLease completedLease = currentLease();
+            completedLease.opened = completedLease.opened && ownerCurrent;
             const UsbHciStatus read = classifyUsbHciReadForLease(
-                issued, ownerCurrent ? currentLease() : UsbHciOwnerLease {},
+                issued, completedLease,
                 status == kIOReturnSuccess && completed == kIOReturnSuccess,
                 status == kIOReturnTimeout && completed == kIOReturnSuccess,
                 transferred, sizeof(buffer), partialFrame);
