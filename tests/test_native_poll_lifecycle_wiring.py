@@ -167,5 +167,44 @@ class NativePollLifecycleWiring(unittest.TestCase):
                 assert "controller_->radioSnapshot(state)" not in body
 
 
+class NativeAssociatedGetterWiring(unittest.TestCase):
+    @staticmethod
+    def test_signal_getter_requires_live_native_join() -> None:
+        # The physical owner can retain an associated RSSI sample after WCL
+        # has rejected or left that request. The native getter must not
+        # publish it as the new/current session's signal measurement.
+        dispatch = section(
+            "IOReturn SimpleATHInfraProtocol::requestGated(",
+            "IOReturn SimpleATHInfraProtocol::beginJoin(",
+        )
+        signal = dispatch.split("if (operation == 0xed0)", 1)[1].split(
+            "if (operation == 0x1060)", 1
+        )[0]
+        assert "join_.connectedTo(observedJoin(state))" in signal
+        assert "state.signalMeasured" in signal
+        assert signal.index("join_.connectedTo(observedJoin(state))") < (
+            signal.index(
+                "static_cast<simpleath::tahoe::NativeApple80211Rssi *>"
+            )
+        )
+
+    @staticmethod
+    def test_associated_bss_getter_requires_live_native_join() -> None:
+        dispatch = section(
+            "IOReturn SimpleATHInfraProtocol::requestGated(",
+            "IOReturn SimpleATHInfraProtocol::beginJoin(",
+        )
+        bss = dispatch.split("if (operation == 0x1060)", 1)[1].split(
+            "// Optional operations", 1
+        )[0]
+        assert "join_.connectedTo(observedJoin(state))" in bss
+        assert "state.associationGeneration == 0" in bss
+        assert "state.associatedBss.bssid.bytes" in bss
+        assert "state.channel != state.associatedBss.channel" in bss
+        assert bss.index("join_.connectedTo(observedJoin(state))") < (
+            bss.index("encodeScanBss(")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

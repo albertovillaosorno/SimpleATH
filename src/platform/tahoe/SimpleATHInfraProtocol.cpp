@@ -715,7 +715,10 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     }
     if (operation == 0xed0)
     {
-        if (!state.associated || !state.signalMeasured)
+        // A physical AP can remain associated after WCL has explicitly left
+        // or rejected the request. Do not publish its measurements as the
+        // current native station session unless this join still owns it.
+        if (!join_.connectedTo(observedJoin(state)) || !state.signalMeasured)
         {
             return kIOReturnNotReady;
         }
@@ -732,7 +735,8 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     {
         // The native WCL BSS envelope is 0x44 metadata plus 0x800 IE bytes.
         // Its owned snapshot must identify this very association generation.
-        if (!state.associated || state.associationGeneration == 0 ||
+        if (!join_.connectedTo(observedJoin(state)) ||
+            state.associationGeneration == 0 ||
             memcmp(state.bssid, state.associatedBss.bssid.bytes, 6) != 0 ||
             state.channel != state.associatedBss.channel)
         {

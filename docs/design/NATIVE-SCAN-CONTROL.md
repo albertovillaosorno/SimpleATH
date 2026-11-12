@@ -314,3 +314,17 @@ provider snapshot. Both the immediate enable and poll-time admission now
 require `JoinSession::connectedTo` in addition to the independent physical
 port, RF, epoch and beacon gates. The policy fixture explicitly rejects a
 missing accepted WCL join despite otherwise valid provider data.
+
+## Join-scoped native RSSI and BSS queries (2026-11-12)
+
+The WCL native signal-strength and associated-BSS getters now require the
+**current accepted WCL join** to match the physical owner snapshot by
+PCI epoch, request identity, association generation and BSSID, in addition
+to their existing measurement/BSS bounds. A failed or aborted join can
+leave a transient positive physical association snapshot; reporting its RSSI
+or BSS record as the native interface's current connection would contradict
+`getAssocState`, `linkState` and the Skywalk controlled-port gate. These
+queries return NotReady until the same join is connected and its samples are
+valid. Other owner-level channel/power queries remain independent of WCL
+join state. Offline source checks verify the ordering only, not Tahoe ABI
+layout, Wi-Fi UI behavior or physical RF association.
