@@ -91,6 +91,17 @@ it after the worker finishes. The same identity retry applies when a normal
 bridge can remain `EventPending` and block later scans. Only the matching
 bridge intent may be retired, never a successor generation.
 
+An interrupted scan on a still-live PCI epoch must preserve its failed
+completion intent even when RF-kill, link retirement or queue loss makes the
+receiver unsafe.
+Its old BSS enumeration lease is revoked and future result reads check live
+RF/channel/queue readiness, but the terminal event and its
+successful-handoff deduplication marker remain until the native consumer
+acknowledges the exact ticket. Stop/reset and observer handover may explicitly
+retire the whole epoch/observer intent instead. Clearing the bridge immediately
+after queueing a failure event loses its acknowledgement target and risks
+advancing another scan before WCL sees completion.
+
 A provider unsubscribe remains independent of the PCI gate so callbacks can
 join safely even after the work loop has been removed. The *next* subscriber,
 under the live owner's serialized gate, cancels any former observer's physical

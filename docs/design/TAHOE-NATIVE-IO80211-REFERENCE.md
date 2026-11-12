@@ -594,6 +594,12 @@ it on success or PCI replacement. A newly accepted scan supersedes it only
 after the physical owner has accepted the successor generation.
 No mailbox lock is held during any provider call, and the provider's callback
 never enters the native controller's gate.
+An RF-kill, link retirement or receive-queue fault within an otherwise live
+PCI epoch now preserves the failed completion ticket and
+successful-handoff deduplication marker for native acknowledgement or retry.
+It revokes the last completed BSS lease and rechecks live RF/queue readiness
+on result reads rather than resetting the bridge; only stop/reset and observer
+replacement retire that remaining intent.
 A new native subscription retires any orphan scan, old bridge completion,
 result snapshot and successful-handoff deduplication marker under the PCI
 owner gate before publishing its observer callback. The old unsubscribe itself

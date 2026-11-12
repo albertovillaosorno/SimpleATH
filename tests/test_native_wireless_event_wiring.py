@@ -306,6 +306,73 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "pendingScanAckGeneration_ = 0;" in poll
 
 
+class NativeWirelessInterruptedScanWiring(unittest.TestCase):
+    """An RF interruption must not erase its native completion before ack."""
+
+    @staticmethod
+    def test_scan_timer_retains_failed_intent_until_native_ack() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        timer = provider.split("static void scanTimerFired(", 1)[1]
+        timer = timer.split("IOReturn notifyWirelessScanFinished()", 1)[0]
+        radio_loss = timer.split("if (self.scanEpoch_ != self.epoch_", 1)[1]
+        radio_loss = radio_loss.split("const uint64_t now =", 1)[0]
+        assert "const bool interrupted = self.abortActiveNativeScan();" in (
+            radio_loss
+        )
+        assert "self.notifyWirelessScanFinished();" in radio_loss
+        assert "self.completedScanTicket_ = {};" in radio_loss
+        assert "self.scanBridge_.clear();" not in radio_loss
+        assert "self.notifiedScanGeneration_ = 0;" not in radio_loss
+        assert radio_loss.index("self.notifyWirelessScanFinished();") < (
+            radio_loss.index("self.completedScanTicket_ = {};")
+        )
+        # A failed handoff can still be retried on the same owner epoch.
+        retry = provider.split(
+            "static IOReturn ownerRetryScanCompletionAction", 1
+        )[1]
+        retry = retry.split(
+            "static IOReturn ownerAcknowledgeScanCompletion", 1
+        )[0]
+        assert "return self.notifyWirelessScanFinished();" in retry
+
+
+class NativeWirelessRfLossWiring(unittest.TestCase):
+    """Same-epoch radio failures must retain tickets and revoke old BSSes."""
+
+    @staticmethod
+    def test_link_retirement_and_dma_fault_keep_pending_scan_identity() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        link = provider.split("void retireNativeLink(IOReturn reason)", 1)[1]
+        link = link.split("void recordNativeAssociation()", 1)[0]
+        fault = provider.split("static void queueFault(", 1)[1]
+        fault = fault.split("static void queueKeyUpdateResumed(", 1)[0]
+        for body in (link, fault):
+            assert "abortActiveNativeScan();" in body
+            assert "notifyWirelessScanFinished();" in body
+            assert "completedScanTicket_ = {};" in body
+            assert "scanBridge_.clear();" not in body
+            assert "notifiedScanGeneration_ = 0;" not in body
+            assert body.index("notifyWirelessScanFinished();") < body.index(
+                "completedScanTicket_ = {};"
+            )
+
+    @staticmethod
+    def test_bss_enumeration_rechecks_live_rf_and_queue_lease() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        result = provider.split("static IOReturn ownerNextBssAction(", 1)[1]
+        result = result.split("static IOReturn ownerNextBss(", 1)[0]
+        assert "!self.radioOperational_" in result
+        assert "!self.channelAuthorized_" in result
+        assert "!self.liveRfKillUnblocked()" in result
+        assert (
+            "self.queues_.phase() != simpleath::NativeQueuePhase::Running"
+            in (result)
+        )
+        assert result.index("!self.radioOperational_") < result.index(
+            "self.scanBridge_.next(ticket, *request.result)"
+        )
+
+
 class NativeWirelessObserverRebindWiring(unittest.TestCase):
     """Check that a new native listener inherits no orphan scan intent."""
 

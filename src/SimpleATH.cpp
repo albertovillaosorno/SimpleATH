@@ -955,8 +955,12 @@ class SimpleATH final : public IOService
             auto &self = *static_cast<SimpleATH *>(object);
             const auto &request =
                 *static_cast<const NativeScanResultRequest *>(argument);
-            if (!self.powered_ || self.stopping_)
+            if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
+                !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Running)
             {
+                // Even a previously successful BSS snapshot is no longer
+                // authorized after radio or receive-queue revocation.
                 return kIOReturnNotReady;
             }
             const auto ticket =
@@ -1119,8 +1123,13 @@ class SimpleATH final : public IOService
                 {
                     self.notifyWirelessScanFinished();
                 }
-                self.scanBridge_.clear();
-                self.notifiedScanGeneration_ = 0;
+                // An RF-kill or queue failure can occur without a PCI epoch
+                // change. Preserve the unsuccessful bridge completion until
+                // the native consumer acknowledges its exact generation;
+                // clearing it here would strand a posted SCAN_DONE and allow
+                // a later scan to start before that notification is consumed.
+                // Revoke all older BSS enumeration when the radio is unsafe.
+                // Stop/reset and observer handover still clear the bridge.
                 self.completedScanTicket_ = {};
                 return;
             }
@@ -3537,8 +3546,9 @@ class SimpleATH final : public IOService
             {
                 notifyWirelessScanFinished();
             }
-            scanBridge_.clear();
-            notifiedScanGeneration_ = 0;
+            // Link retirement revokes RF access, not the PCI epoch. Keep any
+            // scan completion intent for the same-epoch native consumer to
+            // acknowledge, while invalidating earlier BSS enumeration.
             completedScanTicket_ = {};
             memset(&protectedRxScratch_[0], 0, sizeof(protectedRxScratch_));
             engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
@@ -4330,9 +4340,10 @@ class SimpleATH final : public IOService
             {
                 self.notifyWirelessScanFinished();
             }
-            // Completed BSS records are invalid after the physical RF epoch
-            // faults, even if the controller's PCI owner remains mapped.
-            self.scanBridge_.clear();
+            // A DMA fault revokes the old BSS lease and all radio readiness,
+            // even if the PCI owner remains mapped. Do not discard a posted
+            // failure completion: same-epoch native acknowledgement must
+            // still be able to retire that exact bridge ticket.
             self.completedScanTicket_ = {};
             self.notifyWirelessChange(false);
             self.error("DMAInterrupt", static_cast<uint32_t>(result));

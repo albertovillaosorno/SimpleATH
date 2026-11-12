@@ -784,6 +784,13 @@ namespace
                 ScanBridgeResult::InvalidState ||
             bridge.completion(completed) != ScanBridgeResult::Ok ||
             completed.succeeded || completed.resultCount != 0 ||
+            // An RF interruption keeps its failure intent until the native
+            // SCAN_DONE handoff is acknowledged. The old snapshot cannot
+            // acknowledge it or make a successor physical scan start early.
+            bridge.beginScan(3, ignored) != ScanBridgeResult::EventPending ||
+            bridge.acknowledgeCompletion(completedTicket) !=
+                ScanBridgeResult::InvalidState ||
+            bridge.beginScan(3, ignored) != ScanBridgeResult::EventPending ||
             bridge.acknowledgeCompletion(ticket) != ScanBridgeResult::Ok)
         {
             return kFixtureInt6;

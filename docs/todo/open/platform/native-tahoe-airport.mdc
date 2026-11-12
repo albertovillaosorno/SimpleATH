@@ -112,6 +112,10 @@ accepted epoch with the bridge ticket; this does not verify OS event receipt.
 Normal as well as canceled `SCAN_DONE` paths retain failed provider
 acknowledgements by exact epoch/generation for poll retry, so an ordinary
 transient failure does not strand the scan bridge in `EventPending`.
+Live-epoch radio loss, link retirement and DMA faults now keep failed scan
+completions and deduplication identity through native acknowledgement, while
+revoking old BSS leases and gating results on RF/queue readiness. Epoch reset
+still retires all tickets.
 A new callback subscription also retires the previous consumer's orphan
 physical scan and pending bridge completion on the PCI owner gate before
 publishing the observer. Unsubscribe still joins callbacks without requiring
