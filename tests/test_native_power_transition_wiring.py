@@ -80,7 +80,10 @@ class NativePowerTransitionWiring(unittest.TestCase):
         quiesce = owner.split("const bool hardwareQuiesced =", 1)[1].split(
             "// Portable supplicant key removal", 1
         )[0]
-        assert "session_.hardwareStatus().mapped" in quiesce
+        # The mapped BAR belongs to PciSessionStatus; hardwareStatus()
+        # exposes silicon inspection, not PCI mapping ownership.
+        assert "session_.status().mapped" in quiesce
+        assert "session_.hardwareStatus().mapped" not in quiesce
         assert (
             "queues_.phase() != simpleath::NativeQueuePhase::Quarantined"
             in (quiesce)

@@ -5070,7 +5070,7 @@ class SimpleATH final : public IOService
             // determines whether a later physical key erasure is possible.
             const bool hardwareQuiesced =
                 access == simpleath::ProviderAccess::Available &&
-                session_.hardwareStatus().mapped &&
+                session_.status().mapped &&
                 queues_.phase() != simpleath::NativeQueuePhase::Quarantined &&
                 quiesceEngines();
             // Portable supplicant key removal now runs only after the native
