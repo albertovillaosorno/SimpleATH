@@ -540,3 +540,14 @@ Group2 queue admission. `test_native_eapol_tx.cpp` exercises positive
 canonical replies and corrupted fixed fields with C++14/17 sanitizers.
 This verifies wire classification only, not a Tahoe OS supplicant, EAPOL
 MIC, RF transmission or hardware key operation.
+
+### Tahoe native power-cycle recovery (source-only, 2026-11-11)
+
+The Tahoe transport no longer requires an online RF snapshot before sending
+`setPower(true)` to the PCI owner. A previous power-off intentionally revokes
+the physical board lease, so that snapshot can return `NotReady`; only the
+owner callback can acquire a fresh reset/D0/EEPROM epoch. The transport still
+refuses a terminated provider and invalidates its receive/scan mailboxes after
+power-off. The native owner remains responsible for physical prerequisites,
+queue quiescence, RF kill and new-epoch validation. This fixes an impossible
+power-on prerequisite but does not establish successful runtime resume or RF.

@@ -401,18 +401,17 @@ namespace simpleath
             {
                 return kIOReturnNotReady;
             }
-            if (on)
+            // Power-off invalidates the owner's board and makes snapshot()
+            // return NotReady. Requiring an online RF snapshot *before*
+            // invoking power-on would strand the device in that state.
+            // Provider termination is still terminal; the physical owner
+            // gates D0/reset and can reject a stale or unsupported request.
+            IOLockLock(mailboxLock_);
+            const bool stopped = providerStopped_;
+            IOLockUnlock(mailboxLock_);
+            if (stopped)
             {
-                WirelessSnapshot state {};
-                const IOReturn result = snapshot(state);
-                if (result != kIOReturnSuccess)
-                {
-                    return result;
-                }
-                if (!state.radioAvailable || state.rfKillBlocked)
-                {
-                    return kIOReturnNotReady;
-                }
+                return kIOReturnNotReady;
             }
             const IOReturn result = owner_.setPower(owner_.context, on);
             if (result == kIOReturnSuccess && !on)

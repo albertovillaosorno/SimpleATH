@@ -42,6 +42,9 @@ OWNER = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
 QUEUE = (ROOT / "src/platform/Ar9565NativeQueues.cpp").read_text(
     encoding="utf-8"
 )
+TRANSPORT = (ROOT / "src/platform/tahoe/TahoeWirelessTransport.cpp").read_text(
+    encoding="utf-8"
+)
 POLICY = (ROOT / "src/platform/NativeLinkRetirement.hpp").read_text(
     encoding="utf-8"
 )
@@ -581,6 +584,38 @@ class NativeEapolTransmitWiring(unittest.TestCase):
         )
         assert "self->nativePairwiseTx_.installed()" in transmit
         assert "verifyNativeAssociationLease(" in transmit
+
+
+class NativePowerRecoveryWiring(unittest.TestCase):
+    """A stopped PCI owner can only re-acquire D0 through its callback."""
+
+    @staticmethod
+    def test_offline_power_on_does_not_require_an_online_snapshot() -> None:
+        power = body(
+            TRANSPORT,
+            "IOReturn TahoeWirelessTransport::setPower(bool on)",
+            "IOReturn\n        TahoeWirelessTransport::setMac(",
+        )
+        # After setPower(false), the native owner invalidates its board and
+        # ownerSnapshot() returns NotReady. Snapshot must not be a precondition
+        # to the only callback that can restore the hardware epoch.
+        assert "snapshot(state)" not in power
+        assert "state.radioAvailable" not in power
+        assert "providerStopped_" in power
+        assert (
+            power.index("IOLockLock(mailboxLock_);")
+            < power.index("providerStopped_")
+            < power.index("owner_.setPower(owner_.context, on)")
+        )
+        assert "if (result == kIOReturnSuccess && !on)" in power
+        assert "invalidateMailboxes();" in power
+        owner = body(
+            OWNER,
+            "static IOReturn ownerSetPower(",
+            "static IOReturn\n        ownerSetMac(",
+        )
+        assert "return self.startClient();" in owner
+        assert "self.setPowerState(0, nullptr);" in owner
 
 
 if __name__ == "__main__":
