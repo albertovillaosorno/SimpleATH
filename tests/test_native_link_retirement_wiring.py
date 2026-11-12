@@ -171,7 +171,7 @@ class NativeLocalLeaveWiring(unittest.TestCase):
         scan = body(
             OWNER,
             "static IOReturn ownerBeginScanAction(",
-            "static IOReturn ownerBeginScan(",
+            "ownerBeginScan(void *context,",
         )
         assert "self.pendingLocalLeaveToken_ != 0" in scan
         transmit = body(

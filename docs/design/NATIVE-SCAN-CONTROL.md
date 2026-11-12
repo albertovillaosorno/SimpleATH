@@ -72,7 +72,7 @@ native callback, radio readiness, physical RF or IP connectivity result.
 
 ## Native acknowledgement wiring and remaining gap — 2026-11-12
 
-The internal `SimpleATHWirelessOwnerV6` callback now returns an `IOReturn`
+The internal `SimpleATHWirelessOwnerV7` callback retains the V6 `IOReturn`
 from the bounded mailbox, instead of treating a `void` callback as delivery.
 The PCI owner holds the bridge completion intent until the matching native
 InfraProtocol calls `acknowledgeScanCompletion(epoch, generation)` **after**
@@ -90,6 +90,14 @@ it after the worker finishes; no newer generation can be acknowledged.
 The callback takes only an observer lock and the transport mailbox lock;
 no provider callback enters the child's work-loop gate. The child drops its
 mailbox lock before calling the provider acknowledgement gate.
+
+A V7 `NativeScanStartRequest` also carries the caller's sampled PCI epoch
+into the provider's serialized command gate. A mismatched epoch fails before
+creating a physical dwell or bridge ticket. On success, the owner returns both
+its accepted epoch and bridge generation from that same gated operation; the
+transport checks both under the mailbox lock before exposing them to WCL.
+This closes the reset-between-snapshot-and-start race without starting an
+orphan scan. Any subsequent reset still requires normal owner retirement.
 
 **This is not evidence that macOS consumed the notification.** The native
 `wirelessPost` OS event wrapper currently returns `void`, so the source can

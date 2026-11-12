@@ -101,12 +101,14 @@ operations, connect genuine RF/channel activation, and complete packet/CCMP
 ownership across EDMA, MAC and security. Keep UI state tied to actual
 association generations, including stop and resume cancellation.
 
-The internal V6 scan completion handoff now reports mailbox acceptance,
+The internal V7 scan completion handoff still reports mailbox acceptance,
 retains unacknowledged bridge intents, retries from the native poll and
 acknowledges matching epoch/generation after invoking WCL `SCAN_DONE`. The
 Apple event wrapper still returns `void`, so OS consumption cannot yet be
 confirmed. Verify exact-build notification delivery and error semantics
-before claiming reliable AirPort scan completion.
+before claiming reliable AirPort scan completion. Its begin-scan callback
+also rejects stale PCI epochs under the physical owner gate and returns the
+accepted epoch with the bridge ticket; this does not verify OS event receipt.
 
 
 Apple documents

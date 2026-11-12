@@ -532,6 +532,24 @@ int main()
     {
         return kPrematureDataFailure;
     }
+    // A stale sampled epoch cannot start radio dwell on a newly reset PCI
+    // owner. The gated owner returns its accepted epoch with the ticket; the
+    // child validates that exact identity again under its mailbox lock.
+    using simpleath::tahoe::acceptWirelessScanStart;
+    constexpr int kStaleScanStartFailure = 13;
+    if (!acceptWirelessScanStart(first, first, first, first, false) ||
+        !acceptWirelessScanStart(latest, latest, latest, latest, false) ||
+        acceptWirelessScanStart(0, first, first, first, false) ||
+        acceptWirelessScanStart(first, 0, first, first, false) ||
+        acceptWirelessScanStart(first, first, 0, first, false) ||
+        acceptWirelessScanStart(first, first, first, 0, false) ||
+        acceptWirelessScanStart(first, second, first, first, false) ||
+        acceptWirelessScanStart(first, first, first, second, false) ||
+        acceptWirelessScanStart(second, first, first, first, false) ||
+        acceptWirelessScanStart(first, first, first, first, true))
+    {
+        return kStaleScanStartFailure;
+    }
     using simpleath::tahoe::acceptWirelessScanCompletion;
     constexpr int kStaleScanCompletionFailure = 12;
     if (!acceptWirelessScanCompletion(first, first, first, first, true,

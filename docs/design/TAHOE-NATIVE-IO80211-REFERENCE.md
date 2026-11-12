@@ -572,8 +572,9 @@ indefinite callback starvation.
 
 ## Native scan mailbox handoff and OS acknowledgement — 2026-11-12
 
-Internal `WirelessOwnerV6` (`SimpleATHWirelessOwnerV6`, ABI 6) replaces the
-V5 `void notify` callback with an `IOReturn` result. The bounded mailbox now
+Internal `WirelessOwnerV7` (`SimpleATHWirelessOwnerV7`, ABI 7) retains the
+V6 `IOReturn notify` result, replacing V5's `void` notification. The
+bounded mailbox now
 returns an explicit failure when full, while keeping the existing event
 retention and generation policy. The PCI owner does **not** acknowledge the
 bridge on enqueue; it retains the pending intent, deduplicates a successful
@@ -602,6 +603,11 @@ The native transport now returns the PCI epoch together with its accepted
 bridge scan generation, after validating the second owner snapshot and the
 mailbox epoch. The InfraProtocol consumes that exact pair rather than
 combining an earlier independent snapshot with a later scan-start ticket.
-An intervening PCI reset is rejected by the transport; it cannot silently
-produce a WCL request tied to the wrong physical epoch. This is a source
-race fix, not a runtime or RF scan confirmation.
+The V7 owner begin callback now receives the requested epoch as a required
+precondition and returns the epoch/generation actually accepted under its
+serialized PCI gate. A reset between snapshot and owner call is rejected
+*before* any bridge ticket or physical dwell is created. The transport also
+checks the returned pair against its mailbox epoch, rejecting an intervening
+callback retirement. This closes the stale-snapshot start race without
+creating an orphan scan; later resets still require normal lifecycle cleanup.
+This is a source race fix, not runtime or RF scan confirmation.

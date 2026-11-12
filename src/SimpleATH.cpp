@@ -414,7 +414,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV6 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV7 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
             {
@@ -449,10 +449,10 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV6 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV6 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV7 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV7 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV6),
+                sizeof(simpleath::tahoe::WirelessOwnerV7),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -806,9 +806,14 @@ class SimpleATH final : public IOService
         {
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(object);
-            auto &generation = *static_cast<uint64_t *>(argument);
-            generation = 0;
-            if (self.scanTimer_ == nullptr || !self.powered_ ||
+            auto &request =
+                *static_cast<simpleath::tahoe::NativeScanStartRequest *>(
+                    argument);
+            request.generation = 0;
+            request.acceptedEpoch = 0;
+            if (request.requestedEpoch == 0U ||
+                request.requestedEpoch != self.epoch_ ||
+                self.scanTimer_ == nullptr || !self.powered_ ||
                 self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.pendingLocalLeaveToken_ != 0 ||
@@ -874,22 +879,25 @@ class SimpleATH final : public IOService
             self.scanEpoch_ = self.epoch_;
             self.scanEngineGeneration_ = engineGeneration;
             self.scanTicket_ = ticket;
-            generation = ticket.generation;
+            request.acceptedEpoch = self.epoch_;
+            request.generation = ticket.generation;
             return kIOReturnSuccess;
         }
 
-        static IOReturn ownerBeginScan(void *context, uint64_t *generation)
+        static IOReturn
+        ownerBeginScan(void *context,
+                       simpleath::tahoe::NativeScanStartRequest *request)
         {
-            if (context == nullptr || generation == nullptr)
+            if (context == nullptr || request == nullptr)
             {
                 return kIOReturnBadArgument;
             }
-            *generation = 0;
+            request->acceptedEpoch = 0;
+            request->generation = 0;
             const auto &self = *static_cast<SimpleATH *>(context);
             return self.gate_ == nullptr
                        ? kIOReturnNotReady
-                       : self.gate_->runAction(ownerBeginScanAction,
-                                               generation);
+                       : self.gate_->runAction(ownerBeginScanAction, request);
         }
 
         static IOReturn ownerCancelScanAction(OSObject *object, void *argument,

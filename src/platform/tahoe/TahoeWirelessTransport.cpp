@@ -111,10 +111,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV6 &owner)
+            bool validContract(const WirelessOwnerV7 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV6) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV7) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -241,7 +241,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV6 candidate {};
+            WirelessOwnerV7 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -455,32 +455,33 @@ namespace simpleath
             {
                 return kIOReturnNotReady;
             }
-            uint64_t ticket = 0;
-            const IOReturn result = owner_.beginScan(owner_.context, &ticket);
+            NativeScanStartRequest accepted {state.epoch, 0, 0};
+            const IOReturn result = owner_.beginScan(owner_.context, &accepted);
             if (result != kIOReturnSuccess)
             {
                 return result;
             }
-            if (ticket == 0U)
-            {
-                return kIOReturnError;
-            }
             IOLockLock(mailboxLock_);
-            const bool stillCurrent =
-                epoch_ == state.epoch && !providerStopped_;
+            const bool stillCurrent = acceptWirelessScanStart(
+                state.epoch, accepted.acceptedEpoch, accepted.generation,
+                epoch_, providerStopped_);
             if (stillCurrent)
             {
                 previousScanGeneration_ = scanGeneration_;
-                scanGeneration_ = ticket;
+                scanGeneration_ = accepted.generation;
             }
             IOLockUnlock(mailboxLock_);
             if (!stillCurrent)
             {
-                (void)owner_.cancelScan(owner_.context, ticket);
+                if (accepted.generation != 0U)
+                {
+                    (void)owner_.cancelScan(owner_.context,
+                                            accepted.generation);
+                }
                 return kIOReturnNotReady;
             }
-            generation = ticket;
-            epoch = state.epoch;
+            generation = accepted.generation;
+            epoch = accepted.acceptedEpoch;
             return kIOReturnSuccess;
         }
 

@@ -128,6 +128,20 @@ namespace simpleath
             return false;
         }
 
+        // A sampled PCI epoch must be checked again under the owner's
+        // serialized gate before starting any physical work. The native
+        // transport then rechecks that accepted identity against its mailbox.
+        inline bool acceptWirelessScanStart(uint64_t sampledEpoch,
+                                            uint64_t acceptedEpoch,
+                                            uint64_t generation,
+                                            uint64_t mailboxEpoch,
+                                            bool providerStopped)
+        {
+            return !providerStopped && sampledEpoch != 0U && generation != 0U &&
+                   sampledEpoch == acceptedEpoch &&
+                   acceptedEpoch == mailboxEpoch;
+        }
+
         // Scan completion is identified by both PCI epoch and bridge
         // generation. A queued completion must never finish a replacement
         // scan even after that replacement's own dwell has ended. Require

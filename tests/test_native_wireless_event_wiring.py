@@ -147,9 +147,9 @@ class NativeWirelessEventWiring(unittest.TestCase):
         controller = (
             ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
         ).read_text(encoding="utf-8")
-        assert '"SimpleATHWirelessOwnerV6"' in OWNER
-        assert "kWirelessOwnerAbi = 6;" in OWNER
-        assert "WirelessOwnerV6 callbacks" in native
+        assert '"SimpleATHWirelessOwnerV7"' in OWNER
+        assert "kWirelessOwnerAbi = 7;" in OWNER
+        assert "WirelessOwnerV7 callbacks" in native
         assert (
             "done.ticket.generation"
             in native.split("IOReturn notifyWirelessScanFinished()", 1)[
@@ -210,10 +210,39 @@ class NativeWirelessEventWiring(unittest.TestCase):
         infra_start = infra_start.split("SimpleATHInfraProtocol::emit(", 1)[0]
         assert "generation = 0;" in start
         assert "epoch = 0;" in start
-        assert start.index("epoch_ == state.epoch && !providerStopped_") < (
-            start.index("generation = ticket;")
+        assert "NativeScanStartRequest accepted {state.epoch, 0, 0};" in start
+        assert "owner_.beginScan(owner_.context, &accepted)" in start
+        assert "acceptWirelessScanStart(" in start
+        assert (
+            "state.epoch, accepted.acceptedEpoch, accepted.generation," in start
         )
-        assert "epoch = state.epoch;" in start
+        assert "epoch_, providerStopped_" in start
+        assert start.index("acceptWirelessScanStart(") < start.index(
+            "scanGeneration_ = accepted.generation;"
+        )
+        assert "generation = accepted.generation;" in start
+        assert "epoch = accepted.acceptedEpoch;" in start
+        assert "sampledEpoch == acceptedEpoch" in EPOCH
+        assert "acceptedEpoch == mailboxEpoch" in EPOCH
+        native = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        gate = native.split("static IOReturn ownerBeginScanAction(", 1)[1]
+        gate = gate.split("ownerBeginScan(void *context,", 1)[0]
+        assert "NativeScanStartRequest" in gate
+        assert gate.index("request.requestedEpoch != self.epoch_") < (
+            gate.index("self.scanBridge_.beginScan(serial, ticket)")
+        )
+        assert gate.index("request.acceptedEpoch = self.epoch_;") < (
+            gate.index("request.generation = ticket.generation;")
+        )
+        callback = native.split("ownerBeginScan(void *context,", 1)[1]
+        callback = callback.split("static IOReturn ownerCancelScanAction(", 1)[
+            0
+        ]
+        assert "request->acceptedEpoch = 0;" in callback
+        assert "request->generation = 0;" in callback
+        assert (
+            "self.gate_->runAction(ownerBeginScanAction, request)" in callback
+        )
         assert (
             "startScan(uint64_t &generation, uint64_t &epoch)"
             in transport_header

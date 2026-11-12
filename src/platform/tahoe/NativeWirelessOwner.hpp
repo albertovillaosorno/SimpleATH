@@ -52,8 +52,8 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV6";
-        constexpr uint32_t kWirelessOwnerAbi = 6;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV7";
+        constexpr uint32_t kWirelessOwnerAbi = 7;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
@@ -130,7 +130,17 @@ namespace simpleath
                 bool open;
         };
 
-        struct WirelessOwnerV6
+        // The request carries the sampled PCI epoch into the owner gate.
+        // A reset before dispatch rejects it without starting an orphan scan.
+        // The accepted identity is written only after physical scan startup.
+        struct NativeScanStartRequest
+        {
+                uint64_t requestedEpoch;
+                uint64_t acceptedEpoch;
+                uint64_t generation;
+        };
+
+        struct WirelessOwnerV7
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;
@@ -141,7 +151,7 @@ namespace simpleath
                 IOReturn (*setPower)(void *, bool on);
                 IOReturn (*setMac)(void *,
                                    const uint8_t address[kWirelessMacBytes]);
-                IOReturn (*beginScan)(void *, uint64_t *generation);
+                IOReturn (*beginScan)(void *, NativeScanStartRequest *);
                 IOReturn (*cancelScan)(void *, uint64_t generation);
                 IOReturn (*nextBss)(void *, uint64_t generation,
                                     ieee80211::NativeBssSnapshot *);
