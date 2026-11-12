@@ -357,6 +357,14 @@ namespace simpleath
             return true;
         }
 
+        bool sameGpmCursor(const MciGpmCursor &current,
+                           const MciGpmCursor &original)
+        {
+            return current.attached && original.attached &&
+                   current.ownerEpoch == original.ownerEpoch &&
+                   current.nextIndex == original.nextIndex;
+        }
+
         bool validMciTransmitLease(const SharedMciEvidence &evidence,
                                    const MciGpmCursor &cursor,
                                    const MciCoexTransmitEvidence &transmit,
@@ -537,10 +545,8 @@ namespace simpleath
                 // Synchronous MMIO/BT callbacks may revoke the cursor during
                 // command completion without changing the owner epoch. Never
                 // publish success for a detached or replaced GPM owner.
-                if (cursor.attached &&
-                    cursor.ownerEpoch == backend.io.ownerEpoch &&
-                    cursor.ownerEpoch == originalCursor.ownerEpoch &&
-                    cursor.nextIndex == originalCursor.nextIndex)
+                if (sameGpmCursor(cursor, originalCursor) &&
+                    cursor.ownerEpoch == backend.io.ownerEpoch)
                 {
                     return true;
                 }
@@ -1009,7 +1015,7 @@ namespace simpleath
 
     MciPendingInterrupts pollAr9565MciPendingInterrupts(
         const SharedMciEvidence &evidence, const SharedMciDmaBuffers &buffers,
-        const MciGpmCursor &cursor, const RxAgcBackend &backend)
+        MciGpmCursor &cursor, const RxAgcBackend &backend)
     {
         MciPendingInterrupts result {};
         result.progress.result = CoexistenceResult::InvalidBackend;
@@ -1031,6 +1037,9 @@ namespace simpleath
         {
             return result;
         }
+        // Snapshot the exact attached consumer before entering synchronous
+        // MMIO callbacks, which may retire or replace this session.
+        const MciGpmCursor originalCursor = cursor;
         result.progress.result = CoexistenceResult::InvalidDma;
         if (!validSharedDma(buffers))
         {
@@ -1056,26 +1065,89 @@ namespace simpleath
         {
             if (!observe(stable, result.progress, item))
             {
+                // A now-invalid physical MCI configuration cannot preserve
+                // the old GPM lease, even if no status W1C was attempted.
+                result.progress.requiresReset = true;
+                if (sameGpmCursor(cursor, originalCursor))
+                {
+                    cursor.attached = false;
+                }
+                return result;
+            }
+            if (!sameGpmCursor(cursor, originalCursor))
+            {
+                result.progress.result = CoexistenceResult::OwnershipLost;
+                result.progress.requiresReset = true;
                 return result;
             }
         }
         uint32_t rawMessage = 0U;
         uint32_t rawInterrupt = 0U;
         if (!readMciPendingRaw(stable, result.progress, kMciReceiveMessageRaw,
-                               rawMessage) ||
-            !readMciPendingRaw(stable, result.progress, kMciInterruptRaw,
+                               rawMessage))
+        {
+            result.progress.requiresReset = true;
+            if (sameGpmCursor(cursor, originalCursor))
+            {
+                cursor.attached = false;
+            }
+            return result;
+        }
+        if (!sameGpmCursor(cursor, originalCursor))
+        {
+            result.progress.result = CoexistenceResult::OwnershipLost;
+            result.progress.requiresReset = true;
+            return result;
+        }
+        if (!readMciPendingRaw(stable, result.progress, kMciInterruptRaw,
                                rawInterrupt))
         {
+            result.progress.requiresReset = true;
+            if (sameGpmCursor(cursor, originalCursor))
+            {
+                cursor.attached = false;
+            }
+            return result;
+        }
+        if (!sameGpmCursor(cursor, originalCursor))
+        {
+            result.progress.result = CoexistenceResult::OwnershipLost;
+            result.progress.requiresReset = true;
             return result;
         }
         // Device RAW registers are W1C, never RMW. The owner checks each
         // acknowledgement and readback before declaring the snapshot valid.
         if (!acknowledgeMciPendingRaw(stable, result.progress,
-                                      kMciReceiveMessageRaw, rawMessage) ||
-            !acknowledgeMciPendingRaw(stable, result.progress, kMciInterruptRaw,
+                                      kMciReceiveMessageRaw, rawMessage))
+        {
+            result.progress.requiresReset = true;
+            if (sameGpmCursor(cursor, originalCursor))
+            {
+                cursor.attached = false;
+            }
+            return result;
+        }
+        if (!sameGpmCursor(cursor, originalCursor))
+        {
+            result.progress.result = CoexistenceResult::OwnershipLost;
+            result.progress.requiresReset = true;
+            return result;
+        }
+        if (!acknowledgeMciPendingRaw(stable, result.progress, kMciInterruptRaw,
                                       rawInterrupt) ||
             !permit(io, result.progress))
         {
+            result.progress.requiresReset = true;
+            if (sameGpmCursor(cursor, originalCursor))
+            {
+                cursor.attached = false;
+            }
+            return result;
+        }
+        if (!sameGpmCursor(cursor, originalCursor))
+        {
+            result.progress.result = CoexistenceResult::OwnershipLost;
+            result.progress.requiresReset = true;
             return result;
         }
         // Only publish a copied status after both W1C acknowledgements
@@ -1083,13 +1155,21 @@ namespace simpleath
         // GPM or Bluetooth status, regardless of the speculative snapshot.
         result.rawMessageInterrupt = rawMessage;
         result.rawInterrupt = rawInterrupt;
-        result.gpmNotification = (rawMessage & kMciReceiveGpmMessage) != 0U &&
+        result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
+        // Never expose actionable GPM or remote-wake work from a physically
+        // faulted MCI session, even when its W1C statuses also contain RX.
+        result.gpmNotification = !result.hardwareFault &&
+                                 (rawMessage & kMciReceiveGpmMessage) != 0U &&
                                  (rawInterrupt & kMciInterruptRxMessage) != 0U;
         result.bluetoothRenegotiationRequired =
+            !result.hardwareFault &&
             (rawMessage & (kMciReceiveRemoteReset | kMciReceiveReqWake)) != 0U;
-        result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
         result.progress.result = CoexistenceResult::Ok;
         result.progress.requiresReset = result.hardwareFault;
+        if (result.hardwareFault)
+        {
+            cursor.attached = false;
+        }
         return result;
     }
 

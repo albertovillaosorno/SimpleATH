@@ -170,6 +170,7 @@ namespace
             MciGpmCursor *revokeCursorAtCommand {};
             MciGpmCursor *moveCursorAtCommand {};
             MciGpmCursor *moveCursorAtInterruptRead {};
+            MciGpmCursor *moveCursorAtMessageRead {};
             size_t writes {};
             size_t reads {};
             size_t permits {};
@@ -214,6 +215,14 @@ namespace
             return false;
         }
         *out = reg->bits;
+        if (offset == kMciReceiveMessageRaw &&
+            mock.moveCursorAtMessageRead != nullptr)
+        {
+            auto *const cursor = mock.moveCursorAtMessageRead;
+            cursor->nextIndex = static_cast<uint16_t>((cursor->nextIndex + 1U) %
+                                                      kAr9565MciGpmEntries);
+            mock.moveCursorAtMessageRead = nullptr;
+        }
         if (offset == kMciInterruptRaw &&
             mock.moveCursorAtInterruptRead != nullptr)
         {
@@ -1378,13 +1387,28 @@ namespace
             {
                 return false;
             }
-            find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
-            find(mock, kMciInterruptRaw)->bits = kMciHardwareFault;
+            find(mock, kMciReceiveMessageRaw)->bits =
+                kMciGpmReceived | kMciRemoteReset;
+            find(mock, kMciInterruptRaw)->bits =
+                kMciHardwareFault | kMciRxMessageInterrupt;
             const auto result =
                 pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
             if (result.progress.result != CoexistenceResult::Ok ||
                 !result.hardwareFault || !result.progress.requiresReset ||
-                result.gpmNotification || result.bluetoothRenegotiationRequired)
+                result.gpmNotification ||
+                result.bluetoothRenegotiationRequired || cursor.attached)
+            {
+                return false;
+            }
+            // A caller that discards requiresReset must not be able to send
+            // another MCI command with the poisoned attached cursor.
+            const auto previousWrites = mock.writes;
+            const MciCoexTransmitEvidence transmitLease {true, true, true};
+            const auto replay = sendAr9565MciCoexQuery(
+                physicalBoard, evidence, dma, cursor, transmitLease,
+                MciCoexQuery::Version, io(mock));
+            if (replay.result != CoexistenceResult::MissingIsolation ||
+                replay.requiresReset || mock.writes != previousWrites)
             {
                 return false;
             }
@@ -1452,11 +1476,59 @@ namespace
                                  : CoexistenceResult::ReadFailed;
             if (result.progress.result != expected ||
                 (scenario < 2U && mock.writes != 0U) ||
-                result.progress.requiresReset != (scenario != 1U) ||
-                !cursor.attached || cursor.ownerEpoch != kEpoch ||
-                result.gpmNotification ||
+                !result.progress.requiresReset || cursor.attached ||
+                cursor.ownerEpoch != kEpoch || result.gpmNotification ||
                 result.bluetoothRenegotiationRequired || result.hardwareFault ||
                 result.rawMessageInterrupt != 0U || result.rawInterrupt != 0U)
+            {
+                return false;
+            }
+        }
+        // A callback switching GPM consumer after the first RAW read must
+        // stop even before the next RAW read or any W1C acknowledgement.
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
+            find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
+            const auto oldIndex = cursor.nextIndex;
+            mock.moveCursorAtMessageRead = &cursor;
+            const auto result =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            if (result.progress.result != CoexistenceResult::OwnershipLost ||
+                !result.progress.requiresReset || mock.reads != 9U ||
+                mock.writes != 0U || result.rawInterrupt != 0U ||
+                result.gpmNotification || !cursor.attached ||
+                cursor.nextIndex == oldIndex)
+            {
+                return false;
+            }
+        }
+        // The native GPM callback may consume or replace the cursor while
+        // reading the second RAW status. Do not acknowledge or publish a
+        // snapshot for the old consumer or overwrite the changed cursor.
+        {
+            Mock mock {};
+            MciGpmCursor cursor {};
+            if (!prepare(mock, cursor))
+            {
+                return false;
+            }
+            find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
+            find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
+            const auto oldIndex = cursor.nextIndex;
+            mock.moveCursorAtInterruptRead = &cursor;
+            const auto result =
+                pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+            if (result.progress.result != CoexistenceResult::OwnershipLost ||
+                !result.progress.requiresReset || mock.writes != 0U ||
+                result.gpmNotification || result.hardwareFault ||
+                result.rawInterrupt != 0U || !cursor.attached ||
+                cursor.nextIndex == oldIndex)
             {
                 return false;
             }

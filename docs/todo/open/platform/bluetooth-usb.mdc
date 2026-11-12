@@ -611,3 +611,18 @@ This change addresses the standalone native raw-HCI transport contract; the
 normal macOS Bluetooth host personality retains its *separate* superclass
 USB ownership and does not borrow these endpoint pipes. No real USB I/O,
 Tahoe host-controller attach, BLE pairing, or AirDrop is demonstrated.
+
+## Source progress — MCI fault-scoped GPM cursor retirement
+
+The masked MCI RAW/receive-message polling stage now revokes the attached
+GPM consumer on a physical MCI fault, mismatched staged registers, unreadable
+status, ambiguous W1C acknowledgment, or lost MMIO ownership. A subsequent
+coexistence query cannot borrow that retired cursor, even if a caller ignored
+the reset obligation. Each callback rechecks the original epoch/index before
+issuing the next acknowledgement or publishing status; a changed cursor is
+not overwritten. The native owner must still serialize same-index ABA
+reattachment and reset the physical MCI session when required. Host-only
+synthetic register tests cover faults, failed acknowledgments, forged enable
+state and synchronous cursor replacement. No native MCI IRQ worker,
+coherent-DMA consumer, Bluetooth handshake or RF authorization is wired by
+this step; the production implementation task remains open.
