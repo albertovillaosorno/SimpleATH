@@ -2892,6 +2892,14 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_native_join_watchdog.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "source"
+    },
+    {
       "path": "tests/test_native_link_retirement_wiring.py",
       "license": "MIT",
       "license_file": "LICENSE-MIT",

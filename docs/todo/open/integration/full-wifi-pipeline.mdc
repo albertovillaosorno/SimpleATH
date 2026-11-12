@@ -114,6 +114,23 @@ boot still cannot arm the watchdog in practice because RF/channel startup and
 native packet queues remain unverified; it does not prove hardware keycache
 scrub, interrupt service, reconnection or physical Wi-Fi operation.
 
+### Native pending-join deadline (source integration, 2026-11-11)
+
+After EDMA accepts an actual authentication TX, the command-gated native
+owner arms a ten-second pending-join deadline on its existing workloop timer.
+A missing authentication/association reply now expires into the same terminal
+native hardware queue/key isolation path as a lost link, rather than leaving
+the requested OS join pending with an unbounded physical transmission lease.
+The timer checks the PCI epoch and exact join-request identity and cannot
+publish association or radio readiness. An accepted association transitions
+that timer to the existing beacon-liveness watchdog. Failed TX, timer-arm
+failure, explicit join cancellation, shutdown and PCI fault clear its lease.
+
+`tests/test_native_join_watchdog.py` checks the source-level call order and
+terminal wiring. It is not a kernel timer, physical EDMA or RF test. WPA2
+EAPOL handshake completion timing, actual native RF/channel authorization and
+reset/reconnect after the terminal quarantine remain separate unfinished work.
+
 ### Prior link-loss audit (2026-11-11)
 
 Before the guarded quarantine transition described below,

@@ -147,6 +147,7 @@ namespace
     constexpr size_t kNativeQosControlOffset = 24U;
     constexpr uint8_t kNativeAmsduPresent = 0x80U;
     constexpr uint32_t kNativeLinkWatchdogMs = 1000U;
+    constexpr uint32_t kNativeJoinTimeoutMs = 10000U;
     constexpr uint8_t kAwdlSocialChannelSix = 6U;
     constexpr uint8_t kAwdlActionSubtype = 13U;
     constexpr unsigned int kAwdlCounterWidthBits = 64U;
@@ -901,15 +902,36 @@ class SimpleATH final : public IOService
         static void linkTimerFired(OSObject *owner, IOTimerEventSource *unused)
         {
             (void)unused;
-            // Only the serialized PCI owner can retire a live association.
+            // Only the serialized PCI owner can retire a pending join or link.
             // Sleep, stop and new associations invalidate this exact token.
             // Do not treat a timer callback as an RX/beacon observation.
             // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
             auto &self = *static_cast<SimpleATH *>(owner);
             if (self.loop_ == nullptr || !self.loop_->inGate() ||
                 self.linkWatchEpoch_ == 0 ||
-                self.linkWatchEpoch_ != self.epoch_ ||
-                self.linkWatchAssociationGeneration_ == 0 ||
+                self.linkWatchEpoch_ != self.epoch_)
+            {
+                return;
+            }
+            if (self.joinWatchRequestId_ != 0)
+            {
+                // Authentication/association replies may never arrive. The
+                // physical owner must retire this exact outstanding join,
+                // including its queued TX and hardware-key lifetime, rather
+                // than leave a permanently pending native OS request.
+                if (self.joinEpoch_ != self.epoch_ ||
+                    self.joinRequestId_ != self.joinWatchRequestId_ ||
+                    self.joinStatus_ != kIOReturnSuccess)
+                {
+                    self.retireNativeLink(kIOReturnNotReady);
+                }
+                else
+                {
+                    self.retireNativeLink(kIOReturnTimeout);
+                }
+                return;
+            }
+            if (self.linkWatchAssociationGeneration_ == 0 ||
                 self.linkWatchAssociationGeneration_ !=
                     self.associationGeneration_)
             {
@@ -1100,6 +1122,7 @@ class SimpleATH final : public IOService
             // scheduled timeout capable of retiring the next association.
             linkWatchEpoch_ = 0;
             linkWatchAssociationGeneration_ = 0;
+            joinWatchRequestId_ = 0;
             pendingLocalLeaveToken_ = 0;
             pendingLocalLeaveEpoch_ = 0;
             if (linkTimer_ != nullptr)
@@ -1239,6 +1262,20 @@ class SimpleATH final : public IOService
             }
             self.txSequence_ =
                 static_cast<uint16_t>((self.txSequence_ + 1U) & kSequenceMask);
+            // An on-air authentication request is not yet an association.
+            // Arm a bounded same-workloop deadline only after EDMA accepts
+            // the physical TX. The association response switches this timer
+            // to AP-beacon liveness; failed/aborted joins cancel it.
+            self.linkWatchEpoch_ = self.epoch_;
+            self.linkWatchAssociationGeneration_ = 0;
+            self.joinWatchRequestId_ = self.joinRequestId_;
+            if (self.linkTimer_ == nullptr ||
+                self.linkTimer_->setTimeoutMS(kNativeJoinTimeoutMs) !=
+                    kIOReturnSuccess)
+            {
+                self.retireNativeLink(kIOReturnNotReady);
+                return kIOReturnNotReady;
+            }
             return kIOReturnSuccess;
         }
 
@@ -3087,6 +3124,7 @@ class SimpleATH final : public IOService
                 return;
             }
             ++associationGeneration_;
+            joinWatchRequestId_ = 0;
             linkWatchEpoch_ = epoch_;
             linkWatchAssociationGeneration_ = associationGeneration_;
             if (linkTimer_->setTimeoutMS(kNativeLinkWatchdogMs) !=
@@ -4718,10 +4756,13 @@ class SimpleATH final : public IOService
         simpleath::ieee80211::ScanBridgeTicket completedScanTicket_ {};
         IOTimerEventSource *scanTimer_ {nullptr};
         IOTimerEventSource *linkTimer_ {nullptr};
-        // Workloop-only association identity; canceled on every failed join,
+        // Workloop-only join/association identity; canceled on failed joins,
         // disconnect, radio stop and physical PCI epoch retirement.
         uint64_t linkWatchEpoch_ {0};
         uint64_t linkWatchAssociationGeneration_ {0};
+        // Only a submitted authentication request starts this timer lease.
+        // Association replaces it with an AP-beacon watchdog.
+        uint64_t joinWatchRequestId_ {0};
         uint64_t scanEpoch_ {0};
         uint64_t scanEngineGeneration_ {0};
         uint32_t scanSerial_ {0};
