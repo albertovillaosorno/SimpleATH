@@ -798,6 +798,10 @@ int main()
 {
     Fake fake {};
     Ar9565AniState state {};
+    if (state.referenceClock != RfReferenceClock::Unknown)
+    {
+        return static_cast<int>(TestExit::Baseline);
+    }
     const int success = checkSuccessfulStages(fake, state);
     if (success != 0)
     {

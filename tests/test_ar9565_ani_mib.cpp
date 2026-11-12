@@ -135,6 +135,7 @@ namespace
         state.ownerEpoch = kEpoch;
         state.channel = channel;
         state.silicon = Revision::V1_1;
+        state.referenceClock = RfReferenceClock::Crystal25Mhz;
         state.initialized = true;
         return state;
     }

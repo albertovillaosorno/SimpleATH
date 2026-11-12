@@ -224,6 +224,14 @@ namespace
         {
             return false;
         }
+        // Default-initialized clock data must not silently authorize a
+        // physical 25-MHz reference or any PLL/synthesizer write.
+        const RfChannelRequest unproven = request(kCh6, RfReferenceClock {});
+        if (unproven.referenceClock != RfReferenceClock::Unknown ||
+            !invalid(unproven, kApproved))
+        {
+            return false;
+        }
         auto modified = request(kCh6, RfReferenceClock::Crystal25Mhz);
         modified.control.centerMhz++;
         if (!invalid(modified, kApproved))

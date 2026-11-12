@@ -82,7 +82,7 @@ namespace simpleath
             uint64_t lastCaptureMs {};
             uint8_t channel {};
             Revision silicon {Revision::Unknown};
-            RfReferenceClock referenceClock {RfReferenceClock::Crystal25Mhz};
+            RfReferenceClock referenceClock {RfReferenceClock::Unknown};
             ChannelWidth width {ChannelWidth::Ht20};
             uint8_t secondary {};
             bool initialized {};

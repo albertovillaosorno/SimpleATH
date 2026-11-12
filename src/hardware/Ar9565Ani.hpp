@@ -73,7 +73,7 @@ namespace simpleath
             uint8_t channel {};
             ChannelWidth width {ChannelWidth::Ht20};
             uint8_t secondary {};
-            RfReferenceClock referenceClock {RfReferenceClock::Crystal25Mhz};
+            RfReferenceClock referenceClock {RfReferenceClock::Unknown};
             // Linux ath9k ANI monitor starts at OFDM=3, CCK=2. These are
             // independent PHY-error policies; first-step is their maximum.
             // AR9565 single-chain CCK is conservatively capped at level 6

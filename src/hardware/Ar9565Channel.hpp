@@ -48,6 +48,8 @@ namespace simpleath
 {
     enum class RfReferenceClock : uint8_t
     {
+        // An uninitialized board/epoch cannot silently select a PLL divisor.
+        Unknown = 0,
         Crystal25Mhz,
         Crystal40Mhz,
     };
