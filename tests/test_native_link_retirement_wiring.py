@@ -461,7 +461,7 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "stopClient(ClientStopMode::FinalStop);" in stop
         shutdown = body(
             OWNER,
-            "void stopClient(ClientStopMode mode)",
+            "IOReturn stopClient(ClientStopMode mode)",
             "static IOReturn adoptQueuesAction(",
         )
         assert (
@@ -622,7 +622,7 @@ class NativePowerRecoveryWiring(unittest.TestCase):
             "static IOReturn\n        ownerSetMac(",
         )
         assert "return self.startClient();" in owner
-        assert "self.setPowerState(0, nullptr);" in owner
+        assert "return self.stopClient(ClientStopMode::Suspend);" in owner
 
 
 if __name__ == "__main__":

@@ -688,8 +688,10 @@ class SimpleATH final : public IOService
                 // synthetic radio-ready transition.
                 return self.startClient();
             }
-            self.setPowerState(0, nullptr);
-            return kIOReturnSuccess;
+            // The explicit AirPort radio-off request is not an IOPM
+            // acknowledgement. Report a quarantined DMA release or failed
+            // device gate to WCL instead of claiming a clean power-down.
+            return self.stopClient(ClientStopMode::Suspend);
         }
 
         static IOReturn ownerSetMacAction(OSObject *object, void *argument,
@@ -4526,42 +4528,48 @@ class SimpleATH final : public IOService
             FinalStop,
         };
 
-        void stopClient(ClientStopMode mode)
+        IOReturn stopClient(ClientStopMode mode)
         {
             if (lifecycle_ == nullptr)
             {
-                return;
+                return kIOReturnNotReady;
             }
             // Power-off, termination and stop must exclude a concurrent
             // startClient across BOTH device quiescence and DMA release.
             // The caller sleeps outside the command gate; hardware remains
             // serialized inside it. The same lock covers fresh-epoch start.
             IOLockLock(lifecycle_);
+            IOReturn gated = kIOReturnNotReady;
             if (gate_ != nullptr &&
                 (mode != ClientStopMode::FinalStop || gateAttached_))
             {
                 switch (mode)
                 {
                     case ClientStopMode::Suspend:
-                        (void)gate_->runAction(sleepAction);
+                        gated = gate_->runAction(sleepAction);
                         break;
                     case ClientStopMode::Terminate:
-                        (void)gate_->runAction(terminateAction);
+                        gated = gate_->runAction(terminateAction);
                         break;
                     case ClientStopMode::FinalStop:
-                        (void)gate_->runAction(stopAction);
+                        gated = gate_->runAction(stopAction);
                         break;
                 }
             }
-            const IOReturn result = queues_.releaseClient();
-            if (result != kIOReturnSuccess)
+            // Release even if the gate failed: do not abandon a potentially
+            // mapped queue. A failed release stays quarantined in NativeQueues
+            // and must not be reported as a successful native radio-off.
+            const IOReturn released = queues_.releaseClient();
+            if (released != kIOReturnSuccess)
             {
                 // IOLog is the kernel's variadic diagnostic ABI; the format is
                 // fixed and every argument is supplied with the matching type.
                 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
-                IOLog("SimpleATH: queue mappings quarantined (0x%x)\n", result);
+                IOLog("SimpleATH: queue mappings quarantined (0x%x)\n",
+                      released);
             }
             IOLockUnlock(lifecycle_);
+            return gated != kIOReturnSuccess ? gated : released;
         }
 
         static IOReturn adoptQueuesAction(OSObject *owner, void * /*unused*/,

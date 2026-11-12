@@ -623,3 +623,16 @@ refuses a terminated provider and invalidates its receive/scan mailboxes after
 power-off. The native owner remains responsible for physical prerequisites,
 queue quiescence, RF kill and new-epoch validation. This fixes an impossible
 power-on prerequisite but does not establish successful runtime resume or RF.
+
+### Native explicit radio-off status — 2026-11-12
+
+The physical owner now returns the serialized suspend gate and coherent DMA
+release result to the Tahoe `setPower(false)` caller. A rejected gate or
+quarantined DMA mapping is no longer masked by the IOPM `setPowerState`
+acknowledgement as a successful AirPort radio-off request. The release is still
+attempted after gate failure, under the startup/shutdown lifecycle lock; WCL's
+transport only discards its mailbox on a successful provider power-off.
+System power-manager callbacks retain their required implied acknowledgement
+semantics and do not claim hardware success. Offline source regressions cover
+this path. This does not implement RF initialization or demonstrate a physical
+power transition, clean device quiescence, or macOS acceptance.
