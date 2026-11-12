@@ -543,7 +543,14 @@ class SimpleATH final : public IOService
             self.populateNativeJoinSnapshot(out);
             memcpy(&out.permanentMac[0], &board->summary.mac[0],
                    sizeof(out.permanentMac));
-            memcpy(&out.currentMac[0], &board->summary.mac[0],
+            // This is the physical PCU identity, not the permanent NVM
+            // address. A verified locally administered override persists
+            // across reset but is exposed only after hardware readback.
+            if (!self.stationMacProgrammed_)
+            {
+                return kIOReturnNotReady;
+            }
+            memcpy(&out.currentMac[0], &self.stationMac_[0],
                    sizeof(out.currentMac));
             const auto link = self.engine_.linkStatus();
             const bool liveRfKill = self.liveRfKillUnblocked();
@@ -676,26 +683,107 @@ class SimpleATH final : public IOService
             return kIOReturnSuccess;
         }
 
+        static IOReturn ownerSetMacAction(OSObject *object, void *argument,
+                                          void * /*unused1*/,
+                                          void * /*unused2*/,
+                                          void * /*unused3*/)
+        {
+            // The native OS request was copied before entering this gate;
+            // revalidate the live PCI lease before every identity MMIO.
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto *requested = static_cast<const uint8_t *>(argument);
+            const auto *board = self.board_.view(self.epoch_);
+            if (board == nullptr || !self.stationMacProgrammed_ ||
+                self.stopping_)
+            {
+                return kIOReturnNotReady;
+            }
+            // An idempotent request never touches MMIO and is safe even while
+            // associated; only an actual identity change needs isolation.
+            if (memcmp(requested, &self.stationMac_[0],
+                       sizeof(self.stationMac_)) == 0)
+            {
+                return kIOReturnSuccess;
+            }
+            if (!self.enginesQuiesced_ || self.keyCache_.requiresReset ||
+                self.queues_.epoch() != self.epoch_ || !self.queuesAdopted_ ||
+                self.queues_.phase() != simpleath::NativeQueuePhase::Prepared ||
+                !self.queues_.initialStartEligibleGated() ||
+                self.radioOperational_ || self.channelAuthorized_ ||
+                self.scanBridge_.status().radioScanRunning ||
+                self.engine_.linkStatus().state ==
+                    simpleath::ieee80211::LinkState::Associated ||
+                self.joinWatchRequestId_ != 0 ||
+                self.programmedBssidEpoch_ != 0 ||
+                self.nativePairwiseTx_.installed() ||
+                self.nativePairwiseRx_.installed() ||
+                self.nativeGroupInstalled())
+            {
+                // A live link or device-owned descriptor cannot be moved
+                // from one station address to another without a new epoch.
+                return kIOReturnNotReady;
+            }
+            // MAC privacy addresses must be locally administered and unicast.
+            // The true NVM address can always be restored while quiesced.
+            if (!simpleath::validatePermanentMac(requested) ||
+                (((requested[0] & 0x02U) == 0U) &&
+                 memcmp(requested, &board->summary.mac[0],
+                        sizeof(self.stationMac_)) != 0))
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto registers = self.backend_.activeRegisters();
+            const simpleath::RegisterBus bus {
+                &self.access_,
+                readRegister,
+                writeRegister,
+                registers.barLengthBytes,
+            };
+            const auto progress = simpleath::programAr9565StationMac(
+                bus, requested, self.epoch_, stationMacPermit);
+            self.setProperty("SimpleATHStationAddressResult",
+                             static_cast<uint32_t>(progress.result),
+                             kRfPropertyWidthBits);
+            if (progress.result != simpleath::MacIdentityResult::Ok)
+            {
+                // An attempted identity write may have reached the PCU even
+                // if MMIO reported a failure. Quarantine this physical epoch;
+                // never publish or reuse either address as current.
+                self.retireNativeLink(kIOReturnNotReady);
+                self.stationMacProgrammed_ = false;
+                memset(&self.stationMac_[0], 0, sizeof(self.stationMac_));
+                self.keyCache_.requiresReset = true;
+                self.setProperty("SimpleATHKeyCacheResetRequired", true);
+                self.setProperty("SimpleATHStationAddressProgrammed", false);
+                return kIOReturnIOError;
+            }
+            memcpy(&self.stationMac_[0], requested, sizeof(self.stationMac_));
+            memcpy(&self.requestedStationMac_[0], requested,
+                   sizeof(self.requestedStationMac_));
+            self.requestedStationMacValid_ =
+                memcmp(requested, &board->summary.mac[0],
+                       sizeof(self.requestedStationMac_)) != 0;
+            self.notifyWirelessChange(false);
+            return kIOReturnSuccess;
+        }
+
         static IOReturn
         ownerSetMac(void *context,
                     const uint8_t address[simpleath::tahoe::kWirelessMacBytes])
         {
-            if ((context == nullptr) || (address == nullptr))
+            if (context == nullptr || address == nullptr)
             {
                 return kIOReturnBadArgument;
             }
-            simpleath::tahoe::WirelessSnapshot current {};
-            const IOReturn result = ownerSnapshot(context, &current);
-            if (result != kIOReturnSuccess)
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
             {
-                return result;
+                return kIOReturnNotReady;
             }
-            // Until hardware and native interface readdressing are wired,
-            // only an idempotent request for the physical MAC is valid.
-            return memcmp(address, &current.currentMac[0],
-                          sizeof(current.currentMac)) == 0
-                       ? kIOReturnSuccess
-                       : kIOReturnUnsupported;
+            uint8_t stable[simpleath::tahoe::kWirelessMacBytes] {};
+            memcpy(&stable[0], address, sizeof(stable));
+            return self.gate_->runAction(ownerSetMacAction, &stable[0]);
         }
 
         // The platform scan contract uses bridge generations, not the
@@ -1227,7 +1315,7 @@ class SimpleATH final : public IOService
             }
             simpleath::ieee80211::Mac station {};
             simpleath::ieee80211::Mac bssid {};
-            __builtin_memcpy(&station.bytes[0], &board->summary.mac[0],
+            __builtin_memcpy(&station.bytes[0], &self.stationMac_[0],
                              sizeof(station.bytes));
             __builtin_memcpy(&bssid.bytes[0], &request.bssid[0],
                              sizeof(bssid.bytes));
@@ -2749,8 +2837,17 @@ class SimpleATH final : public IOService
         static bool stationMacPermit(void *context, uint64_t epoch)
         {
             const auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            // Initial NVM programming occurs before DMA adoption. A later
+            // OS MAC override may run only while the same-epoch queues remain
+            // physically Prepared, ineligible for RX and not borrowed by a
+            // key-update isolation lease. Never program over running DMA.
             return canReset(context, epoch) &&
-                   self.board_.view(epoch) != nullptr && !self.queuesAdopted_ &&
+                   self.board_.view(epoch) != nullptr &&
+                   (!self.queuesAdopted_ ||
+                    (self.queues_.epoch() == epoch &&
+                     self.queues_.phase() ==
+                         simpleath::NativeQueuePhase::Prepared &&
+                     self.queues_.initialStartEligibleGated())) &&
                    !self.radioOperational_ && !self.channelAuthorized_;
         }
 
@@ -3437,7 +3534,7 @@ class SimpleATH final : public IOService
                 return;
             }
             simpleath::ieee80211::Mac local {};
-            __builtin_memcpy(&local.bytes[0], &board->summary.mac[0],
+            __builtin_memcpy(&local.bytes[0], &stationMac_[0],
                              sizeof(local.bytes));
             const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
             if (header.type == simpleath::ieee80211::FrameType::Management &&
@@ -4627,8 +4724,14 @@ class SimpleATH final : public IOService
                 writeRegister,
                 mapped.barLengthBytes,
             };
+            // Preserve a user-approved locally administered address across
+            // suspend/fresh PCI reset. A different physical board identity
+            // never silently inherits an old card's permanent MAC.
+            const uint8_t *selected = requestedStationMacValid_
+                                          ? &requestedStationMac_[0]
+                                          : &board->summary.mac[0];
             const auto identityResult = simpleath::programAr9565StationMac(
-                stationBus, &board->summary.mac[0], epoch_, stationMacPermit);
+                stationBus, selected, epoch_, stationMacPermit);
             setProperty("SimpleATHStationAddressResult",
                         static_cast<uint32_t>(identityResult.result),
                         kRfPropertyWidthBits);
@@ -4637,6 +4740,7 @@ class SimpleATH final : public IOService
                 return abortStart("AR9565StationAddress",
                                   static_cast<uint32_t>(identityResult.result));
             }
+            memcpy(&stationMac_[0], selected, sizeof(stationMac_));
             stationMacProgrammed_ = true;
             setProperty("SimpleATHStationAddressProgrammed", true);
             // The Atheros key RAM may contain stale keys from earlier OS or
@@ -4825,6 +4929,7 @@ class SimpleATH final : public IOService
             setProperty("SimpleATHKeyCacheInitialized", false);
             board_.invalidate();
             stationMacProgrammed_ = false;
+            memset(&stationMac_[0], 0, sizeof(stationMac_));
             setProperty("SimpleATHStationAddressProgrammed", false);
             enginesQuiesced_ = false;
             // IRQ delivery and queue DMA stop before BAR/provider revocation.
@@ -5134,6 +5239,12 @@ class SimpleATH final : public IOService
         uint64_t transmitCompletions_ {0};
         bool queuesAdopted_ {false};
         bool stationMacProgrammed_ {false};
+        // Retained only while the PCI instance exists; effective hardware
+        // identity is published after each same-epoch readback, never solely
+        // because a caller requested a locally administered MAC.
+        uint8_t stationMac_[simpleath::kPermanentMacBytes] {};
+        uint8_t requestedStationMac_[simpleath::kPermanentMacBytes] {};
+        bool requestedStationMacValid_ {false};
         bool radioOperational_ {false};
         bool channelAuthorized_ {false};
         IOPCIDevice *pci_ {nullptr};

@@ -193,3 +193,24 @@ remaining WCL selectors, complete packet/CCMP lifecycle and AWDL host/virtual
 interface integration. Do not close the parent task on inventory or fixture
 success. Continue using `rg` in `.references/` and primary web sources when
 contracts are unclear, updating the sole `.references/ledger.jsonl`.
+
+### Native station address requests — 2026-11-11
+
+The production Tahoe `setMac` callback now copies the six-byte request into
+its physical owner's command gate. A changed address is admitted only while
+the same PCI epoch is quiesced, the EDMA queue is Prepared rather than Running
+or isolated for key updates, and no scan, join, BSSID/AID or CCMP ownership is
+live. It accepts the permanent EEPROM MAC or a valid locally administered
+unicast override. `programAr9565StationMac` performs real PCU STA_ID and
+BSSID-mask writes/readbacks on every permitted change; a failed/ambiguous
+write quarantines that hardware epoch rather than advertising the new address.
+The verified effective MAC is reported to native inventory and used by
+association and AWDL receive admission. The selected override is reprogrammed
+after a fresh PCI reset and the current identity is cleared on stop. Existing
+idempotent requests do not disturb an active link. The independently verified
+permanent EEPROM MAC is not replaced by the override.
+
+This source integration does not authorize RF, prove Tahoe interface acceptance
+or complete the remaining channel/regulatory/coexistence and AWDL paths. The
+source wiring fixture and register-level fake test cover the boundary without
+claiming device execution.
