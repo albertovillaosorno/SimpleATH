@@ -160,6 +160,7 @@ namespace simpleath
         InvalidRegister,
         NotAttached,
         OwnershipLost,
+        UnverifiedInterrupt,
     };
 
     struct MciGpmCursor
@@ -280,6 +281,9 @@ namespace simpleath
     struct MciPendingInterrupts
     {
             CoexistenceProgress progress {};
+            // Published only after both physical RAW statuses are read and
+            // acknowledged under the original PCI/MCI owner lease.
+            uint64_t ownerEpoch {};
             uint32_t rawInterrupt {};
             uint32_t rawMessageInterrupt {};
             bool gpmNotification {};
@@ -317,6 +321,29 @@ namespace simpleath
                                   const uint8_t *synchronizedRing,
                                   size_t ringBytes, MciGpmCursor &cursor,
                                   MciGpmMessage &out);
+
+    struct MciGpmBatch
+    {
+            MciGpmMessage messages[kAr9565MciGpmEntries] {};
+            size_t count {};
+    };
+
+    // After a successful, nonfaulted, GPM-notified masked IRQ poll, copy
+    // every currently pending synchronized GPM entry in ring order into an
+    // owned, bounded batch. Reserved 0xfe slots are skipped. An invalid
+    // preflight or any failure leaves both batch and cursor untouched;
+    // only an entirely checked batch can advance the consumer index.
+    // The real native MCI owner MUST hold the same uninterrupted PCI/BT DMA
+    // lease across IRQ acknowledgement, coherent CPU sync and GPM head read;
+    // must prevent producer full-wrap; and must not reuse a same-epoch cursor
+    // after reset. A copied notification or stale poll does not satisfy that
+    // lease. This function performs no MMIO, DMA sync, IRQ or RF actions and
+    // never grants Bluetooth or wireless readiness.
+    MciGpmResult
+    collectAr9565MciGpmBatch(const MciPendingInterrupts &notification,
+                             uint64_t ownerEpoch, uint32_t gpmRegister,
+                             const uint8_t *synchronizedRing, size_t ringBytes,
+                             MciGpmCursor &cursor, MciGpmBatch &out);
 
     // Park the AR9565 MCI/BT coexistence controller for an independently
     // verified WLAN-only board/epoch, following ath9k reg_mci.h register

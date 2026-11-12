@@ -1153,6 +1153,7 @@ namespace simpleath
         // Only publish a copied status after both W1C acknowledgements
         // succeeded. Failed/revoked acknowledgements return no actionable
         // GPM or Bluetooth status, regardless of the speculative snapshot.
+        result.ownerEpoch = io.ownerEpoch;
         result.rawMessageInterrupt = rawMessage;
         result.rawInterrupt = rawInterrupt;
         result.hardwareFault = (rawInterrupt & kMciErrorMask) != 0U;
@@ -1395,6 +1396,76 @@ namespace simpleath
         cursor.nextIndex = readIndex;
         out = {};
         return MciGpmResult::Empty;
+    }
+
+    MciGpmResult
+    collectAr9565MciGpmBatch(const MciPendingInterrupts &notification,
+                             uint64_t ownerEpoch, uint32_t gpmRegister,
+                             const uint8_t *synchronizedRing, size_t ringBytes,
+                             MciGpmCursor &cursor, MciGpmBatch &out)
+    {
+        // Protect the borrowed DMA view, live cursor and IRQ authority from
+        // result-storage aliases before touching any input or output bytes.
+        if (overlapsGpm(&out, sizeof(out), synchronizedRing, ringBytes) ||
+            overlapsGpm(&out, sizeof(out), &cursor, sizeof(cursor)) ||
+            overlapsGpm(&out, sizeof(out), &notification,
+                        sizeof(notification)) ||
+            overlapsGpm(&cursor, sizeof(cursor), &notification,
+                        sizeof(notification)) ||
+            overlapsGpm(synchronizedRing, ringBytes, &cursor, sizeof(cursor)) ||
+            overlapsGpm(synchronizedRing, ringBytes, &notification,
+                        sizeof(notification)) ||
+            synchronizedRing == nullptr || ringBytes != kAr9565MciGpmBytes)
+        {
+            return MciGpmResult::InvalidArgument;
+        }
+        if (!cursor.attached)
+        {
+            return MciGpmResult::NotAttached;
+        }
+        if (ownerEpoch == 0U || cursor.ownerEpoch != ownerEpoch ||
+            notification.ownerEpoch != ownerEpoch)
+        {
+            return MciGpmResult::OwnershipLost;
+        }
+        if (notification.progress.result != CoexistenceResult::Ok ||
+            notification.progress.requiresReset || notification.hardwareFault ||
+            !notification.gpmNotification)
+        {
+            return MciGpmResult::UnverifiedInterrupt;
+        }
+        if (!validGpmRegister(gpmRegister))
+        {
+            return MciGpmResult::InvalidRegister;
+        }
+
+        // Stage an entire ring snapshot. Never leak a prefix of messages or
+        // advance the live cursor if an entry or head turns out invalid.
+        MciGpmCursor stagedCursor = cursor;
+        MciGpmBatch staged {};
+        for (size_t index = 0U; index < kAr9565MciGpmEntries; ++index)
+        {
+            MciGpmMessage message {};
+            const auto read =
+                nextAr9565MciGpm(ownerEpoch, gpmRegister, synchronizedRing,
+                                 ringBytes, stagedCursor, message);
+            if (read == MciGpmResult::Empty)
+            {
+                out = staged;
+                cursor = stagedCursor;
+                return staged.count != 0U ? MciGpmResult::Message
+                                          : MciGpmResult::Empty;
+            }
+            if (read != MciGpmResult::Message)
+            {
+                return read;
+            }
+            staged.messages[staged.count] = message;
+            ++staged.count;
+        }
+        // The device ring has 16 slots, so at most 15 unconsumed slots can
+        // precede the producer pointer. A missing Empty is malformed state.
+        return MciGpmResult::InvalidRegister;
     }
 
     CoexistenceProgress

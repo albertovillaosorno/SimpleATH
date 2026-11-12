@@ -1642,6 +1642,221 @@ namespace
         return true;
     }
 
+    bool sharedGpmBatchTests()
+    {
+        const auto physicalBoard = board();
+        const auto evidence = sharedAuthorized();
+        const auto dma = sharedBuffers();
+        const SharedMciAntennaSelection topology {
+            SharedMciAntennaTopology::OneSharedPaAndLna,
+            true,
+        };
+        const SharedMciResetEvidence btQuiesced {true, true};
+        Mock mock {};
+        MciGpmCursor cursor {};
+        if (stageAr9565SharedMciDma(physicalBoard, evidence, dma, io(mock))
+                    .result != CoexistenceResult::Ok ||
+            stageAr9565SharedMciAntenna(physicalBoard, evidence, dma, topology,
+                                        io(mock))
+                    .result != CoexistenceResult::Ok)
+        {
+            return false;
+        }
+        constexpr uint32_t kPointerShift = 16U;
+        constexpr size_t kEntryBytes = kAr9565MciGpmMessageBytes;
+        constexpr size_t kTypeField = 4U;
+        constexpr size_t kOpcodeField = 5U;
+        constexpr uint8_t kAgent = 0x0cU;
+        const auto reg = [](uint32_t index)
+        {
+            return (index << kPointerShift) | kAr9565MciGpmEntries;
+        };
+        find(mock, kMciGpmEntries)->bits = reg(14U);
+        if (resetAr9565SharedMciRxTx(physicalBoard, evidence, dma, topology,
+                                     btQuiesced, io(mock), cursor)
+                    .result != CoexistenceResult::Ok ||
+            cursor.nextIndex != 14U)
+        {
+            return false;
+        }
+        // A real owner would synchronize this 16x16 coherent-DMA view and
+        // snapshot the head while retaining its exclusive IRQ/MCI lease.
+        std::array<uint8_t, kAr9565MciGpmBytes> ring {};
+        ring.fill(0xfeU);
+        ring.at(14U * kEntryBytes + kTypeField) = kAgent;
+        ring.at(14U * kEntryBytes + kOpcodeField) = 1U;
+        ring.at(14U * kEntryBytes) = 0x55U;
+        ring.at(kTypeField) = kAgent;
+        ring.at(kOpcodeField) = 6U;
+        ring.at(kEntryBytes - 1U) = 0xa5U;
+        find(mock, kMciGpmEntries)->bits = reg(1U);
+        find(mock, kMciReceiveMessageRaw)->bits = kMciGpmReceived;
+        find(mock, kMciInterruptRaw)->bits = kMciRxMessageInterrupt;
+        const auto notification =
+            pollAr9565MciPendingInterrupts(evidence, dma, cursor, io(mock));
+        if (notification.progress.result != CoexistenceResult::Ok ||
+            notification.progress.requiresReset ||
+            !notification.gpmNotification ||
+            notification.ownerEpoch != kEpoch ||
+            find(mock, kMciReceiveMessageRaw)->bits != 0U)
+        {
+            return false;
+        }
+        MciGpmBatch batch {};
+        batch.count = 7U;
+        batch.messages[0].opcode = 0x99U;
+        if (collectAr9565MciGpmBatch(notification, kEpoch, reg(1U), ring.data(),
+                                     ring.size(), cursor,
+                                     batch) != MciGpmResult::Message ||
+            cursor.nextIndex != 1U || batch.count != 2U ||
+            batch.messages[0].type != kAgent ||
+            batch.messages[0].opcode != 1U ||
+            batch.messages[0].payload[0] != 0x55U ||
+            batch.messages[1].opcode != 6U ||
+            batch.messages[1].payload[kEntryBytes - 1U] != 0xa5U)
+        {
+            return false;
+        }
+        ring.at(14U * kEntryBytes) = 0U;
+        if (batch.messages[0].payload[0] != 0x55U)
+        {
+            return false;
+        }
+        // An IRQ can report a GPM notification with no remaining data: the
+        // result is an empty copy, never a stale previous message batch.
+        if (collectAr9565MciGpmBatch(notification, kEpoch, reg(1U), ring.data(),
+                                     ring.size(), cursor,
+                                     batch) != MciGpmResult::Empty ||
+            cursor.nextIndex != 1U || batch.count != 0U ||
+            batch.messages[0].type != 0U)
+        {
+            return false;
+        }
+        // A full-but-not-overwritten ring can contain 15 pending entries.
+        // Copy all of them without losing the 15th or indexing a 16th.
+        std::array<uint8_t, kAr9565MciGpmBytes> nearFullRing {};
+        nearFullRing.fill(0xfeU);
+        for (size_t index = 1U; index < kAr9565MciGpmEntries; ++index)
+        {
+            nearFullRing.at(index * kEntryBytes + kTypeField) = kAgent;
+            nearFullRing.at(index * kEntryBytes + kOpcodeField) =
+                static_cast<uint8_t>(index);
+        }
+        MciGpmCursor nearFullCursor {kEpoch, 1U, true};
+        if (collectAr9565MciGpmBatch(notification, kEpoch, reg(0U),
+                                     nearFullRing.data(), nearFullRing.size(),
+                                     nearFullCursor,
+                                     batch) != MciGpmResult::Message ||
+            nearFullCursor.nextIndex != 0U ||
+            batch.count != kAr9565MciGpmEntries - 1U)
+        {
+            return false;
+        }
+        for (size_t index = 0U; index < batch.count; ++index)
+        {
+            if (batch.messages[index].opcode != index + 1U)
+            {
+                return false;
+            }
+        }
+        nearFullRing.fill(0xfeU);
+        nearFullCursor = {kEpoch, 1U, true};
+        if (collectAr9565MciGpmBatch(notification, kEpoch, reg(0U),
+                                     nearFullRing.data(), nearFullRing.size(),
+                                     nearFullCursor,
+                                     batch) != MciGpmResult::Empty ||
+            nearFullCursor.nextIndex != 0U || batch.count != 0U)
+        {
+            return false;
+        }
+        // The batch is backed by real writable memory. Its object bytes
+        // still cannot also masquerade as the coherent GPM input region.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        const auto *overlappingRing = reinterpret_cast<const uint8_t *>(&batch);
+        nearFullCursor = {kEpoch, 1U, true};
+        batch.count = 5U;
+        batch.messages[0].opcode = 0x99U;
+        if (collectAr9565MciGpmBatch(notification, kEpoch, reg(0U),
+                                     overlappingRing, kAr9565MciGpmBytes,
+                                     nearFullCursor,
+                                     batch) != MciGpmResult::InvalidArgument ||
+            nearFullCursor.nextIndex != 1U || batch.count != 5U ||
+            batch.messages[0].opcode != 0x99U)
+        {
+            return false;
+        }
+        // Rejected notifications, pointer, epoch or buffer must NOT expose
+        // even a prefix of ring data or advance the caller's live cursor.
+        for (size_t scenario = 0U; scenario < 10U; ++scenario)
+        {
+            MciGpmCursor old = cursor;
+            old.nextIndex = 14U;
+            MciGpmBatch output {};
+            output.count = 3U;
+            output.messages[0].opcode = 0x99U;
+            MciPendingInterrupts event = notification;
+            uint64_t epoch = kEpoch;
+            uint32_t head = reg(1U);
+            size_t bytes = ring.size();
+            const uint8_t *region = ring.data();
+            if (scenario == 0U)
+            {
+                event.progress.result = CoexistenceResult::ReadFailed;
+            }
+            else if (scenario == 1U)
+            {
+                event.progress.requiresReset = true;
+            }
+            else if (scenario == 2U)
+            {
+                event.hardwareFault = true;
+            }
+            else if (scenario == 3U)
+            {
+                event.gpmNotification = false;
+            }
+            else if (scenario == 4U)
+            {
+                event.ownerEpoch++;
+            }
+            else if (scenario == 5U)
+            {
+                epoch++;
+            }
+            else if (scenario == 6U)
+            {
+                head ^= 1U;
+            }
+            else if (scenario == 7U)
+            {
+                bytes--;
+            }
+            else if (scenario == 8U)
+            {
+                region = nullptr;
+            }
+            else
+            {
+                old.attached = false;
+            }
+            const auto result = collectAr9565MciGpmBatch(
+                event, epoch, head, region, bytes, old, output);
+            const auto expected =
+                scenario < 4U    ? MciGpmResult::UnverifiedInterrupt
+                : scenario < 6U  ? MciGpmResult::OwnershipLost
+                : scenario == 6U ? MciGpmResult::InvalidRegister
+                : scenario < 9U  ? MciGpmResult::InvalidArgument
+                                 : MciGpmResult::NotAttached;
+            if (result != expected || output.count != 3U ||
+                output.messages[0].opcode != 0x99U || old.nextIndex != 14U ||
+                old.attached != (scenario != 9U))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     WlanOnlyCoexistenceEvidence authorized()
     {
         return {true, true, true, true};
@@ -1755,7 +1970,7 @@ int main()
     {
         return kFailedMciInterrupt;
     }
-    if (!sharedGpmTests())
+    if (!sharedGpmTests() || !sharedGpmBatchTests())
     {
         return kFailedGpm;
     }

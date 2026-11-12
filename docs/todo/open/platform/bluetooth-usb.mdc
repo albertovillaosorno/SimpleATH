@@ -626,3 +626,18 @@ synthetic register tests cover faults, failed acknowledgments, forged enable
 state and synchronous cursor replacement. No native MCI IRQ worker,
 coherent-DMA consumer, Bluetooth handshake or RF authorization is wired by
 this step; the production implementation task remains open.
+
+## Source progress — bounded GPM batch after masked IRQ
+
+The portable MCI path now carries a same-epoch identity on successfully
+acknowledged RAW interrupt snapshots and can collect the currently pending
+16-slot coherent GPM ring into one owned, bounded diagnostic message batch.
+The collection stage requires an acknowledged nonfaulted GPM notification,
+checks disjoint output/DMA storage and the live cursor, skips recycled slots,
+and advances the consumer only after the entire snapshot was copied. Rejected
+calls preserve both cursor and output. Tests model a physical masked-IRQ poll,
+wrapped ring, reserved slots, stale notifications, failed validation and
+partial-data rollback with C++ sanitizers. This software stage is **not**
+called by a native MCI IRQ/DMA worker and does not synchronize device DMA,
+prevent a real producer full-wrap, negotiate Bluetooth coexistence, or turn on
+Wi-Fi/AirDrop. A copied IRQ result alone never authorizes radio readiness.
