@@ -446,6 +446,83 @@ namespace
         }
         return 0;
     }
+    // Deterministic multi-subframe agreement with the independent RX parser:
+    // each output is an MPDU, not a claim of negotiated aggregation or RF TX.
+    int openAmsduTxMixedCounts()
+    {
+        const Mac station {{2U, 3U, 4U, 5U, 6U, 7U}};
+        const Mac ap {{2U, 0U, 1U, 2U, 3U, 4U}};
+        std::array<std::array<uint8_t, 24U>, kMaximumAmsduSubframes>
+            payloads {};
+        std::array<AmsduTxSubframe, kMaximumAmsduSubframes> subframes {};
+        std::array<uint8_t, kMaxNoFcs + 1U> output {};
+        constexpr size_t kScenarios = 256U;
+        constexpr uint32_t kLcgMultiplier = 1664525U;
+        constexpr uint32_t kLcgIncrement = 1013904223U;
+        uint32_t seed = 0x5bd1e995U;
+        for (size_t trial = 0U; trial < kScenarios; ++trial)
+        {
+            seed = seed * kLcgMultiplier + kLcgIncrement;
+            const size_t count = 2U + (seed % (kMaximumAmsduSubframes - 1U));
+            const uint8_t tid = static_cast<uint8_t>(seed % 8U);
+            const uint16_t sequence = static_cast<uint16_t>(seed & 0xfffU);
+            for (size_t i = 0U; i < count; ++i)
+            {
+                seed = seed * kLcgMultiplier + kLcgIncrement;
+                const size_t length = 1U + (seed % payloads.at(i).size());
+                for (size_t j = 0U; j < length; ++j)
+                {
+                    payloads.at(i).at(j) =
+                        static_cast<uint8_t>((seed >> (j % 4U)) + i + j);
+                }
+                Mac destination {{2U, 0U, 0U, 0U, 0U,
+                                  static_cast<uint8_t>(i + 1U)}};
+                const uint16_t etherType =
+                    i % 3U == 0U ? kEtherTypeIpv4
+                    : i % 3U == 1U ? kEtherTypeAarp : kEtherTypeIpx;
+                subframes.at(i) = {destination, station, etherType,
+                                   payloads.at(i).data(), length};
+            }
+            const OpenStationAmsduTx request {
+                station, ap, sequence, tid, subframes.data(), count,
+            };
+            output.fill(kSentinelByte);
+            size_t written = 0U;
+            AmsduPayload decoded {};
+            if (makeOpenStationAmsdu(request, output.data(), kMaxNoFcs,
+                                     written) != Result::Ok ||
+                written > kMaxNoFcs ||
+                output.at(written) != kSentinelByte ||
+                output.at(kQosControlOffset) !=
+                    static_cast<uint8_t>(kQosAmsduPresent | tid) ||
+                decodeAmsduData(output.data(), written, false, false,
+                                decoded) != Result::Ok ||
+                decoded.count != count)
+            {
+                return (__LINE__ % kDiagnosticModulo) + 1;
+            }
+            for (size_t i = 0U; i < count; ++i)
+            {
+                const auto &expected = subframes.at(i);
+                const auto &actual = decoded.subframes[i];
+                if (!sameMac(expected.destination, actual.destination) ||
+                    !sameMac(expected.source, actual.source) ||
+                    expected.etherType != actual.etherType ||
+                    expected.payloadLength != actual.payloadLength)
+                {
+                    return (__LINE__ % kDiagnosticModulo) + 1;
+                }
+                for (size_t j = 0U; j < expected.payloadLength; ++j)
+                {
+                    if (expected.payload[j] != actual.payload[j])
+                    {
+                        return (__LINE__ % kDiagnosticModulo) + 1;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
 } // namespace
 
 int main()
@@ -473,5 +550,9 @@ int main()
     {
         return result;
     }
-    return openAmsduTxBounds();
+    if (const int result = openAmsduTxBounds())
+    {
+        return result;
+    }
+    return openAmsduTxMixedCounts();
 }

@@ -263,6 +263,9 @@ before publishing any output bytes. Borrowed input/output/count overlap is
 rejected without mutation. The existing RX A-MSDU decoder independently
 round-trips the serializer's output in the host regression fixture, including
 exact-maximum length, truncation, security rejection and alias cases.
+An additional deterministic 256-case sanitizer fixture round-trips mixed
+2–16-subframe aggregates with varied TIDs, sequence numbers, lengths,
+EtherTypes and inter-subframe padding against the independent RX decoder.
 
 **Not enabled in the native TX path.** The owner still needs to negotiate the
 selected AP's A-MSDU capability and maximum length; prove channel/RF/TPC and
