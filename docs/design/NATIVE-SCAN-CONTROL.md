@@ -129,3 +129,17 @@ a delivery failure downstream of that call. Further exact-Tahoe ABI
 verification, a result-bearing OS publication contract where available, and
 runtime inspection remain open. Synthetic source-wiring and portable
 ring-policy checks are not a macOS callback or physical RF test.
+
+## Native control-plane poll scheduler loss (2026-11-12)
+
+The native InfraProtocol work-loop uses a periodic real IOTimerEventSource
+for WCL scan completion/acknowledgement, join and beacon state, association
+link-down, and Skywalk packet serving. A failed initial timer arm now aborts
+interface startup; a failed subsequent re-arm shuts down that interface
+instead of leaving an OS-visible link and packet service without a bounded
+control-plane observer. Shutdown sends a link-down and radio-unavailable
+notification only if they were previously advertised, cancels an active scan,
+retires the join and stops native packet resources. It does not assume the
+OS consumed those events, nor does it imply physical RF authorization.
+Offline source checks guard both timer sites and notification ordering;
+testing actual event source failures still requires an authorized Tahoe SDK.

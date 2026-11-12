@@ -187,7 +187,14 @@ bool SimpleATHInfraProtocol::start(IOService *provider)
                     static_cast<unsigned long long>(result), 32);
         return false;
     }
-    timer_->setTimeoutMS(kPollMilliseconds);
+    if (timer_->setTimeoutMS(kPollMilliseconds) != kIOReturnSuccess)
+    {
+        // A running interface without polling cannot retire WCL joins,
+        // scan completions or a vanished provider. Fail this partial start.
+        setProperty("SimpleATHNativePollTimerFailed", true);
+        shutdown();
+        return false;
+    }
     return true;
 }
 
@@ -253,6 +260,21 @@ void SimpleATHInfraProtocol::shutdown()
     stopping_ = true;
     dataRequested_ = false;
     dataRequestEpoch_ = 0;
+    // A failed poll timer must not leave macOS showing an authenticated
+    // link or an available AirPort radio after packet service has stopped.
+    if (linked_)
+    {
+        linked_ = false;
+        (void)setLinkState(static_cast<IO80211LinkState>(1), 0, false, 0, 0);
+    }
+    if (available_)
+    {
+        available_ = false;
+        uint8_t availability[0xf8] {};
+        put<uint32_t>(availability, 0, 1);
+        put<uint32_t>(availability, 8, 0);
+        emit(kDriverAvailableEvent, availability, sizeof(availability));
+    }
     if (timer_ != nullptr)
     {
         timer_->cancelTimeout();
@@ -1084,5 +1106,12 @@ void SimpleATHInfraProtocol::poll()
         packets_.disable();
     }
     packets_.poll();
-    timer_->setTimeoutMS(kPollMilliseconds);
+    if (timer_->setTimeoutMS(kPollMilliseconds) != kIOReturnSuccess)
+    {
+        // A missed re-arm is terminal for the native WCL control-plane
+        // lease: no subsequent callback can promise join timeout, scan-done
+        // delivery, or port/association revocation. Stop packet service now.
+        setProperty("SimpleATHNativePollTimerFailed", true);
+        shutdown();
+    }
 }
