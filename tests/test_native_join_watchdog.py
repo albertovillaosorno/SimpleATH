@@ -90,6 +90,29 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
             < association.index("joinWatchStartedMs_ = 0;")
         )
         assert "joinWatchRequestId_ != joinRequestId_" in association
+        verifier = body(
+            "bool verifyNativePendingJoinLease()",
+            "// Workloop timers are not ordered",
+        )
+        assert "joinWatchRequestId_ == 0" in verifier
+        assert "joinWatchStartedMs_ != 0" in verifier
+        assert "nowMs >= joinWatchStartedMs_" in verifier
+        assert "nowMs - joinWatchStartedMs_ < kNativeJoinTimeoutMs" in verifier
+        assert "joinRequestId_ == joinWatchRequestId_" in verifier
+        assert "retireNativeBssidEpoch(kIOReturnTimeout);" in verifier
+        received = body(
+            "static void queueReceived(",
+            "static void" + chr(10) + "        queueTransmitted(",
+        )
+        assert received.index("!self.verifyNativePendingJoinLease()") < (
+            received.index("self.engine_.acceptRx(")
+        )
+        response = body(
+            "bool sendNativeManagementResponse(", "static void queueReceived("
+        )
+        assert response.index(
+            "!self.verifyNativePendingJoinLease()"
+        ) < response.index("self.submitPreparedTransmit(")
 
     @staticmethod
     def test_ap_association_aid_must_be_written_before_native_link_up() -> None:

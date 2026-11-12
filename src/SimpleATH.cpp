@@ -1936,6 +1936,31 @@ class SimpleATH final : public IOService
             return true;
         }
 
+        // A pending join's timer may be delivered after a management RX.
+        // Reject an expired authentication/association lease before this RX
+        // can queue another management frame, regardless of timer order.
+        // The already-associated link has its own beacon/port deadline.
+        bool verifyNativePendingJoinLease()
+        {
+            if (joinWatchRequestId_ == 0)
+            {
+                return true;
+            }
+            const uint64_t nowMs = nowMicros(nullptr) / kMicrosPerMillisecond;
+            if (epoch_ != 0 && linkWatchEpoch_ == epoch_ &&
+                joinEpoch_ == epoch_ && joinRequestId_ == joinWatchRequestId_ &&
+                joinStatus_ == kIOReturnSuccess && joinWatchStartedMs_ != 0 &&
+                nowMs >= joinWatchStartedMs_ &&
+                nowMs - joinWatchStartedMs_ < kNativeJoinTimeoutMs)
+            {
+                return true;
+            }
+            // A clock regression, mismatched token or elapsed deadline ends
+            // the physical PCU identity even if a timer callback is late.
+            retireNativeBssidEpoch(kIOReturnTimeout);
+            return false;
+        }
+
         // Workloop timers are not ordered ahead of OS TX, key completions
         // or port authorization. Recheck both physical association leases
         // before any of those paths can emit a packet or open the port.
@@ -3740,6 +3765,14 @@ class SimpleATH final : public IOService
                     self.retireNativeLink(kIOReturnNotReady);
                     return true;
                 }
+                // The timer may run after this workloop RX callback. Do not
+                // queue an association request on an expired physical join.
+                if (action.kind ==
+                        simpleath::ieee80211::ActionKind::TransmitAssociation &&
+                    !self.verifyNativePendingJoinLease())
+                {
+                    return true;
+                }
                 const IOReturn submitted = self.submitPreparedTransmit(
                     &self.managementReply_[0], action.bytes);
                 self.setProperty("SimpleATHManagementTransmitResult",
@@ -3802,6 +3835,13 @@ class SimpleATH final : public IOService
                 self.verifyNativeAssociationLease(nowMicros(nullptr) /
                                                   kMicrosPerMillisecond) !=
                     kIOReturnSuccess)
+            {
+                return;
+            }
+            // An authentication response can be parsed and trigger another
+            // on-air management TX before a late pending-join timer fires.
+            // The hardware owner checks the real deadline at the RX boundary.
+            if (!self.verifyNativePendingJoinLease())
             {
                 return;
             }

@@ -191,6 +191,18 @@ terminal wiring. It is not a kernel timer, physical EDMA or RF test. WPA2
 EAPOL handshake completion timing, actual native RF/channel authorization and
 reset/reconnect after the terminal quarantine remain separate unfinished work.
 
+### Pending join RX deadline admission (source-only, 2026-11-11)
+
+The native RX callback now checks the exact pending authentication join
+request, PCI epoch, timer start and monotonic ten-second deadline **before**
+letting an AP authentication response advance the portable station state.
+The association-response follow-up TX rechecks that same lease before EDMA
+submission, so a delayed workloop timer cannot permit another management
+packet after the deadline. Inconsistent or regressed timestamps retire the
+physical BSSID/EDMA/key epoch instead of queuing a late response. Associated
+beacons and data continue using their separate verified association lease.
+Source ordering checks cannot establish real Tahoe timer or physical RX.
+
 ### Native associated-but-closed timeout (source integration, 2026-11-11)
 
 Native association now starts an independent fifteen-second, monotonic
