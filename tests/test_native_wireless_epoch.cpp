@@ -188,6 +188,95 @@ namespace
         return true;
     }
 
+    // Exhaustive small-ring check: all 5^4 saturated mixes, at each
+    // circular head position. Every successful eviction must discard the
+    // oldest ordinary event first, then the oldest strictly superseded scan,
+    // preserving the surviving events and their original order.
+    bool checkWirelessEventRingOrdering()
+    {
+        using simpleath::tahoe::evictWirelessNoncriticalEvent;
+        using simpleath::tahoe::evictWirelessSupersededScanEvent;
+        using simpleath::tahoe::WirelessEvent;
+        constexpr size_t capacity = 4U;
+        constexpr uint64_t epoch = 5U;
+        constexpr uint64_t currentGeneration = 20U;
+        for (size_t head = 0; head < capacity; ++head)
+        {
+            for (unsigned int combination = 0; combination < 625U;
+                 ++combination)
+            {
+                FakeWirelessEvent events[capacity] {};
+                FakeWirelessEvent original[capacity] {};
+                unsigned int encoded = combination;
+                size_t ordinary = capacity;
+                size_t oldScan = capacity;
+                for (size_t offset = 0; offset < capacity; ++offset)
+                {
+                    const unsigned int kind = encoded % 5U;
+                    encoded /= 5U;
+                    FakeWirelessEvent record {};
+                    record.epoch = epoch;
+                    switch (kind)
+                    {
+                        case 0U:
+                            record.event = WirelessEvent::TransmitAvailable;
+                            if (ordinary == capacity)
+                            {
+                                ordinary = offset;
+                            }
+                            break;
+                        case 1U:
+                            record.event = WirelessEvent::ScanFinished;
+                            record.generation = 10U;
+                            if (oldScan == capacity)
+                            {
+                                oldScan = offset;
+                            }
+                            break;
+                        case 2U:
+                            record.event = WirelessEvent::ScanFinished;
+                            record.generation = currentGeneration;
+                            break;
+                        case 3U:
+                            record.event = WirelessEvent::ScanFinished;
+                            record.generation = 30U;
+                            break;
+                        default:
+                            record.event = WirelessEvent::ProviderStopped;
+                            break;
+                    }
+                    original[offset] = record;
+                    events[(head + offset) % capacity] = record;
+                }
+                const size_t erased = ordinary != capacity ? ordinary : oldScan;
+                const bool success =
+                    evictWirelessNoncriticalEvent(events, head, capacity) ||
+                    evictWirelessSupersededScanEvent(events, head, capacity,
+                                                     epoch, currentGeneration);
+                if (success != (erased != capacity))
+                {
+                    return false;
+                }
+                for (size_t offset = 0; offset < capacity; ++offset)
+                {
+                    const auto &actual = events[(head + offset) % capacity];
+                    const FakeWirelessEvent expected =
+                        success && offset + 1U == capacity
+                            ? FakeWirelessEvent {}
+                            : original[success && offset >= erased ? offset + 1U
+                                                                   : offset];
+                    if (actual.event != expected.event ||
+                        actual.epoch != expected.epoch ||
+                        actual.generation != expected.generation)
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
     bool checkNativeLinkRetirement()
     {
         using simpleath::NativeLinkRetirementBackend;
@@ -466,7 +555,8 @@ int main()
         return kStaleScanCompletionFailure;
     }
     constexpr int kCriticalEventFailure = 11;
-    if (!checkCriticalWirelessEventRetention())
+    if (!checkCriticalWirelessEventRetention() ||
+        !checkWirelessEventRingOrdering())
     {
         return kCriticalEventFailure;
     }
