@@ -122,6 +122,60 @@ namespace
         {
             return false;
         }
+        // Stale terminal notifications can fill a bounded ring after
+        // repeated cancelled requests. A newer scan may
+        // displace an earlier generation, but not a duplicate of itself.
+        // Wrap the logical queue across the physical array boundary.
+        FakeWirelessEvent stale[4] {};
+        stale[2] = {WirelessEvent::ScanFinished, 51U, 31U};
+        stale[3] = {WirelessEvent::ScanFinished, 51U, 32U};
+        stale[0] = {WirelessEvent::ScanFinished, 51U, 33U};
+        stale[1] = {WirelessEvent::ScanFinished, 51U, 34U};
+        using simpleath::tahoe::evictWirelessSupersededScanEvent;
+        if (!evictWirelessSupersededScanEvent(stale, 2U, 4U, 51U, 35U))
+        {
+            return false;
+        }
+        stale[1] = {WirelessEvent::ScanFinished, 51U, 35U};
+        if (stale[2].generation != 32U || stale[3].generation != 33U ||
+            stale[0].generation != 34U || stale[1].generation != 35U ||
+            evictWirelessSupersededScanEvent(stale, 0U, 3U, 51U, 36U) ||
+            evictWirelessSupersededScanEvent(stale, 4U, 4U, 51U, 36U) ||
+            evictWirelessSupersededScanEvent(stale, 2U, 4U, 0U, 36U) ||
+            evictWirelessSupersededScanEvent(stale, 2U, 4U, 51U, 0U))
+        {
+            return false;
+        }
+        FakeWirelessEvent duplicates[2] {
+            {WirelessEvent::ScanFinished, 52U, 36U},
+            {WirelessEvent::ScanFinished, 52U, 36U},
+        };
+        if (evictWirelessSupersededScanEvent(duplicates, 0U, 2U, 52U, 36U) ||
+            duplicates[0].generation != 36U || duplicates[1].generation != 36U)
+        {
+            return false;
+        }
+        // A late notification for an older generation must not evict a
+        // newer completion simply because the generation fields differ.
+        FakeWirelessEvent newer[2] {
+            {WirelessEvent::ScanFinished, 52U, 40U},
+            {WirelessEvent::ScanFinished, 52U, 41U},
+        };
+        if (evictWirelessSupersededScanEvent(newer, 0U, 2U, 52U, 39U) ||
+            newer[0].generation != 40U || newer[1].generation != 41U)
+        {
+            return false;
+        }
+        FakeWirelessEvent stopped[2] {
+            {WirelessEvent::ProviderStopped, 52U, 0U},
+            {WirelessEvent::ScanFinished, 52U, 37U},
+        };
+        if (!evictWirelessSupersededScanEvent(stopped, 0U, 2U, 52U, 38U) ||
+            stopped[0].event != WirelessEvent::ProviderStopped ||
+            stopped[1].generation != 0U)
+        {
+            return false;
+        }
         FakeWirelessEvent regular[2] {
             {WirelessEvent::RadioChanged, 1U},
             {WirelessEvent::TransmitAvailable, 2U},

@@ -250,3 +250,27 @@ callback/consumer handoff. This only validates internal source contracts.
 It does not certify the 25G332 IO80211 ABI, physical scanning, or Apple Wi-Fi
 UI acceptance. Mailbox exhaustion and native event delivery still require
 end-to-end operating-system and hardware validation.
+
+### Saturated scan-event mailbox recovery — 2026-11-12
+
+If a bounded native event mailbox fills entirely with scan completions, the
+next newer bridge generation can replace a strictly older completion made
+obsolete by the serial WCL scan owner. This fallback runs only after trying
+to evict ordinary noise such as a TX wakeup, and it never removes a provider
+stop or a same-generation or newer completion in the ring. Records retain
+their remaining FIFO order after circular eviction. The producer still does
+not receive an acknowledgement from the transport callback when all entries
+are genuinely non-discardable; offline tests do not prove eventual OS event
+delivery under arbitrary consumer starvation.
+
+### Saturated scan-event mailbox recovery — 2026-11-12
+
+If a bounded native event mailbox fills entirely with scan completions, the
+next newer bridge generation can replace a strictly older completion made
+obsolete by the serial WCL scan owner. This fallback runs only after trying
+to evict ordinary noise such as a TX wakeup, and it never removes a provider
+stop or a same-generation or newer completion in the ring. Records retain
+their remaining FIFO order after circular eviction. The producer still does
+not receive an acknowledgement from the transport callback when all entries
+are genuinely non-discardable; offline tests do not prove eventual OS event
+delivery under arbitrary consumer starvation.

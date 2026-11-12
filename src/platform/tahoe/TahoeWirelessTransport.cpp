@@ -762,11 +762,14 @@ namespace simpleath
             }
             if (event == WirelessEvent::ScanFinished &&
                 self.eventCount_ == kEventCapacity &&
-                evictWirelessNoncriticalEvent(self.events_, self.eventHead_,
-                                              self.eventCount_))
+                (evictWirelessNoncriticalEvent(self.events_, self.eventHead_,
+                                               self.eventCount_) ||
+                 evictWirelessSupersededScanEvent(self.events_, self.eventHead_,
+                                                  self.eventCount_, epoch,
+                                                  generation)))
             {
-                // Preserve every older scan completion, including across
-                // circular wrap, rather than losing SCAN_DONE to TX wakeups.
+                // Protect live completions against TX wakeups and old scan
+                // generations even if every mailbox slot is terminal.
                 --self.eventCount_;
                 ++self.eventDrops_;
             }

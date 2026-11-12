@@ -559,3 +559,21 @@ The previous V4 controlled-port semantics are retained unchanged.
 This is an internal owner-to-controller source contract, not an assertion
 about Apple's private Tahoe 25G332 layout or permitted kernel imports. No
 hardware scan, WCL callback, kext load or physical RF was exercised.
+
+
+A full mailbox first evicts a noncritical notification. If all slots are
+terminal, a newer `ScanFinished` may instead evict a *different* older scan
+generation, whose native WCL request is already superseded. It cannot evict
+`ProviderStopped`, a duplicate, or a newer generation. Portable tests
+check wraparound, preserved ordering and invalid eviction inputs; this does
+not prove a viable native Tahoe event consumer or guarantee delivery under
+indefinite callback starvation.
+
+
+A full mailbox first evicts a noncritical notification. If all slots are
+terminal, a newer `ScanFinished` may instead evict a *different* older scan
+generation, whose native WCL request is already superseded. It cannot evict
+`ProviderStopped`, a duplicate, or a newer generation. Portable tests
+check wraparound, preserved ordering and invalid eviction inputs; this does
+not prove a viable native Tahoe event consumer or guarantee delivery under
+indefinite callback starvation.

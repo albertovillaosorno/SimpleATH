@@ -106,6 +106,21 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "ring[index].event == WirelessEvent::ProviderStopped" in EPOCH
 
     @staticmethod
+    def test_saturated_terminal_events_retire_only_older_generation() -> None:
+        notify = TRANSPORT.split("void TahoeWirelessTransport::notify(", 1)[1]
+        notify = notify.split("void TahoeWirelessTransport::receive(", 1)[0]
+        assert "evictWirelessSupersededScanEvent(" in notify
+        assert "self.eventCount_, epoch," in notify
+        assert "evictWirelessSupersededScanEvent(self.events_," in notify
+        assert "generation)))" in notify
+        assert "evictWirelessNoncriticalEvent(" in notify
+        assert notify.index("evictWirelessNoncriticalEvent(") < notify.index(
+            "evictWirelessSupersededScanEvent("
+        )
+        assert "ring[index].event != WirelessEvent::ScanFinished" in EPOCH
+        assert "ring[index].generation >= currentGeneration" in EPOCH
+
+    @staticmethod
     def test_generation_qualified_scan_completion_on_native_consumer() -> None:
         poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
         assert "nextRadioEvent(event, epoch, generation)" in poll

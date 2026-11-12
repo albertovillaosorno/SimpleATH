@@ -90,6 +90,44 @@ namespace simpleath
             return false;
         }
 
+        // A controller accepts only one logical scan at a time. When every
+        // mailbox slot holds a terminal event, a newer completed generation
+        // supersedes a strictly older scan completion; the old WCL request
+        // can no longer receive that event. Keep ProviderStopped, duplicate
+        // notices and newer generations protected. Call this only
+        // under the mailbox lock, after ordinary event eviction has failed.
+        template <typename Record, size_t Capacity>
+        inline bool evictWirelessSupersededScanEvent(Record (&ring)[Capacity],
+                                                     size_t head, size_t count,
+                                                     uint64_t currentEpoch,
+                                                     uint64_t currentGeneration)
+        {
+            if (Capacity == 0U || head >= Capacity || count != Capacity ||
+                currentEpoch == 0U || currentGeneration == 0U)
+            {
+                return false;
+            }
+            for (size_t offset = 0; offset < count; ++offset)
+            {
+                const size_t index = (head + offset) % Capacity;
+                if (ring[index].event != WirelessEvent::ScanFinished ||
+                    ring[index].epoch > currentEpoch ||
+                    (ring[index].epoch == currentEpoch &&
+                     ring[index].generation >= currentGeneration))
+                {
+                    continue;
+                }
+                for (size_t shift = offset; shift + 1U < count; ++shift)
+                {
+                    ring[(head + shift) % Capacity] =
+                        ring[(head + shift + 1U) % Capacity];
+                }
+                ring[(head + count - 1U) % Capacity] = {};
+                return true;
+            }
+            return false;
+        }
+
         // Scan completion is identified by both PCI epoch and bridge
         // generation. A queued completion must never finish a replacement
         // scan even after that replacement's own dwell has ended. Require
