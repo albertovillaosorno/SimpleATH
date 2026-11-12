@@ -173,13 +173,41 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         )
 
     @staticmethod
+    def test_shutdown_serializes_gate_stop_and_dma_release() -> None:
+        # A wake/start cannot steal a previous power-off DMA mapping.
+        # All three teardown entrypoints use the startup lock.
+        power = body(OWNER, "IOReturn setPowerState(",
+                     "bool willTerminate(")
+        assert "stopClient(ClientStopMode::Suspend);" in power
+        assert "startClient();" in power
+        terminate = body(OWNER, "bool willTerminate(",
+                         "void stop(IOService *provider) override")
+        assert "stopClient(ClientStopMode::Terminate);" in terminate
+        stop = body(OWNER, "void stop(IOService *provider) override",
+                    "void free() override")
+        assert "stopClient(ClientStopMode::FinalStop);" in stop
+        shutdown = body(OWNER, "void stopClient(ClientStopMode mode)",
+                        "static IOReturn adoptQueuesAction(")
+        assert shutdown.index("IOLockLock(lifecycle_);") < shutdown.index(
+            "gate_->runAction(sleepAction)"
+        ) < shutdown.index("queues_.releaseClient();") < shutdown.index(
+            "IOLockUnlock(lifecycle_);"
+        )
+        assert "gate_->runAction(terminateAction)" in shutdown
+        assert "gate_->runAction(stopAction)" in shutdown
+        start = body(OWNER, "IOReturn startClient()",
+                     "enum class ClientStopMode")
+        assert "IOLockLock(lifecycle_);" in start
+        assert "IOLockUnlock(lifecycle_);" in start
+
+    @staticmethod
     def test_explicit_power_on_requires_fresh_epoch_after_retirement() -> None:
         # The child power-on request goes through the serialized PCI owner.
         power = body(OWNER, "static IOReturn ownerSetPower(",
                      "static IOReturn\n        ownerSetMac(")
         assert "return self.startClient();" in power
         start = body(OWNER, "IOReturn startClient()",
-                     "void releaseQueuesClient()")
+                     "enum class ClientStopMode")
         assert start.index("prepareFreshStartAction") < start.index(
             "queues_.releaseClient();"
         ) < start.index("gate_->runAction(startAction)")

@@ -347,8 +347,7 @@ class SimpleATH final : public IOService
             {
                 if (state == 0)
                 {
-                    gate_->runAction(sleepAction);
-                    releaseQueuesClient();
+                    stopClient(ClientStopMode::Suspend);
                 }
                 else
                 {
@@ -360,11 +359,7 @@ class SimpleATH final : public IOService
 
         bool willTerminate(IOService *provider, IOOptionBits options) override
         {
-            if (gate_ != nullptr)
-            {
-                gate_->runAction(terminateAction);
-                releaseQueuesClient();
-            }
+            stopClient(ClientStopMode::Terminate);
             return IOService::willTerminate(provider, options);
         }
 
@@ -375,11 +370,7 @@ class SimpleATH final : public IOService
                 PMstop();
                 pmInitialized_ = false;
             }
-            if ((gate_ != nullptr) && gateAttached_)
-            {
-                gate_->runAction(stopAction);
-            }
-            releaseQueuesClient();
+            stopClient(ClientStopMode::FinalStop);
             cleanup();
             IOService::stop(provider);
         }
@@ -3900,13 +3891,40 @@ class SimpleATH final : public IOService
             return result;
         }
 
-        void releaseQueuesClient()
+        enum class ClientStopMode : uint8_t
+        {
+            Suspend,
+            Terminate,
+            FinalStop,
+        };
+
+        void stopClient(ClientStopMode mode)
         {
             if (lifecycle_ == nullptr)
             {
                 return;
             }
+            // Power-off, termination and stop must exclude a concurrent
+            // startClient across BOTH device quiescence and DMA release.
+            // The caller sleeps outside the command gate; hardware remains
+            // serialized inside it. The same lock covers fresh-epoch start.
             IOLockLock(lifecycle_);
+            if (gate_ != nullptr &&
+                (mode != ClientStopMode::FinalStop || gateAttached_))
+            {
+                switch (mode)
+                {
+                    case ClientStopMode::Suspend:
+                        (void)gate_->runAction(sleepAction);
+                        break;
+                    case ClientStopMode::Terminate:
+                        (void)gate_->runAction(terminateAction);
+                        break;
+                    case ClientStopMode::FinalStop:
+                        (void)gate_->runAction(stopAction);
+                        break;
+                }
+            }
             const IOReturn result = queues_.releaseClient();
             if (result != kIOReturnSuccess)
             {

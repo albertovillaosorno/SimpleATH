@@ -191,6 +191,12 @@ error instead of running the next PCI/NVM bootstrap over stale device DMA.
 A successful release proceeds through a new monotonically increasing PCI
 session epoch, NVM validation and key-RAM scrub, then allocates fresh queues.
 
+The matching power-off, provider-termination and final-stop paths now hold
+that same sleepable lifecycle lock across command-gated MAC/DMA shutdown and
+off-gate coherent-ring release. A simultaneous power-on cannot allocate a
+fresh ring between an earlier sleep stop and its pending mapping release.
+This is a source ordering invariant, not a Tahoe power-management test.
+
 This does not schedule an automatic reconnect, resurrect a former BSS, or
 supply missing RF calibration, country/coexistence or channel authority:
 `radioOperational_` and `channelAuthorized_` still have no successful path.
