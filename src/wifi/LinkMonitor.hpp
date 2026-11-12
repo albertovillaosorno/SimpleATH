@@ -122,7 +122,8 @@ namespace simpleath
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
                                           const LinkStartConfig &config);
                 // A liveness refresh requires infrastructure beacon/probe
-                // metadata matching the associated beacon interval. Late AP
+                // metadata matching the associated beacon interval and a
+                // nonreplayed AP TSF once a nonzero sample is observed. Late AP
                 // management beyond the missed-beacon deadline also retires
                 // the link, even before its independent timer callback.
                 LinkMonitorResult
@@ -179,6 +180,8 @@ namespace simpleath
 
                 LinkSnapshot status_;
                 uint16_t beaconIntervalTu_ {0};
+                // Per-association liveness-only TSF floor. Not authentication.
+                uint64_t lastAcceptedTsf_ {0};
         };
 
     } // namespace ieee80211

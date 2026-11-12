@@ -114,6 +114,19 @@ boot still cannot arm the watchdog in practice because RF/channel startup and
 native packet queues remain unverified; it does not prove hardware keycache
 scrub, interrupt service, reconnection or physical Wi-Fi operation.
 
+### Associated advertisement TSF monotonicity (source-only, 2026-11-12)
+
+The portable link monitor now retains a per-association nonzero AP TSF floor
+for fully parsed, admitted beacons and probe responses. Duplicate, backward
+and zeroed timestamps after establishing that floor cannot update beacon
+liveness. `test_open_station_pipeline` demonstrates failing-before/fixed-after
+replays, directed probe responses and reset on a new association. Initial
+zero-valued synthetic TSF advertisements remain untracked until a nonzero
+sample arrives. FCS verifies frame corruption, **not AP identity**; any
+transmitter can forge a future TSF, and native hardware remains unverified.
+A real AP TSF restart requires a new association, not renewal of an earlier
+software lease.
+
 ### Native selected BSSID/AID PCU programming (source-only, 2026-11-11)
 
 The native join previously selected an exact scanned BSS in the portable

@@ -33,7 +33,13 @@ The new WifiEngine interface wires together existing portable modules:
   management callback arriving beyond the missed-beacon deadline now performs
   the same link-loss transition as the timer, before a late beacon can renew
   the expired lease. This is source-only timer-ordering protection, not native
-  workloop or over-the-air validation. The common trusted DATA callback
+  workloop or over-the-air validation. The link monitor also compares the AP
+  TSF (beacon or probe response) against the last admitted nonzero TSF.
+  Duplicate, backwards or zeroed timestamps cannot extend an established
+  floor; clear, new association and radio stop reset it. This only detects
+  stale advertised timestamps: unauthenticated beacons can carry forged
+  future TSF values and the host tests do not prove physical AP identity.
+  The common trusted DATA callback
   also expires a missed-beacon lease before admitting ordinary MSDU or EAPOL
   payload; an out-of-order monotonic observation cannot bypass this gate.
 

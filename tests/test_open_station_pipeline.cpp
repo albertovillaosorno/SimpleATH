@@ -1927,6 +1927,118 @@ namespace
                foreign.status().state == LinkState::ReconnectPending;
     }
 
+    bool rejectReplayedAssociatedTsf()
+    {
+        // A monotonically advancing host callback clock does not make a
+        // repeated, independently FCS-verified AP advertisement fresh.
+        // Beacon and Probe Response share the AP's TSF replay floor.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        const LinkStartConfig session {100, 1000, false, false};
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        LinkMonitor monitor;
+        if (monitor.started(station, ap, session) != LinkMonitorResult::Ok)
+        {
+            return false;
+        }
+        // Synthetic 64-bit little-endian TSF values in microseconds.
+        advertisement[24] = 0x80U;
+        advertisement[25] = 0x01U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1010, true,
+                                      false) != LinkMonitorResult::Ok)
+        {
+            return false;
+        }
+        advertisement[24] = 0x7fU; // Old TSF at a newer host time.
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1011, true,
+                                      false) != LinkMonitorResult::InvalidFrame)
+        {
+            return false;
+        }
+        advertisement[24] = 0x80U; // Exact replay is not fresh either.
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1012, true,
+                                      false) != LinkMonitorResult::InvalidFrame)
+        {
+            return false;
+        }
+        advertisement[24] = advertisement[25] = 0U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1013, true, false) !=
+                LinkMonitorResult::InvalidFrame ||
+            monitor.status().lastBeaconMs != 1010 ||
+            monitor.status().acceptedBeacons != 1U)
+        {
+            return false;
+        }
+        // A directed Probe Response must obey the same TSF floor.
+        advertisement[0] = 0x50U;
+        std::memcpy(advertisement + 4, kStation, sizeof(kStation));
+        advertisement[24] = 0x90U;
+        advertisement[25] = 0x01U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1014, true,
+                                      false) != LinkMonitorResult::Ok)
+        {
+            return false;
+        }
+        advertisement[24] = 0x80U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1015, true, false) !=
+                LinkMonitorResult::InvalidFrame ||
+            monitor.status().acceptedBeacons != 2U ||
+            monitor.status().lastBeaconMs != 1014)
+        {
+            return false;
+        }
+        // A changed interval cannot poison the TSF floor. The next valid
+        // beacon can advance from the last accepted (not rejected) TSF.
+        advertisement[0] = 0x80U;
+        std::memset(advertisement + 4, 0xff, sizeof(kStation));
+        advertisement[24] = 0xe0U;
+        advertisement[32] = 99U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1016, true,
+                                      false) != LinkMonitorResult::InvalidFrame)
+        {
+            return false;
+        }
+        advertisement[32] = 100U;
+        advertisement[24] = 0xa0U;
+        if (monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1017, true,
+                                      false) != LinkMonitorResult::Ok ||
+            monitor.status().acceptedBeacons != 3U ||
+            monitor.status().lastBeaconMs != 1017)
+        {
+            return false;
+        }
+        // A new association resets the timestamp floor; a rebooted AP may
+        // restart its TSF only after station reauthentication. This must
+        // hold after an actual radio stop, not only after explicit clear().
+        monitor.radioUnavailable(1020, false);
+        if (monitor.status().state != LinkState::RadioUnavailable)
+        {
+            return false;
+        }
+        advertisement[0] = 0x80U;
+        std::memset(advertisement + 4, 0xff, sizeof(kStation));
+        advertisement[24] = 0x10U;
+        if (monitor.started(station, ap, session) != LinkMonitorResult::Ok ||
+            monitor.observeManagement(advertisement, sizeof(advertisement),
+                                      1010, true,
+                                      false) != LinkMonitorResult::Ok ||
+            monitor.status().lastBeaconMs != 1010 ||
+            monitor.status().acceptedBeacons != 1U)
+        {
+            return false;
+        }
+        return true;
+    }
+
     bool rejectNullLinkManagementRx()
     {
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
@@ -2161,6 +2273,10 @@ int main()
     if (!rejectExpiredBeaconRefresh())
     {
         return 71;
+    }
+    if (!rejectReplayedAssociatedTsf())
+    {
+        return 78;
     }
     if (!rejectNullLinkManagementRx())
     {

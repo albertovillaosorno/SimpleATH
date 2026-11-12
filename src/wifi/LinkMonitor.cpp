@@ -125,6 +125,7 @@ namespace simpleath
             status_ = {};
             status_.state = LinkState::Idle;
             beaconIntervalTu_ = 0;
+            lastAcceptedTsf_ = 0;
         }
 
         LinkMonitorResult LinkMonitor::started(const Mac &station,
@@ -161,6 +162,7 @@ namespace simpleath
             status_.pmfNegotiated = config.pmfNegotiated;
             status_.networkInterfaceReady = config.interfaceReady;
             beaconIntervalTu_ = config.beaconIntervalTu;
+            lastAcceptedTsf_ = 0;
             return LinkMonitorResult::Ok;
         }
 
@@ -215,10 +217,18 @@ namespace simpleath
             Beacon beacon {};
             if (parseBeacon(frame, frameLength, beacon) != Result::Ok ||
                 !beacon.infrastructure || beacon.intervalTu == 0 ||
-                beacon.intervalTu != beaconIntervalTu_)
+                beacon.intervalTu != beaconIntervalTu_ ||
+                (lastAcceptedTsf_ != 0U &&
+                 beacon.timestamp <= lastAcceptedTsf_))
             {
                 return LinkMonitorResult::InvalidFrame;
             }
+            // A received FCS verifies corruption, not AP authenticity. An
+            // unchanged or backwards nonzero TSF is nevertheless a replay
+            // signal, not proof that the associated AP remains present. The
+            // first zero TSF is treated as unknown for synthetic/early peers;
+            // once nonzero, even a reset to zero requires new association.
+            lastAcceptedTsf_ = beacon.timestamp;
             // A parsed foreign/IBSS/zero-interval advertisement must not
             // keep a previously associated infrastructure link alive.
             // A changed beacon cadence requires association renegotiation.
@@ -390,6 +400,7 @@ namespace simpleath
                 suspend ? LinkLoss::DriverSuspend : LinkLoss::RadioStopped;
             status_.lostAtMs = nowMs;
             beaconIntervalTu_ = 0;
+            lastAcceptedTsf_ = 0;
         }
 
         bool LinkMonitor::reconnectDue(uint64_t nowMs) const
