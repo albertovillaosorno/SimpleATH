@@ -205,3 +205,14 @@ responsible for descriptor completion and radio isolation. The drain is
 bounded by the fixed queue capacity and is idempotent on repeated disable
 or final stop. Offline source assertions cover the call and completion
 path; no kernel Skywalk queue behavior has been verified.
+
+## Native WCL link event authorization (2026-11-12)
+
+The periodic InfraProtocol AirPort link-up notification now requires an
+active, fully connected native WCL join session as well as the physical
+provider's authorized associated, controlled-port and beacon evidence. A
+failed join status, explicit leave or terminal RF event can invalidate the
+local WCL identity before stale provider data is projected as OS link-up.
+The getter that reports physical 802.11 association remains distinct from
+this WCL link-up notification. No live Tahoe UI or physical association
+transition was observed in these offline wiring checks.

@@ -120,6 +120,29 @@ class NativePacketRevocationWiring(unittest.TestCase):
         )
 
     @staticmethod
+    def test_native_link_notification_requires_accepted_wcl_join() -> None:
+        poll = SOURCE.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        assert (
+            poll.index("pollJoin(state, live);")
+            < poll.index(
+                "const bool link = available && join_.active() && !join_.pending()"
+            )
+            < poll.index("linked_ = link;")
+        )
+        assert "state.associated && state.controlledPortOpen" in poll
+        assert "state.associatedBeaconObserved" in poll
+        # Failed or explicitly aborted joins cannot report link-up from an
+        # otherwise positive, delayed physical provider state.
+        failure = SOURCE.split("void SimpleATHInfraProtocol::pollJoin(", 1)[1]
+        failure = failure.split(
+            "IOReturn SimpleATHInfraProtocol::beginScan(", 1
+        )[0]
+        assert "join_.reset();" in failure
+        assert failure.index("join_.observe(progress);") < failure.index(
+            "join_.reset();"
+        )
+
+    @staticmethod
     def test_new_join_preserves_preassociation_packet_demand() -> None:
         join = section(
             "IOReturn SimpleATHInfraProtocol::beginJoin(",

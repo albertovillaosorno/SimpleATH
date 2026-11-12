@@ -1078,8 +1078,11 @@ void SimpleATHInfraProtocol::poll()
         emit(kDriverAvailableEvent, availability, sizeof(availability));
     }
     pollJoin(state, live);
-    const bool link = available && state.associated &&
-                      state.controlledPortOpen &&
+    // Only an accepted WCL join may announce a live AirPort link. A failed
+    // join-status observation can retire the session while the physical
+    // snapshot still describes the previous AP as associated/port-open.
+    const bool link = available && join_.active() && !join_.pending() &&
+                      state.associated && state.controlledPortOpen &&
                       state.associatedBeaconObserved;
     if (link != linked_)
     {
