@@ -53,6 +53,9 @@ namespace simpleath
                 uint64_t radioEpoch;
                 uint64_t associationGeneration;
                 bool requested;
+                // One local WCL join must own this exact physical AP before
+                // a fresh OS queue enable can admit ordinary Ethernet data.
+                bool wclJoinConnected;
                 bool radioAvailable;
                 bool powered;
                 bool rfKillBlocked;
@@ -64,7 +67,8 @@ namespace simpleath
         constexpr bool
         mayEnableNativeDataPath(const NativeDataPathAdmission &state)
         {
-            return state.requested && state.requestEpoch != 0 &&
+            return state.requested && state.wclJoinConnected &&
+                   state.requestEpoch != 0 &&
                    state.requestEpoch == state.radioEpoch &&
                    state.associationGeneration != 0 && state.radioAvailable &&
                    state.powered && !state.rfKillBlocked && state.associated &&

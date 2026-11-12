@@ -64,7 +64,7 @@ namespace
     {
         using namespace simpleath::tahoe;
         NativeDataPathAdmission state {
-            kRequestEpoch, kRequestEpoch, 1,    true, true,
+            kRequestEpoch, kRequestEpoch, 1,    true, true, true,
             true,          false,         true, true, true,
         };
         if (!mayEnableNativeDataPath(state))
@@ -96,6 +96,13 @@ namespace
             return false;
         }
         state.requested = true;
+        // Physical port and radio facts cannot resurrect an OS-retired join.
+        state.wclJoinConnected = false;
+        if (mayEnableNativeDataPath(state))
+        {
+            return false;
+        }
+        state.wclJoinConnected = true;
         state.radioAvailable = false;
         if (mayEnableNativeDataPath(state))
         {

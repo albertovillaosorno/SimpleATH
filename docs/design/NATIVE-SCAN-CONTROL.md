@@ -303,3 +303,14 @@ OS getters enter the InfraProtocol's command gate before inspecting its
 mutable join token; failed gate or provider reads remain down. The pure
 C++14/17 join fixture rejects every stale identity independently. These
 source contracts do not prove Tahoe work-loop reentrancy or kernel behavior.
+
+## Skywalk data admission must follow WCL join — 2026-11-12
+
+WCL may request Ethernet queues before association, so an early queue-enable
+request is remembered for the current radio epoch. However, a later native
+packet-enable request must not reactivate physical data after the matching
+WCL join was retired, even if a failed physical leave left a positive
+provider snapshot. Both the immediate enable and poll-time admission now
+require `JoinSession::connectedTo` in addition to the independent physical
+port, RF, epoch and beacon gates. The policy fixture explicitly rejects a
+missing accepted WCL join despite otherwise valid provider data.

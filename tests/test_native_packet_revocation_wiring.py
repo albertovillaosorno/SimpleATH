@@ -181,8 +181,22 @@ class NativePacketRevocationWiring(unittest.TestCase):
         assert "dataRequested_ = false;" not in join
         poll = SOURCE.split("void SimpleATHInfraProtocol::poll()", 1)[1]
         assert (
-            "nativePacketAdmission(state, dataRequested_, dataRequestEpoch_)"
+            "nativePacketAdmission(state, dataRequested_, dataRequestEpoch_,"
             in poll
+        )
+        assert "join_.connectedTo(observedJoin(state))" in poll
+        admission = SOURCE.split("bool nativePacketAdmission(", 1)[1].split(
+            "observedJoin(", 1
+        )[0]
+        assert "wclJoinConnected" in admission
+        assert "mayEnableNativeDataPath(evidence)" in admission
+        enable = section(
+            "if (operation == kEnablePackets)",
+            "if (operation == kDisablePackets)",
+        )
+        assert "join_.connectedTo(observedJoin(state))" in enable
+        assert enable.index("join_.connectedTo(observedJoin(state))") < (
+            enable.index("packets_.enable();")
         )
 
 

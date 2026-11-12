@@ -68,13 +68,15 @@ namespace
     constexpr unsigned int kJoinTimeoutSeconds = 30;
 
     bool nativePacketAdmission(const simpleath::tahoe::WirelessSnapshot &state,
-                               bool requested, uint64_t requestEpoch)
+                               bool requested, uint64_t requestEpoch,
+                               bool wclJoinConnected)
     {
         const simpleath::tahoe::NativeDataPathAdmission evidence {
             requestEpoch,
             state.epoch,
             state.associationGeneration,
             requested,
+            wclJoinConnected,
             state.radioAvailable,
             state.powered,
             state.rfKillBlocked,
@@ -586,7 +588,8 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         // until the corresponding association has opened the native port.
         dataRequested_ = true;
         dataRequestEpoch_ = state.epoch;
-        if (!nativePacketAdmission(state, dataRequested_, dataRequestEpoch_))
+        if (!nativePacketAdmission(state, dataRequested_, dataRequestEpoch_,
+                                   join_.connectedTo(observedJoin(state))))
         {
             packets_.disable();
             return kIOReturnSuccess;
@@ -1182,7 +1185,8 @@ void SimpleATHInfraProtocol::poll()
         // cannot finish a replacement scan or an unfinished physical dwell.
         finishScan(false);
     }
-    if (live && nativePacketAdmission(state, dataRequested_, dataRequestEpoch_))
+    if (live && nativePacketAdmission(state, dataRequested_, dataRequestEpoch_,
+                                      join_.connectedTo(observedJoin(state))))
     {
         (void)packets_.enable();
     }
