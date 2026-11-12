@@ -50,6 +50,27 @@ def section(start: str, end: str) -> str:
 
 class NativePollLifecycleWiring(unittest.TestCase):
     @staticmethod
+    def test_payloadless_wcl_scan_abort_reaches_real_owner() -> None:
+        dispatch = section(
+            "IOReturn SimpleATHInfraProtocol::requestGated(",
+            "IOReturn SimpleATHInfraProtocol::beginJoin(",
+        )
+        abort = dispatch.split("if (operation == 0x12a0)", 1)[1].split(
+            "if (data == nullptr)", 1
+        )[0]
+        assert dispatch.index("if (operation == 0x12a0)") < dispatch.index(
+            "if (data == nullptr)"
+        )
+        assert "scanGeneration_ == 0" in abort
+        assert "return kIOReturnNotFound;" in abort
+        assert "controller_->scanCancel(scanGeneration_)" in abort
+        assert "finishScan(true);" in abort
+        assert abort.index("controller_->scanCancel(scanGeneration_)") < (
+            abort.index("finishScan(true);")
+        )
+        assert dispatch.count("if (operation == 0x12a0)") == 1
+
+    @staticmethod
     def test_failed_initial_timer_arm_rejects_interface_start() -> None:
         start = section(
             "bool SimpleATHInfraProtocol::start(IOService *provider)",

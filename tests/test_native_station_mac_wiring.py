@@ -40,6 +40,14 @@ from pathlib import Path
 SOURCE = (
     Path(__file__).resolve().parent.parent / "src/SimpleATH.cpp"
 ).read_text(encoding="utf-8")
+INFRA = (
+    Path(__file__).resolve().parent.parent
+    / "src/platform/tahoe/SimpleATHInfraProtocol.cpp"
+).read_text(encoding="utf-8")
+CONTROLLER = (
+    Path(__file__).resolve().parent.parent
+    / "src/platform/tahoe/SimpleATHTahoeController.cpp"
+).read_text(encoding="utf-8")
 
 
 def method(start: str, end: str) -> str:
@@ -128,6 +136,21 @@ class NativeStationMacWiring(unittest.TestCase):
         assert "&self.stationMac_[0]" in connection
         awdl = method("void receiveNativeAwdl(", "void retireNativeLink(")
         assert "&stationMac_[0]" in awdl
+
+    @staticmethod
+    def test_native_hw_addr_returns_effective_station_mac() -> None:
+        getter = INFRA.split("if (operation == 0xfe8)", 1)[1].split(
+            "if (operation == 0xea8)", 1
+        )[0]
+        assert "state.currentMac" in getter
+        assert "state.permanentMac" not in getter
+        assert "sizeof(state.currentMac)" in getter
+        assert "memcpy(bytes, &version, sizeof(version));" in getter
+        controller_getter = CONTROLLER.split(
+            "SimpleATHTahoeController::getHardwareAddress(", 1
+        )[1].split("SimpleATHTahoeController::getPOWER(", 1)[0]
+        assert "state.currentMac" in controller_getter
+        assert "state.permanentMac" not in controller_getter
 
     @staticmethod
     def test_real_pcu_identity_reapplied_at_every_new_epoch() -> None:

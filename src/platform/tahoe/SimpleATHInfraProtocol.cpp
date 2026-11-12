@@ -561,10 +561,24 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         packets_.disable();
         return kIOReturnSuccess;
     }
-    // Leave/abort do not carry a payload in the modern WCL contract.
+    // Leave, join abort and scan abort do not require payloads in WCL.
+    // Handle all three before validating pointer-bearing request envelopes.
     if (operation == 0x1270 || operation == 0x12b8)
     {
         return leaveJoin(operation == 0x12b8);
+    }
+    if (operation == 0x12a0)
+    {
+        if (scanGeneration_ == 0)
+        {
+            return kIOReturnNotFound;
+        }
+        const auto result = controller_->scanCancel(scanGeneration_);
+        if (result == kIOReturnSuccess)
+        {
+            finishScan(true);
+        }
+        return result;
     }
     if (data == nullptr)
     {
@@ -608,19 +622,6 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
     {
         return beginScan(data);
     }
-    if (operation == 0x12a0)
-    {
-        if (scanGeneration_ == 0)
-        {
-            return kIOReturnNotFound;
-        }
-        const auto result = controller_->scanCancel(scanGeneration_);
-        if (result == kIOReturnSuccess)
-        {
-            finishScan(true);
-        }
-        return result;
-    }
     simpleath::tahoe::WirelessSnapshot state {};
     const auto result = controller_->radioSnapshot(state);
     if (result != kIOReturnSuccess)
@@ -632,7 +633,11 @@ IOReturn SimpleATHInfraProtocol::requestGated(unsigned int operation,
         auto *bytes = static_cast<uint8_t *>(data);
         const uint32_t version = 1;
         memcpy(bytes, &version, sizeof(version));
-        memcpy(bytes + 4, state.permanentMac, 6);
+        // WCL's HW_ADDR is the currently programmed PCU station identity.
+        // A quiesced locally administered override must agree with the
+        // controller, Skywalk and transmitted management-frame source MAC;
+        // the EEPROM permanent address remains separately in the snapshot.
+        memcpy(bytes + 4, state.currentMac, sizeof(state.currentMac));
         memset(bytes + 10, 0, 2);
         return kIOReturnSuccess;
     }

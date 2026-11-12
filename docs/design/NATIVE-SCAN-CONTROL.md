@@ -265,3 +265,28 @@ provider snapshot could reannounce the OS link despite the user requesting
 leave. Terminal connection and link-down notices now follow `retireJoin`'s
 one-shot session lifecycle; a failed abort does not synthesize a successful
 abort event. This is an offline source-order regression, not a Tahoe WCL test.
+
+## Native WCL station identity after MAC override — 2026-11-12
+
+The physical snapshot distinguishes EEPROM `permanentMac` from readback-
+confirmed PCU `currentMac`. Native `getHardwareAddress` already returns the
+current address, but the `getHW_ADDR` WCL selector previously returned the
+permanent address. After a permitted quiesced locally administered override,
+these two OS entrypoints would disagree with the PCU and the management-frame
+source address. Both now expose `currentMac` from the same owner snapshot;
+`permanentMac` remains available as a separate immutable board fact. The
+owner rejects snapshots until station MAC programming has been verified.
+Source wiring tests confirm equality of the two reporting paths, not runtime
+Tahoe ABI behavior or hardware verification.
+
+## Null-payload WCL scan cancellation — 2026-11-12
+
+The `setWCL_SCAN_ABORT` selector needs no request payload. Its prior dispatch
+position, below the common null-data check, rejected a payloadless abort
+with `BadArgument` before reaching the physical scan owner's cancellation.
+It now follows leave/join-abort in the null-safe branch, invokes the exact
+active bridge generation and publishes local `SCAN_DONE` only when the owner
+accepted cancellation. A missing generation still returns `NotFound`; a
+failed provider cancel is returned without inventing an OS completion. A
+source-order regression covers this boundary; Tahoe event delivery remains
+unverified without kernel execution.
