@@ -659,3 +659,11 @@ latch under the mailbox lock, so WCL cannot read previously observed scan
 results after radio shutdown was requested. It does not block native
 scan-completion acknowledgement: terminal event identities still need exact
 retirement even while BSS reads are unavailable.
+
+The next successful radio-on request now retires only the former session's
+BSS enumeration tickets if the native off latch was set. Pending completion
+notices are left intact for exact provider acknowledgement. A redundant
+power-on while already on does not invalidate an active scan. Fresh OS key
+installations are also rejected during the logical-off interval, although
+removal attempts remain eligible to clean up a failed physical shutdown.
+These are source-side transport decisions, not RF isolation evidence.

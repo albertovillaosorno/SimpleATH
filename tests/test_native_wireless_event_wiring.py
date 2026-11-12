@@ -198,6 +198,53 @@ class NativePowerStatusWiring(unittest.TestCase):
         assert "powerOffRequested_" not in ack
 
 
+class NativeRadioOffRecoveryWiring(unittest.TestCase):
+    @staticmethod
+    def test_power_on_retires_pre_off_scan_read_tickets_only() -> None:
+        power = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::setPower(bool on)", 1
+        )[1].split("TahoeWirelessTransport::setMac(", 1)[0]
+        failed_stop = power.split("if (result == kIOReturnSuccess && !on)", 1)[
+            0
+        ]
+        assert "scanGeneration_ = 0;" not in failed_stop
+        assert "previousScanGeneration_ = 0;" not in failed_stop
+        resumed = power.split("else if (result == kIOReturnSuccess && on)", 1)[
+            1
+        ].split("return result;", 1)[0]
+        assert "if (powerOffRequested_)" in resumed
+        assert resumed.index("if (powerOffRequested_)") < (
+            resumed.index("scanGeneration_ = 0;")
+        )
+        assert resumed.index("previousScanGeneration_ = 0;") < (
+            resumed.index("powerOffRequested_ = false;")
+        )
+        assert "invalidateMailboxes();" not in resumed
+        assert "eventCount_" not in resumed
+        ack = TRANSPORT.split(
+            "TahoeWirelessTransport::acknowledgeScanCompletion(", 1
+        )[1].split("TahoeWirelessTransport::nextBss(", 1)[0]
+        assert "powerOffRequested_" not in ack
+
+    @staticmethod
+    def test_power_off_blocks_new_key_material_but_not_removal() -> None:
+        key = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::installKey(", 1
+        )[1].split("IOReturn TahoeWirelessTransport::authorizePort(", 1)[0]
+        before = key.split("NativeCcmpKey stable = key;", 1)[0]
+        assert "IOLockLock(mailboxLock_);" in before
+        assert "const bool blocked = powerOffRequested_ && !key.remove;" in (
+            before
+        )
+        assert before.index("IOLockUnlock(mailboxLock_);") < (
+            before.index("if (blocked)")
+        )
+        assert before.index("return kIOReturnNotReady;") < (
+            key.index("owner_.installKey(owner_.context, &stable)")
+        )
+        assert "for (volatile uint8_t &byte : stable.material)" in key
+
+
 class NativePollEventSequencingWiring(unittest.TestCase):
     @staticmethod
     def test_state_changes_refresh_before_wcl_notices_or_skywalk() -> None:

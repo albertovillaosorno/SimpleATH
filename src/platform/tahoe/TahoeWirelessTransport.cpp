@@ -492,6 +492,14 @@ namespace simpleath
                 // The owner's successful startup may now be sampled anew;
                 // a failed resume must not clear an earlier off request.
                 IOLockLock(mailboxLock_);
+                if (powerOffRequested_)
+                {
+                    // A failed off can preserve the previous physical BSS
+                    // ticket. Fresh radio admission must not re-expose it.
+                    // Keep completion events for exact native acknowledgement.
+                    scanGeneration_ = 0;
+                    previousScanGeneration_ = 0;
+                }
                 powerOffRequested_ = false;
                 IOLockUnlock(mailboxLock_);
             }
@@ -719,6 +727,16 @@ namespace simpleath
                  key.receivePacketNumber >= (1ULL << kCcmpPacketNumberBits)))
             {
                 return kIOReturnBadArgument;
+            }
+            // A failed physical shutdown may leave the old station's key
+            // owner usable. Never install a new key after logical power-off;
+            // allow key removal to retire the old security state.
+            IOLockLock(mailboxLock_);
+            const bool blocked = powerOffRequested_ && !key.remove;
+            IOLockUnlock(mailboxLock_);
+            if (blocked)
+            {
+                return kIOReturnNotReady;
             }
             // The caller's key storage is borrowed. Snapshot before a gate
             // transition that may block or synchronously call out, and scrub
