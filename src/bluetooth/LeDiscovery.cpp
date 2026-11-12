@@ -495,32 +495,20 @@ namespace simpleath
                        : LeDiscoveryResult::OwnershipLost;
         }
 
+        // The caller pins the complete event before the first owner callback;
+        // validate all of those same bytes before publishing any report.
         LeDiscoveryResult dispatchReports(const LeDiscoveryState &state,
                                           const UsbHciState &transport,
                                           const UsbHciHostCallbacks &host,
                                           const LeDiscoveryOwner &owner,
                                           const uint8_t *event, size_t bytes)
         {
-            if (event == nullptr || bytes > kUsbHciMaxEventBytes)
-            {
-                return LeDiscoveryResult::MalformedEvent;
-            }
-            // Validate and later dispatch the exact same byte image. An
-            // observer may reuse or modify the borrowed USB event buffer
-            // during delivery of the first report; otherwise later reports
-            // would be read after their original validation had expired.
-            UsbBytes<uint8_t, kUsbHciMaxEventBytes> snapshot {};
-            for (size_t index = 0U; index < bytes; ++index)
-            {
-                snapshot.at(index) = *usbByteOffset(event, index);
-            }
-            const uint8_t *const accepted = snapshot.data();
-            if (!validReports(accepted, bytes))
+            if (!validReports(event, bytes))
             {
                 return LeDiscoveryResult::MalformedEvent;
             }
             size_t offset = kEventHeader + kAdvertisingHeaderBytes;
-            const size_t count = *usbByteOffset(accepted, 3U);
+            const size_t count = *usbByteOffset(event, 3U);
             for (size_t index = 0U; index < count; ++index)
             {
                 if (!authorized(state, transport, host, owner))
@@ -528,22 +516,22 @@ namespace simpleath
                     return LeDiscoveryResult::OwnershipLost;
                 }
                 LeLegacyAdvertisement report {};
-                report.eventType = *usbByteOffset(accepted, offset);
-                report.addressType = *usbByteOffset(accepted, offset + 1U);
+                report.eventType = *usbByteOffset(event, offset);
+                report.addressType = *usbByteOffset(event, offset + 1U);
                 for (size_t address = 0U; address < kLeAddressBytes; ++address)
                 {
                     report.address.at(address) =
-                        *usbByteOffset(accepted, offset + 2U + address);
+                        *usbByteOffset(event, offset + 2U + address);
                 }
                 report.dataBytes =
-                    *usbByteOffset(accepted, offset + kAdvertDataLengthOffset);
+                    *usbByteOffset(event, offset + kAdvertDataLengthOffset);
                 for (size_t payload = 0U; payload < report.dataBytes; ++payload)
                 {
                     report.data.at(payload) = *usbByteOffset(
-                        accepted, offset + kReportHeaderBytes + payload);
+                        event, offset + kReportHeaderBytes + payload);
                 }
                 report.rssi = static_cast<int8_t>(*usbByteOffset(
-                    accepted, offset + kReportHeaderBytes + report.dataBytes));
+                    event, offset + kReportHeaderBytes + report.dataBytes));
                 offset += kReportHeaderBytes + report.dataBytes + 1U;
                 // A passive scan never solicits SCAN_RSP. Even if another
                 // controller user emits one unexpectedly, do not attribute
@@ -945,6 +933,17 @@ namespace simpleath
         {
             return LeDiscoveryResult::Faulted;
         }
+        // The USB event is borrowed. Pin its complete image before the
+        // externally supplied permit callback can reuse or mutate the buffer.
+        // Preserve ownership error precedence for malformed input.
+        const bool canSnapshot = event != nullptr && bytes >= kEventHeader &&
+                                 bytes <= kUsbHciMaxEventBytes;
+        UsbBytes<uint8_t, kUsbHciMaxEventBytes> snapshot {};
+        if (canSnapshot)
+        {
+            __builtin_memcpy(snapshot.data(), event, bytes);
+        }
+        const uint8_t *const accepted = snapshot.data();
         const uint64_t ingressEpoch = state.epoch;
         const uint64_t ingressSerial = state.generation;
         const uint64_t ingressGeneration = transport.generation;
@@ -960,14 +959,13 @@ namespace simpleath
         {
             return fault(state, LeDiscoveryResult::OwnershipLost);
         }
-        if (event == nullptr || bytes < kEventHeader ||
-            bytes > kUsbHciMaxEventBytes ||
-            bytes !=
-                static_cast<size_t>(*usbByteOffset(event, 1U)) + kEventHeader)
+        if (!canSnapshot ||
+            bytes != static_cast<size_t>(*usbByteOffset(accepted, 1U)) +
+                         kEventHeader)
         {
             return fault(state, LeDiscoveryResult::MalformedEvent);
         }
-        const uint8_t type = *usbByteOffset(event, 0U);
+        const uint8_t type = *usbByteOffset(accepted, 0U);
         if (type == kCommandComplete)
         {
             if (bytes < kCommandCompleteBytes)
@@ -975,8 +973,8 @@ namespace simpleath
                 return fault(state, LeDiscoveryResult::MalformedEvent);
             }
             const uint32_t opcode =
-                static_cast<uint32_t>(*usbByteOffset(event, 3U)) |
-                (static_cast<uint32_t>(*usbByteOffset(event, 4U))
+                static_cast<uint32_t>(*usbByteOffset(accepted, 3U)) |
+                (static_cast<uint32_t>(*usbByteOffset(accepted, 4U))
                  << kBitsPerByte);
             if (opcode != kLeSetScanParameters && opcode != kLeSetScanEnable)
             {
@@ -986,14 +984,14 @@ namespace simpleath
             {
                 return fault(state, LeDiscoveryResult::MalformedEvent);
             }
-            return completeCommand(state, transport, host, event);
+            return completeCommand(state, transport, host, accepted);
         }
         if (type == kCommandStatus)
         {
-            return completeStatus(state, event, bytes);
+            return completeStatus(state, accepted, bytes);
         }
         if (type != kLeMetaEvent || bytes < 4U ||
-            *usbByteOffset(event, 2U) != kLegacyAdvertisingReport)
+            *usbByteOffset(accepted, 2U) != kLegacyAdvertisingReport)
         {
             return LeDiscoveryResult::Ignored;
         }
@@ -1002,7 +1000,7 @@ namespace simpleath
             return LeDiscoveryResult::Ignored;
         }
         const LeDiscoveryResult result =
-            dispatchReports(state, transport, host, owner, event, bytes);
+            dispatchReports(state, transport, host, owner, accepted, bytes);
         if (result != LeDiscoveryResult::Ok &&
             (state.epoch != ingressEpoch || state.phase != ingressPhase ||
              state.generation != ingressSerial ||

@@ -653,3 +653,18 @@ report bytes without another validation pass. `test_bluetooth_le.cpp` covers a
 callback mutating the second report while both observations must still match
 the previously validated image. These are source-only host tests; native
 Bluetooth host callbacks, physical USB ownership and AirDrop remain unverified.
+
+## Source progress — pin LE ingress before owner permission
+
+The LE consumer now copies a bounded, complete HCI event before invoking
+its external owner-permission callback. Report validation, report delivery,
+Command Status and Command Complete processing all consume that same immutable
+image. The previous report-only snapshot occurred *after* permission, allowing
+a synchronous permission callback to rewrite the borrowed source before
+validation. Synthetic tests mutate a later report and a Command Complete
+status from the owner callback; both must retain the previously received
+semantics. C++14/C++17 host sanitizer fixtures cover the corrected boundary.
+The upstream USB HCI transport still performs its own earlier receive/credit
+accounting and needs a separately stable inbound transfer lease; this change
+does not verify native USB buffer lifetime, macOS Bluetooth attachment or
+physical controller behavior.

@@ -658,6 +658,20 @@ namespace
                                         ownerFor(fake_), event, bytes);
             }
 
+            // Isolate the LE consumer from prior USB command accounting when
+            // testing mutations inside its own authorization callback.
+            bool accountCommandComplete(const uint8_t *event, size_t bytes)
+            {
+                return receiveUsbHciEvent(transport_, hostFor(fake_), event,
+                                          bytes) == UsbHciStatus::Ok;
+            }
+
+            LeDiscoveryResult acceptLeOnly(const uint8_t *event, size_t bytes)
+            {
+                return acceptLeHciEvent(scan_, transport_, hostFor(fake_),
+                                        ownerFor(fake_), event, bytes);
+            }
+
             LeDiscoveryResult completeParameters()
             {
                 return accept(kParamsComplete.data(), kParamsComplete.size());
@@ -1025,6 +1039,41 @@ namespace
             f.completeEnable() != LeDiscoveryResult::Ok ||
             f.phase() != LeScanPhase::Idle ||
             f.stop() != LeDiscoveryResult::NotScanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int borrowedCommandCompletion()
+    {
+        Fixture command {};
+        if (!command.attach() || command.begin() != LeDiscoveryResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The owner permit callback can reuse the incoming USB buffer.
+        // Once a Command Complete has arrived, decoding must use its
+        // pre-permission snapshot, not the callback's modified status byte.
+        auto completion = kParamsComplete;
+        if (!command.accountCommandComplete(completion.data(),
+                                            completion.size()))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        command.fake().permitContext = &completion;
+        command.fake().onNextPermit = [](void *context) -> bool
+        {
+            auto &source = *static_cast<std::array<uint8_t, 6U> *>(context);
+            source.at(5U) = 0x0cU;
+            return true;
+        };
+        if (command.acceptLeOnly(completion.data(), completion.size()) !=
+                LeDiscoveryResult::Ok ||
+            completion.at(5U) != 0x0cU ||
+            command.phase() != LeScanPhase::AwaitEnable ||
+            command.completeEnable() != LeDiscoveryResult::Ok ||
+            command.phase() != LeScanPhase::Scanning)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
@@ -1419,6 +1468,31 @@ namespace
                 LeDiscoveryResult::Ok ||
             mutableBatch.fake().reports != kTwoReports ||
             mutableBatch.phase() != LeScanPhase::Scanning || packet == original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        packet = original;
+        // Permission checks run before report dispatch. They must not allow
+        // borrowed USB event bytes to change between validation and delivery.
+        Fixture permitMutation {};
+        if (!permitMutation.start())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        permitMutation.fake().permitContext = &packet;
+        permitMutation.fake().onNextPermit = [](void *context) -> bool
+        {
+            auto &source =
+                *static_cast<std::array<uint8_t, kMultiReportBytes> *>(context);
+            source.at(kSecondReportOffset + kReportDataLengthOffset + 1U) =
+                0xffU;
+            return true;
+        };
+        if (permitMutation.accept(packet.data(), packet.size()) !=
+                LeDiscoveryResult::Ok ||
+            permitMutation.fake().reports != kTwoReports ||
+            permitMutation.phase() != LeScanPhase::Scanning ||
+            packet == original)
         {
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
@@ -1911,6 +1985,10 @@ int main()
     if (const int normal = normalLifecycle())
     {
         return normal;
+    }
+    if (const int borrowedCompletion = borrowedCommandCompletion())
+    {
+        return borrowedCompletion;
     }
     if (const int active = activeScanAuthorization())
     {
