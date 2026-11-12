@@ -94,6 +94,21 @@ namespace simpleath
                sameUsbHciInterfaceTopology(issued.topology, current.topology);
     }
 
+    // Classify a completed USB IN poll against the exact session that issued
+    // the read, not the session which happens to occupy the same native
+    // storage when the USB/provider callback returns. A stale read is never
+    // allowed to fault the replacement controller's HCI stream.
+    inline UsbHciStatus
+    classifyUsbHciReadForLease(const UsbHciOwnerLease &issued,
+                               const UsbHciOwnerLease &current, bool completed,
+                               bool timedOut, size_t transferred,
+                               size_t capacity, bool partialFrame = false)
+    {
+        return classifyUsbHciRead(sameUsbHciOwnerLease(issued, current),
+                                  completed, timedOut, transferred, capacity,
+                                  partialFrame);
+    }
+
     // The USB owner extracts endpoint address and transfer type from the
     // ACTIVE interface's real descriptors, including alternate setting.
     // Transfer type follows USB bmAttributes bits 1:0 (bulk=2, interrupt=3).

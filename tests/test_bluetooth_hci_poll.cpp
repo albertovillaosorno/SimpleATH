@@ -227,6 +227,33 @@ int main()
     {
         return 17;
     }
+    // A successful old pipe read cannot be accepted into a newly opened
+    // controller, nor may its timeout/failure fault that successor. The
+    // native pump binds this exact lease classifier to each USB IN call.
+    current = issued;
+    current.generation = issued.generation + 2U;
+    if (simpleath::classifyUsbHciReadForLease(
+            issued, current, true, false, kShortTransfer, kTransferCapacity) !=
+            UsbHciStatus::OwnershipLost ||
+        simpleath::classifyUsbHciReadForLease(issued, current, false, false, 0U,
+                                              kTransferCapacity) !=
+            UsbHciStatus::OwnershipLost ||
+        simpleath::classifyUsbHciReadForLease(issued, current, false, true, 0U,
+                                              kTransferCapacity, true) !=
+            UsbHciStatus::OwnershipLost)
+    {
+        return 19;
+    }
+    current = issued;
+    if (simpleath::classifyUsbHciReadForLease(
+            issued, current, true, false, kShortTransfer, kTransferCapacity) !=
+            UsbHciStatus::Ok ||
+        simpleath::classifyUsbHciReadForLease(issued, current, false, true, 0U,
+                                              kTransferCapacity, true) !=
+            UsbHciStatus::TransferFailed)
+    {
+        return 20;
+    }
     for (const auto &sample : kCases)
     {
         if (simpleath::classifyUsbHciRead(sample.current, sample.completed,

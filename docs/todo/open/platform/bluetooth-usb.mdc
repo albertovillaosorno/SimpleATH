@@ -593,3 +593,21 @@ pending parameter completion, scanning reports, disable and USB command
 callback replacement. This is host-side state-machine evidence only: it
 neither opens the physical USB endpoint nor verifies Tahoe Bluetooth host,
 coexistence, LE scanning or AirDrop behavior.
+
+## Source progress — native USB HCI IN poll session binding
+
+The post-firmware raw HCI adapter's bounded interrupt/ACL IN poll now records
+its original USB attach generation, endpoint topology, physical provider and
+borrowed pipes before any permission check or descriptor preparation. Each
+poll checks that original lease after the initial policy callback, descriptor
+preparation and completed USB read; old bytes and errors are rejected as
+`OwnershipLost` instead of feeding or faulting a successor attached under
+the same owner epoch. A local portable classification helper combines the
+exact issued/current session comparison with the existing USB read outcome
+policy, and synthetic C++14/C++17 fixtures cover successful stale reads,
+stale error/timeouts and current-owner read/partial-timeout behavior.
+
+This change addresses the standalone native raw-HCI transport contract; the
+normal macOS Bluetooth host personality retains its *separate* superclass
+USB ownership and does not borrow these endpoint pipes. No real USB I/O,
+Tahoe host-controller attach, BLE pairing, or AirDrop is demonstrated.

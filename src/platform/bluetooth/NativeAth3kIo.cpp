@@ -490,7 +490,34 @@ namespace simpleath
 
         UsbHciStatus pump(NativeUsbHciIo &native, UsbHciPacketKind kind)
         {
-            if (!hciPermit(&native, native.epoch))
+            const UsbHciOwnerLease issued {
+                native.epoch,
+                native.stream.generation,
+                native.topology,
+                native.opened,
+            };
+            IOUSBHostInterface *const originalInterface = native.interface;
+            IOUSBHostDevice *const originalDevice = native.device;
+            IOUSBHostPipe *const originalEvent = native.eventIn;
+            IOUSBHostPipe *const originalAcl = native.aclIn;
+            const auto currentLease = [&native]
+            {
+                return UsbHciOwnerLease {
+                    native.epoch,
+                    native.stream.generation,
+                    native.topology,
+                    native.opened,
+                };
+            };
+            const auto sameOwner = [&]
+            {
+                return sameUsbHciOwnerLease(issued, currentLease()) &&
+                       native.interface == originalInterface &&
+                       native.device == originalDevice &&
+                       native.eventIn == originalEvent &&
+                       native.aclIn == originalAcl;
+            };
+            if (!hciPermit(&native, issued.epoch) || !sameOwner())
             {
                 return UsbHciStatus::OwnershipLost;
             }
@@ -515,10 +542,25 @@ namespace simpleath
                 &buffer[0U], sizeof(buffer), kIODirectionIn);
             if (descriptor == nullptr)
             {
+                if (!sameOwner())
+                {
+                    return UsbHciStatus::OwnershipLost;
+                }
                 native.stream.faulted = true;
                 return UsbHciStatus::TransferFailed;
             }
             const IOReturn prepared = descriptor->prepare();
+            // Descriptor preparation can invoke provider callbacks. Do not
+            // issue a read through an old pipe after same-epoch reattachment.
+            if (!sameOwner())
+            {
+                if (prepared == kIOReturnSuccess)
+                {
+                    (void)descriptor->complete();
+                }
+                descriptor->release();
+                return UsbHciStatus::OwnershipLost;
+            }
             IOReturn status = kIOReturnError;
             IOReturn completed = kIOReturnError;
             uint32_t transferred = 0U;
@@ -535,11 +577,17 @@ namespace simpleath
             // Interrupt IN can be silent for an arbitrary period. A finite
             // timeout makes shutdown bounded, while partial/ambiguous I/O
             // failures still require a fresh controller transport session.
-            const bool partialFrame = kind == UsbHciPacketKind::Event
-                                          ? native.stream.events.used != 0U
-                                          : native.stream.acl.used != 0U;
-            const UsbHciStatus read = classifyUsbHciRead(
-                hciPermit(&native, native.epoch),
+            // The USB read itself may reenter close/reopen with an identical
+            // owner epoch and endpoint topology. Compare the ORIGINAL lease
+            // before a successor's HCI reassembly or fault flag is touched.
+            const bool ownerCurrent =
+                sameOwner() && hciPermit(&native, issued.epoch) && sameOwner();
+            const bool partialFrame =
+                ownerCurrent && (kind == UsbHciPacketKind::Event
+                                     ? native.stream.events.used != 0U
+                                     : native.stream.acl.used != 0U);
+            const UsbHciStatus read = classifyUsbHciReadForLease(
+                issued, ownerCurrent ? currentLease() : UsbHciOwnerLease {},
                 status == kIOReturnSuccess && completed == kIOReturnSuccess,
                 status == kIOReturnTimeout && completed == kIOReturnSuccess,
                 transferred, sizeof(buffer), partialFrame);
