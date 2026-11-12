@@ -58,6 +58,19 @@ namespace simpleath
             ProviderStopped,
         };
 
+        // State notifications can arrive on the provider gate after a native
+        // poll sampled its owner snapshot. Drain these before publishing WCL
+        // join/link status, then obtain one fresh physical snapshot. A TX
+        // wakeup and one-shot scan completion do not themselves invalidate
+        // association or radio availability.
+        inline bool wirelessEventInvalidatesSnapshot(WirelessEvent event)
+        {
+            return event == WirelessEvent::RadioChanged ||
+                   event == WirelessEvent::AssociationChanged ||
+                   event == WirelessEvent::LinkChanged ||
+                   event == WirelessEvent::ProviderStopped;
+        }
+
         // Called only while holding the native mailbox lock. A full bounded
         // ring may discard one ordinary notification to make room for a real
         // scan completion. Preserve all earlier scan completions and their

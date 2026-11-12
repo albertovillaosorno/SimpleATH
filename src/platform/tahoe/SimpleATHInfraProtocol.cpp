@@ -1028,11 +1028,9 @@ void SimpleATHInfraProtocol::tick(OSObject *owner, IOTimerEventSource *)
 
 void SimpleATHInfraProtocol::poll()
 {
-    simpleath::tahoe::WirelessSnapshot state {};
-    const auto result = controller_->radioSnapshot(state);
-    const bool live = result == kIOReturnSuccess;
-    const bool available =
-        live && state.radioAvailable && state.powered && !state.rfKillBlocked;
+    using namespace simpleath::tahoe;
+    WirelessSnapshot state {};
+    bool live = controller_->radioSnapshot(state) == kIOReturnSuccess;
     if (pendingScanAckGeneration_ != 0U)
     {
         if ((live && state.epoch != pendingScanAckEpoch_) ||
@@ -1046,14 +1044,57 @@ void SimpleATHInfraProtocol::poll()
             pendingScanAckGeneration_ = 0;
         }
     }
-    if (!live || state.epoch != lastEpoch_)
+    // Ask the owner to retry a completion whose prior mailbox delivery was
+    // rejected. Run this before draining the bounded event queue so a newly
+    // accepted completion can still finish this same native poll cycle.
+    if (live && scanGeneration_ != 0U && scanEpoch_ == state.epoch &&
+        !state.scanning)
+    {
+        (void)controller_->retryScanCompletion();
+    }
+    bool stateChanged = false;
+    uint64_t completedEpoch = 0;
+    uint64_t completedGeneration = 0;
+    for (size_t i = 0; i < TahoeWirelessTransport::kEventCapacity; ++i)
+    {
+        WirelessEvent event {};
+        uint64_t epoch = 0;
+        uint64_t generation = 0;
+        if (controller_->nextRadioEvent(event, epoch, generation) !=
+            kIOReturnSuccess)
+        {
+            break;
+        }
+        if (event == WirelessEvent::ScanFinished && epoch == scanEpoch_ &&
+            generation == scanGeneration_)
+        {
+            completedEpoch = epoch;
+            completedGeneration = generation;
+        }
+        else if (wirelessEventInvalidatesSnapshot(event))
+        {
+            stateChanged = true;
+        }
+    }
+    if (stateChanged)
+    {
+        // Radio/association/link or terminal provider callbacks can arrive
+        // AFTER our first snapshot. Never emit success or admit Skywalk data
+        // from that earlier sample; a refresh failure is treated as offline.
+        state = {};
+        live = controller_->radioSnapshot(state) == kIOReturnSuccess;
+    }
+    const bool available =
+        live && state.radioAvailable && state.powered && !state.rfKillBlocked;
+    if (!available || state.epoch != lastEpoch_)
     {
         packets_.disable();
-        if (scanGeneration_ != 0 && (!live || scanEpoch_ != state.epoch))
+        if (scanGeneration_ != 0 && (!available || scanEpoch_ != state.epoch))
         {
-            // A snapshot may be invalidated by an intervening mailbox
-            // callback without a physical epoch loss. Request cancellation
-            // before notifying WCL, then retain exact identity on failure.
+            // An unavailable radio must abort the WCL scan even when the
+            // PCI epoch is unchanged. A snapshot may also be invalidated
+            // by an intervening mailbox callback; cancel physical dwell
+            // before notifying WCL, retaining the scan identity on failure.
             if (scanEpoch_ == lastEpoch_)
             {
                 (void)controller_->scanCancel(scanGeneration_);
@@ -1090,34 +1131,13 @@ void SimpleATHInfraProtocol::poll()
         (void)setLinkState(static_cast<IO80211LinkState>(link ? 2 : 1), 0,
                            false, 0, 0);
     }
-    // Retry a rejected mailbox handoff at most once per poll. Provider gate
-    // callbacks only enqueue under the independent mailbox lock; no inverse
-    // native work-loop callback is permitted.
-    if (live && scanGeneration_ != 0U && scanEpoch_ == state.epoch &&
-        !state.scanning)
+    if (acceptWirelessScanCompletion(completedEpoch, completedGeneration,
+                                     scanEpoch_, scanGeneration_, live,
+                                     state.scanning))
     {
-        (void)controller_->retryScanCompletion();
-    }
-    for (size_t i = 0;
-         i < simpleath::tahoe::TahoeWirelessTransport::kEventCapacity; ++i)
-    {
-        simpleath::tahoe::WirelessEvent event {};
-        uint64_t epoch = 0;
-        uint64_t generation = 0;
-        if (controller_->nextRadioEvent(event, epoch, generation) !=
-            kIOReturnSuccess)
-        {
-            break;
-        }
-        if (event == simpleath::tahoe::WirelessEvent::ScanFinished &&
-            simpleath::tahoe::acceptWirelessScanCompletion(
-                epoch, generation, scanEpoch_, scanGeneration_, live,
-                state.scanning))
-        {
-            // A late completion from an older same-epoch scan cannot
-            // finish the new scan before its real radio dwell has ended.
-            finishScan(false);
-        }
+        // A completion observed before an intervening radio/link change
+        // cannot finish a replacement scan or an unfinished physical dwell.
+        finishScan(false);
     }
     if (live && nativePacketAdmission(state, dataRequested_, dataRequestEpoch_))
     {

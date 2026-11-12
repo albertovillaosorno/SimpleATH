@@ -230,3 +230,26 @@ latch remains set. Only a successful power-on callback or a fresh bind clears
 that local latch, after which a new validated snapshot establishes live state.
 This protects native mailbox admission, not hardware safety or actual power-off
 on macOS. Offline source-wiring checks cover ordering and the recovery gate.
+
+## Native poll event-before-status ordering (2026-11-12)
+
+A provider radio, association, link or terminal-stop notification may race the
+native InfraProtocol timer's sampled owner state. The timer now drains a bounded
+batch of mailbox events and requests a fresh provider snapshot after observing
+such a state-changing notification, before it emits a positive WCL join, AirPort
+link, radio availability or enables Skywalk packets. A refresh failure is
+interpreted as unavailable; scan completion identities survive the drain and
+are still accepted only for the current epoch/generation after physical scan
+termination is confirmed. A previously rejected scan-completion handoff is
+retried before draining, so a newly accepted completion can finish in the
+same poll. The work-loop is serialized, but a new hardware callback can still
+arrive after this second snapshot; physical owner gates and future polling
+must independently reject stale work. Offline policy and wiring regressions
+cover the transition order; no actual OS callback timing was measured.
+
+The refreshed state also aborts a still-pending WCL scan when RF power,
+radio availability or RF-kill admission is lost *without* a PCI epoch change.
+The owner receives a best-effort physical cancel first, then the local scan
+emits an aborted completion rather than treating an old completion event as
+successful for a radio that is no longer available. Failed scan completion
+acknowledgement retains its existing identity-scoped retry.

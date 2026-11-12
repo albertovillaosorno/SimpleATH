@@ -143,6 +143,65 @@ class NativePowerOffAdmissionWiring(unittest.TestCase):
         assert "powerOffRequested_ = false;" in bind
 
 
+class NativePollEventSequencingWiring(unittest.TestCase):
+    @staticmethod
+    def test_state_changes_refresh_before_wcl_notices_or_skywalk() -> None:
+        poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        drain = poll.index(
+            "controller_->nextRadioEvent(event, epoch, generation)"
+        )
+        refresh = poll.index("if (stateChanged)")
+        project = poll.index("const bool available =")
+        join = poll.index("pollJoin(state, live);")
+        link = poll.index("const bool link = available")
+        packets = poll.index("nativePacketAdmission(state,")
+        assert drain < refresh < project < join < link < packets
+        assert "wirelessEventInvalidatesSnapshot(event)" in poll[:refresh]
+        assert (
+            "live = controller_->radioSnapshot(state) == kIOReturnSuccess;"
+            in (poll[refresh:project])
+        )
+        assert "state = {};" in poll[refresh:project]
+        assert "event == WirelessEvent::ScanFinished" in poll[:refresh]
+        assert "completedEpoch = epoch;" in poll[:refresh]
+        assert "completedGeneration = generation;" in poll[:refresh]
+        assert "WirelessEvent::ProviderStopped;" in EPOCH
+        assert "event == WirelessEvent::ProviderStopped" in EPOCH
+        assert "event == WirelessEvent::TransmitAvailable" not in poll
+        # The physical retry may enqueue SCAN_DONE on the same poll, and the
+        # completion is accepted only after the refreshed scan-running check.
+        assert poll.index("retryScanCompletion();") < drain
+        assert refresh < poll.index("acceptWirelessScanCompletion(")
+        assert "scanEpoch_, scanGeneration_," in poll
+        assert "scanEpoch_,scanGeneration_,live,state.scanning)" in "".join(
+            poll.split()
+        )
+
+    @staticmethod
+    def test_radio_unavailable_aborts_same_epoch_scan() -> None:
+        poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        offline = poll.split("if (!available || state.epoch != lastEpoch_)", 1)[
+            1
+        ]
+        offline = offline.split("// Revocation is sticky", 1)[0]
+        assert (
+            "scanGeneration_ != 0 && (!available || scanEpoch_ != state.epoch)"
+            in (offline)
+        )
+        assert offline.index("controller_->scanCancel(scanGeneration_);") < (
+            offline.index("finishScan(true);")
+        )
+        assert offline.index("finishScan(true);") < (
+            offline.index("lastEpoch_ = live ? state.epoch : 0;")
+        )
+        assert poll.index("if (stateChanged)") < poll.index(
+            "if (!available || state.epoch != lastEpoch_)"
+        )
+        assert poll.index("finishScan(true);") < poll.index(
+            "acceptWirelessScanCompletion("
+        )
+
+
 class NativeWirelessEventWiring(unittest.TestCase):
     @staticmethod
     def test_event_abi_remains_shared_and_ordered() -> None:
@@ -222,8 +281,11 @@ class NativeWirelessEventWiring(unittest.TestCase):
         poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
         assert "nextRadioEvent(event, epoch, generation)" in poll
         assert "acceptWirelessScanCompletion(" in poll
-        assert "epoch, generation, scanEpoch_, scanGeneration_, live," in poll
-        assert "state.scanning))" in poll
+        compact = "".join(poll.split())
+        assert (
+            "acceptWirelessScanCompletion(completedEpoch,completedGeneration,"
+            "scanEpoch_,scanGeneration_,live,state.scanning)"
+        ) in compact
         assert "finishScan(false);" in poll
         assert "eventGeneration == activeScanGeneration" in EPOCH
         assert "eventEpoch == activeScanEpoch" in EPOCH

@@ -430,6 +430,20 @@ int main()
     {
         return 4;
     }
+    // Only provider control-plane state notifications require refreshing
+    // an earlier radio snapshot before emitting WCL join/link success.
+    using simpleath::tahoe::WirelessEvent;
+    using simpleath::tahoe::wirelessEventInvalidatesSnapshot;
+    if (!wirelessEventInvalidatesSnapshot(WirelessEvent::RadioChanged) ||
+        !wirelessEventInvalidatesSnapshot(WirelessEvent::AssociationChanged) ||
+        !wirelessEventInvalidatesSnapshot(WirelessEvent::LinkChanged) ||
+        !wirelessEventInvalidatesSnapshot(WirelessEvent::ProviderStopped) ||
+        wirelessEventInvalidatesSnapshot(WirelessEvent::ScanFinished) ||
+        wirelessEventInvalidatesSnapshot(WirelessEvent::TransmitAvailable))
+    {
+        constexpr int kUnrefreshedEventFailure = 12;
+        return kUnrefreshedEventFailure;
+    }
     // ProviderStopped revokes matching identities as well as stale ones.
     if (acceptWirelessReceiveIdentity(first, first, first, first, true) ||
         acceptWirelessReceiveIdentity(latest, latest, latest, latest, true))
