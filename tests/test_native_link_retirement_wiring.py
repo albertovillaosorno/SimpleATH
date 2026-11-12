@@ -354,6 +354,13 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "self.retireNativeLink(submitted);" in failed_submit
         assert "self.engine_.radioStopped(" not in failed_submit
         assert "self.failNativeJoin(" not in failed_submit
+        assert (
+            response.index("ActionKind::TransmitAssociation")
+            < response.index("action.bytes < kMinimumMpduBytes")
+            < response.index("self.retireNativeLink(kIOReturnNotReady);")
+            < response.index("self.submitPreparedTransmit(")
+        )
+        assert "action.bytes > sizeof(self.managementReply_)" in response
 
     @staticmethod
     def test_rekey_failure_and_deferred_reply_revoke_hardware() -> None:

@@ -3320,10 +3320,11 @@ class SimpleATH final : public IOService
                 memcmp(&joinBssid_[0], &engine_.linkStatus().bssid.bytes[0],
                        sizeof(joinBssid_)) != 0)
             {
-                failNativeJoin(kIOReturnNotReady);
-                engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
-                                     false);
-                notifyWirelessChange(false);
+                // A forged, stale or inconsistent AP response cannot leave
+                // the provisional BSSID installed in a still-running PCU.
+                // It is too late to assume the original hardware identity
+                // survived; terminate the physical queue/key epoch.
+                retireNativeBssidEpoch(kIOReturnNotReady);
                 return;
             }
             // A response may win the command gate before an already-expired
@@ -3715,10 +3716,17 @@ class SimpleATH final : public IOService
                 (action.kind ==
                      simpleath::ieee80211::ActionKind::TransmitAssociation ||
                  action.kind ==
-                     simpleath::ieee80211::ActionKind::TransmitEapol) &&
-                action.bytes >= kMinimumMpduBytes &&
-                action.bytes <= sizeof(self.managementReply_))
+                     simpleath::ieee80211::ActionKind::TransmitEapol))
             {
+                if (action.bytes < kMinimumMpduBytes ||
+                    action.bytes > sizeof(self.managementReply_))
+                {
+                    // The portable station has already advanced its state.
+                    // A malformed M2 or association request must not retain
+                    // the physical BSSID/key/EDMA lease until a late timer.
+                    self.retireNativeLink(kIOReturnNotReady);
+                    return true;
+                }
                 // Driver-owned M4 follows a physical key-update lease and
                 // must be tracked through a real EDMA completion. A direct
                 // send after key installation has no M4 token/ACK owner.

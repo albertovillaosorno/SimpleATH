@@ -159,6 +159,14 @@ quarantines the hardware and requires a fresh reset. A successful clear
 retains the existing verified scan data for a subsequent OS request; it
 does not grant RF, channel, coexistence or regulatory authority.
 
+The same command-gated owner now also retires the physical epoch when the
+AP's accepted association identity disagrees with the requested BSSID or
+join epoch; a software-only `radioStopped` call cannot release a still-live
+PCU BSSID. It rejects malformed native authentication/association follow-up
+transmits before EDMA queueing, instead of silently keeping the progressed
+station/key lease alive for the timeout. Both are immediate terminal faults,
+not permission to retry on the current hardware identity.
+
 `test_station_mac.cpp` exercises full zero readback, reset semantics for
 failed writes, owner revocation, read failures, misread values and a later
 independent AP selection with AID=0. Native join wiring checks the busy-TX

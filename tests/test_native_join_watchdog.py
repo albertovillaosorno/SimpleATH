@@ -149,6 +149,23 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "programmedBssidEpoch_ = 0;" in terminal
 
     @staticmethod
+    def test_identity_mismatch_retires_the_physical_ap_epoch() -> None:
+        association = body(
+            "void recordNativeAssociation()", "void receiveNativeAwdl("
+        )
+        assert (
+            association.index("joinEpoch_ != epoch_")
+            < association.index("retireNativeBssidEpoch(kIOReturnNotReady);")
+            < association.index("++associationGeneration_;")
+        )
+        mismatch = association.split("if (joinEpoch_ != epoch_", 1)[1].split(
+            "// A response may win the command gate", 1
+        )[0]
+        assert "retireNativeBssidEpoch(kIOReturnNotReady);" in mismatch
+        assert "failNativeJoin(" not in mismatch
+        assert "engine_.radioStopped(" not in mismatch
+
+    @staticmethod
     def test_pending_deadline_closes_hardware_before_beacon_liveness() -> None:
         fired = body(
             "static void linkTimerFired(", "static void scanTimerFired("
