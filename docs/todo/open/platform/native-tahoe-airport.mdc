@@ -284,24 +284,25 @@ not receive an acknowledgement from the transport callback when all entries
 are genuinely non-discardable; offline tests do not prove eventual OS event
 delivery under arbitrary consumer starvation.
 
-### Open scan acknowledgement gap — 2026-11-12
+### Historical V5 scan acknowledgement gap — superseded by V7
 
-The V5 scan generation check protects stale-event identity but does not close
+This V5 issue is retained for chronology, not as the current callback state.
+The V5 scan generation check protects stale-event identity but did not close
 the acknowledgement/liveness contract. `SimpleATH::notifyWirelessScanFinished`
 calls the `void` provider notification and then acknowledges the pending
 `LegacyScanBridge` completion regardless of whether an observer was present,
 whether the fixed-size transport mailbox admitted the event, or whether WCL
 published `SCAN_DONE`. The transport can drop a full-ring event; the WCL
 consumer posts the OS completion only later from its poll. The physical
-bridge therefore cannot currently distinguish successful dispatch from a
-lost notification. Do not count these source checks as a guarantee of OS scan
-completion under mailbox starvation.
+bridge therefore could not distinguish successful dispatch from a lost
+notification. These V5 checks did not guarantee OS scan completion under
+mailbox starvation.
 
-Required follow-up: define an explicit acceptance/acknowledgement contract
-with stable epoch/generation identity, a bounded retry path owned by the
-serialized provider and transport, and an OS event-consumer acknowledgement.
-Never call back into the provider gate while holding the native mailbox lock,
-and do not allow a stale acknowledgement to retire a successor generation.
-Test missing observers, full terminal rings, stop/resume cancellation and OS
-publication failures with an isolated native callback harness before claiming
-reliable Tahoe scanning.
+V7 now provides explicit mailbox acceptance, bounded handoff retry and a
+matching epoch/generation acknowledgement after the OS post invocation.
+It also retires orphan intent at observer replacement. The remaining issue is
+that `wirelessPost` returns `void`: there is still no confirmed downstream
+macOS event-consumer acknowledgement. Exact-build verification and isolated
+native callback tests of OS publication failures are required before claiming
+reliable Tahoe scanning. Never call back into the provider gate while holding
+the native mailbox lock or retire a successor generation with an old ack.
