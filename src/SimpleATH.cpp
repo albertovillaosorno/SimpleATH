@@ -4039,6 +4039,23 @@ class SimpleATH final : public IOService
                 {
                     return true;
                 }
+                // M2/M4 are portable EAPOL payloads but native *data* MPDUs.
+                // The portable supplicant's independent sequence is not the
+                // global physical non-QoS TX owner. A freshly serialized
+                // clear EAPOL frame has no 802.11 header MIC, so stamp the
+                // real native sequence before DMA publication. Group2 and
+                // protected M4 have separate native CCMP/EDMA owners and do
+                // not enter this immediate management reply branch.
+                if (action.kind ==
+                    simpleath::ieee80211::ActionKind::TransmitEapol)
+                {
+                    const uint16_t value = static_cast<uint16_t>(
+                        self.txSequence_ << kSequenceFragmentBits);
+                    self.managementReply_[kSequenceControlOffset] =
+                        static_cast<uint8_t>(value);
+                    self.managementReply_[kSequenceControlOffset + 1U] =
+                        static_cast<uint8_t>(value >> kByteBits);
+                }
                 const IOReturn submitted = self.submitPreparedTransmit(
                     &self.managementReply_[0], action.bytes);
                 self.setProperty("SimpleATHManagementTransmitResult",
@@ -4075,6 +4092,15 @@ class SimpleATH final : public IOService
                     self.txSequence_ = static_cast<uint16_t>(
                         ((sequenceField >> kSequenceFragmentBits) + 1U) &
                         kSequenceMask);
+                }
+                else if (action.kind ==
+                         simpleath::ieee80211::ActionKind::TransmitEapol)
+                {
+                    // Only successfully submitted M2/M4 consume the shared
+                    // non-QoS sequence. A failed send retires the whole link
+                    // above, never leaving a reusable old MAC number.
+                    self.txSequence_ = static_cast<uint16_t>(
+                        (self.txSequence_ + 1U) & kSequenceMask);
                 }
                 return true;
             }

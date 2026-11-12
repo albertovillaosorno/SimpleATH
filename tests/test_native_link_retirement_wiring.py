@@ -116,6 +116,35 @@ class NativeBlockAckDeclineWiring(unittest.TestCase):
         assert "self.queues_.startGated(" not in decline
 
     @staticmethod
+    def test_clear_eapol_and_blockack_share_native_nonqos_sequence() -> None:
+        response = body(
+            OWNER,
+            "bool sendNativeManagementResponse(",
+            "static void queueReceived(",
+        )
+        clear = body(
+            response,
+            "// M2/M4 are portable EAPOL payloads",
+            "// BlockAck agreements are NOT implemented:",
+        )
+        assert (
+            clear.index("ActionKind::TransmitEapol")
+            < clear.index("self.txSequence_ << kSequenceFragmentBits")
+            < clear.index("self.managementReply_[kSequenceControlOffset]")
+            < clear.index("self.submitPreparedTransmit(")
+            < clear.index("if (submitted != kIOReturnSuccess)")
+            < clear.index("self.txSequence_ + 1U")
+        )
+        assert "self.retireNativeLink(submitted);" in clear
+        decline = body(
+            response,
+            "// BlockAck agreements are NOT implemented:",
+            "return false;",
+        )
+        assert "self.txSequence_ << kSequenceFragmentBits" in decline
+        assert "self.txSequence_ + 1U" in decline
+
+    @staticmethod
     def test_edma_rejects_aggregate_before_receive_delivery() -> None:
         decoder = body(
             DESCRIPTORS,
