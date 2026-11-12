@@ -664,6 +664,16 @@ namespace
         // require another received MPDU to retire an otherwise live port.
         EngineAction timeout {};
         const uint64_t lastBeacon = engine.linkStatus().lastBeaconMs;
+        // A backwards monotonic observation must not be mistaken for a
+        // healthy still-associated beacon lease by the native timer owner.
+        if (lastBeacon == 0 ||
+            engine.checkBeaconTimeout(lastBeacon - 1U, timeout) !=
+                EngineResult::InvalidInput ||
+            timeout.kind != ActionKind::None ||
+            engine.linkStatus().state != LinkState::Associated)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
         if (engine.checkBeaconTimeout(lastBeacon + 1U, timeout) !=
                 EngineResult::NoAction ||
             timeout.kind != ActionKind::None ||

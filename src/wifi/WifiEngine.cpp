@@ -1790,7 +1790,14 @@ namespace simpleath
                 return EngineResult::InvalidInput;
             }
             action = {};
-            if (link_.observeTimeout(nowMs) != LinkMonitorResult::Ok)
+            const LinkMonitorResult observed = link_.observeTimeout(nowMs);
+            if (observed == LinkMonitorResult::InvalidClock)
+            {
+                // A regressed monotonic clock cannot prove link liveness.
+                // The native owner must treat this as a terminal failure.
+                return EngineResult::InvalidInput;
+            }
+            if (observed != LinkMonitorResult::Ok)
             {
                 return EngineResult::NoAction;
             }
