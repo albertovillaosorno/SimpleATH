@@ -53,6 +53,7 @@ namespace simpleath
         InvalidClock,
         UnstableClock,
         StaleFrame,
+        OverlappingBuffers,
     };
 
     struct RxTsfBackend
@@ -83,8 +84,9 @@ namespace simpleath
     // same-epoch TSF upper/lower/upper snapshot (ath9k_hw_gettsf64). Reject
     // a future/stale timestamp or uncertain host-clock correlation. No MIF,
     // AWDL election, RF transmit or macOS peer permission is established.
-    // Ordinary failure clears out; caller must keep output independent of
-    // backend/context storage.
+    // Ordinary failure clears out. A detectable alias to backend/context
+    // storage returns OverlappingBuffers without modifying either buffer.
+    // The full opaque context allocation must still be disjoint from out.
     RxTsfResult captureAr9565RxTsf(const RxTsfBackend &backend,
                                    uint32_t descriptorTsfLow, RxTsfSample &out);
 } // namespace simpleath

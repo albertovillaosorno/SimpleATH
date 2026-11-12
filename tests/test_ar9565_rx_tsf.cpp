@@ -37,6 +37,7 @@
 #include "hardware/Ar9565RxTsf.hpp"
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 
 using namespace simpleath;
@@ -59,6 +60,8 @@ namespace
             uint32_t revokeAfter {};
             uint32_t rolloverAtRead {};
             bool live {true};
+            bool revokeOnFinalClock {};
+            uint32_t hostClockCalls {};
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -91,6 +94,11 @@ namespace
         auto &fake = *static_cast<Fake *>(context);
         const uint64_t previous = fake.hostClock;
         fake.hostClock += fake.hostStep;
+        ++fake.hostClockCalls;
+        if (fake.revokeOnFinalClock && fake.hostClockCalls == 2U)
+        {
+            fake.live = false;
+        }
         return previous;
     }
 
@@ -149,6 +157,59 @@ namespace
             out.ageUsec != 1U)
         {
             return 4;
+        }
+        return 0;
+    }
+
+    int checkOutputIsolationAndFinalLease()
+    {
+        Fake fake {};
+        fake.words.at(kUpper / 4U) = 2U;
+        fake.words.at(kLower / 4U) = 10000U;
+        RxTsfSample out {};
+        out.ownerEpoch = 99U;
+        out.frameMonotonicUsec = 12345U;
+        RxTsfBackend io = backend(fake);
+
+        // A public caller may accidentally supply an output that overwrites
+        // the backend callbacks or live owner context. Neither source may
+        // be modified, and no owner callback may run on this rejection.
+        static_assert(sizeof(RxTsfBackend) >= sizeof(RxTsfSample),
+                      "backend alias fixture must contain the whole output");
+        const RxTsfBackend ioSnapshot = io;
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto &backendAlias = *reinterpret_cast<RxTsfSample *>(&io);
+        if (captureAr9565RxTsf(io, 7000U, backendAlias) !=
+                RxTsfResult::OverlappingBuffers ||
+            std::memcmp(&io, &ioSnapshot, sizeof(io)) != 0 ||
+            fake.permits != 0U || fake.reads != 0U)
+        {
+            return 12;
+        }
+        io.context = &out.ageUsec;
+        if (captureAr9565RxTsf(io, 7000U, out) !=
+                RxTsfResult::OverlappingBuffers ||
+            out.ownerEpoch != 99U || out.frameMonotonicUsec != 12345U ||
+            fake.permits != 0U || fake.reads != 0U)
+        {
+            return 13;
+        }
+        // An independent output still clears on ordinary failures. The
+        // second host-clock callback may revoke ownership after stable MMIO.
+        io = backend(fake);
+        fake.revokeOnFinalClock = true;
+        if (captureAr9565RxTsf(io, 7000U, out) != RxTsfResult::OwnershipLost ||
+            fake.hostClockCalls != 2U || fake.reads != 3U || fake.live ||
+            out.ownerEpoch != 0U || out.frameMonotonicUsec != 0U)
+        {
+            return 14;
+        }
+        fake.live = true;
+        fake.revokeOnFinalClock = false;
+        if (captureAr9565RxTsf(io, 7000U, out) != RxTsfResult::Ok ||
+            out.ownerEpoch != kEpoch || out.ageUsec != 3000U)
+        {
+            return 15;
         }
         return 0;
     }
@@ -216,7 +277,8 @@ namespace
 
 int main()
 {
-    for (const int result : {checkValid(), checkRollover(), checkFailures()})
+    for (const int result : {checkValid(), checkRollover(), checkFailures(),
+                             checkOutputIsolationAndFinalLease()})
     {
         if (result != 0)
         {

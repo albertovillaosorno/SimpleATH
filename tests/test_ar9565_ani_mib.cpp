@@ -191,6 +191,80 @@ namespace
                !sample.mmioAndMasksVerified && sample.captureSequence == 0U;
     }
 
+    int checkOutputAndStateIsolation()
+    {
+        Fake fake {};
+
+        // An intentionally invalid caller may alias the beginning of a
+        // larger owner allocation. Keep enough backing storage to represent
+        // either view even when constructing this negative-test reference.
+        struct StateBacking
+        {
+                AniMibState state {};
+                std::array<uint8_t, sizeof(AniHardwareSample)> tail {};
+        } backing {};
+
+        AniMibState &state = backing.state;
+        AniMibBackend io = backend(fake);
+        state.ownerEpoch = 111U;
+        io.context = &state;
+        // The mutable MIB state cannot be the backend's opaque owner.
+        // Reject before MMIO, before clearing or publishing any new epoch.
+        if (initializeAr9565AniMib(baseline(), authority(), io, 100U, state)
+                    .result != AniMibResult::OverlappingBuffers ||
+            state.ownerEpoch != 111U || fake.writes != 0U || fake.permits != 0U)
+        {
+            return 40;
+        }
+        state = {};
+        if (!setup(fake, state))
+        {
+            return 41;
+        }
+        const size_t reads = fake.reads;
+        const size_t writes = fake.writes;
+        const size_t permits = fake.permits;
+        AniHardwareSample sample {};
+        sample.ownerEpoch = 222U;
+        sample.captureSequence = 333U;
+        io = backend(fake);
+        io.context = &sample.captureSequence;
+        if (captureAr9565AniMib(baseline(), authority(), io, 1000U, state,
+                                sample)
+                    .result != AniMibResult::OverlappingBuffers ||
+            state.initialized == false || state.ownerEpoch != kEpoch ||
+            state.requiresReset || sample.ownerEpoch != 222U ||
+            sample.captureSequence != 333U || fake.reads != reads ||
+            fake.writes != writes || fake.permits != permits)
+        {
+            return 42;
+        }
+        io = backend(fake);
+        // Deliberately overlapping references must not allow out={} to
+        // corrupt a live same-epoch counter baseline before the freeze.
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+        auto &stateAlias = *reinterpret_cast<AniHardwareSample *>(&state);
+        if (captureAr9565AniMib(baseline(), authority(), io, 1000U, state,
+                                stateAlias)
+                    .result != AniMibResult::OverlappingBuffers ||
+            !state.initialized || state.ownerEpoch != kEpoch ||
+            fake.reads != reads || fake.writes != writes ||
+            fake.permits != permits)
+        {
+            return 43;
+        }
+        counters(fake, {4400000U, 400000U, 100000U, 40U, 70U});
+        if (captureAr9565AniMib(baseline(), authority(), io, 1000U, state,
+                                sample)
+                    .result != AniMibResult::Ok ||
+            !sample.mmioAndMasksVerified || sample.ownerEpoch != kEpoch ||
+            state.captureSequence != 1U)
+        {
+            return 44;
+        }
+        return 0;
+    }
+
     int checkSuccessAndWindow()
     {
         Fake f {};
@@ -563,8 +637,9 @@ namespace
 
 int main()
 {
-    for (const int result : {checkSuccessAndWindow(), checkPreflight(),
-                             checkFailures(), checkCaptureInvariants()})
+    for (const int result :
+         {checkSuccessAndWindow(), checkPreflight(), checkFailures(),
+          checkCaptureInvariants(), checkOutputAndStateIsolation()})
     {
         if (result != 0)
         {

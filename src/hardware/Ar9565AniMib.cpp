@@ -88,6 +88,50 @@ namespace simpleath
             kCckErrors,  kCckMask,
         };
 
+        bool overlaps(const void *left, size_t leftBytes, const void *right,
+                      size_t rightBytes)
+        {
+            if (left == nullptr || right == nullptr || leftBytes == 0U ||
+                rightBytes == 0U)
+            {
+                return false;
+            }
+            uintptr_t first = 0U;
+            uintptr_t second = 0U;
+            static_assert(sizeof(first) == sizeof(left),
+                          "pointer width must match uintptr_t");
+            __builtin_memcpy(&first, &left, sizeof(left));
+            __builtin_memcpy(&second, &right, sizeof(right));
+            return first <= second ? second - first < leftBytes
+                                   : first - second < rightBytes;
+        }
+
+        bool aliasesMibState(const Ar9565AniState &ini,
+                             const CalibrationAndRegulatory &authority,
+                             const AniMibBackend &backend,
+                             const AniMibState &state)
+        {
+            return overlaps(&state, sizeof(state), &ini, sizeof(ini)) ||
+                   overlaps(&state, sizeof(state), &authority,
+                            sizeof(authority)) ||
+                   overlaps(&state, sizeof(state), &backend, sizeof(backend)) ||
+                   overlaps(&state, sizeof(state), backend.context, 1U);
+        }
+
+        bool aliasesMibSample(const Ar9565AniState &ini,
+                              const CalibrationAndRegulatory &authority,
+                              const AniMibBackend &backend,
+                              const AniMibState &state,
+                              const AniHardwareSample &out)
+        {
+            return aliasesMibState(ini, authority, backend, state) ||
+                   overlaps(&out, sizeof(out), &ini, sizeof(ini)) ||
+                   overlaps(&out, sizeof(out), &authority, sizeof(authority)) ||
+                   overlaps(&out, sizeof(out), &backend, sizeof(backend)) ||
+                   overlaps(&out, sizeof(out), &state, sizeof(state)) ||
+                   overlaps(&out, sizeof(out), backend.context, 1U);
+        }
+
         AniMibResult preflight(const Ar9565AniState &ini,
                                const CalibrationAndRegulatory &authority,
                                const AniMibBackend &io)
@@ -245,10 +289,18 @@ namespace simpleath
                            const AniMibBackend &backend,
                            uint64_t monotonicMilliseconds, AniMibState &state)
     {
+        AniMibProgress progress {};
+        // A forged public state reference must not erase the live ANI epoch,
+        // caller's INI proof or backend callback table before MMIO. The
+        // opaque context allocation must be independently disjoint.
+        if (aliasesMibState(ini, authority, backend, state))
+        {
+            progress.result = AniMibResult::OverlappingBuffers;
+            return progress;
+        }
         const Ar9565AniState input = ini;
         const CalibrationAndRegulatory evidence = authority;
         const AniMibBackend io = backend;
-        AniMibProgress progress {};
         progress.result = preflight(input, evidence, io);
         if (progress.result != AniMibResult::Ok)
         {
@@ -329,10 +381,18 @@ namespace simpleath
         const AniMibBackend &backend, uint64_t monotonicMilliseconds,
         AniMibState &state, AniHardwareSample &out)
     {
+        AniMibProgress progress {};
+        // In particular, out={} must not zero the active MIB state, its
+        // trusted channel/INI evidence, or the callback owner before a
+        // physical freeze. Alias failures leave both outputs untouched.
+        if (aliasesMibSample(ini, authority, backend, state, out))
+        {
+            progress.result = AniMibResult::OverlappingBuffers;
+            return progress;
+        }
         const Ar9565AniState input = ini;
         const CalibrationAndRegulatory evidence = authority;
         const AniMibBackend io = backend;
-        AniMibProgress progress {};
         out = {};
         progress.result = preflight(input, evidence, io);
         if (progress.result != AniMibResult::Ok)

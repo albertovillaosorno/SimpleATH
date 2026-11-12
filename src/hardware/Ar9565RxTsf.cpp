@@ -54,6 +54,7 @@
 // TSF register reads and 32-bit RX timestamp extension adapted from pinned
 // Linux ath9k hw.c and recv.c (see .references/ledger.jsonl).
 #include "Ar9565RxTsf.hpp"
+#include <stddef.h>
 #include <stdint.h>
 
 namespace simpleath
@@ -67,6 +68,24 @@ namespace simpleath
         // Bounds the host clock correlation and RX processing latency.
         constexpr uint64_t kMaxHostCaptureSpanUsec = 2000U;
         constexpr uint64_t kMaxFrameAgeUsec = 200000U;
+
+        bool overlaps(const void *left, size_t leftBytes, const void *right,
+                      size_t rightBytes)
+        {
+            if (left == nullptr || right == nullptr || leftBytes == 0U ||
+                rightBytes == 0U)
+            {
+                return false;
+            }
+            uintptr_t first = 0U;
+            uintptr_t second = 0U;
+            static_assert(sizeof(first) == sizeof(left),
+                          "pointer width must match uintptr_t");
+            __builtin_memcpy(&first, &left, sizeof(left));
+            __builtin_memcpy(&second, &right, sizeof(right));
+            return first <= second ? second - first < leftBytes
+                                   : first - second < rightBytes;
+        }
 
         bool access(const RxTsfBackend &io, uint32_t offset, uint32_t &value,
                     RxTsfResult &result)
@@ -88,6 +107,15 @@ namespace simpleath
     RxTsfResult captureAr9565RxTsf(const RxTsfBackend &backend,
                                    uint32_t descriptorTsfLow, RxTsfSample &out)
     {
+        // An output aliased to the borrowed backend or its opaque owner
+        // would erase live function/epoch state before the first callback.
+        // The opaque context has no published size; at minimum its starting
+        // byte may never be inside the output allocation.
+        if (overlaps(&out, sizeof(out), &backend, sizeof(backend)) ||
+            overlaps(&out, sizeof(out), backend.context, 1U))
+        {
+            return RxTsfResult::OverlappingBuffers;
+        }
         // Snapshot callback pointers before invoking any of them.
         const RxTsfBackend io = backend;
         out = {};
@@ -142,6 +170,13 @@ namespace simpleath
             return RxTsfResult::OwnershipLost;
         }
         const uint64_t after = io.monotonicMicros(io.context);
+        // The final clock callback is also external owner code. It can
+        // revoke D0/queue/epoch ownership after the last MMIO read, so the
+        // completed sample needs one final live-lease check before publish.
+        if (!io.permitRead(io.context, io.ownerEpoch))
+        {
+            return RxTsfResult::OwnershipLost;
+        }
         if (after < before || after - before > kMaxHostCaptureSpanUsec)
         {
             return RxTsfResult::InvalidClock;

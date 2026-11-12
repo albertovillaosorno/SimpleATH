@@ -59,6 +59,7 @@ namespace simpleath
         InvalidCaptureTime,
         CounterSaturated,
         InvalidChannel,
+        OverlappingBuffers,
     };
 
     struct AniMibBackend
@@ -105,6 +106,7 @@ namespace simpleath
     // The supplied owner monotonic time begins the first no-wrap interval.
     // This is a hardware-mutating operation, not a passive capability flag.
     // Any ambiguous partial programming requires owner-controlled reset.
+    // A state/INI/backend/context alias is refused before changing state.
     AniMibProgress
     initializeAr9565AniMib(const Ar9565AniState &ini,
                            const CalibrationAndRegulatory &authority,
@@ -118,6 +120,9 @@ namespace simpleath
     // epoch and requires PHY reset, not fabricated ANI evidence. The owner
     // feeds pairs of successful samples into deriveAr9565AniErrorWindow.
     // This adapter is compiled but not yet invoked by the native PCI owner.
+    // Detectable overlap of sample/state/INI/backend/context is rejected
+    // unchanged; an ordinary failure clears the sample. The entire opaque
+    // owner-context allocation must still be independent of these buffers.
     AniMibProgress captureAr9565AniMib(
         const Ar9565AniState &ini, const CalibrationAndRegulatory &authority,
         const AniMibBackend &backend, uint64_t monotonicMilliseconds,
