@@ -2988,6 +2988,14 @@
       "kind": "test"
     },
     {
+      "path": "tests/test_native_queue_key_update_wiring.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "test"
+    },
+    {
       "path": "tests/test_native_reference_exports.py",
       "license": "MIT",
       "license_file": "LICENSE-MIT",

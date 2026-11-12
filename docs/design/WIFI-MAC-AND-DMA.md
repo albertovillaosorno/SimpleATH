@@ -258,3 +258,20 @@ full native RF tuning and real antenna/coexistence, regulatory, calibration
 and Tahoe wireless host integration. Host fixtures verify the register
 readback, epoch change, floating-BAR and error cases; they cannot confirm
 physical ACK suppression or actual reception on the target notebook.
+
+## Native key-update DMA admission (source-only)
+
+A native `Prepared` EDMA queue is not necessarily free for an initial receive
+start. During an M3/GTK callback it can hold an exclusive, physically isolated
+key-RAM lease while the receive callback still borrows the just-completed DMA
+buffer. `NativeQueues::startGated` now rejects that private lease and any
+outstanding receive/interrupt borrower before writing the first register.
+Only the private `restartAfterKeyUpdateGated` path, after both borrowers exit,
+clears the isolated descriptor buffers, retires the lease and attempts DMA
+startup. If the second readiness check denies startup before any register
+write, that path quarantines the queue and reports the failure; it must not
+leave the newly installed key epoch in a reusable `Prepared` state.
+
+`tests/test_native_queue_key_update_wiring.py` verifies the source ordering and
+public controller call gate. These offline checks do not establish safe
+physical DMA restart, key-RAM writes, association or Tahoe runtime behavior.

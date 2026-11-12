@@ -610,13 +610,16 @@ namespace simpleath
 
     IOReturn NativeQueues::startGated()
     {
+        // A Prepared queue may still be owned by a synchronous WPA2 key
+        // update. Only restartAfterKeyUpdateGated may retire that private
+        // lease after the borrowed RX callback and IRQ service have exited.
         if (!gated() || !attached_ || phase_ != NativeQueuePhase::Prepared ||
+            keyUpdateIsolated_ || keyUpdateRestartPending_ ||
+            inReceiveCallback_ || inInterruptService_ ||
             !callbacks_.radioReady(callbacks_.context, epoch_))
         {
             return kIOReturnNotReady;
         }
-        keyUpdateIsolated_ = false;
-        keyUpdateRestartPending_ = false;
         phase_ = NativeQueuePhase::Running; // Hardware may observe a partial
                                             // publication.
         uint32_t txConfiguration = 0;
@@ -825,9 +828,22 @@ namespace simpleath
             return kIOReturnNotReady;
         }
         clearQuiescedBuffers();
+        // No DMA borrower can run while the gate owns this transition.
+        // Release the exclusive key-update lease only for this restart;
+        // public startGated must never consume a live private lease.
+        keyUpdateIsolated_ = false;
+        keyUpdateRestartPending_ = false;
         const IOReturn result = startGated();
         if (result != kIOReturnSuccess)
         {
+            // A changed RF/epoch permit can reject the start preflight
+            // without any MMIO. Do not leave newly installed keys in a
+            // reusable Prepared queue after losing that permission.
+            if (phase_ == NativeQueuePhase::Prepared)
+            {
+                phase_ = NativeQueuePhase::Quarantined;
+                callbacks_.fault(callbacks_.context, result);
+            }
             return result;
         }
         if (callbacks_.keyUpdateResumed != nullptr)
