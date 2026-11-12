@@ -139,7 +139,10 @@ interface startup; a failed subsequent re-arm shuts down that interface
 instead of leaving an OS-visible link and packet service without a bounded
 control-plane observer. Shutdown sends a link-down and radio-unavailable
 notification only if they were previously advertised, cancels an active scan,
-retires the join and stops native packet resources. It does not assume the
-OS consumed those events, nor does it imply physical RF authorization.
+retires the join and stops native packet resources. Both timer failures
+also request an actual radio shutdown through the exclusive PCI owner, with
+a separately recorded error if physical DMA release cannot be confirmed.
+It does not assume the OS consumed those events, nor does it imply physical
+RF authorization or that a failed shutdown was successful.
 Offline source checks guard both timer sites and notification ordering;
 testing actual event source failures still requires an authorized Tahoe SDK.

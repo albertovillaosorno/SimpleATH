@@ -63,6 +63,7 @@ class NativePollLifecycleWiring(unittest.TestCase):
             "timer_->setTimeoutMS(kPollMilliseconds)"
         )
         assert "shutdown();" in start
+        assert "controller_->radioPower(false)" in start
         assert start.index("shutdown();") < start.rindex("return false;")
 
     @staticmethod
@@ -73,6 +74,7 @@ class NativePollLifecycleWiring(unittest.TestCase):
             in poll
         )
         assert "shutdown();" in poll
+        assert "controller_->radioPower(false)" in poll
         assert (
             poll.index("packets_.poll();")
             < poll.index("timer_->setTimeoutMS(kPollMilliseconds)")

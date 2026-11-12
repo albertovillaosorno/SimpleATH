@@ -190,8 +190,15 @@ bool SimpleATHInfraProtocol::start(IOService *provider)
     if (timer_->setTimeoutMS(kPollMilliseconds) != kIOReturnSuccess)
     {
         // A running interface without polling cannot retire WCL joins,
-        // scan completions or a vanished provider. Fail this partial start.
+        // scan completions or a vanished provider. Fail this partial start,
+        // and ask the exclusive PCI owner to physically quiesce the radio.
         setProperty("SimpleATHNativePollTimerFailed", true);
+        const IOReturn stopped = controller_->radioPower(false);
+        if (stopped != kIOReturnSuccess)
+        {
+            setProperty("SimpleATHNativePollRadioStopError",
+                        static_cast<uint32_t>(stopped), 32);
+        }
         shutdown();
         return false;
     }
@@ -1110,8 +1117,15 @@ void SimpleATHInfraProtocol::poll()
     {
         // A missed re-arm is terminal for the native WCL control-plane
         // lease: no subsequent callback can promise join timeout, scan-done
-        // delivery, or port/association revocation. Stop packet service now.
+        // delivery, or port/association revocation. Request physical PCI
+        // isolation before stopping local packet and interface service.
         setProperty("SimpleATHNativePollTimerFailed", true);
+        const IOReturn stopped = controller_->radioPower(false);
+        if (stopped != kIOReturnSuccess)
+        {
+            setProperty("SimpleATHNativePollRadioStopError",
+                        static_cast<uint32_t>(stopped), 32);
+        }
         shutdown();
     }
 }
