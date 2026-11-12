@@ -104,6 +104,34 @@ class NativePollLifecycleWiring(unittest.TestCase):
         assert "finishScan(true);" in stop
         assert "retireJoin(kIOReturnAborted, 3);" in stop
 
+    def test_retired_interface_getters_do_not_advertise_provider_state(
+        self,
+    ) -> None:
+        # Physical radio shutdown can fail. The native interface is still
+        # terminal and cannot report Run, link-up or AirPort-ready from an
+        # unrelated, still-positive provider snapshot.
+        getters = (
+            (
+                "bool SimpleATHInfraProtocol::isChipInterfaceReady()",
+                "bool SimpleATHInfraProtocol::isCommandProhibited(",
+            ),
+            (
+                "int SimpleATHInfraProtocol::getAssocState()",
+                "IO80211LinkState SimpleATHInfraProtocol::linkState()",
+            ),
+            (
+                "IO80211LinkState SimpleATHInfraProtocol::linkState()",
+                "IOReturn SimpleATHInfraProtocol::requestGated(",
+            ),
+        )
+        for start, end in getters:
+            with self.subTest(getter=start):
+                body = section(start, end)
+                assert "!stopping_ && controller_ != nullptr" in body
+                assert body.index("!stopping_") < body.index(
+                    "controller_->radioSnapshot(state)"
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

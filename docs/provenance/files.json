@@ -2932,6 +2932,14 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_native_packet_revocation_wiring.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "test"
+    },
+    {
       "path": "tests/test_native_payload_contract.py",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
@@ -2956,12 +2964,28 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_native_poll_lifecycle_wiring.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "test"
+    },
+    {
       "path": "tests/test_native_port_security.cpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",
       "copyright": "Copyright © 2026 Alberto Villa Osorno",
       "provenance": "SimpleATH original; independently developed or locally authored",
       "kind": "code"
+    },
+    {
+      "path": "tests/test_native_power_transition_wiring.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "test"
     },
     {
       "path": "tests/test_native_reference_exports.py",

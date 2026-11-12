@@ -461,7 +461,7 @@ uint32_t SimpleATHInfraProtocol::getMaxTransferUnit()
 bool SimpleATHInfraProtocol::isChipInterfaceReady()
 {
     simpleath::tahoe::WirelessSnapshot state {};
-    return controller_ != nullptr &&
+    return !stopping_ && controller_ != nullptr &&
            controller_->radioSnapshot(state) == kIOReturnSuccess &&
            state.radioAvailable && state.powered && !state.rfKillBlocked;
 }
@@ -475,7 +475,7 @@ bool SimpleATHInfraProtocol::isCommandProhibited(int command)
 int SimpleATHInfraProtocol::getAssocState()
 {
     simpleath::tahoe::WirelessSnapshot state {};
-    return controller_ != nullptr &&
+    return !stopping_ && controller_ != nullptr &&
                    controller_->radioSnapshot(state) == kIOReturnSuccess &&
                    state.associated
                ? simpleath::tahoe::kApple80211StateRun
@@ -485,7 +485,7 @@ int SimpleATHInfraProtocol::getAssocState()
 IO80211LinkState SimpleATHInfraProtocol::linkState()
 {
     simpleath::tahoe::WirelessSnapshot state {};
-    const bool up = controller_ != nullptr &&
+    const bool up = !stopping_ && controller_ != nullptr &&
                     controller_->radioSnapshot(state) == kIOReturnSuccess &&
                     state.radioAvailable && state.powered &&
                     !state.rfKillBlocked && state.associated &&

@@ -160,3 +160,14 @@ the initial pre-association enable remains available for a fresh first join.
 The provider continues to enforce its independent association/key/RF gates.
 Source-only regressions cover the call ordering; no live AirPort leave or
 successful new association has been demonstrated.
+
+## Retired native interface status admission (2026-11-12)
+
+The synchronous chip-ready, association and link-state getters now require
+the InfraProtocol interface to remain active before sampling the physical
+provider. A failed poll timer retires that interface even if the separate
+`radioPower(false)` call fails. Its getters must then return unavailable,
+station initialization and link down respectively; a positive or stale owner
+snapshot cannot restore a stopped WCL interface. This is an offline
+source-level guard, not evidence that Tahoe has consumed a state event or
+that physical RF shutdown succeeded.
