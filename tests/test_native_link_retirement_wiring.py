@@ -39,8 +39,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OWNER = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
-QUEUE = (ROOT / "src/platform/Ar9565NativeQueues.cpp").read_text(encoding="utf-8")
-POLICY = (ROOT / "src/platform/NativeLinkRetirement.hpp").read_text(encoding="utf-8")
+QUEUE = (ROOT / "src/platform/Ar9565NativeQueues.cpp").read_text(
+    encoding="utf-8"
+)
+POLICY = (ROOT / "src/platform/NativeLinkRetirement.hpp").read_text(
+    encoding="utf-8"
+)
 
 
 def body(source: str, before: str, after: str) -> str:
@@ -65,7 +69,30 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "self.failNativeJoin(" not in completion
         assert "self.queues_.phase() ==" in completion
         assert "simpleath::NativeQueuePhase::Running" in completion
-        assert "simpleath::tahoe::WirelessEvent::TransmitAvailable" in completion
+        assert (
+            "simpleath::tahoe::WirelessEvent::TransmitAvailable" in completion
+        )
+
+    @staticmethod
+    def test_early_management_tx_denial_retires_hardware() -> None:
+        # M2/M4 denial must isolate live DMA after WPA2 state advances.
+        response = body(
+            OWNER,
+            "bool sendNativeManagementResponse(",
+            "static void queueReceived(",
+        )
+        assert (
+            "simpleath::ieee80211::ActionKind::TransmitAssociation" in response
+        )
+        assert "simpleath::ieee80211::ActionKind::TransmitEapol" in response
+        failed_submit = body(
+            response,
+            "if (submitted != kIOReturnSuccess)",
+            "else if (action.kind ==",
+        )
+        assert "self.retireNativeLink(submitted);" in failed_submit
+        assert "self.engine_.radioStopped(" not in failed_submit
+        assert "self.failNativeJoin(" not in failed_submit
 
     @staticmethod
     def test_rekey_failure_and_deferred_reply_revoke_hardware() -> None:
@@ -96,7 +123,9 @@ class NativeLinkRetirementWiring(unittest.TestCase):
             "static void queueKeyUpdateResumed(",
         )
         assert "self.keyCache_.requiresReset = true;" in fault
-        assert 'self.setProperty("SimpleATHKeyCacheResetRequired", true);' in fault
+        assert (
+            'self.setProperty("SimpleATHKeyCacheResetRequired", true);' in fault
+        )
         assert fault.index("self.queues_.stopGated(") < fault.index(
             "self.engine_.radioStopped("
         )
@@ -111,10 +140,13 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "const bool noOutstandingTransmit = !txPending_;" in retire
         assert "const bool isolated = isolateHardwareGated();" in retire
         assert "phase_ = NativeQueuePhase::Quarantined;" in retire
-        assert "linkRetirementIsolated_ = isolated && noOutstandingTransmit;" in retire
-        assert POLICY.index("out.queueIsolated = backend.isolate(") < POLICY.index(
-            "out.hardwareKeysErased ="
+        assert (
+            "linkRetirementIsolated_ = isolated && noOutstandingTransmit;"
+            in retire
         )
+        assert POLICY.index(
+            "out.queueIsolated = backend.isolate("
+        ) < POLICY.index("out.hardwareKeysErased =")
 
 
 if __name__ == "__main__":

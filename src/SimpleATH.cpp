@@ -3414,13 +3414,12 @@ class SimpleATH final : public IOService
                                  kRfPropertyWidthBits);
                 if (submitted != kIOReturnSuccess)
                 {
-                    // The engine has advanced to a prepared station or
-                    // handshake state. A failed delivery must not leave that
-                    // state logically connected without an on-air response.
-                    self.failNativeJoin(submitted);
-                    self.engine_.radioStopped(
-                        nowMicros(nullptr) / kMicrosPerMillisecond, false);
-                    self.notifyWirelessChange(false);
+                    // The engine already advanced authentication or
+                    // handshake state, and an attempted M4 may have staged
+                    // live hardware PTK/GTK. Quarantine MAC/EDMA and key RAM
+                    // before discarding the software association, even if
+                    // the failed transmit itself never acquired a TX slot.
+                    self.retireNativeLink(submitted);
                 }
                 else if (action.kind ==
                          simpleath::ieee80211::ActionKind::TransmitAssociation)

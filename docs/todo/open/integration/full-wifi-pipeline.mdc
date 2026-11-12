@@ -165,6 +165,13 @@ no driver supplicant callback exists. The source-only
 `test_native_link_retirement_wiring.py` checks these exact call paths; it
 does not establish that a physical AR9565 actually stopped or wiped keys.
 
+Early native authentication/association/EAPOL reply submission failure
+now enters the same terminal hardware retirement path. In particular an M4
+submission that fails after pairwise/group key installation cannot merely
+reset software station state while leaving automatic MAC responses, EDMA and
+key RAM live. This closes a source-level path only; it does not enable a
+post-reset reconnect or establish actual hardware queue isolation.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.
