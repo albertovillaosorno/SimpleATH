@@ -287,14 +287,14 @@ delivery under arbitrary consumer starvation.
 ### Historical V5 scan acknowledgement gap — superseded by V7
 
 This V5 issue is retained for chronology, not as the current callback state.
-The V5 scan generation check protects stale-event identity but did not close
-the acknowledgement/liveness contract. `SimpleATH::notifyWirelessScanFinished`
-calls the `void` provider notification and then acknowledges the pending
-`LegacyScanBridge` completion regardless of whether an observer was present,
-whether the fixed-size transport mailbox admitted the event, or whether WCL
-published `SCAN_DONE`. The transport can drop a full-ring event; the WCL
-consumer posts the OS completion only later from its poll. The physical
-bridge therefore could not distinguish successful dispatch from a lost
+The V5 scan generation check protected stale-event identity but did not
+close the acknowledgement/liveness contract. At V5,
+`SimpleATH::notifyWirelessScanFinished` called the `void` provider notification
+and then acknowledged the pending `LegacyScanBridge` completion regardless of
+whether an observer was present, whether the fixed-size transport mailbox
+admitted the event, or whether WCL published `SCAN_DONE`. The transport could
+drop a full-ring event; the WCL consumer posted OS completion later from its
+poll. The physical bridge therefore could not distinguish dispatch from a lost
 notification. These V5 checks did not guarantee OS scan completion under
 mailbox starvation.
 
