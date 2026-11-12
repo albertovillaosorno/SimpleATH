@@ -549,8 +549,8 @@ class SimpleATH final : public IOService
             // genuinely received association on the active radio epoch;
             // controlledPortOpen independently gates IP traffic and DHCP.
             out.associated =
-                liveRfKill && self.radioOperational_ &&
-                self.channelAuthorized_ &&
+                self.pendingLocalLeaveToken_ == 0 && liveRfKill &&
+                self.radioOperational_ && self.channelAuthorized_ &&
                 self.queues_.epoch() == self.epoch_ &&
                 self.queues_.phase() == simpleath::NativeQueuePhase::Running &&
                 link.state == simpleath::ieee80211::LinkState::Associated;
@@ -712,6 +712,7 @@ class SimpleATH final : public IOService
             if (self.scanTimer_ == nullptr || !self.powered_ ||
                 self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.pendingLocalLeaveToken_ != 0 ||
                 self.verifiedReceiveChannel_ == 0 ||
                 self.board_.view(self.epoch_) == nullptr ||
                 self.queues_.epoch() != self.epoch_ ||
@@ -914,6 +915,14 @@ class SimpleATH final : public IOService
             {
                 return;
             }
+            if (self.pendingLocalLeaveToken_ != 0)
+            {
+                // Local leave holds the old MAC only for the exact queued
+                // disassociation TX. A lost/late completion cannot extend
+                // that physical key and descriptor ownership indefinitely.
+                self.retireNativeLink(kIOReturnTimeout);
+                return;
+            }
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
                 self.queues_.epoch() != self.epoch_ ||
@@ -1091,6 +1100,8 @@ class SimpleATH final : public IOService
             // scheduled timeout capable of retiring the next association.
             linkWatchEpoch_ = 0;
             linkWatchAssociationGeneration_ = 0;
+            pendingLocalLeaveToken_ = 0;
+            pendingLocalLeaveEpoch_ = 0;
             if (linkTimer_ != nullptr)
             {
                 linkTimer_->cancelTimeout();
@@ -1270,6 +1281,13 @@ class SimpleATH final : public IOService
             const uint16_t reason = *static_cast<const uint16_t *>(argument);
             const auto link = self.engine_.linkStatus();
             const auto station = self.engine_.stationState();
+            if (self.pendingLocalLeaveToken_ != 0)
+            {
+                // One EDMA management TX owns the current graceful leave.
+                // A repeated OS disconnect must not send another frame or
+                // change the deadline of the first outstanding descriptor.
+                return kIOReturnBusy;
+            }
             if (station ==
                     simpleath::ieee80211::StationState::CandidateSelected ||
                 station == simpleath::ieee80211::StationState::
@@ -1316,6 +1334,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
+            const uint64_t token = self.nextTransmitToken_;
             const IOReturn sent =
                 self.submitPreparedTransmit(&self.managementReply_[0], written);
             if (sent != kIOReturnSuccess)
@@ -1324,10 +1343,24 @@ class SimpleATH final : public IOService
             }
             self.txSequence_ =
                 static_cast<uint16_t>((self.txSequence_ + 1U) & kSequenceMask);
-            // The queued disassociation still has a device-owned TX lease:
-            // isolate the hardware, but NEVER erase its keycache until the
-            // outstanding descriptor is known to have fully retired.
-            self.retireNativeLink(kIOReturnAborted);
+            // One device-owned descriptor is still outstanding. Keep its
+            // radio/queue lease just long enough for the actual completion,
+            // but immediately close every native data/key/association entry.
+            // On completion, or after one bounded watchdog interval, retire
+            // MAC, DMA and key RAM in the same terminal path as AP link loss.
+            self.pendingLocalLeaveToken_ = token;
+            self.pendingLocalLeaveEpoch_ = self.epoch_;
+            self.controlledPortAuthorized_ = false;
+            self.associatedBeaconObserved_ = false;
+            self.joinStatus_ = kIOReturnAborted;
+            self.notifyWirelessChange(false);
+            if (self.linkTimer_ == nullptr ||
+                self.linkTimer_->setTimeoutMS(kNativeLinkWatchdogMs) !=
+                    kIOReturnSuccess)
+            {
+                // Timer failure must not allow unbounded DMA or stale keys.
+                self.retireNativeLink(kIOReturnNotReady);
+            }
             return kIOReturnSuccess;
         }
 
@@ -1420,6 +1453,7 @@ class SimpleATH final : public IOService
             // separate prerequisites before this path can carry traffic.
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.pendingLocalLeaveToken_ != 0 ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
                 (self.board_.view(self.epoch_) == nullptr) ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
@@ -1583,6 +1617,7 @@ class SimpleATH final : public IOService
             };
             if (!self.powered_ || self.stopping_ || !self.radioOperational_ ||
                 !self.channelAuthorized_ || !self.liveRfKillUnblocked() ||
+                self.pendingLocalLeaveToken_ != 0 ||
                 self.board_.view(self.epoch_) == nullptr ||
                 self.queues_.epoch() != self.epoch_ ||
                 self.queues_.phase() != simpleath::NativeQueuePhase::Running ||
@@ -1723,9 +1758,9 @@ class SimpleATH final : public IOService
         bool canSubmitTransmit()
         {
             return powered_ && !stopping_ && radioOperational_ &&
-                   channelAuthorized_ && rfKillKnownUnblocked_ &&
-                   board_.view(epoch_) != nullptr && stationMacProgrammed_ &&
-                   queues_.epoch() == epoch_ &&
+                   pendingLocalLeaveToken_ == 0 && channelAuthorized_ &&
+                   rfKillKnownUnblocked_ && board_.view(epoch_) != nullptr &&
+                   stationMacProgrammed_ && queues_.epoch() == epoch_ &&
                    queues_.phase() == simpleath::NativeQueuePhase::Running &&
                    txSafety_.siliconIdentified &&
                    txSafety_.boardCalibrationValidated &&
@@ -3463,6 +3498,7 @@ class SimpleATH final : public IOService
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
             if (!self.radioOperational_ || !self.powered_ ||
+                self.pendingLocalLeaveToken_ != 0 ||
                 !self.liveRfKillUnblocked() ||
                 !simpleath::edma::admissibleRxMpdu(status, bytes))
             {
@@ -3591,6 +3627,19 @@ class SimpleATH final : public IOService
                          const simpleath::edma::TxCompletion &status)
         {
             auto &self = *static_cast<RegisterAccess *>(context)->owner;
+            if (token != 0 && token == self.pendingLocalLeaveToken_ &&
+                self.pendingLocalLeaveEpoch_ == self.epoch_)
+            {
+                // NativeQueues has already retired the descriptor and
+                // dropped txPending_ before invoking this callback. Only
+                // now may the old MAC/keycache be physically quarantined.
+                // Failed on-air delivery is still a terminal local leave.
+                self.retireNativeLink(status.frameTransmitOk &&
+                                              !status.excessiveRetries &&
+                                              !status.filtered
+                                          ? kIOReturnAborted
+                                          : kIOReturnIOError);
+            }
             if (token != 0 && token == self.pendingWpa2Group2Token_)
             {
                 const bool complete =
@@ -4645,6 +4694,11 @@ class SimpleATH final : public IOService
         // They are invalidated on every join/key/PCI owner revocation.
         uint64_t pendingWpa2M4Token_ {0};
         uint64_t pendingWpa2Group2Token_ {0};
+        // The locally queued disassociation owns one outstanding EDMA
+        // descriptor until its callback or the bounded link watchdog fires.
+        // This is not a second association or permission for data traffic.
+        uint64_t pendingLocalLeaveToken_ {0};
+        uint64_t pendingLocalLeaveEpoch_ {0};
         bool wpa2M4TransmitConfirmed_ {false};
         bool authenticatedProtectedRxObserved_ {false};
         // Credential-free, epoch-bound WCL progress. Never retain a PMK or

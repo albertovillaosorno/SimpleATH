@@ -222,6 +222,21 @@ to manufacture completion. Required normal paths must exist and be reachable;
 runtime safety checks remain. Keep this task open until every required callback
 has a real source implementation and the Xcode target selects that path.
 
+### Local disassociation EDMA completion ownership (source-only, 2026-11-11)
+
+The native OS local-leave handler no longer quarantines its only outstanding
+EDMA descriptor immediately after submitting a non-PMF disassociation MPDU.
+The command-gated owner records the unique transmit token and PCI epoch,
+closes the controlled port and rejects subsequent TX/RX/key admission and
+association publication. The still-owned hardware queue is retained only
+until that exact EDMA completion, which can report success or failure; both
+terminal outcomes retire the old MAC/DMA/key epoch. The existing association
+watchdog also imposes a bounded one-second retirement when the completion is
+lost; a timer-arm failure retires immediately. Sleep, provider loss, queue
+fault and explicit reset cancel the token through the same link teardown.
+This does **not** prove a disassociation was sent on air, complete key erasure,
+PMF disassociation or physical RF readiness. No same-epoch reconnect is allowed.
+
 ## Required ownership map to implement
 
 
