@@ -78,6 +78,8 @@ namespace simpleath
             ScanCacheUpdated,
             TransmitAuthentication,
             TransmitAssociation,
+            // Negative ADDBA response only; never accepts a BA agreement.
+            TransmitAddbaDecline,
             TransmitEapol,
             TransmitData,
             AssociatedAwaitingKeys,

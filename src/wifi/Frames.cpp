@@ -1435,6 +1435,151 @@ namespace simpleath
             return Result::Ok;
         }
 
+        Result parseAddbaRequest(const uint8_t *frame, size_t length,
+                                 AddbaRequest &out)
+        {
+            if (overlaps(&out, sizeof(out), frame, length))
+            {
+                return Result::OverlappingBuffers;
+            }
+            out = {};
+            Frame parsed {};
+            const auto result = parseFrame(frame, length, parsed);
+            if (result != Result::Ok)
+            {
+                return result;
+            }
+            // Action subtype 13, BlockAck category 3 and ADDBA request 0.
+            // No protected action frame is accepted without a verified PMF
+            // session; our supported associations do not negotiate PMF.
+            constexpr uint8_t kActionSubtype = 13U;
+            constexpr uint8_t kBlockAckCategory = 3U;
+            constexpr uint8_t kAddbaRequestAction = 0U;
+            constexpr size_t kAddbaBodyBytes = 9U;
+            if (parsed.type != FrameType::Management ||
+                parsed.subtype != kActionSubtype || parsed.protectedFrame ||
+                parsed.fragment != 0U || parsed.moreFragments)
+            {
+                return Result::UnsupportedFrame;
+            }
+            if (length < parsed.headerLength + kAddbaBodyBytes)
+            {
+                return Result::Truncated;
+            }
+            if (length != parsed.headerLength + kAddbaBodyBytes)
+            {
+                return Result::InvalidFrame;
+            }
+            const auto *body = byteOffset(frame, parsed.headerLength);
+            if ((*byteOffset(body, 0)) != kBlockAckCategory ||
+                (*byteOffset(body, 1)) != kAddbaRequestAction)
+            {
+                return Result::UnsupportedFrame;
+            }
+            const uint16_t parameters = readLittle16(byteOffset(body, 3));
+            const uint16_t start = readLittle16(byteOffset(body, 7));
+            constexpr uint16_t kBufferShift = 6U;
+            constexpr uint16_t kBufferMask = 0x03ffU;
+            constexpr uint16_t kTidShift = 2U;
+            constexpr uint16_t kTidMask = 0x0fU;
+            // A zero BA window cannot be negotiated. Starting sequence
+            // control reserves the low four fragment bits as zero.
+            const auto window = static_cast<uint16_t>(
+                (parameters >> kBufferShift) & kBufferMask);
+            if (window == 0U || (start & kFragmentNumberMask) != 0U)
+            {
+                return Result::InvalidFrame;
+            }
+            out.header = parsed;
+            out.dialogToken = *byteOffset(body, 2);
+            out.amsduPermitted = (parameters & 1U) != 0U;
+            out.immediate = (parameters & 2U) != 0U;
+            out.tid =
+                static_cast<uint8_t>((parameters >> kTidShift) & kTidMask);
+            out.bufferSize = window;
+            out.timeoutTu = readLittle16(byteOffset(body, 5));
+            out.startingSequence =
+                static_cast<uint16_t>(start >> kSequenceControlShift);
+            return Result::Ok;
+        }
+
+        Result makeAddbaDecline(const Mac &station, const Mac &bssid,
+                                const AddbaRequest &request, uint16_t sequence,
+                                uint8_t *output, size_t capacity,
+                                size_t &written)
+        {
+            if (aliasesSerializedInput(output, capacity, written, &station,
+                                       sizeof(station)) ||
+                aliasesSerializedInput(output, capacity, written, &bssid,
+                                       sizeof(bssid)) ||
+                aliasesSerializedInput(output, capacity, written, &request,
+                                       sizeof(request)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            written = 0;
+            if (output == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            if (!validStationMac(station) || !validStationMac(bssid) ||
+                sameMac(station, bssid))
+            {
+                return Result::InvalidAddress;
+            }
+            if (sequence > kSequenceNumberMask || request.tid > 15U ||
+                request.bufferSize == 0U || request.bufferSize > 1023U ||
+                request.startingSequence > kSequenceNumberMask ||
+                !sameMac(request.header.source, bssid) ||
+                !sameMac(request.header.bssid, bssid) ||
+                !sameMac(request.header.destination, station) ||
+                request.header.protectedFrame ||
+                request.header.type != FrameType::Management ||
+                request.header.subtype != 13U)
+            {
+                return Result::InvalidFrame;
+            }
+            constexpr size_t kDeclineBytes = kManagementHeaderBytes + 9U;
+            if (capacity < kDeclineBytes)
+            {
+                return Result::BufferTooSmall;
+            }
+            // Snapshot all the needed values before writing caller storage;
+            // neither destination nor counts alias any identity/parsed input.
+            for (size_t i = 0; i < kDeclineBytes; ++i)
+            {
+                *byteOffset(output, i) = 0U;
+            }
+            constexpr uint16_t kManagementActionControl = 0x00d0U;
+            constexpr uint16_t kRequestDeclined = 37U;
+            constexpr uint8_t kBlockAckCategory = 3U;
+            constexpr uint8_t kAddbaResponseAction = 1U;
+            writeLittle16(output, kManagementActionControl);
+            copyBytes(byteOffset(output, kMacDestinationOffset),
+                      arrayData(bssid.bytes), kMacAddressBytes);
+            copyBytes(byteOffset(output, kMacSourceOffset),
+                      arrayData(station.bytes), kMacAddressBytes);
+            copyBytes(byteOffset(output, kMacBssidOffset),
+                      arrayData(bssid.bytes), kMacAddressBytes);
+            writeLittle16(
+                byteOffset(output, kMacSequenceOffset),
+                static_cast<uint16_t>(sequence << kSequenceControlShift));
+            auto *body = byteOffset(output, kManagementHeaderBytes);
+            *byteOffset(body, 0) = kBlockAckCategory;
+            *byteOffset(body, 1) = kAddbaResponseAction;
+            *byteOffset(body, 2) = request.dialogToken;
+            writeLittle16(byteOffset(body, 3), kRequestDeclined);
+            // Mirror TID/window with immediate policy and A-MSDU disabled;
+            // refusal must not announce any negotiated A-MPDU capability.
+            const auto parameters = static_cast<uint16_t>(
+                (static_cast<uint16_t>(request.bufferSize) << 6U) |
+                (static_cast<uint16_t>(request.tid) << 2U) | 2U);
+            writeLittle16(byteOffset(body, 5), parameters);
+            writeLittle16(byteOffset(body, 7), request.timeoutTu);
+            written = kDeclineBytes;
+            return Result::Ok;
+        }
+
         Result parseAuthenticationResponse(const uint8_t *bytes, size_t length,
                                            const Mac &station, const Mac &bssid,
                                            uint16_t &statusCode)

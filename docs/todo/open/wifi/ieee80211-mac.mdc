@@ -125,6 +125,38 @@ allowed. Synthetic C++14/C++17 sanitizer regressions reproduce the old
 link-loss acceptance and preserve correct valid-frame processing. This does not
 supply hardware management-frame integrity or a native reconnect pipeline.
 
+## Source integration — explicit BlockAck negotiation refusal (2026-11-12)
+
+The complete, FCS-stripped IEEE 802.11 category-3/action-0 ADDBA Request
+now has a strict portable decoder in `Frames.*`. It extracts the AP's
+bounded 10-bit receive-buffer proposal, 4-bit QoS TID, immediate/delayed
+policy, A-MSDU flag, 12-bit starting sequence, dialog token and timeout.
+Zero-window, nonzero fragment control, truncated/overlong, protected (no PMF),
+and non-ADDBA action bodies fail without publishing stale output. The
+serializer constructs a 33-byte ADDBA Response with **status 37 (request
+declined)** and no advertised A-MSDU/reorder grant. It does not initiate an
+ADDBA handshake or treat a rejected request as an agreement.
+
+`WifiEngine::handleManagement` only generates a decline for a DMA/FCS-verified
+unicast request from the currently associated AP and matching BSSID to the
+selected physical station. A foreign AP, unrelated destination, invalid
+trailer, lost link, insufficient output or false DMA/FCS proof cannot emit
+one. The native PCI workloop sends the 33-byte FCS-free response only after
+its real controlled-port/association-beacon, RF-kill, EDMA queue and TX/TPC
+policy gates pass. It assigns the shared physical MAC TX sequence at submit
+time and retires the link after a failed actual DMA submission. A declined
+ADDBA by itself cannot authorize PHY TX, A-MPDU receive, channel tuning,
+packet reorder, or AirDrop.
+
+`tests/test_wifi_engine.cpp` supplies synthetic on-air ADDBA vectors and a
+same-association WPA2 driver-supplicant regression, including stale output,
+foreign recipient/AP, malformed body, FCS layout, revoked RX trust and
+radio-stop isolation. No physical device or OS driver was exercised. The
+remaining work is real negotiated BlockAck agreements, per-TID reorder
+buffer/timeout/replay/PN ownership, DELBA and BAR handling, calibrated RF,
+and native aggregation completion; this conservative decline path cannot
+replace any of those required production capabilities.
+
 ## Evidence
 
 - Source commits, reference URLs/version/rights, static review and lint

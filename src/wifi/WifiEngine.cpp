@@ -1028,6 +1028,50 @@ namespace simpleath
                     return emitPrepared(ActionKind::LinkLost, 0, action);
                 }
             }
+            // AP-origin BlockAck requests are real management operations,
+            // not an implicit negotiated A-MPDU reorder session. Until a
+            // physical BA/reorder owner exists, explicitly return an ADDBA
+            // decline to the currently associated AP only. Never respond to
+            // monitor-mode frames from other networks or a different station.
+            if (header.type == FrameType::Management && header.subtype == 13U &&
+                link_.status().state == LinkState::Associated &&
+                sameMac(header.source, station_.candidate().beacon.bssid) &&
+                sameMac(header.bssid, station_.candidate().beacon.bssid) &&
+                sameMac(header.destination, stationAddress_))
+            {
+                constexpr size_t kActionPrefixBytes = 2U;
+                if (length < header.headerLength + kActionPrefixBytes)
+                {
+                    return EngineResult::InvalidReceivedFrame;
+                }
+                uint8_t prefix[kActionPrefixBytes] {};
+                __builtin_memcpy(&prefix[0], frame + header.headerLength,
+                                 sizeof(prefix));
+                if (prefix[0] == 3U && prefix[1] == 0U)
+                {
+                    AddbaRequest request {};
+                    if (parseAddbaRequest(frame, length, request) != Result::Ok)
+                    {
+                        return EngineResult::InvalidReceivedFrame;
+                    }
+                    size_t written = 0;
+                    // The native PCI owner overwrites the placeholder MAC
+                    // sequence using its single global TX sequence and only
+                    // consumes that sequence after actual EDMA submission.
+                    const Result encoded = makeAddbaDecline(
+                        stationAddress_, station_.candidate().beacon.bssid,
+                        request, 0U, out, capacity, written);
+                    if (encoded == Result::BufferTooSmall ||
+                        encoded == Result::NullBuffer)
+                    {
+                        return EngineResult::BufferTooSmall;
+                    }
+                    return encoded == Result::Ok
+                               ? emitPrepared(ActionKind::TransmitAddbaDecline,
+                                              written, action)
+                               : EngineResult::InvalidReceivedFrame;
+                }
+            }
             return EngineResult::NoAction;
         }
 

@@ -4078,6 +4078,59 @@ class SimpleATH final : public IOService
                 }
                 return true;
             }
+            // BlockAck agreements are NOT implemented: answer only a
+            // syntactically checked AP ADDBA Request with a negative response.
+            // In particular, a mere accepted MIF/association frame does not
+            // grant TX or a reorder lease. This response remains subject to
+            // the same physical RF/TPC/channel/association/EDMA checks as
+            // all other outbound management packets.
+            if (result == simpleath::ieee80211::EngineResult::Ok &&
+                action.kind ==
+                    simpleath::ieee80211::ActionKind::TransmitAddbaDecline)
+            {
+                constexpr size_t kAddbaResponseBytes = 33U;
+                if (action.bytes != kAddbaResponseBytes ||
+                    self.engine_.linkStatus().state !=
+                        simpleath::ieee80211::LinkState::Associated ||
+                    !self.controlledPortAuthorized_ ||
+                    !self.canSubmitTransmit() ||
+                    self.verifyNativeAssociationLease(nowMicros(nullptr) /
+                                                      kMicrosPerMillisecond) !=
+                        kIOReturnSuccess)
+                {
+                    // Do not send an unauthenticated or stale reply. The AP
+                    // still has no successfully negotiated BA session.
+                    return true;
+                }
+                // The portable layer left sequence zero as a placeholder.
+                // Only the native TX owner may consume the shared sequence
+                // used by management and ordinary Ethernet data packets.
+                const uint16_t value = static_cast<uint16_t>(
+                    self.txSequence_ << kSequenceFragmentBits);
+                constexpr size_t kManagementSequenceOffset = 22U;
+                self.managementReply_[kManagementSequenceOffset] =
+                    static_cast<uint8_t>(value);
+                self.managementReply_[kManagementSequenceOffset + 1U] =
+                    static_cast<uint8_t>(value >> kByteBits);
+                const IOReturn submitted = self.submitPreparedTransmit(
+                    &self.managementReply_[0], action.bytes);
+                self.setProperty("SimpleATHBlockAckDeclineTransmitResult",
+                                 static_cast<uint32_t>(submitted),
+                                 kRfPropertyWidthBits);
+                if (submitted == kIOReturnSuccess)
+                {
+                    self.txSequence_ = static_cast<uint16_t>(
+                        (self.txSequence_ + 1U) & kSequenceMask);
+                }
+                else
+                {
+                    // An unacknowledged decline is NOT a BA agreement.
+                    // Retire the link rather than risk accepting an AP's
+                    // speculative aggregated traffic in this epoch.
+                    self.retireNativeLink(submitted);
+                }
+                return true;
+            }
             return false;
         }
 

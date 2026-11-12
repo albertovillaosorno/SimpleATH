@@ -191,6 +191,40 @@ namespace simpleath
         Result parseRsn(const uint8_t *data, size_t length, Rsn &out);
         Result parseBeacon(const uint8_t *frame, size_t length, Beacon &out);
 
+        // IEEE 802.11 BlockAck action control plane. This parser preserves
+        // the AP's requested TID/window/dialogue, but parsing alone NEVER
+        // negotiates an RX reorder window or authorizes an A-MPDU.
+        struct AddbaRequest
+        {
+                Frame header {};
+                uint8_t dialogToken {};
+                uint8_t tid {};
+                uint16_t bufferSize {};
+                uint16_t timeoutTu {};
+                uint16_t startingSequence {};
+                bool immediate {};
+                bool amsduPermitted {};
+        };
+
+        // A complete, unprotected, unfragmented management Action frame with
+        // category BlockAck and action ADDBA Request (3/0), exactly nine body
+        // octets. Reject malformed parameter/sequence controls; only the
+        // owning associated-station RX path can validate the BSSID and sender.
+        // An aliased output is rejected untouched; normal errors clear it.
+        Result parseAddbaRequest(const uint8_t *frame, size_t length,
+                                 AddbaRequest &out);
+
+        // In the absence of a negotiated, physically backed reorder owner,
+        // explicitly DECLINE a peer ADDBA request (status 37) rather than
+        // silently accepting its frames. The radio owner supplies live
+        // association, channel, key policy, RF/TPC, EDMA and MAC TX sequence;
+        // this only creates an FCS-free management frame.
+        // On ordinary failure written is zero and output unchanged.
+        Result makeAddbaDecline(const Mac &station, const Mac &bssid,
+                                const AddbaRequest &request, uint16_t sequence,
+                                uint8_t *output, size_t capacity,
+                                size_t &written);
+
         // Serializers generate frame payloads only. The radio transport is NOT
         // authorized to send them without EEPROM, regulatory and PHY
         // initialization. They omit FCS, which the hardware TX chain is

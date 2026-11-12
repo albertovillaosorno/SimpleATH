@@ -701,6 +701,191 @@ namespace
         return 0;
     }
 
+    std::array<uint8_t, 33> addbaRequest()
+    {
+        std::array<uint8_t, 33> frame {};
+        frame.at(0) = 0xd0; // Management Action subtype, unprotected.
+        std::memcpy(&frame.at(4), kStation.data(), kStation.size());
+        std::memcpy(&frame.at(10), kAp.data(), kAp.size());
+        std::memcpy(&frame.at(16), kAp.data(), kAp.size());
+        frame.at(24) = 3;    // BlockAck category.
+        frame.at(25) = 0;    // ADDBA Request.
+        frame.at(26) = 0x9a; // Dialogue token.
+        frame.at(27) = 0x17; // TID 5, A-MSDU, immediate policy, 64 slots.
+        frame.at(28) = 0x10;
+        frame.at(29) = 0x23; // Timeout 0x0123 TU.
+        frame.at(30) = 0x01;
+        frame.at(31) = 0xf0; // Initial sequence 4095, fragment 0.
+        frame.at(32) = 0xff;
+        return frame;
+    }
+
+    // The portable and native control paths refuse all BA negotiations until
+    // an actual synchronized, key/association-local RX reorder owner exists.
+    // NOLINTNEXTLINE(readability-function-cognitive-complexity)
+    int checkedBlockAckDecline()
+    {
+        auto requestBytes = addbaRequest();
+        AddbaRequest request {};
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        if (parseAddbaRequest(requestBytes.data(), requestBytes.size(),
+                              request) != Result::Ok ||
+            request.dialogToken != 0x9a || request.tid != 5 ||
+            request.bufferSize != 64 || request.timeoutTu != 0x0123 ||
+            request.startingSequence != 4095 || !request.immediate ||
+            !request.amsduPermitted)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 128> reply {};
+        reply.fill(0x7d);
+        size_t written = 999;
+        if (makeAddbaDecline(station, ap, request, 4095, reply.data(), 32,
+                             written) != Result::BufferTooSmall ||
+            written != 0 || reply.at(0) != 0x7d ||
+            makeAddbaDecline(station, ap, request, 4095, reply.data(),
+                             reply.size(), written) != Result::Ok ||
+            written != 33 || reply.at(0) != 0xd0 || reply.at(22) != 0xf0 ||
+            reply.at(23) != 0xff || reply.at(24) != 3 || reply.at(25) != 1 ||
+            reply.at(26) != 0x9a || reply.at(27) != 37 || reply.at(28) != 0 ||
+            reply.at(29) != 0x16 || reply.at(30) != 0x10 ||
+            reply.at(31) != 0x23 || reply.at(32) != 0x01 ||
+            std::memcmp(&reply.at(4), kAp.data(), kAp.size()) != 0 ||
+            std::memcmp(&reply.at(10), kStation.data(), kStation.size()) != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        auto corrupt = requestBytes;
+        corrupt.at(31) = 0xf1; // Fragment number may not enter a BA anchor.
+        if (parseAddbaRequest(corrupt.data(), corrupt.size(), request) !=
+                Result::InvalidFrame ||
+            request.bufferSize != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(27) = 0x17;
+        corrupt.at(28) = 0x00; // Still window 0? No: lower 6 bits remain.
+        corrupt.at(27) = 0x17 & 0x3f;
+        if (parseAddbaRequest(corrupt.data(), corrupt.size(), request) !=
+                Result::InvalidFrame ||
+            parseAddbaRequest(requestBytes.data(), 32, request) !=
+                Result::Truncated ||
+            request.bufferSize != 0)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 34> trailing {};
+        std::memcpy(trailing.data(), requestBytes.data(), requestBytes.size());
+        if (parseAddbaRequest(trailing.data(), trailing.size(), request) !=
+            Result::InvalidFrame)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(1) = 0x40; // Protected PMF action without key authority.
+        if (parseAddbaRequest(corrupt.data(), corrupt.size(), request) !=
+            Result::UnsupportedFrame)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(24) = 4; // Not a BlockAck category.
+        if (parseAddbaRequest(corrupt.data(), corrupt.size(), request) !=
+            Result::UnsupportedFrame)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        const std::array<uint8_t, 32> pmk {{1}};
+        std::array<uint8_t, 32> anonce {{7}};
+        std::array<uint8_t, 32> snonce {};
+        for (size_t i = 0; i < snonce.size(); ++i)
+        {
+            snonce.at(i) = static_cast<uint8_t>(i + 1U);
+        }
+        std::array<uint8_t, 48> ptk {};
+        Provider provider {};
+        WifiEngine engine;
+        if (crypto::derivePtk(pmk.data(), ap, station, anonce.data(),
+                              snonce.data(), ptk.data()) != crypto::Error::Ok ||
+            !joinAndInstall(engine, provider, ptk.data()))
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        EngineAction action {};
+        reply.fill(0x7d);
+        if (engine.acceptRx(requestBytes.data(), requestBytes.size(), kTrust,
+                            {-41, 1005}, reply.data(), 32,
+                            action) != EngineResult::BufferTooSmall ||
+            action.kind != ActionKind::None || reply.at(0) != 0x7d ||
+            engine.acceptRx(requestBytes.data(), requestBytes.size(), kTrust,
+                            {-41, 1006}, reply.data(), reply.size(),
+                            action) != EngineResult::Ok ||
+            action.kind != ActionKind::TransmitAddbaDecline ||
+            action.bytes != 33 || reply.at(27) != 37 ||
+            reply.at(22) != 0) // Native owner assigns the MAC TX sequence.
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(10) ^= 0x02; // Foreign AP cannot solicit a reply.
+        if (engine.acceptRx(corrupt.data(), corrupt.size(), kTrust, {-41, 1007},
+                            reply.data(), reply.size(),
+                            action) != EngineResult::NoAction ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(4) ^= 0x02; // Another station's unicast action.
+        if (engine.acceptRx(corrupt.data(), corrupt.size(), kTrust, {-41, 1008},
+                            reply.data(), reply.size(),
+                            action) != EngineResult::NoAction ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        corrupt = requestBytes;
+        corrupt.at(31) |= 0x01; // Malformed active AP request.
+        if (engine.acceptRx(corrupt.data(), corrupt.size(), kTrust, {-41, 1009},
+                            reply.data(), reply.size(),
+                            action) != EngineResult::InvalidReceivedFrame ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        InputTrust unverified = kTrust;
+        unverified.dmaAndFcsVerified = false;
+        if (engine.acceptRx(requestBytes.data(), requestBytes.size(),
+                            unverified, {-41, 1010}, reply.data(), reply.size(),
+                            action) != EngineResult::InvalidInput ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        std::array<uint8_t, 37> withFcs {};
+        std::memcpy(withFcs.data(), requestBytes.data(), requestBytes.size());
+        InputTrust verifiedFcs = kTrust;
+        verifiedFcs.rxFrameIncludesFcs = true;
+        if (engine.acceptRx(withFcs.data(), withFcs.size(), verifiedFcs,
+                            {-41, 1011}, reply.data(), reply.size(),
+                            action) != EngineResult::Ok ||
+            action.kind != ActionKind::TransmitAddbaDecline)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        engine.radioStopped(1012, false);
+        if (engine.acceptRx(requestBytes.data(), requestBytes.size(), kTrust,
+                            {-41, 1013}, reply.data(), reply.size(),
+                            action) != EngineResult::NoAction ||
+            action.kind != ActionKind::None)
+        {
+            return __LINE__ % kFailureModulo + 1;
+        }
+        return 0;
+    }
+
     // Two Ethernet-II MSDUs inside one CCMP-authenticated QoS MPDU.
     // The source and protected A-MSDU selector are included in the SPP MIC.
     std::array<uint8_t, 73> protectedAggregatePlain()
@@ -1056,6 +1241,11 @@ int main()
     if (native != 0)
     {
         return native;
+    }
+    const int blockAck = checkedBlockAckDecline();
+    if (blockAck != 0)
+    {
+        return blockAck;
     }
     const int aggregate = verifiedNativeAggregateRx();
     return aggregate == 0 ? verifiedNativeOrdinarySequenceRx() : aggregate;
