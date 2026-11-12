@@ -37,9 +37,9 @@
 import unittest
 from pathlib import Path
 
-SOURCE = (Path(__file__).resolve().parent.parent / "src/SimpleATH.cpp").read_text(
-    encoding="utf-8"
-)
+SOURCE = (
+    Path(__file__).resolve().parent.parent / "src/SimpleATH.cpp"
+).read_text(encoding="utf-8")
 
 
 def method(start: str, end: str) -> str:
@@ -85,7 +85,9 @@ class NativeStationMacWiring(unittest.TestCase):
             "(requested[0] & 0x02U) == 0U",
         ):
             assert required in change, required
-        permit = method("static bool stationMacPermit(", "// This permit is valid only")
+        permit = method(
+            "static bool stationMacPermit(", "// This permit is valid only"
+        )
         assert "canReset(context, epoch)" in permit
         assert "NativeQueuePhase::Prepared" in permit
         assert "initialStartEligibleGated()" in permit
@@ -100,7 +102,9 @@ class NativeStationMacWiring(unittest.TestCase):
         )
         assert (
             change.index("programAr9565StationMac(")
-            < change.index("progress.result != simpleath::MacIdentityResult::Ok")
+            < change.index(
+                "progress.result != simpleath::MacIdentityResult::Ok"
+            )
             < change.index("memcpy(&self.stationMac_[0], requested")
             < change.index("self.notifyWirelessChange(false);")
         )
@@ -111,7 +115,8 @@ class NativeStationMacWiring(unittest.TestCase):
         assert "self.stationMacProgrammed_ = false;" in failure
         assert "self.keyCache_.requiresReset = true;" in failure
         snapshot = method(
-            "static IOReturn ownerSnapshotAction(", "static IOReturn ownerSnapshot("
+            "static IOReturn ownerSnapshotAction(",
+            "static IOReturn ownerSnapshot(",
         )
         assert "&board->summary.mac[0]" in snapshot
         assert "&self.stationMac_[0]" in snapshot
@@ -135,7 +140,9 @@ class NativeStationMacWiring(unittest.TestCase):
             < start.index("memcpy(&stationMac_[0], selected")
             < start.index("stationMacProgrammed_ = true;")
         )
-        stop = method("void stopHardware(", "static IOReturn prepareFreshStartAction(")
+        stop = method(
+            "void stopHardware(", "static IOReturn prepareFreshStartAction("
+        )
         assert "memset(&stationMac_[0], 0, sizeof(stationMac_));" in stop
         assert "requestedStationMacValid_ = false" not in stop
         assert "memset(&requestedStationMac_" not in stop
