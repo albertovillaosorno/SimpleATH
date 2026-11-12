@@ -303,12 +303,89 @@ namespace simpleath
         return result;
     }
 
+    namespace
+    {
+        MacIdentityProgress
+        writeAssociationIdentity(const RegisterBus &supplied, uint32_t low,
+                                 uint32_t high, uint64_t epoch,
+                                 bool (*permit)(void *, uint64_t))
+        {
+            MacIdentityProgress result {};
+            const RegisterBus bus = supplied;
+            if (bus.context == nullptr || bus.read32 == nullptr ||
+                bus.write32 == nullptr || permit == nullptr || epoch == 0 ||
+                bus.barLengthBytes < kBssidIdHigh + sizeof(uint32_t))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::WriteFailed;
+            // A write callback may report failure after the PCI posted write.
+            result.requiresReset = true;
+            if (!bus.write32(bus.context, kBssidIdLow, low))
+            {
+                return result;
+            }
+            ++result.completedWrites;
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::WriteFailed;
+            if (!bus.write32(bus.context, kBssidIdHigh, high))
+            {
+                return result;
+            }
+            ++result.completedWrites;
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return result;
+            }
+            uint32_t observedLow = 0;
+            result.result = MacIdentityResult::ReadFailed;
+            if (!read(bus, kBssidIdLow, observedLow))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return result;
+            }
+            uint32_t observedHigh = 0;
+            result.result = MacIdentityResult::ReadFailed;
+            if (!read(bus, kBssidIdHigh, observedHigh))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::ReadbackMismatch;
+            if (observedLow != low || observedHigh != high)
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::OwnershipLost;
+            if (!permit(bus.context, epoch))
+            {
+                return result;
+            }
+            result.result = MacIdentityResult::Ok;
+            result.requiresReset = false;
+            return result;
+        }
+    } // namespace
+
     MacIdentityProgress programAr9565AssociationBssid(
         const RegisterBus &supplied, const uint8_t bssid[kPermanentMacBytes],
         uint16_t aid, uint64_t epoch, bool (*permit)(void *, uint64_t))
     {
-        MacIdentityProgress result {};
         const RegisterBus bus = supplied;
+        MacIdentityProgress result {};
         if (bus.context == nullptr || bus.read32 == nullptr ||
             bus.write32 == nullptr || permit == nullptr || epoch == 0 ||
             bus.barLengthBytes < kBssidIdHigh + sizeof(uint32_t))
@@ -320,9 +397,7 @@ namespace simpleath
         {
             return result;
         }
-        // No callback may mutate the borrowed BSSID halfway through the
-        // two-word transaction. The upper half is the 11-bit station AID,
-        // not unrelated bits to retain from a previous association.
+        // Snapshot the BSSID before any caller callback can mutate it.
         uint8_t selected[kPermanentMacBytes] {};
         __builtin_memcpy(&selected[0], bssid, sizeof(selected));
         const uint32_t low = static_cast<uint32_t>(selected[0]) |
@@ -333,65 +408,16 @@ namespace simpleath
             static_cast<uint32_t>(selected[4]) |
             (static_cast<uint32_t>(selected[5]) << 8U) |
             (static_cast<uint32_t>(aid) << kAssociationAidShift);
-        result.result = MacIdentityResult::OwnershipLost;
-        if (!permit(bus.context, epoch))
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::WriteFailed;
-        // A write callback may report failure after the PCI posted write.
-        result.requiresReset = true;
-        if (!bus.write32(bus.context, kBssidIdLow, low))
-        {
-            return result;
-        }
-        ++result.completedWrites;
-        result.result = MacIdentityResult::OwnershipLost;
-        if (!permit(bus.context, epoch))
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::WriteFailed;
-        if (!bus.write32(bus.context, kBssidIdHigh, high))
-        {
-            return result;
-        }
-        ++result.completedWrites;
-        result.result = MacIdentityResult::OwnershipLost;
-        if (!permit(bus.context, epoch))
-        {
-            return result;
-        }
-        uint32_t observedLow = 0;
-        result.result = MacIdentityResult::ReadFailed;
-        if (!read(bus, kBssidIdLow, observedLow))
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::OwnershipLost;
-        if (!permit(bus.context, epoch))
-        {
-            return result;
-        }
-        uint32_t observedHigh = 0;
-        result.result = MacIdentityResult::ReadFailed;
-        if (!read(bus, kBssidIdHigh, observedHigh))
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::ReadbackMismatch;
-        if (observedLow != low || observedHigh != high)
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::OwnershipLost;
-        if (!permit(bus.context, epoch))
-        {
-            return result;
-        }
-        result.result = MacIdentityResult::Ok;
-        result.requiresReset = false;
-        return result;
+        return writeAssociationIdentity(bus, low, high, epoch, permit);
+    }
+
+    MacIdentityProgress
+    clearAr9565AssociationBssid(const RegisterBus &supplied, uint64_t epoch,
+                                bool (*permit)(void *, uint64_t))
+    {
+        // Clearing is an explicit state transition, not a BSSID of all zero.
+        // Reuse the same checked, post-write readback and owner-epoch gate.
+        return writeAssociationIdentity(supplied, 0U, 0U, epoch, permit);
     }
 
     MacStopResult quiesceAr9565Mac(const RegisterBus &supplied,

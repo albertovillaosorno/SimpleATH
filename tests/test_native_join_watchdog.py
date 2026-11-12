@@ -113,6 +113,42 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "retireNativeBssidEpoch(kIOReturnNotReady);" in owner
 
     @staticmethod
+    def test_cancelled_provisional_join_clears_physical_bssid() -> None:
+        connect = body(
+            "static IOReturn ownerConnectAction(",
+            "static IOReturn\n        ownerConnect(",
+        )
+        assert connect.index("programmedBssidEpoch_ == self.epoch_") < (
+            connect.index("self.programNativeBssid(")
+        )
+        cancel = body(
+            "static IOReturn ownerDisconnectAction(",
+            "static IOReturn ownerDisconnect(",
+        )
+        assert (
+            cancel.index("self.queues_.hasTransmitSpace()")
+            < cancel.index("self.engine_.cancelPendingJoin()")
+            < cancel.index("!self.clearNativeBssid()")
+            < cancel.index("self.failNativeJoin(kIOReturnAborted);")
+        )
+        assert "self.retireNativeBssidEpoch(kIOReturnNotReady);" in cancel
+        clear = body(
+            "bool clearNativeBssid()", "// Workloop timers are not ordered"
+        )
+        assert "programmedBssidEpoch_ != epoch_" in clear
+        assert "clearAr9565AssociationBssid(" in clear
+        assert "liveBssidPermit" in clear
+        assert "retireNativeBssidEpoch(kIOReturnNotReady);" in clear
+        assert clear.index("cleared.result !=") < clear.index(
+            "programmedBssidEpoch_ = 0;"
+        )
+        terminal = body(
+            "void retireNativeLink(IOReturn reason)",
+            "void recordNativeAssociation()",
+        )
+        assert "programmedBssidEpoch_ = 0;" in terminal
+
+    @staticmethod
     def test_pending_deadline_closes_hardware_before_beacon_liveness() -> None:
         fired = body(
             "static void linkTimerFired(", "static void scanTimerFired("

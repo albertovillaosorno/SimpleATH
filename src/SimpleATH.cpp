@@ -1184,6 +1184,13 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
+            // Do not overwrite the PCU BSSID of a still-pending join. The
+            // previous OS request must cancel and clear its physical identity
+            // after its last management TX completes before a new selection.
+            if (self.programmedBssidEpoch_ == self.epoch_)
+            {
+                return kIOReturnBusy;
+            }
             // A new association must never inherit a previous key stream.
             self.nativeProtectedFragments_.clear();
             self.joinEpoch_ = request.epoch;
@@ -1370,6 +1377,14 @@ class SimpleATH final : public IOService
                 }
                 if (self.engine_.cancelPendingJoin() !=
                     simpleath::ieee80211::EngineResult::Ok)
+                {
+                    self.retireNativeBssidEpoch(kIOReturnNotReady);
+                    return kIOReturnNotReady;
+                }
+                // Software cancellation alone does not erase PCU BSSID/AID.
+                // With the TX slot genuinely free, clear both words and
+                // verify them before allowing another same-epoch join.
+                if (!self.clearNativeBssid())
                 {
                     return kIOReturnNotReady;
                 }
@@ -1887,6 +1902,37 @@ class SimpleATH final : public IOService
                 retireNativeBssidEpoch(kIOReturnNotReady);
                 return false;
             }
+            programmedBssidEpoch_ = epoch_;
+            return true;
+        }
+
+        bool clearNativeBssid()
+        {
+            if (epoch_ == 0 || programmedBssidEpoch_ != epoch_)
+            {
+                // A pending station without a recorded physical BSSID is
+                // inconsistent. No same-epoch reuse after losing the proof.
+                retireNativeBssidEpoch(kIOReturnNotReady);
+                return false;
+            }
+            const auto bus = backend_.activeRegisters();
+            const simpleath::RegisterBus registers {
+                &access_,
+                readRegister,
+                writeRegister,
+                bus.barLengthBytes,
+            };
+            const auto cleared = simpleath::clearAr9565AssociationBssid(
+                registers, epoch_, liveBssidPermit);
+            setProperty("SimpleATHLastBssidClearResult",
+                        static_cast<uint32_t>(cleared.result),
+                        kRfPropertyWidthBits);
+            if (cleared.result != simpleath::MacIdentityResult::Ok)
+            {
+                retireNativeBssidEpoch(kIOReturnNotReady);
+                return false;
+            }
+            programmedBssidEpoch_ = 0;
             return true;
         }
 
@@ -3239,6 +3285,7 @@ class SimpleATH final : public IOService
             // A verified wipe still cannot reactivate the retired EDMA,
             // inherited scan or original association in this physical epoch.
             // Lost ownership and partial erasure require a full silicon reset.
+            programmedBssidEpoch_ = 0;
             keyCache_.requiresReset = retired.requiresNewPhysicalEpoch;
             setProperty("SimpleATHKeyCacheResetRequired",
                         keyCache_.requiresReset);
@@ -3977,6 +4024,7 @@ class SimpleATH final : public IOService
             // masked host interrupt alone cannot transfer ring ownership.
             self.queues_.stopGated(!self.pci_->isInactive());
             self.queuesAdopted_ = false;
+            self.programmedBssidEpoch_ = 0;
             self.radioOperational_ = false;
             self.channelAuthorized_ = false;
             self.verifiedReceiveChannel_ = 0;
@@ -4687,6 +4735,7 @@ class SimpleATH final : public IOService
                                   simpleath::ProviderAccess::Available);
                 queuesAdopted_ = false;
             }
+            programmedBssidEpoch_ = 0;
             radioOperational_ = false;
             channelAuthorized_ = false;
             verifiedReceiveChannel_ = 0;
@@ -4966,6 +5015,10 @@ class SimpleATH final : public IOService
         bool associatedSignalMeasured_ {false};
         int8_t associatedRssiDbm_ {0};
         uint8_t joinBssid_[simpleath::tahoe::kWirelessMacBytes] {};
+        // A successful PCU BSSID/AID write in this live physical epoch.
+        // A new OS join cannot overwrite it until cancellation verifies
+        // explicit hardware zeroing or terminal retirement revokes the epoch.
+        uint64_t programmedBssidEpoch_ {0};
         simpleath::NativeQueues queues_;
         simpleath::ieee80211::WifiEngine engine_;
         simpleath::ieee80211::LegacyScanBridge scanBridge_;

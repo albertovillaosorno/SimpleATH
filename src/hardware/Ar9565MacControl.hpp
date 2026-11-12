@@ -115,6 +115,16 @@ namespace simpleath
         const RegisterBus &supplied, const uint8_t bssid[kPermanentMacBytes],
         uint16_t aid, uint64_t epoch, bool (*permit)(void *, uint64_t));
 
+    // Remove provisional AP identity on an explicitly cancelled join after
+    // the last management TX descriptor completes. Unlike programming a BSS,
+    // clearing deliberately writes both AR_BSS_ID words to zero; callers
+    // must not pass an invalid/all-zero MAC to the selection API. It uses the
+    // same live serialized PCI/EDMA permission and full MMIO readback. Any
+    // attempted but unverified write requires a new physical reset epoch.
+    MacIdentityProgress
+    clearAr9565AssociationBssid(const RegisterBus &supplied, uint64_t epoch,
+                                bool (*permit)(void *, uint64_t));
+
     // The exclusive PCI owner serializes this with power and reset. The bus
     // revalidates D0/ownership on every access, drains posted writes, and must
     // refuse access after revocation. PCI bus mastering must already be off.

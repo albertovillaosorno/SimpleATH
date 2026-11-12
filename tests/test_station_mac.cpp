@@ -264,6 +264,102 @@ namespace
                                                         options.epoch, permit);
     }
 
+    simpleath::MacIdentityProgress clearBssid(Hardware &hw,
+                                              FixtureOptions options = {})
+    {
+        const simpleath::RegisterBus bus {&hw, read, write, options.bar};
+        return simpleath::clearAr9565AssociationBssid(bus, options.epoch,
+                                                      permit);
+    }
+
+    int checkBssidClearing()
+    {
+        using simpleath::MacIdentityResult;
+        Hardware selected;
+        selected.bssidLow = 0x13682402U;
+        selected.bssidHigh = 0x07d79955U;
+        const auto cleared = clearBssid(selected);
+        if (cleared.result != MacIdentityResult::Ok || cleared.requiresReset ||
+            cleared.completedWrites != 2U || selected.bssidLow != 0 ||
+            selected.bssidHigh != 0 || selected.writes != 2U ||
+            selected.reads != 2U || selected.permits != 5U)
+        {
+            return 18;
+        }
+        Hardware missingBar;
+        if (clearBssid(missingBar, {kEpoch, kBssidRegisterHigh}).result !=
+                MacIdentityResult::InvalidBackend ||
+            clearBssid(missingBar, {0, kBarBytes}).result !=
+                MacIdentityResult::InvalidBackend ||
+            missingBar.reads != 0 || missingBar.writes != 0 ||
+            missingBar.permits != 0)
+        {
+            return 19;
+        }
+        Hardware stale;
+        stale.epoch = 0;
+        const auto rejected = clearBssid(stale);
+        if (rejected.result != MacIdentityResult::OwnershipLost ||
+            rejected.requiresReset || stale.reads != 0 || stale.writes != 0)
+        {
+            return 20;
+        }
+        for (unsigned int index = 1; index <= 2U; ++index)
+        {
+            Hardware broken;
+            broken.bssidLow = 0x13682402U;
+            broken.bssidHigh = 0x07d79955U;
+            broken.failOnWrite = index;
+            const auto attempt = clearBssid(broken);
+            if (attempt.result != MacIdentityResult::WriteFailed ||
+                !attempt.requiresReset || attempt.completedWrites != index - 1U)
+            {
+                return 21;
+            }
+        }
+        for (unsigned int index = 1; index <= 5U; ++index)
+        {
+            Hardware revoked;
+            revoked.revokeOnPermit = index;
+            const auto attempt = clearBssid(revoked);
+            const unsigned int writes =
+                index == 1U ? 0U : (index == 2U ? 1U : 2U);
+            if (attempt.result != MacIdentityResult::OwnershipLost ||
+                attempt.requiresReset != (index != 1U) ||
+                attempt.completedWrites != writes)
+            {
+                return 22;
+            }
+        }
+        Hardware unreadable;
+        unreadable.rejectReads = true;
+        const auto badRead = clearBssid(unreadable);
+        if (badRead.result != MacIdentityResult::ReadFailed ||
+            !badRead.requiresReset || badRead.completedWrites != 2U)
+        {
+            return 23;
+        }
+        Hardware mismatch;
+        mismatch.mismatchBssidReadback = true;
+        const auto badValue = clearBssid(mismatch);
+        if (badValue.result != MacIdentityResult::ReadbackMismatch ||
+            !badValue.requiresReset || badValue.completedWrites != 2U)
+        {
+            return 24;
+        }
+        // A successful physical clear can be followed by a new selected AP
+        // without retaining the former AID, but only after readback.
+        constexpr uint8_t next[6] {2U, 0x55U, 0x66U, 0x77U, 0x88U, 0x99U};
+        const auto programmed = programBssid(selected, next, 0);
+        if (programmed.result != MacIdentityResult::Ok ||
+            selected.bssidLow != 0x77665502U ||
+            selected.bssidHigh != 0x00009988U)
+        {
+            return 25;
+        }
+        return 0;
+    }
+
     int checkBssidProgramming()
     {
         using simpleath::MacIdentityResult;
@@ -361,7 +457,7 @@ namespace
         {
             return 17;
         }
-        return 0;
+        return checkBssidClearing();
     }
 
 } // namespace

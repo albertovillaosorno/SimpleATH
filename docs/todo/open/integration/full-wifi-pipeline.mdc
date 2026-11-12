@@ -144,6 +144,28 @@ power policy, automatic responses and real hardware reset/reconnect are
 still incomplete and prevent reaching this path on the current board-only
 boot. The AID proof does not authorize RF or an OS controlled port.
 
+### Native provisional BSSID cancellation (source-only, 2026-11-11)
+
+Cancelling an unassociated native join now clears the real PCU's selected
+`AR_BSS_ID0/1` words and AID after the last device-owned management TX slot
+has retired, before permitting any next join on that physical PCI epoch.
+This is distinct from passing a zero MAC to the BSSID selection helper,
+which continues rejecting empty/multicast station identities. A successful
+selection records the exact native programming epoch; a second connect
+cannot overwrite that still-selected AP without explicit cancellation. Both
+clear writes and readbacks independently recheck the live PCI/RF/board/EDMA
+permission, and a failed cancellation or ambiguous register transition
+quarantines the hardware and requires a fresh reset. A successful clear
+retains the existing verified scan data for a subsequent OS request; it
+does not grant RF, channel, coexistence or regulatory authority.
+
+`test_station_mac.cpp` exercises full zero readback, reset semantics for
+failed writes, owner revocation, read failures, misread values and a later
+independent AP selection with AID=0. Native join wiring checks the busy-TX
+gate, cancel/clear order, epoch tracking and terminal fallback. This remains
+offline/source-only: no actual PCU readback, join cancellation or Tahoe
+radio operation was tested on physical hardware.
+
 ### Native pending-join deadline (source integration, 2026-11-11)
 
 After EDMA accepts an actual authentication TX, the command-gated native
