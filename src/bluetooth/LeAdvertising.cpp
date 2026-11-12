@@ -91,6 +91,8 @@ namespace simpleath
                         const LeAdvertisingOwner &owner)
         {
             if (!ownerValid(owner) || state.epoch != owner.epoch ||
+                state.transportGeneration == 0U ||
+                state.transportGeneration != transport.generation ||
                 !transport.attached || transport.faulted ||
                 transport.epoch != owner.epoch ||
                 host.ownerEpoch != owner.epoch)
@@ -107,7 +109,8 @@ namespace simpleath
                    state.generation == sessionGeneration &&
                    state.epoch == owner.epoch && transport.attached &&
                    !transport.faulted && transport.epoch == owner.epoch &&
-                   transport.generation == transportGeneration;
+                   transport.generation == transportGeneration &&
+                   state.transportGeneration == transportGeneration;
         }
 
         LeAdvertisingResult lostAuthorization(LeAdvertisingState &state,
@@ -409,6 +412,7 @@ namespace simpleath
         clearAdvertising(state);
         const uint64_t activeGeneration = state.generation;
         state.epoch = owner.epoch;
+        state.transportGeneration = transportGeneration;
         state.phase = LeAdvertisingPhase::Authorizing;
         const bool permitted = owner.permit(owner.context, owner.epoch);
         if (state.phase != LeAdvertisingPhase::Authorizing ||

@@ -779,6 +779,40 @@ namespace
         return 0;
     }
 
+    int sameEpochTransportReplacementAfterApproval()
+    {
+        Fixture pending {};
+        if (!pending.attach() || pending.begin() != LeAdvertisingResult::Ok ||
+            pending.phase() != LeAdvertisingPhase::AwaitParameters ||
+            !Fixture::rebindTransport(&pending) ||
+            pending.observeProducerEvent(kParametersComplete.data(),
+                                         kParametersComplete.size()) !=
+                LeAdvertisingResult::OwnershipLost ||
+            pending.phase() != LeAdvertisingPhase::Faulted ||
+            pending.fake().commandCount != 1U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // Rebinding after advertising has started must not submit a stale
+        // disable command to the successor controller on the same epoch.
+        Fixture advertising {};
+        if (!advertising.start() || !Fixture::rebindTransport(&advertising) ||
+            advertising.stop() != LeAdvertisingResult::OwnershipLost ||
+            advertising.phase() != LeAdvertisingPhase::Faulted ||
+            advertising.fake().commandCount != 3U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        advertising.revoke();
+        if (advertising.begin() != LeAdvertisingResult::Ok ||
+            advertising.fake().commandCount != 4U ||
+            advertising.phase() != LeAdvertisingPhase::AwaitParameters)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int inlineControllerResponses()
     {
         Fixture rejectedBegin {};
@@ -1089,6 +1123,10 @@ int main()
     if (const int replacedUsb = sameEpochTransportReplacementDuringPolicy())
     {
         return replacedUsb;
+    }
+    if (const int staleUsb = sameEpochTransportReplacementAfterApproval())
+    {
+        return staleUsb;
     }
     if (const int inlineResult = inlineControllerResponses())
     {

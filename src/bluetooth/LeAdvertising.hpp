@@ -101,6 +101,9 @@ namespace simpleath
             // may revoke and restart advertising in the SAME physical epoch.
             // Never reuse an exhausted generation for a fresh session.
             uint64_t generation {};
+            // The exact attached HCI session that was approved. Matching
+            // owner epochs alone cannot distinguish an inline USB rebind.
+            uint64_t transportGeneration {};
             size_t dataBytes {};
             uint16_t interval {};
             LeAdvertisingPhase phase {LeAdvertisingPhase::Idle};
