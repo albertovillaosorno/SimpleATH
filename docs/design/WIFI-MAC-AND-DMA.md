@@ -236,3 +236,25 @@ for the **next separately authorized build**.
 - Apple PCIDriverKit: https://developer.apple.com/documentation/pcidriverkit
 - Apple NetworkingDriverKit:
   https://developer.apple.com/documentation/networkingdriverkit
+
+
+## Receive-only native EDMA auto-response preflight (2026-11-11)
+
+The native queue now reads the **physical** AR9565 `AR_SELFGEN_MASK`
+(`0x832c`) before granting PCI bus mastering and again after interrupt/RX
+register staging, before enabling the host IRQ and `AR_IER`. The MAC control
+helper rejects a nonzero self-generated chain mask (which could allow
+unrequested automatic ACK/CTS), an unreadable or floating BAR, insufficient
+BAR extent, a stale physical owner epoch, or lease loss during the read. Any
+native startup refusal uses the existing queue fault/quarantine path; no
+software TX control word may substitute for actual zero-mask readback.
+
+This is deliberately **receive-only**, not an authorization of automatic
+responses or an assertion that the radio is initialized. A future full
+calibrated TX/association implementation must explicitly authorize its
+own rate/power/country/coexistence-controlled automatic responses, rather
+than silently bypassing this check. Existing unresolved prerequisites remain
+full native RF tuning and real antenna/coexistence, regulatory, calibration
+and Tahoe wireless host integration. Host fixtures verify the register
+readback, epoch change, floating-BAR and error cases; they cannot confirm
+physical ACK suppression or actual reception on the target notebook.

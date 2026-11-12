@@ -2996,6 +2996,14 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_native_rx_auto_response_wiring.py",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "test"
+    },
+    {
       "path": "tests/test_native_wireless_epoch.cpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",

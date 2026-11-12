@@ -144,6 +144,7 @@ namespace simpleath
 
         private:
             bool gated() const;
+            bool receiveOnlyAutoResponsesBlockedGated() const;
             bool read(uint32_t offset, uint32_t &value) const;
             bool write(uint32_t offset, uint32_t value) const;
             void fault(IOReturn result);

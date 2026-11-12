@@ -51,6 +51,26 @@ namespace simpleath
         Timeout,
     };
 
+    enum class MacReceiveOnlyResult : uint8_t
+    {
+        Ok,
+        InvalidBackend,
+        InvalidBar,
+        OwnershipLost,
+        ReadFailed,
+        AutoResponsesEnabled,
+    };
+
+    // Receive-only EDMA may unmask the RX MAC only after a live PCI read
+    // proves AR_SELFGEN_MASK is exactly zero. Otherwise the device could
+    // autonomously ACK/CTS even if no software TX descriptor is submitted.
+    // The owner must hold a serialized D0/epoch/radio lease before and after
+    // this read. This check is not country/TPC authorization, and a future
+    // TX-capable startup requires a separately verified automatic-TX policy.
+    MacReceiveOnlyResult verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+        const RegisterBus &supplied, uint64_t epoch,
+        bool (*permit)(void *, uint64_t));
+
     enum class MacIdentityResult : uint8_t
     {
         Ok,

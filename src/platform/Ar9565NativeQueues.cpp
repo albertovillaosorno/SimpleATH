@@ -119,8 +119,8 @@ namespace simpleath
                            kSyncEnable = 0x402c;
         constexpr uint32_t kMacInterrupt = 2;
         constexpr uint32_t kInterruptMask =
-            0x00000d77; // RX HP/LP/errors/EOL/overrun + TX
-                        // OK/error/EOL/underrun.
+            0x00000d77; // RX HP/LP/errors/EOL/overrun +
+                        // TX OK/error/EOL/underrun.
         constexpr uint32_t kFatalSync = 0x00003060;
         constexpr uint32_t kDiagnostic = 0x8048;
         constexpr uint32_t kReceiveBlock = 0x02000020;
@@ -585,6 +585,29 @@ namespace simpleath
                !inReceiveCallback_ && !inInterruptService_;
     }
 
+    // The calibration source stages AR_SELFGEN_MASK=0 for receive-only
+    // operation. Check the *physical* mask under the same live PCI epoch,
+    // rather than trusting a source-level calibration result. A nonzero
+    // chain mask could allow autonomous ACK/CTS without an EDMA TX request.
+    // This is a receive-only admission check; full TX/coexistence/TPC setup
+    // must implement its own independently authorized auto-response policy.
+    bool NativeQueues::receiveOnlyAutoResponsesBlockedGated() const
+    {
+        if (!gated() || callbacks_.radioReady == nullptr)
+        {
+            return false;
+        }
+        const RegisterBus bus {
+            callbacks_.context,
+            callbacks_.read32,
+            callbacks_.write32,
+            callbacks_.barLengthBytes,
+        };
+        return verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+                   bus, epoch_, callbacks_.radioReady) ==
+               MacReceiveOnlyResult::Ok;
+    }
+
     IOReturn NativeQueues::startGated()
     {
         if (!gated() || !attached_ || phase_ != NativeQueuePhase::Prepared ||
@@ -654,7 +677,8 @@ namespace simpleath
         __sync_synchronize();
         // Register staging is not permission to hand hardware DMA access.
         // RF-kill or the radio epoch can change while a ring is prepared.
-        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        if (!callbacks_.radioReady(callbacks_.context, epoch_) ||
+            !receiveOnlyAutoResponsesBlockedGated())
         {
             fault(kIOReturnNotReady);
             return kIOReturnNotReady;
@@ -680,7 +704,8 @@ namespace simpleath
         // Revalidate physical receiver permission after bus mastering and
         // before unmasking the device interrupt source. Any observed loss
         // makes the partially started epoch a recovery obligation.
-        if (!callbacks_.radioReady(callbacks_.context, epoch_))
+        if (!callbacks_.radioReady(callbacks_.context, epoch_) ||
+            !receiveOnlyAutoResponsesBlockedGated())
         {
             fault(kIOReturnNotReady);
             return kIOReturnNotReady;

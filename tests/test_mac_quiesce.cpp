@@ -47,6 +47,8 @@ namespace
     constexpr uint32_t kTxRegister = 0x0840U;
     constexpr uint32_t kObserveRegister = 0x806cU;
     constexpr uint32_t kStopRegister = 0x0880U;
+    constexpr uint32_t kSelfGeneratedMaskRegister = 0x832cU;
+    constexpr uint64_t kOwnerEpoch = 42U;
     constexpr uint32_t kCommandRegister = 0x0024U;
     constexpr uint32_t kSecondaryRegister = 0x402cU;
     constexpr uint32_t kBarBytes = 0x20000U;
@@ -77,6 +79,12 @@ namespace
             uint32_t rx = kInitialRx;
             uint32_t tx = kStopMask;
             uint32_t observe = kInitialObserve;
+            uint32_t selfGeneratedMask = 0;
+            uint64_t epoch = kOwnerEpoch;
+            unsigned int selfGeneratedReads = 0;
+            unsigned int permitChecks = 0;
+            bool failSelfGeneratedRead = false;
+            bool revokeAfterSelfGeneratedRead = false;
             unsigned int delays = 0;
             unsigned int writes = 0;
             unsigned int macReads = 0;
@@ -110,6 +118,18 @@ namespace
                 break;
             case kObserveRegister:
                 *value = hardware.observe;
+                break;
+            case kSelfGeneratedMaskRegister:
+                ++hardware.selfGeneratedReads;
+                if (hardware.failSelfGeneratedRead)
+                {
+                    return false;
+                }
+                *value = hardware.selfGeneratedMask;
+                if (hardware.revokeAfterSelfGeneratedRead)
+                {
+                    hardware.revoked = true;
+                }
                 break;
             default:
                 return false;
@@ -156,6 +176,84 @@ namespace
         {
             hardware.rx = hardware.tx = hardware.observe = 0;
         }
+    }
+
+    bool currentOwner(void *opaque, uint64_t epoch)
+    {
+        auto &hardware = *static_cast<Hardware *>(opaque);
+        ++hardware.permitChecks;
+        return epoch != 0 && epoch == hardware.epoch && !hardware.revoked;
+    }
+
+    simpleath::MacReceiveOnlyResult
+    // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+    verifyReceiveOnly(Hardware &hardware, uint32_t bar = kBarBytes,
+                      uint64_t epoch = kOwnerEpoch)
+    {
+        const simpleath::RegisterBus bus {&hardware, read, write, bar};
+        return simpleath::verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+            bus, epoch, currentOwner);
+    }
+
+    bool receiveOnlyGuardCases()
+    {
+        using simpleath::MacReceiveOnlyResult;
+        Hardware clean;
+        if (verifyReceiveOnly(clean) != MacReceiveOnlyResult::Ok ||
+            clean.selfGeneratedReads != 1 || clean.permitChecks != 2 ||
+            clean.writes != 0)
+        {
+            return false;
+        }
+        Hardware activeAutoResponses;
+        activeAutoResponses.selfGeneratedMask = 1U;
+        if (verifyReceiveOnly(activeAutoResponses) !=
+                MacReceiveOnlyResult::AutoResponsesEnabled ||
+            activeAutoResponses.selfGeneratedReads != 1)
+        {
+            return false;
+        }
+        Hardware floatingBar;
+        floatingBar.selfGeneratedMask = UINT32_MAX;
+        if (verifyReceiveOnly(floatingBar) != MacReceiveOnlyResult::ReadFailed)
+        {
+            return false;
+        }
+        Hardware failedRead;
+        failedRead.failSelfGeneratedRead = true;
+        if (verifyReceiveOnly(failedRead) != MacReceiveOnlyResult::ReadFailed)
+        {
+            return false;
+        }
+        Hardware stale;
+        if (verifyReceiveOnly(stale, kBarBytes, kOwnerEpoch + 1U) !=
+                MacReceiveOnlyResult::OwnershipLost ||
+            stale.selfGeneratedReads != 0)
+        {
+            return false;
+        }
+        Hardware revokedMidRead;
+        revokedMidRead.revokeAfterSelfGeneratedRead = true;
+        if (verifyReceiveOnly(revokedMidRead) !=
+                MacReceiveOnlyResult::OwnershipLost ||
+            revokedMidRead.permitChecks != 2)
+        {
+            return false;
+        }
+        Hardware shortBar;
+        if (verifyReceiveOnly(shortBar, kSelfGeneratedMaskRegister) !=
+                MacReceiveOnlyResult::InvalidBar ||
+            shortBar.permitChecks != 0)
+        {
+            return false;
+        }
+        const simpleath::RegisterBus missing {};
+        return simpleath::verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+                   missing, kOwnerEpoch, currentOwner) ==
+                   MacReceiveOnlyResult::InvalidBackend &&
+               simpleath::verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+                   {&clean, read, write, kBarBytes}, 0, currentOwner) ==
+                   MacReceiveOnlyResult::InvalidBackend;
     }
 
     simpleath::MacStopResult stop(Hardware &hardware)
@@ -246,5 +344,5 @@ int main()
     {
         return kMissingBackendFailure;
     }
-    return 0;
+    return static_cast<int>(!receiveOnlyGuardCases());
 }

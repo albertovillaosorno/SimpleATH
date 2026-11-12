@@ -158,6 +158,40 @@ namespace simpleath
         }
     } // namespace
 
+    MacReceiveOnlyResult verifyAr9565ReceiveOnlyAutoResponsesDisabled(
+        const RegisterBus &supplied, uint64_t epoch,
+        bool (*permit)(void *, uint64_t))
+    {
+        constexpr uint32_t kSelfGeneratedMask = 0x832c;
+        const RegisterBus bus = supplied;
+        if (bus.context == nullptr || bus.read32 == nullptr ||
+            permit == nullptr || epoch == 0)
+        {
+            return MacReceiveOnlyResult::InvalidBackend;
+        }
+        if (bus.barLengthBytes < kSelfGeneratedMask + sizeof(uint32_t))
+        {
+            return MacReceiveOnlyResult::InvalidBar;
+        }
+        if (!permit(bus.context, epoch))
+        {
+            return MacReceiveOnlyResult::OwnershipLost;
+        }
+        uint32_t mask = UINT32_MAX;
+        // A floating BAR read of all ones is never a valid zero mask.
+        if (!bus.read32(bus.context, kSelfGeneratedMask, &mask) ||
+            mask == UINT32_MAX)
+        {
+            return MacReceiveOnlyResult::ReadFailed;
+        }
+        if (!permit(bus.context, epoch))
+        {
+            return MacReceiveOnlyResult::OwnershipLost;
+        }
+        return mask == 0 ? MacReceiveOnlyResult::Ok
+                         : MacReceiveOnlyResult::AutoResponsesEnabled;
+    }
+
     MacIdentityProgress
     programAr9565StationMac(const RegisterBus &supplied,
                             const uint8_t mac[kPermanentMacBytes],
