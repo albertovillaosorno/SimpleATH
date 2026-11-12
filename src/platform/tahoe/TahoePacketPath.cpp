@@ -296,6 +296,12 @@ namespace simpleath
                     prefix<IOEventSource>(queue)->disable();
                 }
             }
+            // A normal association loss disables poll(), not just final
+            // stop(). Accepted TX bytes are already copied to the physical
+            // owner; complete their OS packets on this same work loop now,
+            // or a disabled completion event source would retain them until
+            // the interface is destroyed. Repeated disable/stop is harmless.
+            flushCompletions();
         }
 
         void TahoePacketPath::poll()

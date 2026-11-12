@@ -192,3 +192,16 @@ Pending scan results, OS event intents and provider completion tickets are
 left alone for their separate identity-scoped acknowledgement or retirement.
 Only a later successful live provider snapshot can reauthorize reception.
 This is source-wiring regression evidence, not tested macOS packet delivery.
+
+## Skywalk completion ownership on native link disable (2026-11-12)
+
+The packet path now drains retained, already-accepted Skywalk TX packets
+through its native completion queue at ordinary link/packet disable, not
+only at final interface stop. Disabling its event source also disables
+the completion-request poll; without this drain, accepted OS packet
+objects could remain retained through repeated offline/online cycles.
+The physical owner has already copied accepted TX bytes and remains
+responsible for descriptor completion and radio isolation. The drain is
+bounded by the fixed queue capacity and is idempotent on repeated disable
+or final stop. Offline source assertions cover the call and completion
+path; no kernel Skywalk queue behavior has been verified.

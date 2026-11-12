@@ -37,6 +37,11 @@
 from pathlib import Path
 import unittest
 
+PACKET_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "src/platform/tahoe/TahoePacketPath.cpp"
+).read_text(encoding="utf-8")
+
 SOURCE = (
     Path(__file__).resolve().parent.parent
     / "src/platform/tahoe/SimpleATHInfraProtocol.cpp"
@@ -49,6 +54,36 @@ def section(start: str, end: str) -> str:
 
 
 class NativePacketRevocationWiring(unittest.TestCase):
+    @staticmethod
+    def test_link_disable_returns_accepted_skywalk_packets() -> None:
+        disable = PACKET_PATH.split("void TahoePacketPath::disable()", 1)[1]
+        disable = disable.split("void TahoePacketPath::poll()", 1)[0]
+        assert disable.index("enabled_ = false;") < disable.index(
+            "flushCompletions();"
+        )
+        assert disable.index("prefix<IOEventSource>(queue)->disable();") < (
+            disable.index("flushCompletions();")
+        )
+        drain = PACKET_PATH.split(
+            "void TahoePacketPath::flushCompletions()", 1
+        )[1].split("OSObject *TahoePacketPath::txSubmission()", 1)[0]
+        assert "completePackets(&packet, 1)" in drain
+        assert "skyCompleteTx(queues_[1], &packet, 1);" in drain
+        # Both explicit OS disable and link loss eventually hit this method;
+        # the dormant poll callback must not be required to return packets.
+        assert (
+            "if (!enabled_)"
+            in PACKET_PATH.split("void TahoePacketPath::poll()", 1)[1].split(
+                "unsigned int TahoePacketPath::submit(", 1
+            )[0]
+        )
+        assert (
+            "flushCompletions();"
+            in PACKET_PATH.split("void TahoePacketPath::stop()", 1)[1].split(
+                "IOReturn TahoePacketPath::enable()", 1
+            )[0]
+        )
+
     @staticmethod
     def test_explicit_leave_revokes_data_request_before_provider_call() -> None:
         leave = section(
