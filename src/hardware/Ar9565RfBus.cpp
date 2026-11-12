@@ -220,6 +220,13 @@ namespace simpleath
             progress.result = RfBusResult::WriteFailed;
             return progress;
         }
+        // Clearing the posted request does not prove the same PCI owner
+        // survived the callback. A late revocation must retain the reset
+        // obligation instead of publishing an apparently released lease.
+        if (!permitted(io, progress, lease))
+        {
+            return progress;
+        }
         // No stale grant may remain held by this owner after release.
         lease = {};
         progress.result = RfBusResult::Ok;

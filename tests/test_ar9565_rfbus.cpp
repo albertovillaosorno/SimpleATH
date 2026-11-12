@@ -74,6 +74,7 @@ namespace
             bool failGrantRead = false;
             bool failDelayRead = false;
             bool deny = false;
+            bool revokeAfterClear = false;
     };
 
     bool permit(void *context, uint64_t epoch)
@@ -115,6 +116,10 @@ namespace
         }
         m.requestValue = value;
         ++m.writes;
+        if (value == 0U && m.revokeAfterClear)
+        {
+            m.deny = true;
+        }
         return true;
     }
 
@@ -237,6 +242,33 @@ namespace
                !lease.granted && lease.requiresReset && result.requiresReset;
     }
 
+    bool testReleaseRevocationAfterClear()
+    {
+        Mock m {};
+        m.grantAfter = 1;
+        const auto io = backend(m);
+        RfBusLease lease {};
+        if (requestAr9565RfBus(io, lease).result != RfBusResult::Ok)
+        {
+            return false;
+        }
+        m.revokeAfterClear = true;
+        // The backend can lose ownership inside the final posted MMIO write.
+        // The bus bit may be clear, but no stale success/lease reset is safe.
+        const auto result = releaseAr9565RfBus(io, lease);
+        if (result.result != RfBusResult::OwnershipLost ||
+            !result.requiresReset || !lease.requestPosted || !lease.granted ||
+            !lease.requiresReset || m.requestValue != 0U ||
+            m.writes != kTwoWrites)
+        {
+            return false;
+        }
+        m.deny = false;
+        return releaseAr9565RfBus(io, lease).result ==
+                   RfBusResult::LeaseMismatch &&
+               lease.requiresReset && m.writes == kTwoWrites;
+    }
+
     bool testReleaseFailures()
     {
         Mock m {};
@@ -292,7 +324,7 @@ namespace
 int main()
 {
     return testGrantAndRelease() && testRejection() && testPollingFailures() &&
-                   testReleaseFailures()
+                   testReleaseFailures() && testReleaseRevocationAfterClear()
                ? 0
                : 1;
 }
