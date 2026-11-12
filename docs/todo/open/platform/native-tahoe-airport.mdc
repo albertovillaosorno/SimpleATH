@@ -263,14 +263,24 @@ not receive an acknowledgement from the transport callback when all entries
 are genuinely non-discardable; offline tests do not prove eventual OS event
 delivery under arbitrary consumer starvation.
 
-### Saturated scan-event mailbox recovery — 2026-11-12
+### Open scan acknowledgement gap — 2026-11-12
 
-If a bounded native event mailbox fills entirely with scan completions, the
-next newer bridge generation can replace a strictly older completion made
-obsolete by the serial WCL scan owner. This fallback runs only after trying
-to evict ordinary noise such as a TX wakeup, and it never removes a provider
-stop or a same-generation or newer completion in the ring. Records retain
-their remaining FIFO order after circular eviction. The producer still does
-not receive an acknowledgement from the transport callback when all entries
-are genuinely non-discardable; offline tests do not prove eventual OS event
-delivery under arbitrary consumer starvation.
+The V5 scan generation check protects stale-event identity but does not close
+the acknowledgement/liveness contract. `SimpleATH::notifyWirelessScanFinished`
+calls the `void` provider notification and then acknowledges the pending
+`LegacyScanBridge` completion regardless of whether an observer was present,
+whether the fixed-size transport mailbox admitted the event, or whether WCL
+published `SCAN_DONE`. The transport can drop a full-ring event; the WCL
+consumer posts the OS completion only later from its poll. The physical
+bridge therefore cannot currently distinguish successful dispatch from a
+lost notification. Do not count these source checks as a guarantee of OS scan
+completion under mailbox starvation.
+
+Required follow-up: define an explicit acceptance/acknowledgement contract
+with stable epoch/generation identity, a bounded retry path owned by the
+serialized provider and transport, and an OS event-consumer acknowledgement.
+Never call back into the provider gate while holding the native mailbox lock,
+and do not allow a stale acknowledgement to retire a successor generation.
+Test missing observers, full terminal rings, stop/resume cancellation and OS
+publication failures with an isolated native callback harness before claiming
+reliable Tahoe scanning.

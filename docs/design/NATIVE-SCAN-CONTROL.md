@@ -68,3 +68,24 @@ completion and stale acknowledgement after stop/reset, repeated request serial
 with different generation, invalid cache rejection, and stable previous
 snapshot while new scan runs. Such tests are synthetic contracts, never a
 native callback, radio readiness, physical RF or IP connectivity result.
+
+
+## Implementation gap versus this contract — 2026-11-12
+
+The production `SimpleATH` to Tahoe interface implements scan generation
+identity and bounded event retention, but **not** the ideal acknowledgement
+boundary in step 5. `notifyWirelessScanFinished` sees a pending bridge ticket,
+calls a `void` V5 transport notification when an observer exists, and then
+acknowledges the ticket even if no observer was registered or a saturated
+mailbox dropped the notification. The native InfraProtocol publishes the
+WCL `SCAN_DONE` event only later during its poll. This is a known delivery
+gap, not evidence that WCL received a completion. Portable tests confirm
+identity and ring policy only.
+
+Future source work must preserve the exact epoch/generation through an
+acknowledged, failure-reporting mailbox handoff and OS completion delivery.
+Retries require a bounded lifetime, explicit stop/epoch cancellation and a
+single-direction locking model; the native mailbox callback cannot reenter
+the physical provider gate. Native OS publication failure must remain
+observable without replaying a stale scan as a successor completion. That
+work remains open pending a testable native callback/OS event contract.

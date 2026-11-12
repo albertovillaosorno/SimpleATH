@@ -577,3 +577,15 @@ generation, whose native WCL request is already superseded. It cannot evict
 check wraparound, preserved ordering and invalid eviction inputs; this does
 not prove a viable native Tahoe event consumer or guarantee delivery under
 indefinite callback starvation.
+
+
+The provider's `notifyWirelessScanFinished` currently acknowledges a bridge
+ticket after attempting the `void` V5 callback, without knowing whether the
+transport enqueued it. `TahoeWirelessTransport::notify` may reject a full
+event ring, and `SimpleATHInfraProtocol::finishScan` publishes the OS event
+only on a subsequent poll. The portable bridge's stronger requirement of
+acknowledgement after OS completion dispatch is therefore not met by this
+source integration. An explicit result-bearing callback, bounded retry and
+cross-workloop acknowledgement need a deadlock-free contract and proof of
+identity before this path can be considered reliable. See the open native
+Tahoe AirPort task; no physical/OS outcome is implied here.
