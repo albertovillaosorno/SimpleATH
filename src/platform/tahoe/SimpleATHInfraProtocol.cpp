@@ -790,6 +790,11 @@ void SimpleATHInfraProtocol::emitJoin(unsigned int message, IOReturn status,
 void SimpleATHInfraProtocol::retireJoin(IOReturn status, uint16_t reason)
 {
     using namespace simpleath::tahoe;
+    // An old WCL packet-enable request must never reopen a later association
+    // on the same physical PCI epoch after this join token is retired.
+    dataRequested_ = false;
+    dataRequestEpoch_ = 0;
+    packets_.disable();
     const uint32_t notice = join_.lose();
     if ((notice & FailureNotice) != 0)
     {
@@ -806,6 +811,11 @@ void SimpleATHInfraProtocol::retireJoin(IOReturn status, uint16_t reason)
 
 IOReturn SimpleATHInfraProtocol::leaveJoin(bool abort)
 {
+    // Revoke Skywalk demand before entering the physical owner's gate. A
+    // failed or busy disassociation must not let the next poll reopen its
+    // old controlled-port packets while WCL is trying to leave that AP.
+    dataRequested_ = false;
+    dataRequestEpoch_ = 0;
     packets_.disable();
     const IOReturn result = controller_->stationLeave(3);
     if (result != kIOReturnSuccess)
@@ -898,6 +908,8 @@ void SimpleATHInfraProtocol::pollJoin(
             emitJoin(kWclDeauthEvent, failure, 0, false);
             emitJoin(kWclLinkEvent, failure, 0, false);
         }
+        dataRequested_ = false;
+        dataRequestEpoch_ = 0;
         packets_.disable();
         join_.reset();
         joinDeadline_ = 0;

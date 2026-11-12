@@ -146,3 +146,17 @@ It does not assume the OS consumed those events, nor does it imply physical
 RF authorization or that a failed shutdown was successful.
 Offline source checks guard both timer sites and notification ordering;
 testing actual event source failures still requires an authorized Tahoe SDK.
+
+## Same-epoch Skywalk data enable revocation (2026-11-12)
+
+An explicit WCL leave now revokes the old `dataRequested_` and
+`dataRequestEpoch_` lease before calling the physical PCI owner's station
+leave function. Even if the provider reports Busy or another failure, the
+next poll cannot re-enable an older controlled-port Skywalk queue. Native
+join retirement, including observed AP disconnection, failure and timeout,
+also clears that demand before stopping the packet queue. A fresh OS packet
+enable is required to resume service after that association's retirement;
+the initial pre-association enable remains available for a fresh first join.
+The provider continues to enforce its independent association/key/RF gates.
+Source-only regressions cover the call ordering; no live AirPort leave or
+successful new association has been demonstrated.
