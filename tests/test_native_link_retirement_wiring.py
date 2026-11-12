@@ -201,6 +201,27 @@ class NativeLinkRetirementWiring(unittest.TestCase):
     """Prevent software-only teardown from returning to terminal TX paths."""
 
     @staticmethod
+    def test_rx_deadlines_before_protected_or_aggregate_delivery() -> None:
+        receive = body(
+            OWNER,
+            "static void queueReceived(",
+            "static void\n        queueTransmitted(",
+        )
+        assert (
+            receive.index("const uint64_t receiveNowMs =")
+            < receive.index("if (self.portReadyPending_ &&")
+            < receive.index("self.engine_.checkBeaconTimeout(")
+            < receive.index("self.receiveNativeAwdl(")
+            < receive.index("self.routeNativeSecurityRx(")
+            < receive.index("self.routeNativeOpenAmsdu(")
+            < receive.index("self.engine_.acceptRx(")
+        )
+        assert "kNativePortOpenTimeoutMs" in receive
+        assert "simpleath::ieee80211::ActionKind::LinkLost" in receive
+        assert "self.retireNativeLink(kIOReturnTimeout);" in receive
+        assert "self.retireNativeLink(kIOReturnNotReady);" in receive
+
+    @staticmethod
     def test_protected_completion_failure_retires_hardware() -> None:
         completion = body(
             OWNER,

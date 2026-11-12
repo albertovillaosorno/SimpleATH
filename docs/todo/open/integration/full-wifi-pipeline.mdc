@@ -153,6 +153,14 @@ itself: a late authentication/association completion cannot win the workloop
 ahead of an expired ten-second timer callback. Both paths perform terminal
 hardware retirement, never renew a stale association lease.
 
+The native shared RX entrypoint now checks the beacon-miss and initial
+closed-port deadlines before dispatching any protected CCMP or open A-MSDU
+frame. Those paths bypass the portable ordinary receive function, so timer
+expiry must be enforced at this physical owner as well. Expired or regressed
+monotonic timestamps retire the physical link before further EAPOL key or
+Ethernet processing. This is source-level ordering protection only; no Tahoe
+kernel interrupt or hardware arrival-time test has been performed.
+
 ### Prior link-loss audit (2026-11-11)
 
 Before the guarded quarantine transition described below,

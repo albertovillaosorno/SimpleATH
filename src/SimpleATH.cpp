@@ -3583,6 +3583,39 @@ class SimpleATH final : public IOService
             {
                 return;
             }
+            // Native protected data and open A-MSDU bypass the portable
+            // acceptRx clock gate. Check both association leases here before
+            // ANY RX route can consume EAPOL, update keys or deliver data.
+            // A delayed timer callback must never extend an expired lease.
+            const uint64_t receiveNowMs =
+                nowMicros(nullptr) / kMicrosPerMillisecond;
+            if (self.engine_.linkStatus().state ==
+                simpleath::ieee80211::LinkState::Associated)
+            {
+                if (self.portReadyPending_ &&
+                    (receiveNowMs < self.portReadyStartedMs_ ||
+                     receiveNowMs - self.portReadyStartedMs_ >=
+                         kNativePortOpenTimeoutMs))
+                {
+                    self.retireNativeLink(kIOReturnTimeout);
+                    return;
+                }
+                simpleath::ieee80211::EngineAction deadlineAction {};
+                const auto deadline = self.engine_.checkBeaconTimeout(
+                    receiveNowMs, deadlineAction);
+                if (deadline == simpleath::ieee80211::EngineResult::Ok &&
+                    deadlineAction.kind ==
+                        simpleath::ieee80211::ActionKind::LinkLost)
+                {
+                    self.retireNativeLink(kIOReturnTimeout);
+                    return;
+                }
+                if (deadline != simpleath::ieee80211::EngineResult::NoAction)
+                {
+                    self.retireNativeLink(kIOReturnNotReady);
+                    return;
+                }
+            }
             self.receiveNativeAwdl(frame, bytes, status);
             if (self.routeNativeSecurityRx(frame, bytes, status) ||
                 self.routeNativeOpenAmsdu(frame, bytes, status))
