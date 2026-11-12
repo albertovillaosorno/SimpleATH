@@ -3277,6 +3277,44 @@ class SimpleATH final : public IOService
             deliverNativeMsdu(msdu, false);
         }
 
+        // One authenticated MPDU can contain several Ethernet subframes.
+        // A synchronous OS receive callback may retire/rejoin the provider;
+        // never forward a later subframe into that replacement association.
+        void deliverNativeAmsdu(const simpleath::ieee80211::AmsduPayload &batch)
+        {
+            if (batch.count == 0U ||
+                batch.count > simpleath::ieee80211::kMaximumAmsduSubframes)
+            {
+                return;
+            }
+            const uint64_t acceptedEpoch = epoch_;
+            const uint64_t acceptedJoin = joinRequestId_;
+            const uint64_t acceptedAssociation = associationGeneration_;
+            const auto acceptedStationState = engine_.stationState();
+            size_t delivered = 0U;
+            for (const auto &subframe : batch.subframes)
+            {
+                if (delivered == batch.count ||
+                    !simpleath::tahoe::acceptWirelessPortIdentity(
+                        acceptedEpoch, acceptedJoin, acceptedAssociation,
+                        epoch_, joinRequestId_, associationGeneration_) ||
+                    joinEpoch_ != acceptedEpoch || !powered_ || stopping_ ||
+                    !controlledPortAuthorized_ || !associatedBeaconObserved_ ||
+                    pendingLocalLeaveToken_ != 0U || !radioOperational_ ||
+                    !channelAuthorized_ || !liveRfKillUnblocked() ||
+                    queues_.epoch() != acceptedEpoch ||
+                    queues_.phase() != simpleath::NativeQueuePhase::Running ||
+                    engine_.stationState() != acceptedStationState ||
+                    engine_.linkStatus().state !=
+                        simpleath::ieee80211::LinkState::Associated)
+                {
+                    break;
+                }
+                ++delivered;
+                deliverNativeMsdu(subframe, false);
+            }
+        }
+
         // This is the one native path for protected QoS A-MSDUs. The CCMP
         // session itself rejects aggregation unless SPP was independently
         // negotiated at key installation. Every member of the aggregate
@@ -3318,15 +3356,7 @@ class SimpleATH final : public IOService
                         static_cast<uint32_t>(admitted), kRfPropertyWidthBits);
             if (admitted == simpleath::ieee80211::EngineResult::Ok)
             {
-                size_t delivered = 0;
-                for (const auto &subframe : accepted.subframes)
-                {
-                    if (delivered++ == accepted.count)
-                    {
-                        break;
-                    }
-                    deliverNativeMsdu(subframe, false);
-                }
+                deliverNativeAmsdu(accepted);
                 ++receivedFrames_;
                 setProperty("SimpleATHReceivedFrames", receivedFrames_,
                             kCounterPropertyWidthBits);
@@ -3789,15 +3819,7 @@ class SimpleATH final : public IOService
                 // One DMA MPDU, one sequence acceptance; each authorized
                 // Ethernet-II subframe is independently copied into the
                 // native controller's fixed receive mailbox.
-                size_t delivered = 0;
-                for (const auto &subframe : aggregate.subframes)
-                {
-                    if (delivered++ == aggregate.count)
-                    {
-                        break;
-                    }
-                    deliverNativeMsdu(subframe, false);
-                }
+                deliverNativeAmsdu(aggregate);
                 ++receivedFrames_;
                 setProperty("SimpleATHReceivedFrames", receivedFrames_,
                             kCounterPropertyWidthBits);

@@ -625,5 +625,61 @@ class NativePowerRecoveryWiring(unittest.TestCase):
         assert "return self.stopClient(ClientStopMode::Suspend);" in owner
 
 
+class NativeAggregateReceiveWiring(unittest.TestCase):
+    """Keep later Ethernet deliveries out of a replacement 802.11 join."""
+
+    @staticmethod
+    def test_aggregate_delivery_rechecks_each_subframe_callback() -> None:
+        delivery = body(
+            OWNER,
+            "void deliverNativeAmsdu(",
+            "void receiveNativeProtectedAmsdu(",
+        )
+        assert "acceptedEpoch = epoch_;" in delivery
+        assert "acceptedJoin = joinRequestId_;" in delivery
+        assert "acceptedAssociation = associationGeneration_;" in delivery
+        assert (
+            delivery.index("for (const auto &subframe")
+            < delivery.index("acceptWirelessPortIdentity(")
+            < delivery.index("deliverNativeMsdu(subframe, false);")
+        )
+        for condition in (
+            "joinEpoch_ != acceptedEpoch",
+            "!controlledPortAuthorized_",
+            "!associatedBeaconObserved_",
+            "pendingLocalLeaveToken_ != 0U",
+            "!liveRfKillUnblocked()",
+            "queues_.epoch() != acceptedEpoch",
+            "queues_.phase() != simpleath::NativeQueuePhase::Running",
+            "engine_.stationState() != acceptedStationState",
+            "simpleath::ieee80211::LinkState::Associated",
+        ):
+            assert condition in delivery, condition
+        assert delivery.index("break;") < delivery.index(
+            "deliverNativeMsdu(subframe, false);"
+        )
+
+    @staticmethod
+    def test_both_open_and_protected_rx_share_identity_guard() -> None:
+        protected = body(
+            OWNER,
+            "void receiveNativeProtectedAmsdu(",
+            "void publishNativeProtectedMsdu(",
+        )
+        open_rx = body(
+            OWNER,
+            "bool routeNativeOpenAmsdu(",
+            "bool routeNativeSecurityRx(",
+        )
+        assert "deliverNativeAmsdu(accepted);" in protected
+        assert "deliverNativeAmsdu(aggregate);" in open_rx
+        assert protected.index("acceptVerifiedProtectedAmsduRx(") < (
+            protected.index("deliverNativeAmsdu(accepted);")
+        )
+        assert open_rx.index("acceptOpenAmsduRx(") < open_rx.index(
+            "deliverNativeAmsdu(aggregate);"
+        )
+
+
 if __name__ == "__main__":
     _ = unittest.main()

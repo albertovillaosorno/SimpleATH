@@ -273,3 +273,15 @@ MAC aggregation lifecycle/sequence ownership; and explicitly gate OPEN
 aggregation against the controlled port. WPA2 requires independently verified
 SPP A-MSDU and authenticated encryption with correct QoS/A-MSDU AAD. No source
 helper or synthetic success authorizes radio TX or claims live Wi-Fi.
+
+## Native aggregate delivery identity (2026-11-12)
+
+The native OPEN and SPP-protected receive routes now share one bounded
+`deliverNativeAmsdu` publication loop. Each subframe rechecks the original
+PCI epoch, join request and association generation, current controlled port,
+selected station state, on-radio link and EDMA/RF-kill authority immediately
+before handing borrowed Ethernet bytes to the OS observer. A synchronous
+observer callback that ends or replaces the link cannot deliver subsequent
+subframes to the successor. Python source-wiring and portable identity checks
+cover the guard, but do not establish physical reception or Tahoe callback
+reentrancy behavior. Native RF bring-up and negotiated aggregation remain open.

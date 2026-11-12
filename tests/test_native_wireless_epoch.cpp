@@ -277,6 +277,69 @@ namespace
         return true;
     }
 
+    // One received QoS MPDU contains multiple borrowed subframes. The OS
+    // receive callback for the first may replace the PCI owner or join; an
+    // identity recheck must stop later publications in that same batch.
+    bool checkAggregateCallbackRetirement()
+    {
+        using simpleath::tahoe::acceptWirelessPortIdentity;
+        constexpr uint64_t kEpoch = 12U;
+        constexpr uint64_t kJoin = 19U;
+        constexpr uint64_t kAssociation = 34U;
+        constexpr size_t kCount = 3U;
+        for (unsigned change = 0U; change < 4U; ++change)
+        {
+            uint64_t epoch = kEpoch;
+            uint64_t join = kJoin;
+            uint64_t association = kAssociation;
+            bool port = true;
+            size_t published = 0U;
+            for (size_t subframe = 0U; subframe < kCount; ++subframe)
+            {
+                if (!acceptWirelessPortIdentity(kEpoch, kJoin, kAssociation,
+                                                epoch, join, association) ||
+                    !port)
+                {
+                    break;
+                }
+                ++published;
+                if (published == 1U)
+                {
+                    switch (change)
+                    {
+                        case 0U:
+                            epoch = kEpoch + 1U;
+                            break;
+                        case 1U:
+                            join = kJoin + 1U;
+                            break;
+                        case 2U:
+                            association = kAssociation + 1U;
+                            break;
+                        default:
+                            port = false;
+                            break;
+                    }
+                }
+            }
+            if (published != 1U)
+            {
+                return false;
+            }
+        }
+        size_t published = 0U;
+        for (size_t subframe = 0U; subframe < kCount; ++subframe)
+        {
+            if (!acceptWirelessPortIdentity(kEpoch, kJoin, kAssociation, kEpoch,
+                                            kJoin, kAssociation))
+            {
+                break;
+            }
+            ++published;
+        }
+        return published == kCount;
+    }
+
     bool checkNativeLinkRetirement()
     {
         using simpleath::NativeLinkRetirementBackend;
@@ -490,6 +553,13 @@ int main()
     {
         constexpr int kPortGenerationRaceFailure = 8;
         return kPortGenerationRaceFailure;
+    }
+    // Positive initial admission cannot license later Ethernet subframes
+    // after the first observer callback changes its radio/join/port owner.
+    constexpr int kAggregateCallbackRaceFailure = 14;
+    if (!checkAggregateCallbackRetirement())
+    {
+        return kAggregateCallbackRaceFailure;
     }
     // A valid controlled port is still insufficient for ordinary Ethernet
     // before a current, beacon-confirmed association. Pre-port EAPOL is
