@@ -947,23 +947,35 @@ namespace simpleath
                                    const UsbHciHostCallbacks &host,
                                    const uint8_t *command, size_t bytes)
     {
+        // The command belongs to the caller. Pin its complete image before
+        // the external owner permit callback can reuse the borrowed buffer.
+        // Never copy an alias of our own mutable transport state.
+        const bool aliases = aliasesTransport(state, command, bytes);
+        const bool canSnapshot = command != nullptr && !aliases &&
+                                 bytes >= kHciCommandHeaderBytes &&
+                                 bytes <= kUsbHciMaxCommandBytes;
+        UsbBytes<uint8_t, kUsbHciMaxCommandBytes> snapshot {};
+        if (canSnapshot)
+        {
+            __builtin_memcpy(snapshot.data(), command, bytes);
+        }
+        const uint8_t *const accepted = snapshot.data();
         const UsbHciStatus permission = authorize(state, host);
         if (permission != UsbHciStatus::Ok)
         {
             return permission;
         }
-        if (aliasesTransport(state, command, bytes))
+        if (aliases)
         {
             return UsbHciStatus::InvalidArgument;
         }
-        if (command == nullptr || bytes < kHciCommandHeaderBytes ||
-            bytes > kUsbHciMaxCommandBytes ||
-            bytes != static_cast<size_t>(*usbByteOffset(command, 2U)) +
+        if (!canSnapshot ||
+            bytes != static_cast<size_t>(*usbByteOffset(accepted, 2U)) +
                          kHciCommandHeaderBytes)
         {
             return UsbHciStatus::MalformedPacket;
         }
-        const uint16_t opcode = little16(command, 0U);
+        const uint16_t opcode = little16(accepted, 0U);
         if (state.aclWindow.resetPending || state.aclWindow.readBufferPending ||
             state.leAclWindow.readBufferPending ||
             (opcode == kHciReadBufferSize &&
@@ -1006,7 +1018,7 @@ namespace simpleath
         }
         const uint64_t commandEpoch = state.epoch;
         const uint64_t commandGeneration = state.generation;
-        const bool sent = host.commandControlOut(host.context, command, bytes);
+        const bool sent = host.commandControlOut(host.context, accepted, bytes);
         if (replacedSession(state, commandEpoch, commandGeneration))
         {
             return UsbHciStatus::OwnershipLost;

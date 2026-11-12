@@ -114,6 +114,7 @@ namespace
             bool reenterOnPermit {};
             bool reenteredPermit {};
             UsbHciStatus permitReentryStatus {UsbHciStatus::Ok};
+            uint8_t *mutateCommandOnPermit {};
     };
 
     UsbHciHostCallbacks host(UsbFake &fake);
@@ -121,6 +122,12 @@ namespace
     bool permit(void *context, uint64_t epoch)
     {
         auto &fake = *static_cast<UsbFake *>(context);
+        if (fake.mutateCommandOnPermit != nullptr)
+        {
+            fake.mutateCommandOnPermit[0U] = 0x03U;
+            fake.mutateCommandOnPermit[2U] = 0xffU;
+            fake.mutateCommandOnPermit = nullptr;
+        }
         if (fake.reenterOnPermit && !fake.reenteredPermit &&
             fake.reentryState != nullptr)
         {
@@ -1115,6 +1122,32 @@ namespace
         // can only restart following a new USB/HCI epoch and connection.
         return receiveUsbHciAcl(state, host(fake), kInboundAcl.data(),
                                 kInboundAcl.size()) == UsbHciStatus::Faulted;
+    }
+
+    bool testBorrowedHciCommandSnapshot()
+    {
+        UsbFake fake = newFake();
+        UsbHciState state {};
+        constexpr UsbHciEndpoints endpoints {
+            kEventInEndpoint,
+            kAclInEndpoint,
+            kBulkOutEndpoint,
+        };
+        auto command = std::array<uint8_t, 3U> {0x14U, 0x0cU, 0U};
+        if (attachUsbHci(state, endpoints, host(fake)) != UsbHciStatus::Ok)
+        {
+            return false;
+        }
+        // A permission callback may reuse the caller-owned HCI command.
+        // Its original validated opcode and packet must remain paired.
+        fake.mutateCommandOnPermit = command.data();
+        return sendUsbHciCommand(state, host(fake), command.data(),
+                                 command.size()) == UsbHciStatus::Ok &&
+               command.at(0U) == 0x03U && command.at(2U) == 0xffU &&
+               fake.transmitted.at(0U) == 0x14U &&
+               fake.transmitted.at(1U) == 0x0cU &&
+               fake.transmitted.at(2U) == 0U && state.commandWindow.pending &&
+               state.commandWindow.pendingOpcode == 0x0c14U;
     }
 
     bool testCommandCredits()
@@ -2575,6 +2608,11 @@ int main()
     {
         constexpr int kControllerFaultTestFailure = 5;
         return kControllerFaultTestFailure;
+    }
+    if (!testBorrowedHciCommandSnapshot())
+    {
+        constexpr int kBorrowedHciCommandFailure = 34;
+        return kBorrowedHciCommandFailure;
     }
     if (!testCommandCredits())
     {

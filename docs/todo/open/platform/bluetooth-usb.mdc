@@ -668,3 +668,18 @@ The upstream USB HCI transport still performs its own earlier receive/credit
 accounting and needs a separately stable inbound transfer lease; this change
 does not verify native USB buffer lifetime, macOS Bluetooth attachment or
 physical controller behavior.
+
+## Source progress — stable outbound HCI command admission
+
+The portable USB HCI transport now snapshots each bounded, nonaliasing HCI
+command before consulting the external owner-permission callback. Command
+length and opcode validation, pending credit tracking and USB command-OUT
+submission all use the same immutable image. An owner callback could previously
+change the caller-owned command's opcode or length after permission was
+checked but before it was parsed and sent. The synthetic regression mutates
+both fields during that callback; the unpatched source rejects the corrupted
+length, while the updated C++14/C++17 sanitizer tests preserve the original
+command and pending opcode. Unauthorized, malformed and state-aliasing inputs
+retain explicit failure paths. This does not snapshot 4 KiB ACL submissions,
+prove native USB request lifetime, implement a macOS Bluetooth stack, or
+establish physical controller functionality.
