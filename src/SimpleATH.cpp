@@ -1135,6 +1135,7 @@ class SimpleATH final : public IOService
             linkWatchEpoch_ = 0;
             linkWatchAssociationGeneration_ = 0;
             joinWatchRequestId_ = 0;
+            joinWatchStartedMs_ = 0;
             portReadyStartedMs_ = 0;
             portReadyPending_ = false;
             pendingLocalLeaveToken_ = 0;
@@ -1283,6 +1284,8 @@ class SimpleATH final : public IOService
             self.linkWatchEpoch_ = self.epoch_;
             self.linkWatchAssociationGeneration_ = 0;
             self.joinWatchRequestId_ = self.joinRequestId_;
+            self.joinWatchStartedMs_ =
+                nowMicros(nullptr) / kMicrosPerMillisecond;
             if (self.linkTimer_ == nullptr ||
                 self.linkTimer_->setTimeoutMS(kNativeJoinTimeoutMs) !=
                     kIOReturnSuccess)
@@ -3136,6 +3139,16 @@ class SimpleATH final : public IOService
                 notifyWirelessChange(false);
                 return;
             }
+            // A response may win the command gate before an already-expired
+            // timer callback. Do not promote it to a fresh beacon lease.
+            const uint64_t nowMs = nowMicros(nullptr) / kMicrosPerMillisecond;
+            if (joinWatchRequestId_ != joinRequestId_ ||
+                nowMs < joinWatchStartedMs_ ||
+                nowMs - joinWatchStartedMs_ >= kNativeJoinTimeoutMs)
+            {
+                retireNativeLink(kIOReturnTimeout);
+                return;
+            }
             if (associationGeneration_ == UINT64_MAX || linkTimer_ == nullptr ||
                 !radioOperational_ || !channelAuthorized_ ||
                 !liveRfKillUnblocked() || queues_.epoch() != epoch_ ||
@@ -3150,7 +3163,8 @@ class SimpleATH final : public IOService
             }
             ++associationGeneration_;
             joinWatchRequestId_ = 0;
-            portReadyStartedMs_ = nowMicros(nullptr) / kMicrosPerMillisecond;
+            joinWatchStartedMs_ = 0;
+            portReadyStartedMs_ = nowMs;
             portReadyPending_ = true;
             linkWatchEpoch_ = epoch_;
             linkWatchAssociationGeneration_ = associationGeneration_;
@@ -4790,6 +4804,7 @@ class SimpleATH final : public IOService
         // Only a submitted authentication request starts this timer lease.
         // Association replaces it with an AP-beacon watchdog.
         uint64_t joinWatchRequestId_ {0};
+        uint64_t joinWatchStartedMs_ {0};
         // Until first controlled-port authorization, even a beacon-live AP
         // cannot hold pending EAPOL/security state indefinitely.
         uint64_t portReadyStartedMs_ {0};

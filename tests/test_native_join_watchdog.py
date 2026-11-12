@@ -67,6 +67,27 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "self.failNativeJoin(sent);" in connect
 
     @staticmethod
+    def test_late_association_cannot_bypass_join_deadline() -> None:
+        connect = body(
+            "static IOReturn ownerConnectAction(",
+            "static IOReturn\n        ownerConnect(",
+        )
+        assert connect.index("self.submitPreparedTransmit(") < connect.index(
+            "self.joinWatchStartedMs_ ="
+        )
+        association = body(
+            "void recordNativeAssociation()", "void receiveNativeAwdl("
+        )
+        assert (
+            association.index("nowMs < joinWatchStartedMs_")
+            < association.index("nowMs - joinWatchStartedMs_ >=")
+            < association.index("retireNativeLink(kIOReturnTimeout);")
+            < association.index("++associationGeneration_;")
+            < association.index("joinWatchStartedMs_ = 0;")
+        )
+        assert "joinWatchRequestId_ != joinRequestId_" in association
+
+    @staticmethod
     def test_pending_deadline_closes_hardware_before_beacon_liveness() -> None:
         fired = body(
             "static void linkTimerFired(", "static void scanTimerFired("
@@ -149,6 +170,7 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "linkWatchEpoch_ = 0;" in failed
         assert "linkWatchAssociationGeneration_ = 0;" in failed
         assert "joinWatchRequestId_ = 0;" in failed
+        assert "joinWatchStartedMs_ = 0;" in failed
         assert "portReadyStartedMs_ = 0;" in failed
         assert "portReadyPending_ = false;" in failed
         assert "linkTimer_->cancelTimeout();" in failed

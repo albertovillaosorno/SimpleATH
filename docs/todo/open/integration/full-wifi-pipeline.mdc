@@ -148,6 +148,11 @@ New source-only regressions check timer ordering, post-association arming,
 late-open denial and terminal cancellation. These do not establish actual
 native Tahoe timer firing, successful handshake, RF tuning or radio transfer.
 
+The pending-join timestamp is also checked at the native association handoff
+itself: a late authentication/association completion cannot win the workloop
+ahead of an expired ten-second timer callback. Both paths perform terminal
+hardware retirement, never renew a stale association lease.
+
 ### Prior link-loss audit (2026-11-11)
 
 Before the guarded quarantine transition described below,
