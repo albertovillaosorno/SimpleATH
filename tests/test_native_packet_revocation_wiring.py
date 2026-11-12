@@ -200,5 +200,41 @@ class NativePacketRevocationWiring(unittest.TestCase):
         )
 
 
+class NativeMalformedTxWiring(unittest.TestCase):
+    @staticmethod
+    def test_malformed_nonnull_packet_releases_ownership_without_radio() -> (
+        None
+    ):
+        submit = PACKET_PATH.split(
+            "unsigned int TahoePacketPath::submitPackets(", 1
+        )[1].split("unsigned int TahoePacketPath::completePackets(", 1)[0]
+        assert "if (packet == nullptr)" in submit
+        malformed = submit.split("const bool malformed =", 1)[1]
+        assert "bytes == nullptr" in malformed
+        assert "length < 14" in malformed
+        assert "length > kMaximumFrame" in malformed
+        # Only valid frames enter the provider. A bad packet is still
+        # accounted for and retained for exactly one native TX completion.
+        assert "if (!malformed && controller_->sendEthernet(bytes, length)" in (
+            malformed
+        )
+        assert (
+            "completed_[(completedHead_ + completedCount_) % kCapacity]"
+            in malformed
+        )
+        assert (
+            malformed.index("controller_->sendEthernet")
+            < (malformed.index("++completedCount_;"))
+            < malformed.index("++consumed;")
+        )
+        # A transient provider failure must not count the packet as consumed.
+        rejected = malformed.split("controller_->sendEthernet", 1)[1].split(
+            "completed_[(completedHead_", 1
+        )[0]
+        assert "break;" in rejected
+        assert "++consumed;" not in rejected
+        assert "return consumed;" in malformed
+
+
 if __name__ == "__main__":
     unittest.main()

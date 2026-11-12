@@ -363,14 +363,16 @@ namespace simpleath
                 const auto length = skyLength(packet);
                 const auto *bytes =
                     static_cast<const uint8_t *>(skyBytes(packet));
-                if (bytes == nullptr || length < 14 || length > kMaximumFrame)
-                {
-                    // Invalid native frames are rejected without dereferencing
-                    // their payload or acknowledging a radio transmission.
-                    break;
-                }
-                if (controller_->sendEthernet(bytes, length) !=
-                    kIOReturnSuccess)
+                const bool malformed =
+                    bytes == nullptr || length < 14 || length > kMaximumFrame;
+                // The submission callback's return value advances the OS
+                // queue, not a physical TX-success counter. A non-null
+                // malformed packet must be returned through completion or it
+                // would permanently block later valid queue entries. Never
+                // submit its bytes to the radio. Provider refusal of a valid
+                // packet retains normal queue backpressure instead.
+                if (!malformed && controller_->sendEthernet(bytes, length) !=
+                                      kIOReturnSuccess)
                 {
                     break;
                 }

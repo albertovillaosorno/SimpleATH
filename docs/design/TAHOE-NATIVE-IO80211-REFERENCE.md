@@ -345,7 +345,12 @@ prepares packets before submission. Accepted Ethernet bytes are copied into
 the radio owner before OS completion; retained packets return through native
 TX completion exactly once. RX owns new pool storage and completes/returns
 unused prepared packets. Queue pressure leaves unaccepted TX packets with
-Skywalk. All callbacks share the controller's native work loop.
+Skywalk. A malformed, non-null TX packet is never offered to the radio; its
+Skywalk ownership is still returned through the existing TX-completion queue
+so that a bad head entry cannot indefinitely block subsequent valid frames.
+Only a valid packet rejected by the owner continues to apply queue
+backpressure. This queue ownership completion does not prove physical RF TX
+success. All callbacks share the controller's native work loop.
 
 A second ABI correction is `getSelfMacAddr`: native registration masks the
 returned RAX value to six MAC bytes. It returns the address value, not a
