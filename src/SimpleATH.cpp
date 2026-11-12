@@ -168,7 +168,8 @@ namespace
     struct NativeSubscribeRequest
     {
             void *observer;
-            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t);
+            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t,
+                           uint64_t);
             void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
                             size_t);
     };
@@ -407,7 +408,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV4 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV5 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
             {
@@ -442,10 +443,10 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV4 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV4 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV5 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV5 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV4),
+                sizeof(simpleath::tahoe::WirelessOwnerV5),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -1154,7 +1155,11 @@ class SimpleATH final : public IOService
 
         void notifyWirelessScanFinished()
         {
-            if (observerLock_ == nullptr)
+            simpleath::ieee80211::ScanBridgeCompletion done {};
+            if (observerLock_ == nullptr ||
+                scanBridge_.completion(done) !=
+                    simpleath::ieee80211::ScanBridgeResult::Ok ||
+                done.ticket.generation == 0U)
             {
                 return;
             }
@@ -1163,18 +1168,13 @@ class SimpleATH final : public IOService
             {
                 wirelessNotify_(wirelessObserver_,
                                 simpleath::tahoe::WirelessEvent::ScanFinished,
-                                epoch_);
+                                epoch_, done.ticket.generation);
             }
             IOLockUnlock(observerLock_);
             // The callback contract enqueues its own event before returning;
             // the bridge's pending ticket can now admit a new scan. A child
             // that failed to receive it must request a fresh scan.
-            simpleath::ieee80211::ScanBridgeCompletion done {};
-            if (scanBridge_.completion(done) ==
-                simpleath::ieee80211::ScanBridgeResult::Ok)
-            {
-                scanBridge_.acknowledgeCompletion(done.ticket);
-            }
+            scanBridge_.acknowledgeCompletion(done.ticket);
         }
 
         // A DMA/PCI failure or sleep can interrupt an on-channel scan
@@ -2400,11 +2400,12 @@ class SimpleATH final : public IOService
             return registered;
         }
 
-        static IOReturn ownerSubscribe(
-            void *context, void *observer,
-            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t),
-            void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
-                            size_t))
+        static IOReturn
+        ownerSubscribe(void *context, void *observer,
+                       void (*notify)(void *, simpleath::tahoe::WirelessEvent,
+                                      uint64_t, uint64_t),
+                       void (*receive)(void *, uint64_t, uint64_t,
+                                       const uint8_t *, size_t))
         {
             if (context == nullptr || observer == nullptr ||
                 notify == nullptr || receive == nullptr)
@@ -2460,7 +2461,7 @@ class SimpleATH final : public IOService
                     terminating
                         ? simpleath::tahoe::WirelessEvent::ProviderStopped
                         : simpleath::tahoe::WirelessEvent::RadioChanged,
-                    epoch_);
+                    epoch_, 0U);
             }
             IOLockUnlock(observerLock_);
         }
@@ -4156,7 +4157,7 @@ class SimpleATH final : public IOService
                     self.wirelessNotify_(
                         self.wirelessObserver_,
                         simpleath::tahoe::WirelessEvent::TransmitAvailable,
-                        self.epoch_);
+                        self.epoch_, 0U);
                 }
                 IOLockUnlock(self.observerLock_);
             }
@@ -5143,7 +5144,7 @@ class SimpleATH final : public IOService
         IOLock *observerLock_ {nullptr};
         void *wirelessObserver_ {nullptr};
         void (*wirelessNotify_)(void *, simpleath::tahoe::WirelessEvent,
-                                uint64_t) {nullptr};
+                                uint64_t, uint64_t) {nullptr};
         void (*wirelessReceive_)(void *, uint64_t, uint64_t, const uint8_t *,
                                  size_t) {nullptr};
         bool controlledPortAuthorized_ {false};

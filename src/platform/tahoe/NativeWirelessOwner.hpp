@@ -52,8 +52,8 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV4";
-        constexpr uint32_t kWirelessOwnerAbi = 4;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV5";
+        constexpr uint32_t kWirelessOwnerAbi = 5;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
@@ -130,7 +130,7 @@ namespace simpleath
                 bool open;
         };
 
-        struct WirelessOwnerV4
+        struct WirelessOwnerV5
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;
@@ -154,11 +154,14 @@ namespace simpleath
                 IOReturn (*transmitEthernet)(void *, const uint8_t *, size_t);
                 // notify() and receive() must copy/queue work without entering
                 // the native controller's gate while the provider gate is held.
+                // ScanFinished carries the completed bridge generation;
+                // all other notifications carry generation zero.
                 // A failed subscribe must leave no live callbacks behind;
                 // successful unsubscribe joins all in-flight callbacks.
                 IOReturn (*subscribe)(void *, void *observer,
                                       void (*notify)(void *, WirelessEvent,
-                                                     uint64_t epoch),
+                                                     uint64_t epoch,
+                                                     uint64_t generation),
                                       void (*receive)(void *, uint64_t epoch,
                                                       uint64_t association,
                                                       const uint8_t *, size_t));

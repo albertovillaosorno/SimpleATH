@@ -90,7 +90,8 @@ namespace simpleath
                 // Drain only in the native controller's own work-loop context.
                 // Invalid/stale receive frames never leave the mailbox. On
                 // buffer-too-small, the frame remains queued for retry.
-                IOReturn takeEvent(WirelessEvent &event, uint64_t &epoch);
+                IOReturn takeEvent(WirelessEvent &event, uint64_t &epoch,
+                                   uint64_t &generation);
                 IOReturn takeEthernet(uint8_t *bytes, size_t capacity,
                                       size_t &length);
                 uint64_t droppedReceiveFrames() const;
@@ -101,6 +102,7 @@ namespace simpleath
                 {
                         WirelessEvent event;
                         uint64_t epoch;
+                        uint64_t generation;
                 };
 
                 struct ReceiveRecord
@@ -112,7 +114,7 @@ namespace simpleath
                 };
 
                 static void notify(void *observer, WirelessEvent event,
-                                   uint64_t epoch);
+                                   uint64_t epoch, uint64_t generation);
                 static void receive(void *observer, uint64_t epoch,
                                     uint64_t associationGeneration,
                                     const uint8_t *bytes, size_t length);
@@ -125,7 +127,7 @@ namespace simpleath
 
                 // Lifecycle methods run only on the controller's own gate;
                 // the mailbox lock is never held across provider callbacks.
-                WirelessOwnerV4 owner_ {};
+                WirelessOwnerV5 owner_ {};
                 IOService *provider_ {nullptr};
                 IOLock *mailboxLock_ {nullptr};
                 uint64_t epoch_ {0};

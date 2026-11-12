@@ -541,3 +541,21 @@ identities. Native source syntax and portable sanitizer tests are source-only
 checks; they do not constitute a physical RF/Wi-Fi test or proof of Tahoe ABI
 runtime compatibility. The older V3 records above describe their historical
 implementation, now superseded by V4.
+
+
+## Native scan-generation callback — 2026-11-12
+
+`WirelessOwnerV5` supersedes the internal V4 provider callback signature;
+`SimpleATHWirelessOwnerV5` has an explicit distinct lookup identifier and
+ABI number 5. The callback now carries a fourth `generation` argument,
+nonzero only for `ScanFinished`. The PCI provider emits the bridge completion
+ticket's generation, not the independent WifiEngine dwell generation. The
+transport stores the ticket with the epoch in its bounded event ring, and the
+InfraProtocol compares it against the *current* WCL scan generation before
+consuming results. A matching PCI epoch and finished radio dwell alone were
+insufficient to reject a queued old completion after a new scan finished.
+The previous V4 controlled-port semantics are retained unchanged.
+
+This is an internal owner-to-controller source contract, not an assertion
+about Apple's private Tahoe 25G332 layout or permitted kernel imports. No
+hardware scan, WCL callback, kext load or physical RF was exercised.

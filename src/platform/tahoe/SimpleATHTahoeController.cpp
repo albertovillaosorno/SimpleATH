@@ -552,9 +552,9 @@ IOReturn SimpleATHTahoeController::sendEthernet(const uint8_t *packet,
 
 IOReturn
 SimpleATHTahoeController::nextRadioEvent(simpleath::tahoe::WirelessEvent &event,
-                                         uint64_t &epoch)
+                                         uint64_t &epoch, uint64_t &generation)
 {
-    return transport_.takeEvent(event, epoch);
+    return transport_.takeEvent(event, epoch, generation);
 }
 
 IOReturn SimpleATHTahoeController::receiveEthernet(uint8_t *packet,

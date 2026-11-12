@@ -138,7 +138,7 @@ class SimpleATHTahoeController final : public IO80211Controller
         IOReturn setControlledPort(bool enabled);
         IOReturn sendEthernet(const uint8_t *packet, size_t length);
         IOReturn nextRadioEvent(simpleath::tahoe::WirelessEvent &event,
-                                uint64_t &epoch);
+                                uint64_t &epoch, uint64_t &generation);
         IOReturn receiveEthernet(uint8_t *packet, size_t capacity,
                                  size_t &length);
 

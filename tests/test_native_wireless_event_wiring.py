@@ -106,12 +106,40 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "ring[index].event == WirelessEvent::ProviderStopped" in EPOCH
 
     @staticmethod
-    def test_stale_scan_event_requires_finished_physical_dwell() -> None:
+    def test_generation_qualified_scan_completion_on_native_consumer() -> None:
         poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        assert "nextRadioEvent(event, epoch, generation)" in poll
         assert "acceptWirelessScanCompletion(" in poll
-        assert "epoch, scanEpoch_, live, state.scanning" in poll
+        assert "epoch, generation, scanEpoch_, scanGeneration_, live," in poll
+        assert "state.scanning))" in poll
         assert "finishScan(false);" in poll
-        assert "eventEpoch == activeScanEpoch && !physicalScanRunning" in EPOCH
+        assert "eventGeneration == activeScanGeneration" in EPOCH
+        assert "eventEpoch == activeScanEpoch" in EPOCH
+        assert "!physicalScanRunning" in EPOCH
+
+    @staticmethod
+    def test_provider_and_mailbox_carry_original_scan_generation() -> None:
+        native = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        transport_header = (
+            ROOT / "src/platform/tahoe/TahoeWirelessTransport.hpp"
+        ).read_text(encoding="utf-8")
+        controller = (
+            ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
+        ).read_text(encoding="utf-8")
+        assert '"SimpleATHWirelessOwnerV5"' in OWNER
+        assert "kWirelessOwnerAbi = 5;" in OWNER
+        assert "WirelessOwnerV5 callbacks" in native
+        assert (
+            "done.ticket.generation"
+            in native.split("void notifyWirelessScanFinished()", 1)[1].split(
+                "bool abortActiveNativeScan()", 1
+            )[0]
+        )
+        assert "*slot = {event, epoch, generation};" in TRANSPORT
+        assert "generation = record.generation;" in TRANSPORT
+        assert "uint64_t generation;" in transport_header
+        assert "takeEvent(event, epoch, generation)" in controller
+        assert "(generation != 0U)" in TRANSPORT
 
 
 if __name__ == "__main__":

@@ -111,10 +111,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV4 &owner)
+            bool validContract(const WirelessOwnerV5 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV4) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV5) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -239,7 +239,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV4 candidate {};
+            WirelessOwnerV5 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -703,7 +703,7 @@ namespace simpleath
         }
 
         void TahoeWirelessTransport::notify(void *observer, WirelessEvent event,
-                                            uint64_t epoch)
+                                            uint64_t epoch, uint64_t generation)
         {
             if (observer == nullptr)
             {
@@ -717,7 +717,8 @@ namespace simpleath
             }
             IOLockLock(lock);
             if ((epoch == 0U) || epoch < self.epoch_ || self.providerStopped_ ||
-                event > WirelessEvent::ProviderStopped)
+                event > WirelessEvent::ProviderStopped ||
+                ((event == WirelessEvent::ScanFinished) != (generation != 0U)))
             {
                 IOLockUnlock(lock);
                 return;
@@ -787,7 +788,7 @@ namespace simpleath
                 }
                 else
                 {
-                    *slot = {event, epoch};
+                    *slot = {event, epoch, generation};
                     ++self.eventCount_;
                 }
             }
@@ -845,7 +846,8 @@ namespace simpleath
         }
 
         IOReturn TahoeWirelessTransport::takeEvent(WirelessEvent &event,
-                                                   uint64_t &epoch)
+                                                   uint64_t &epoch,
+                                                   uint64_t &generation)
         {
             if (mailboxLock_ == nullptr)
             {
@@ -871,6 +873,7 @@ namespace simpleath
             IOLockUnlock(mailboxLock_);
             event = record.event;
             epoch = record.epoch;
+            generation = record.generation;
             return kIOReturnSuccess;
         }
 

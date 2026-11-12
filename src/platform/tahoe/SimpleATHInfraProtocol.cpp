@@ -1017,13 +1017,16 @@ void SimpleATHInfraProtocol::poll()
     {
         simpleath::tahoe::WirelessEvent event {};
         uint64_t epoch = 0;
-        if (controller_->nextRadioEvent(event, epoch) != kIOReturnSuccess)
+        uint64_t generation = 0;
+        if (controller_->nextRadioEvent(event, epoch, generation) !=
+            kIOReturnSuccess)
         {
             break;
         }
         if (event == simpleath::tahoe::WirelessEvent::ScanFinished &&
             simpleath::tahoe::acceptWirelessScanCompletion(
-                epoch, scanEpoch_, live, state.scanning))
+                epoch, generation, scanEpoch_, scanGeneration_, live,
+                state.scanning))
         {
             // A late completion from an older same-epoch scan cannot
             // finish the new scan before its real radio dwell has ended.

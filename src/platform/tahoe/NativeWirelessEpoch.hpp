@@ -90,18 +90,22 @@ namespace simpleath
             return false;
         }
 
-        // SCAN_DONE carries only the PCI epoch, not a scan generation.
-        // A delayed event from a previous scan in the same epoch must never
-        // terminate a NEW physical dwell. The live provider must first
-        // report that its radio scan has actually ended; failed/cancelled
-        // results are still verified by the native scanNext generation.
+        // Scan completion is identified by both PCI epoch and bridge
+        // generation. A queued completion must never finish a replacement
+        // scan even after that replacement's own dwell has ended. Require
+        // physical scan termination as independent confirmation; failed or
+        // cancelled results are verified by the provider's scanNext check.
         inline bool acceptWirelessScanCompletion(uint64_t eventEpoch,
+                                                 uint64_t eventGeneration,
                                                  uint64_t activeScanEpoch,
+                                                 uint64_t activeScanGeneration,
                                                  bool providerLive,
                                                  bool physicalScanRunning)
         {
-            return providerLive && eventEpoch != 0U &&
-                   eventEpoch == activeScanEpoch && !physicalScanRunning;
+            return providerLive && eventEpoch != 0U && eventGeneration != 0U &&
+                   eventEpoch == activeScanEpoch &&
+                   eventGeneration == activeScanGeneration &&
+                   !physicalScanRunning;
         }
 
         // Ordinary Skywalk Ethernet is a later stage than the physical

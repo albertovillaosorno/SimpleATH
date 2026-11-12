@@ -78,6 +78,7 @@ namespace
     {
             simpleath::tahoe::WirelessEvent event {};
             uint64_t epoch {};
+            uint64_t generation {};
     };
 
     bool checkCriticalWirelessEventRetention()
@@ -88,31 +89,31 @@ namespace
         // association update, completion. A new completion displaces the
         // oldest noncritical event without reordering either completion.
         FakeWirelessEvent wrapped[4] {};
-        wrapped[2] = {WirelessEvent::ScanFinished, 41U};
-        wrapped[3] = {WirelessEvent::TransmitAvailable, 41U};
-        wrapped[0] = {WirelessEvent::AssociationChanged, 42U};
-        wrapped[1] = {WirelessEvent::ScanFinished, 42U};
+        wrapped[2] = {WirelessEvent::ScanFinished, 41U, 101U};
+        wrapped[3] = {WirelessEvent::TransmitAvailable, 41U, 0U};
+        wrapped[0] = {WirelessEvent::AssociationChanged, 42U, 0U};
+        wrapped[1] = {WirelessEvent::ScanFinished, 42U, 102U};
         if (!evictWirelessNoncriticalEvent(wrapped, 2U, 4U))
         {
             return false;
         }
-        wrapped[1] = {WirelessEvent::ScanFinished, 43U};
+        wrapped[1] = {WirelessEvent::ScanFinished, 43U, 103U};
         if (wrapped[2].event != WirelessEvent::ScanFinished ||
-            wrapped[2].epoch != 41U ||
+            wrapped[2].epoch != 41U || wrapped[2].generation != 101U ||
             wrapped[3].event != WirelessEvent::AssociationChanged ||
-            wrapped[3].epoch != 42U ||
+            wrapped[3].epoch != 42U || wrapped[3].generation != 0U ||
             wrapped[0].event != WirelessEvent::ScanFinished ||
-            wrapped[0].epoch != 42U ||
+            wrapped[0].epoch != 42U || wrapped[0].generation != 102U ||
             wrapped[1].event != WirelessEvent::ScanFinished ||
-            wrapped[1].epoch != 43U)
+            wrapped[1].epoch != 43U || wrapped[1].generation != 103U)
         {
             return false;
         }
         // A saturated mailbox containing only non-discardable completion
         // intents must reject a new event, not erase a pending SCAN_DONE.
         FakeWirelessEvent completions[2] {
-            {WirelessEvent::ScanFinished, 50U},
-            {WirelessEvent::ProviderStopped, 50U},
+            {WirelessEvent::ScanFinished, 50U, 104U},
+            {WirelessEvent::ProviderStopped, 50U, 0U},
         };
         if (evictWirelessNoncriticalEvent(completions, 0U, 2U) ||
             evictWirelessNoncriticalEvent(completions, 1U, 1U) ||
@@ -390,13 +391,23 @@ int main()
     }
     using simpleath::tahoe::acceptWirelessScanCompletion;
     constexpr int kStaleScanCompletionFailure = 12;
-    if (!acceptWirelessScanCompletion(first, first, true, false) ||
-        !acceptWirelessScanCompletion(latest, latest, true, false) ||
-        acceptWirelessScanCompletion(0, first, true, false) ||
-        acceptWirelessScanCompletion(first, 0, true, false) ||
-        acceptWirelessScanCompletion(first, second, true, false) ||
-        acceptWirelessScanCompletion(first, first, false, false) ||
-        acceptWirelessScanCompletion(first, first, true, true))
+    if (!acceptWirelessScanCompletion(first, first, first, first, true,
+                                      false) ||
+        !acceptWirelessScanCompletion(latest, latest, latest, latest, true,
+                                      false) ||
+        acceptWirelessScanCompletion(0, first, first, first, true, false) ||
+        acceptWirelessScanCompletion(first, 0, first, first, true, false) ||
+        acceptWirelessScanCompletion(first, first, 0, first, true, false) ||
+        acceptWirelessScanCompletion(first, first, first, 0, true, false) ||
+        acceptWirelessScanCompletion(first, first, second, first, true,
+                                     false) ||
+        acceptWirelessScanCompletion(first, first, first, second, true,
+                                     false) ||
+        acceptWirelessScanCompletion(first, second, first, first, true,
+                                     false) ||
+        acceptWirelessScanCompletion(first, first, first, first, false,
+                                     false) ||
+        acceptWirelessScanCompletion(first, first, first, first, true, true))
     {
         return kStaleScanCompletionFailure;
     }

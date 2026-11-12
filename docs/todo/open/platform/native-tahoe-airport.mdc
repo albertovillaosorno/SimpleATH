@@ -229,3 +229,24 @@ Generation-specific results still pass through the existing provider-side
 `scanNext` check. C++14/C++17 sanitizer fixtures and source-wiring checks
 exercise the portable policy and production call sites. These source checks
 do not establish physical scan/RF readiness or Tahoe ABI runtime acceptance.
+
+### Native scan notification identity — 2026-11-12
+
+The internal PCI owner/consumer callback is now `WirelessOwnerV5`, replacing
+`V4` without an implicit ABI compatibility fallback. `ScanFinished` carries
+the original `LegacyScanBridge` generation as well as its PCI epoch. The
+physical owner copies this generation from the pending completion ticket
+*before* acknowledging it; the bounded mailbox keeps it attached to the
+notification across ring wrap and noise eviction. The native WCL consumer
+requires both fields to match its outstanding scan and independently checks
+that the provider is live and physical dwell is finished. In particular, a
+queued completion from scan A cannot complete a newer same-epoch scan B even
+if B's dwell has already finished. All other notifications use generation
+zero and are rejected if they claim a scan ticket.
+
+The portable C++14/C++17 fixture and native source-wiring checks cover stale
+generations, invalid zero identities, mailbox record retention and the V5
+callback/consumer handoff. This only validates internal source contracts.
+It does not certify the 25G332 IO80211 ABI, physical scanning, or Apple Wi-Fi
+UI acceptance. Mailbox exhaustion and native event delivery still require
+end-to-end operating-system and hardware validation.
