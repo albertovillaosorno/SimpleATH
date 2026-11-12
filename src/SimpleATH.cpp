@@ -1693,15 +1693,13 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            // The final open must not race a delayed watchdog callback.
-            // Even verified keys and beacons cannot revive an expired join.
-            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
-            if (self.portReadyPending_ &&
-                (now < self.portReadyStartedMs_ ||
-                 now - self.portReadyStartedMs_ >= kNativePortOpenTimeoutMs))
+            // Initial port and beacon liveness are independent: a late OS
+            // key confirmation must not win against a missed-beacon watchdog.
+            const IOReturn lease = self.verifyNativeAssociationLease(
+                nowMicros(nullptr) / kMicrosPerMillisecond);
+            if (lease != kIOReturnSuccess)
             {
-                self.retireNativeLink(kIOReturnTimeout);
-                return kIOReturnTimeout;
+                return lease;
             }
             self.portReadyPending_ = false;
             self.controlledPortAuthorized_ = true;
@@ -1833,6 +1831,42 @@ class SimpleATH final : public IOService
                    txSafety_.transmitPowerLimitsValidated &&
                    txSafety_.rfKillUnblocked && txSafety_.radioAwake &&
                    txSafety_.dmaMappingValid && liveRfKillUnblocked();
+        }
+
+        // Workloop timers are not ordered ahead of OS TX, key completions
+        // or port authorization. Recheck both physical association leases
+        // before any of those paths can emit a packet or open the port.
+        // This does not grant RF permission: TX still needs canSubmitTransmit.
+        IOReturn verifyNativeAssociationLease(uint64_t nowMs)
+        {
+            if (engine_.linkStatus().state !=
+                simpleath::ieee80211::LinkState::Associated)
+            {
+                return kIOReturnNotReady;
+            }
+            if (portReadyPending_ &&
+                (nowMs < portReadyStartedMs_ ||
+                 nowMs - portReadyStartedMs_ >= kNativePortOpenTimeoutMs))
+            {
+                retireNativeLink(kIOReturnTimeout);
+                return kIOReturnTimeout;
+            }
+            simpleath::ieee80211::EngineAction action {};
+            const auto observed = engine_.checkBeaconTimeout(nowMs, action);
+            if (observed == simpleath::ieee80211::EngineResult::NoAction)
+            {
+                return kIOReturnSuccess;
+            }
+            if (observed == simpleath::ieee80211::EngineResult::Ok &&
+                action.kind == simpleath::ieee80211::ActionKind::LinkLost)
+            {
+                retireNativeLink(kIOReturnTimeout);
+                return kIOReturnTimeout;
+            }
+            // Regressed clocks, malformed engine outputs and lost software
+            // state cannot continue a physical CCMP/DMA ownership lease.
+            retireNativeLink(kIOReturnNotReady);
+            return kIOReturnNotReady;
         }
 
         // Submit only admitted 802.11 frames from the station engine or
@@ -1976,6 +2010,15 @@ class SimpleATH final : public IOService
                  !(isEapol && nativeHandshake)))
             {
                 return kIOReturnNotReady;
+            }
+            // An OS packet may reach this gate after the beacon/initial
+            // EAPOL deadline but ahead of a delayed timer callback. Do not
+            // consume CCMP TX PN or a DMA slot for that expired association.
+            const IOReturn lease = self->verifyNativeAssociationLease(
+                nowMicros(nullptr) / kMicrosPerMillisecond);
+            if (lease != kIOReturnSuccess)
+            {
+                return lease;
             }
             if (!self->queues_.hasTransmitSpace())
             {
@@ -3584,37 +3627,15 @@ class SimpleATH final : public IOService
                 return;
             }
             // Native protected data and open A-MSDU bypass the portable
-            // acceptRx clock gate. Check both association leases here before
-            // ANY RX route can consume EAPOL, update keys or deliver data.
-            // A delayed timer callback must never extend an expired lease.
-            const uint64_t receiveNowMs =
-                nowMicros(nullptr) / kMicrosPerMillisecond;
+            // acceptRx clock gate. Reuse the same physical lease check as
+            // outbound traffic before any key, EAPOL or Ethernet routing.
             if (self.engine_.linkStatus().state ==
-                simpleath::ieee80211::LinkState::Associated)
+                    simpleath::ieee80211::LinkState::Associated &&
+                self.verifyNativeAssociationLease(nowMicros(nullptr) /
+                                                  kMicrosPerMillisecond) !=
+                    kIOReturnSuccess)
             {
-                if (self.portReadyPending_ &&
-                    (receiveNowMs < self.portReadyStartedMs_ ||
-                     receiveNowMs - self.portReadyStartedMs_ >=
-                         kNativePortOpenTimeoutMs))
-                {
-                    self.retireNativeLink(kIOReturnTimeout);
-                    return;
-                }
-                simpleath::ieee80211::EngineAction deadlineAction {};
-                const auto deadline = self.engine_.checkBeaconTimeout(
-                    receiveNowMs, deadlineAction);
-                if (deadline == simpleath::ieee80211::EngineResult::Ok &&
-                    deadlineAction.kind ==
-                        simpleath::ieee80211::ActionKind::LinkLost)
-                {
-                    self.retireNativeLink(kIOReturnTimeout);
-                    return;
-                }
-                if (deadline != simpleath::ieee80211::EngineResult::NoAction)
-                {
-                    self.retireNativeLink(kIOReturnNotReady);
-                    return;
-                }
+                return;
             }
             self.receiveNativeAwdl(frame, bytes, status);
             if (self.routeNativeSecurityRx(frame, bytes, status) ||
@@ -3925,6 +3946,16 @@ class SimpleATH final : public IOService
             self.deferredJoinRequestId_ = 0;
             self.deferredGroup2_ = false;
             const uint64_t submittedToken = self.nextTransmitToken_;
+            const IOReturn lease =
+                stillOwned ? self.verifyNativeAssociationLease(
+                                 nowMicros(nullptr) / kMicrosPerMillisecond)
+                           : kIOReturnNotReady;
+            if (stillOwned && lease != kIOReturnSuccess)
+            {
+                // Verification already quarantined this link and its keys.
+                // Do not repeat retirement while the callback unwinds.
+                return;
+            }
             const IOReturn result =
                 stillOwned && self.canSubmitTransmit() &&
                         (!group2 || self.controlledPortAuthorized_)

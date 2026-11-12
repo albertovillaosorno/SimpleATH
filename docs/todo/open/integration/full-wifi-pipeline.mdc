@@ -161,6 +161,22 @@ monotonic timestamps retire the physical link before further EAPOL key or
 Ethernet processing. This is source-level ordering protection only; no Tahoe
 kernel interrupt or hardware arrival-time test has been performed.
 
+### Native OS transmit and port-open liveness (source-only, 2026-11-11)
+
+The same command-gated physical association lease check now runs before the
+native Ethernet/EAPOL serialization, successful controlled-port authorization
+and deferred driver-owned M4/Group2 EDMA submission, as well as before RX
+routing. A delayed beacon watchdog cannot let these outgoing paths transmit
+or open a controlled port after its monotonic beacon deadline has elapsed.
+The independent initial closed-port limit is enforced during those operations
+too; a regressed monotonic clock denies continued ownership and triggers the
+same terminal hardware quarantine as expired receive traffic. This check
+never grants RF/channel/TPC readiness or permits post-quarantine reconnect.
+
+The source-only native retirement test traces call order at each entrypoint;
+it does not simulate Tahoe workloop interleavings, physical RX timestamps,
+TX acknowledgments, RF calibration or a real PCI keycache scrub.
+
 ### Prior link-loss audit (2026-11-11)
 
 Before the guarded quarantine transition described below,

@@ -208,18 +208,76 @@ class NativeReceiveDeadlineWiring(unittest.TestCase):
             "static void\n        queueTransmitted(",
         )
         assert (
-            receive.index("const uint64_t receiveNowMs =")
-            < receive.index("if (self.portReadyPending_ &&")
-            < receive.index("self.engine_.checkBeaconTimeout(")
+            receive.index("self.verifyNativeAssociationLease(")
             < receive.index("self.receiveNativeAwdl(")
             < receive.index("self.routeNativeSecurityRx(")
             < receive.index("self.routeNativeOpenAmsdu(")
             < receive.index("self.engine_.acceptRx(")
         )
-        assert "kNativePortOpenTimeoutMs" in receive
-        assert "simpleath::ieee80211::ActionKind::LinkLost" in receive
-        assert "self.retireNativeLink(kIOReturnTimeout);" in receive
-        assert "self.retireNativeLink(kIOReturnNotReady);" in receive
+        assert "simpleath::ieee80211::LinkState::Associated" in receive
+        assert "kIOReturnSuccess" in receive
+
+
+class NativeAssociatedDeadlineWiring(unittest.TestCase):
+    """The workloop must reject stale outbound traffic, not only late RX."""
+
+    @staticmethod
+    def test_shared_lease_retires_expired_or_regressed_ap() -> None:
+        lease = body(
+            OWNER,
+            "IOReturn verifyNativeAssociationLease(uint64_t nowMs)",
+            "IOReturn submitPreparedTransmit(",
+        )
+        assert "linkStatus().state" in lease
+        assert "portReadyPending_" in lease
+        assert "nowMs < portReadyStartedMs_" in lease
+        assert "kNativePortOpenTimeoutMs" in lease
+        assert "engine_.checkBeaconTimeout(nowMs, action)" in lease
+        assert "ActionKind::LinkLost" in lease
+        assert "retireNativeLink(kIOReturnTimeout);" in lease
+        assert "retireNativeLink(kIOReturnNotReady);" in lease
+        assert lease.index("checkBeaconTimeout(") < lease.index(
+            "return kIOReturnSuccess;"
+        )
+
+    @staticmethod
+    def test_outgoing_os_packet_checks_deadline_before_serialization() -> None:
+        tx = body(
+            OWNER,
+            "static IOReturn ownerTransmitEthernetAction(",
+            "static IOReturn ownerTransmitEthernet(",
+        )
+        assert (
+            tx.index("self->verifyNativeAssociationLease(")
+            < tx.index("self->queues_.hasTransmitSpace()")
+            < tx.index("self->prepareNativeClearHandshake(")
+            < tx.index("self->submitPreparedTransmit(")
+        )
+
+    @staticmethod
+    def test_port_open_checks_beacon_as_well_as_initial_port_deadline() -> None:
+        port = body(
+            OWNER,
+            "static IOReturn ownerAuthorizePortAction(",
+            "static IOReturn ownerAuthorizePortScopedAction(",
+        )
+        assert (
+            port.index("nativeControlledPortSecurityReady(")
+            < port.index("self.verifyNativeAssociationLease(")
+            < port.index("self.controlledPortAuthorized_ = true;")
+        )
+
+    @staticmethod
+    def test_deferred_m4_and_group2_check_deadline_before_edma() -> None:
+        deferred = body(
+            OWNER,
+            "static void queueKeyUpdateResumed(",
+            "static void queueInterrupt(",
+        )
+        assert deferred.index("self.verifyNativeAssociationLease(") < (
+            deferred.index("self.submitPreparedTransmit(")
+        )
+        assert "if (stillOwned && lease != kIOReturnSuccess)" in deferred
 
 
 class NativeLinkRetirementWiring(unittest.TestCase):

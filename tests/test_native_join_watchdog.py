@@ -151,15 +151,23 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         )
         assert (
             open_port.index("nativeControlledPortSecurityReady(")
-            < open_port.index("if (self.portReadyPending_ &&")
-            < open_port.index("self.retireNativeLink(kIOReturnTimeout);")
+            < open_port.index("self.verifyNativeAssociationLease(")
             < open_port.index("self.portReadyPending_ = false;")
             < open_port.index("self.controlledPortAuthorized_ = true;")
         )
+        verifier = body(
+            "IOReturn verifyNativeAssociationLease(uint64_t nowMs)",
+            "IOReturn submitPreparedTransmit(",
+        )
         # A previously opened port can later be closed during key rotation.
         # Only the initial unopened association has the finite deadline.
-        assert "if (self.portReadyPending_ &&" in open_port
-        assert "if (!self.portReadyPending_ ||" not in open_port
+        assert "if (portReadyPending_ &&" in verifier
+        assert (
+            "nowMs - portReadyStartedMs_ >= kNativePortOpenTimeoutMs"
+            in verifier
+        )
+        assert "if (!portReadyPending_ ||" not in verifier
+        assert "engine_.checkBeaconTimeout(nowMs, action)" in verifier
 
     @staticmethod
     def test_failed_join_and_terminal_paths_invalidate_deadline() -> None:
