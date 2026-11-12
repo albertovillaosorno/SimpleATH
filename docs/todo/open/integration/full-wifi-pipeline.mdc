@@ -531,3 +531,12 @@ also rejected. The shared portable DataPath serializer validates the same
 policy, independent of native call-site ordering. This removes an implicit
 try-clear-then-encrypt fallback; it does not establish MIC authenticity,
 native TX completion, radio readiness, or physical Wi-Fi success.
+
+The classifier now additionally checks the supplicant reply-only fixed fields:
+M2/M4/Group2 cannot carry a nonzero EAPOL Key IV, Key RSC or reserved Key ID;
+M4/Group2 cannot claim a new nonce. These fields are not authenticator
+messages and cannot acquire the OS plaintext M2/M4 exception or protected
+Group2 queue admission. `test_native_eapol_tx.cpp` exercises positive
+canonical replies and corrupted fixed fields with C++14/17 sanitizers.
+This verifies wire classification only, not a Tahoe OS supplicant, EAPOL
+MIC, RF transmission or hardware key operation.

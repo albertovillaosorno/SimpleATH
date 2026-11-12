@@ -57,7 +57,10 @@ namespace
         wire[5] = static_cast<uint8_t>(flags >> 8U);
         wire[6] = static_cast<uint8_t>(flags);
         wire[16] = 3U; // Replay counter (last byte).
-        wire[17] = 7U; // Nonzero SNonce for M2.
+        if (flags == 0x010aU)
+        {
+            wire[17] = 7U; // Only M2 carries an SNonce.
+        }
         wire[81] = kMicSample;
     }
 
@@ -79,6 +82,41 @@ namespace
         makeKey(wire, 0x0302U);
         return classifyStationEapolTx(wire, sizeof(wire)) ==
                StationEapolTxMode::ProtectedGroup2;
+    }
+
+    bool rejectsSupplicantNonKeyFields()
+    {
+        uint8_t wire[kEapolBytes] {};
+        // Pairwise2 keeps its SNonce but cannot carry authenticator-only
+        // Key IV, Key RSC or reserved Key ID bytes.
+        constexpr uint16_t kModes[] {0x010aU, 0x030aU, 0x0302U};
+        constexpr size_t kOffsets[] {49U, 65U, 73U};
+        for (const uint16_t mode : kModes)
+        {
+            for (const size_t offset : kOffsets)
+            {
+                makeKey(wire, mode);
+                wire[offset] = 1U;
+                if (classifyStationEapolTx(wire, sizeof(wire)) !=
+                    StationEapolTxMode::Reject)
+                {
+                    return false;
+                }
+            }
+        }
+        // Four-way M4 and GTK Group2 have no SNonce or ANonce.
+        constexpr uint16_t kNoNonceModes[] {0x030aU, 0x0302U};
+        for (const uint16_t mode : kNoNonceModes)
+        {
+            makeKey(wire, mode);
+            wire[17] = 1U;
+            if (classifyStationEapolTx(wire, sizeof(wire)) !=
+                StationEapolTxMode::Reject)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     bool rejectsUntrustedKeyModes()
@@ -128,5 +166,8 @@ namespace
 
 int main()
 {
-    return !transmitModes() ? 1 : !rejectsUntrustedKeyModes() ? 2 : 0;
+    return !transmitModes()                   ? 1
+           : !rejectsUntrustedKeyModes()      ? 2
+           : !rejectsSupplicantNonKeyFields() ? 3
+                                              : 0;
 }

@@ -48,6 +48,9 @@ namespace simpleath
         static constexpr size_t kEapolKeyFixedBytes = 95;
         static constexpr size_t kMaxEapolBodyBytes = 2048;
         static constexpr size_t kKeyNonceBytes = 32;
+        static constexpr size_t kKeyIvBytes = 16;
+        static constexpr size_t kKeyRscBytes = 8;
+        static constexpr size_t kKeyIdBytes = 8;
         static constexpr size_t kKeyMicBytes = 16;
         static constexpr size_t kKeyRscOffset = 61;
         static constexpr size_t kKeyNonceOffset = 13;
@@ -420,6 +423,17 @@ namespace simpleath
             {
                 return StationEapolTxMode::Reject;
             }
+            // The supplicant never supplies authenticator-only IV, RSC or
+            // reserved Key ID fields in M2/M4/Group2. Do not admit a frame
+            // with contradictory key material via either cleartext or CCMP.
+            const uint8_t *const iv = wireOffset(key.nonce, kKeyNonceBytes);
+            const uint8_t *const id = wireOffset(key.keyRsc, kKeyRscBytes);
+            if (anyNonzero(iv, kKeyIvBytes) ||
+                anyNonzero(key.keyRsc, kKeyRscBytes) ||
+                anyNonzero(id, kKeyIdBytes))
+            {
+                return StationEapolTxMode::Reject;
+            }
             // Exact RSN Key Information flags prevent unrelated requests
             // from borrowing the native four-way plaintext exception.
             switch (key.message)
@@ -430,13 +444,15 @@ namespace simpleath
                                : StationEapolTxMode::Reject;
                 case KeyMessage::Pairwise4:
                     return key.keyInformation == 0x030aU &&
-                                   key.keyDataLength == 0U
+                                   key.keyDataLength == 0U &&
+                                   !anyNonzero(key.nonce, kKeyNonceBytes)
                                ? StationEapolTxMode::ClearPairwise4
                                : StationEapolTxMode::Reject;
                 case KeyMessage::Group2:
                     return key.keyInformation == 0x0302U &&
                                    key.keyLength == 0U &&
-                                   key.keyDataLength == 0U
+                                   key.keyDataLength == 0U &&
+                                   !anyNonzero(key.nonce, kKeyNonceBytes)
                                ? StationEapolTxMode::ProtectedGroup2
                                : StationEapolTxMode::Reject;
                 default:
