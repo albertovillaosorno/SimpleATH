@@ -173,6 +173,50 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         )
 
     @staticmethod
+    def test_explicit_power_on_requires_fresh_epoch_after_retirement() -> None:
+        # The child power-on request goes through the serialized PCI owner.
+        power = body(OWNER, "static IOReturn ownerSetPower(",
+                     "static IOReturn\n        ownerSetMac(")
+        assert "return self.startClient();" in power
+        start = body(OWNER, "IOReturn startClient()",
+                     "void releaseQueuesClient()")
+        assert start.index("prepareFreshStartAction") < start.index(
+            "queues_.releaseClient();"
+        ) < start.index("gate_->runAction(startAction)")
+        assert "result == kIOReturnSuccess && releaseRetiredQueues" in start
+        assert "if (result == kIOReturnSuccess)" in start
+        assert "IOReturn result = gate_->runAction(startAction);" not in start
+        recovery = body(OWNER, "static IOReturn prepareFreshStartAction(",
+                        "static IOReturn startAction(")
+        assert "simpleath::NativeQueuePhase::Quarantined" in recovery
+        assert "self.keyCache_.requiresReset" in recovery
+        assert "mapped && !self.queuesAdopted_" in recovery
+        assert "self.stopHardware(simpleath::ProviderAccess::Available);" in recovery
+        assert recovery.index("self.stopHardware(") < recovery.index(
+            "release = mapped;"
+        )
+        assert "if (!self.powered_ &&" in recovery
+        assert "return kIOReturnNotReady;" in recovery
+
+    @staticmethod
+    def test_fault_detached_queue_retries_isolation_before_release() -> None:
+        # A fault already detached IRQ ownership; stopping must still try
+        # physical isolation before allowing releaseClient to free DMA.
+        stop = body(OWNER, "void stopHardware(simpleath::ProviderAccess access)",
+                    "static IOReturn prepareFreshStartAction(")
+        assert "queues_.phase() == simpleath::NativeQueuePhase::Quarantined" in stop
+        assert "queues_.stopGated(access ==" in stop
+        assert stop.index("queues_.stopGated(") < stop.index("session_.stop(access);")
+        queue = body(QUEUE, "bool NativeQueues::stopGated(bool available)",
+                     "IOReturn NativeQueues::releaseClient()")
+        assert "phase_ = isolated ? NativeQueuePhase::Prepared" in queue
+        assert "NativeQueuePhase::Quarantined" in queue
+        released = body(QUEUE, "IOReturn NativeQueues::releaseClient()",
+                        "} // namespace simpleath")
+        assert "phase_ == NativeQueuePhase::Quarantined" in released
+        assert "return kIOReturnBusy;" in released
+
+    @staticmethod
     def test_terminal_queue_cannot_erase_with_pending_transmit() -> None:
         retire = body(
             QUEUE,

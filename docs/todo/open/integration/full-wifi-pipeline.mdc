@@ -180,6 +180,24 @@ an untracked direct M4 and checks mirrored CCMP sessions before resuming
 its deferred M4/Group2 transmit. Source-wiring checks cover these guards;
 real bus isolation and key RAM erasure remain unverified.
 
+### Explicit fresh PCI epoch after terminal native retirement (2026-11-11)
+
+A child power-on after a quarantined DMA queue or `keyCache_.requiresReset`
+now first enters the native command-gated stop path, which can retry genuine
+MAC/bus isolation even if the earlier fault detached the interrupt owner.
+Only after this stop can the sleepable client release old coherent mappings.
+A failed release or quarantine without a still-live PCI/D0 owner returns an
+error instead of running the next PCI/NVM bootstrap over stale device DMA.
+A successful release proceeds through a new monotonically increasing PCI
+session epoch, NVM validation and key-RAM scrub, then allocates fresh queues.
+
+This does not schedule an automatic reconnect, resurrect a former BSS, or
+supply missing RF calibration, country/coexistence or channel authority:
+`radioOperational_` and `channelAuthorized_` still have no successful path.
+The source-only wiring regressions check stop/release/restart order, not live
+Tahoe callback timing, physical bus isolation or hardware restart success.
+The full native channel setup and automatic reconnect owner remain open.
+
 Implement one lifecycle owner joining these actual boundaries in order:
 PCI provider/gate/D0 -> validated board -> reset/calibrated radio -> mapped
 RX/TX/status queues -> IRQ work -> MAC/RSN keys -> native AirPort packets.

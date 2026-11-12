@@ -3831,7 +3831,22 @@ class SimpleATH final : public IOService
                 return kIOReturnNotReady;
             }
             IOLockLock(lifecycle_);
-            IOReturn result = gate_->runAction(startAction);
+            // Power-on after link retirement, a keycache fault or failed
+            // queue teardown must acquire a FRESH physical owner epoch.
+            // Do not reuse the prior NVM lease while the old DMA mappings
+            // still belong to a quarantined device. All reset MMIO remains
+            // command-gated; coherent mapping release stays off the gate.
+            bool releaseRetiredQueues = false;
+            IOReturn result = gate_->runAction(prepareFreshStartAction,
+                                               &releaseRetiredQueues);
+            if (result == kIOReturnSuccess && releaseRetiredQueues)
+            {
+                result = queues_.releaseClient();
+            }
+            if (result == kIOReturnSuccess)
+            {
+                result = gate_->runAction(startAction);
+            }
             if (result == kIOReturnSuccess &&
                 queues_.phase() == simpleath::NativeQueuePhase::Empty)
             {
@@ -4338,8 +4353,13 @@ class SimpleATH final : public IOService
             }
             nativePairwiseKeyRevoked_ = false;
             nativeGroupKeyRevokedMask_ = 0;
-            if (queuesAdopted_)
+            if (queuesAdopted_ ||
+                queues_.phase() == simpleath::NativeQueuePhase::Quarantined)
             {
+                // A fault may already have detached the IRQ and cleared
+                // queuesAdopted_. Retry real isolation while this PCI epoch
+                // is still available; releaseClient rejects any mapping that
+                // remains quarantined after an unsuccessful stop.
                 queues_.stopGated(access ==
                                   simpleath::ProviderAccess::Available);
                 queuesAdopted_ = false;
@@ -4405,6 +4425,49 @@ class SimpleATH final : public IOService
             removeProperty("SimpleATHPermanentMAC");
             removeProperty("SimpleATHNvmOrigin");
             setProperty("SimpleATHDriverReady", false);
+        }
+
+        static IOReturn prepareFreshStartAction(OSObject *owner, void *argument,
+                                                void * /*unused2*/,
+                                                void * /*unused3*/,
+                                                void * /*unused4*/)
+        {
+            auto *typed = OSDynamicCast(SimpleATH, owner);
+            if (typed == nullptr || argument == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            auto &self = *typed;
+            auto &release = *static_cast<bool *>(argument);
+            release = false;
+            if (self.stopping_)
+            {
+                return kIOReturnNotReady;
+            }
+            const auto phase = self.queues_.phase();
+            const bool mapped = phase != simpleath::NativeQueuePhase::Empty;
+            const bool retired =
+                phase == simpleath::NativeQueuePhase::Quarantined ||
+                self.keyCache_.requiresReset;
+            const bool orphaned = mapped && !self.queuesAdopted_;
+            if (!retired && !orphaned)
+            {
+                return kIOReturnSuccess;
+            }
+            // If PCI/D0 ownership was already revoked, there is no safe
+            // physical isolation operation to turn quarantined DMA into a
+            // releasable buffer. Never start a new session over that IOVA.
+            if (!self.powered_ &&
+                phase == simpleath::NativeQueuePhase::Quarantined)
+            {
+                return kIOReturnNotReady;
+            }
+            if (self.powered_)
+            {
+                self.stopHardware(simpleath::ProviderAccess::Available);
+            }
+            release = mapped;
+            return kIOReturnSuccess;
         }
 
         static IOReturn startAction(OSObject *owner, void * /*unused1*/,
