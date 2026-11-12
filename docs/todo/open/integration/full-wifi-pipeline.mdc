@@ -664,3 +664,8 @@ regressions cover changed 2.4-GHz channel, downgrade, PMF RSN capability,
 SSID and unchanged/hidden beacons. This is only FCS-trusted source behavior;
 802.11 beacons are not cryptographically authenticated, and RF/TPC/EDMA still
 cannot be declared ready.
+
+A delayed watchdog cannot be bypassed by a changed-policy beacon: the
+associated AP deadline is checked before policy parsing, and an already
+expired lease still emits one terminal `LinkLost` action (portable fixture
+covers wrong-channel RX after the last valid hidden beacon).

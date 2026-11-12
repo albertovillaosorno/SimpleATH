@@ -423,6 +423,23 @@ namespace
         {
             return false;
         }
+        // An expired association must retire even when the first incoming
+        // frame is a spoofed same-BSSID beacon with a wrong channel. Never
+        // let the mismatch bypass the preexisting one-shot LinkLost action.
+        advertisement = wpa2Beacon();
+        advertisement.at(48) = 11U;
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 2256U}, tx.data(), tx.size(),
+                            action) != EngineResult::Ok ||
+            action.kind != ActionKind::LinkLost ||
+            engine.linkStatus().reason != LinkLoss::BeaconTimeout ||
+            engine.linkStatus().state != LinkState::ReconnectPending ||
+            engine.linkStatus().acceptedBeacons != 2U ||
+            engine.linkStatus().lastBeaconMs != 1055U ||
+            engine.checkBeaconTimeout(2257U, action) != EngineResult::NoAction)
+        {
+            return false;
+        }
         return true;
     }
 

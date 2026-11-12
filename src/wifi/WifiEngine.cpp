@@ -1057,6 +1057,19 @@ namespace simpleath
                     sameMac(header.source, station_.candidate().beacon.bssid) &&
                     sameMac(header.bssid, station_.candidate().beacon.bssid))
                 {
+                    // Policy rejection must not hide an already expired AP
+                    // lease. A delayed timer can lose the race to a malformed
+                    // same-BSSID beacon; deadline retirement takes priority.
+                    const LinkMonitorResult deadline =
+                        link_.observeTimeout(nowMs);
+                    if (deadline == LinkMonitorResult::Ok)
+                    {
+                        return emitPrepared(ActionKind::LinkLost, 0, action);
+                    }
+                    if (deadline == LinkMonitorResult::InvalidClock)
+                    {
+                        return EngineResult::InvalidReceivedFrame;
+                    }
                     Beacon advertised {};
                     if (parseBeacon(frame, length, advertised) != Result::Ok ||
                         !sameAssociatedBeaconPolicy(station_.candidate().beacon,
