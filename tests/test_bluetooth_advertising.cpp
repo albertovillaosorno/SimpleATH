@@ -108,6 +108,7 @@ namespace
             size_t authorizations {};
             size_t permitCalls {};
             size_t rebindOnPermitCall {};
+            uint8_t *mutateEventOnPermit {};
             bool rebindOnAuthorization {};
             bool rebound {};
             bool (*rebindTransport)(void *) {};
@@ -139,6 +140,11 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.permitCalls;
+        if (fake.mutateEventOnPermit != nullptr)
+        {
+            fake.mutateEventOnPermit[5U] = 0x0cU;
+            fake.mutateEventOnPermit = nullptr;
+        }
         if (fake.permitCalls == fake.rebindOnPermitCall &&
             fake.rebindTransport != nullptr)
         {
@@ -463,6 +469,12 @@ namespace
                 }
                 return acceptLeAdvertisingEvent(advertising_, transport_,
                                                 host(), owner(), data, bytes);
+            }
+
+            bool accountHciEvent(const uint8_t *event, size_t bytes)
+            {
+                return receiveUsbHciEvent(transport_, host(), event, bytes) ==
+                       UsbHciStatus::Ok;
             }
 
             LeAdvertisingResult completeParameters()
@@ -813,6 +825,33 @@ namespace
         return 0;
     }
 
+    int borrowedControllerCompletion()
+    {
+        Fixture f {};
+        if (!f.attach() || f.begin() != LeAdvertisingResult::Ok)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The USB owner has already accounted the original response. An
+        // advertising policy callback must not be able to rewrite that HCI
+        // command status before the producer parses it.
+        auto event = kParametersComplete;
+        if (!f.accountHciEvent(event.data(), event.size()))
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        f.fake().mutateEventOnPermit = event.data();
+        if (f.observeProducerEvent(event.data(), event.size()) !=
+                LeAdvertisingResult::Ok ||
+            event.at(5U) != 0x0cU ||
+            f.phase() != LeAdvertisingPhase::AwaitData ||
+            f.fake().commandCount != 2U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
     int inlineControllerResponses()
     {
         Fixture rejectedBegin {};
@@ -1127,6 +1166,10 @@ int main()
     if (const int staleUsb = sameEpochTransportReplacementAfterApproval())
     {
         return staleUsb;
+    }
+    if (const int borrowed = borrowedControllerCompletion())
+    {
+        return borrowed;
     }
     if (const int inlineResult = inlineControllerResponses())
     {

@@ -683,3 +683,17 @@ command and pending opcode. Unauthorized, malformed and state-aliasing inputs
 retain explicit failure paths. This does not snapshot 4 KiB ACL submissions,
 prove native USB request lifetime, implement a macOS Bluetooth stack, or
 establish physical controller functionality.
+
+## Source progress — stable LE advertising acknowledgments
+
+The portable LE advertising producer now copies a bounded HCI event before
+its owner-permission callback. Advertising Command Complete and Command Status
+handling use the copied event's length, opcode, credit and result values,
+including when the host callback mutates the borrowed USB buffer inline. The
+regression first accounts the original controller response in the USB layer,
+then changes its status during advertising authorization; the producer must
+advance from awaiting parameters to awaiting data without accepting the
+modified rejection. The previous source fails this synthetic case, while
+C++14/C++17 sanitizer tests pass after the fix. This consumer-side snapshot
+does not ensure native USB event lifetime, provide a Bluetooth host stack,
+prove physical advertising, or authorize AirDrop/AWDL.

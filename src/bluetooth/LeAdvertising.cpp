@@ -567,6 +567,18 @@ namespace simpleath
         {
             return LeAdvertisingResult::Faulted;
         }
+        // The ingress HCI event is borrowed. An external owner callback can
+        // reuse its source buffer even while returning a valid permission.
+        // Snapshot before asking permission; parse only the accepted image.
+        const bool canSnapshot = event != nullptr &&
+                                 bytes >= kHciEventHeaderBytes &&
+                                 bytes <= kUsbHciMaxEventBytes;
+        UsbBytes<uint8_t, kUsbHciMaxEventBytes> snapshot {};
+        if (canSnapshot)
+        {
+            __builtin_memcpy(snapshot.data(), event, bytes);
+        }
+        const uint8_t *const accepted = snapshot.data();
         {
             const LeAdvertisingPhase previousPhase = state.phase;
             const uint64_t previousEpoch = state.epoch;
@@ -577,13 +589,12 @@ namespace simpleath
                                          previousGeneration);
             }
         }
-        if (event == nullptr || bytes < kHciEventHeaderBytes ||
-            bytes > kUsbHciMaxEventBytes ||
-            bytes != *usbByteOffset(event, 1U) + kHciEventHeaderBytes)
+        if (!canSnapshot ||
+            bytes != *usbByteOffset(accepted, 1U) + kHciEventHeaderBytes)
         {
             return fault(state, LeAdvertisingResult::MalformedEvent);
         }
-        const uint8_t type = *usbByteOffset(event, 0U);
+        const uint8_t type = *usbByteOffset(accepted, 0U);
         if (type != kCommandComplete && type != kCommandStatus)
         {
             return LeAdvertisingResult::Ignored;
@@ -591,7 +602,7 @@ namespace simpleath
         const uint64_t issuedGeneration = state.generation;
         const uint64_t issuedEpoch = state.epoch;
         const LeAdvertisingResult result = acceptCommandEvent(
-            state, transport, host, event, bytes, type == kCommandComplete);
+            state, transport, host, accepted, bytes, type == kCommandComplete);
         if (state.generation != issuedGeneration || state.epoch != issuedEpoch)
         {
             return result == LeAdvertisingResult::Ok &&
