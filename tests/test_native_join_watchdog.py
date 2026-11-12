@@ -99,6 +99,48 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "retireNativeLink(kIOReturnNotReady);" in association
 
     @staticmethod
+    def test_initial_port_open_has_independent_bounded_deadline() -> None:
+        fired = body(
+            "static void linkTimerFired(", "static void scanTimerFired("
+        )
+        assert fired.index("if (self.portReadyPending_ &&") < fired.index(
+            "self.engine_.checkBeaconTimeout("
+        )
+        assert "now < self.portReadyStartedMs_" in fired
+        assert (
+            "now - self.portReadyStartedMs_ >= kNativePortOpenTimeoutMs"
+            in fired
+        )
+        assert "self.retireNativeLink(kIOReturnTimeout);" in fired
+        association = body(
+            "void recordNativeAssociation()", "void receiveNativeAwdl("
+        )
+        assert (
+            association.index("portReadyStartedMs_ =")
+            < association.index("portReadyPending_ = true;")
+            < association.index("linkTimer_->setTimeoutMS(")
+        )
+        assert "kNativePortOpenTimeoutMs = 15000U;" in SOURCE
+
+    @staticmethod
+    def test_late_port_open_does_not_bypass_watchdog() -> None:
+        open_port = body(
+            "static IOReturn ownerAuthorizePortAction(",
+            "static IOReturn ownerAuthorizePortScopedAction(",
+        )
+        assert (
+            open_port.index("nativeControlledPortSecurityReady(")
+            < open_port.index("if (self.portReadyPending_ &&")
+            < open_port.index("self.retireNativeLink(kIOReturnTimeout);")
+            < open_port.index("self.portReadyPending_ = false;")
+            < open_port.index("self.controlledPortAuthorized_ = true;")
+        )
+        # A previously opened port can later be closed during key rotation.
+        # Only the initial unopened association has the finite deadline.
+        assert "if (self.portReadyPending_ &&" in open_port
+        assert "if (!self.portReadyPending_ ||" not in open_port
+
+    @staticmethod
     def test_failed_join_and_terminal_paths_invalidate_deadline() -> None:
         failed = body(
             "void failNativeJoin(IOReturn status)",
@@ -107,6 +149,8 @@ class NativeJoinDeadlineWiring(unittest.TestCase):
         assert "linkWatchEpoch_ = 0;" in failed
         assert "linkWatchAssociationGeneration_ = 0;" in failed
         assert "joinWatchRequestId_ = 0;" in failed
+        assert "portReadyStartedMs_ = 0;" in failed
+        assert "portReadyPending_ = false;" in failed
         assert "linkTimer_->cancelTimeout();" in failed
         terminal = body(
             "void retireNativeLink(IOReturn reason)",

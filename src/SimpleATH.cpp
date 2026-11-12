@@ -148,6 +148,7 @@ namespace
     constexpr uint8_t kNativeAmsduPresent = 0x80U;
     constexpr uint32_t kNativeLinkWatchdogMs = 1000U;
     constexpr uint32_t kNativeJoinTimeoutMs = 10000U;
+    constexpr uint32_t kNativePortOpenTimeoutMs = 15000U;
     constexpr uint8_t kAwdlSocialChannelSix = 6U;
     constexpr uint8_t kAwdlActionSubtype = 13U;
     constexpr unsigned int kAwdlCounterWidthBits = 64U;
@@ -957,6 +958,17 @@ class SimpleATH final : public IOService
                 return;
             }
             const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            // Beacons can remain healthy while an EAPOL or key-install
+            // handshake never finishes. Bound the initial closed-port
+            // lease separately from AP beacon liveness, even if a delayed
+            // timer callback races a late OS supplicant response.
+            if (self.portReadyPending_ &&
+                (now < self.portReadyStartedMs_ ||
+                 now - self.portReadyStartedMs_ >= kNativePortOpenTimeoutMs))
+            {
+                self.retireNativeLink(kIOReturnTimeout);
+                return;
+            }
             simpleath::ieee80211::EngineAction action {};
             const auto result = self.engine_.checkBeaconTimeout(now, action);
             if (result == simpleath::ieee80211::EngineResult::Ok &&
@@ -1123,6 +1135,8 @@ class SimpleATH final : public IOService
             linkWatchEpoch_ = 0;
             linkWatchAssociationGeneration_ = 0;
             joinWatchRequestId_ = 0;
+            portReadyStartedMs_ = 0;
+            portReadyPending_ = false;
             pendingLocalLeaveToken_ = 0;
             pendingLocalLeaveEpoch_ = 0;
             if (linkTimer_ != nullptr)
@@ -1676,6 +1690,17 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
+            // The final open must not race a delayed watchdog callback.
+            // Even verified keys and beacons cannot revive an expired join.
+            const uint64_t now = nowMicros(nullptr) / kMicrosPerMillisecond;
+            if (self.portReadyPending_ &&
+                (now < self.portReadyStartedMs_ ||
+                 now - self.portReadyStartedMs_ >= kNativePortOpenTimeoutMs))
+            {
+                self.retireNativeLink(kIOReturnTimeout);
+                return kIOReturnTimeout;
+            }
+            self.portReadyPending_ = false;
             self.controlledPortAuthorized_ = true;
             self.notifyWirelessChange(false);
             return kIOReturnSuccess;
@@ -3125,6 +3150,8 @@ class SimpleATH final : public IOService
             }
             ++associationGeneration_;
             joinWatchRequestId_ = 0;
+            portReadyStartedMs_ = nowMicros(nullptr) / kMicrosPerMillisecond;
+            portReadyPending_ = true;
             linkWatchEpoch_ = epoch_;
             linkWatchAssociationGeneration_ = associationGeneration_;
             if (linkTimer_->setTimeoutMS(kNativeLinkWatchdogMs) !=
@@ -4763,6 +4790,10 @@ class SimpleATH final : public IOService
         // Only a submitted authentication request starts this timer lease.
         // Association replaces it with an AP-beacon watchdog.
         uint64_t joinWatchRequestId_ {0};
+        // Until first controlled-port authorization, even a beacon-live AP
+        // cannot hold pending EAPOL/security state indefinitely.
+        uint64_t portReadyStartedMs_ {0};
+        bool portReadyPending_ {false};
         uint64_t scanEpoch_ {0};
         uint64_t scanEngineGeneration_ {0};
         uint32_t scanSerial_ {0};

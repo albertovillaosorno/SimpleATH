@@ -131,6 +131,23 @@ terminal wiring. It is not a kernel timer, physical EDMA or RF test. WPA2
 EAPOL handshake completion timing, actual native RF/channel authorization and
 reset/reconnect after the terminal quarantine remain separate unfinished work.
 
+### Native associated-but-closed timeout (source integration, 2026-11-11)
+
+Native association now starts an independent fifteen-second, monotonic
+controlled-port deadline. Receiving continuing AP beacons does not refresh
+this limit: a missing WPA2 M1/M3, failed key installation, missing M4
+completion, absent verified protected RX or missing open-BSS authorization
+cannot hold initial key/EDMA ownership forever. Both the workloop watchdog
+and the final controlled-port authorization check reject an expired deadline
+through the same terminal hardware quarantine, including clock regressions.
+After the first authorized port opening, the deadline is retired; a later
+legitimate GTK rekey/port close is governed by other link/security checks,
+not by this initial-open timeout.
+
+New source-only regressions check timer ordering, post-association arming,
+late-open denial and terminal cancellation. These do not establish actual
+native Tahoe timer firing, successful handshake, RF tuning or radio transfer.
+
 ### Prior link-loss audit (2026-11-11)
 
 Before the guarded quarantine transition described below,
