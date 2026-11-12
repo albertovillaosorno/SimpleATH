@@ -108,6 +108,20 @@ namespace simpleath
         EapolResult parseEapolKey(const uint8_t *frame, size_t length,
                                   KeyFrame &out);
 
+        enum class StationEapolTxMode : uint8_t
+        {
+            Reject,
+            ClearPairwise2,
+            ClearPairwise4,
+            ProtectedGroup2,
+        };
+
+        // Classifies strict WPA2-PSK supplicant replies, not MIC validity.
+        // OS/native TX uses this before choosing plaintext or CCMP framing.
+        // No incomplete or padded EAPOL may acquire a plaintext exception.
+        StationEapolTxMode classifyStationEapolTx(const uint8_t *eapol,
+                                                  size_t bytes);
+
         enum class HandshakePhase : uint8_t
         {
             Empty,

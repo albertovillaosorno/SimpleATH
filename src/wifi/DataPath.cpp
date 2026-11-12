@@ -51,7 +51,6 @@ namespace simpleath
         namespace
         {
             constexpr uint16_t kEtherTypeEapol = 0x888eU;
-            constexpr uint16_t kGroup2KeyInformation = 0x0302U;
             constexpr uint16_t kEtherTypeAarp = 0x80f3U;
             constexpr uint16_t kEtherTypeIpx = 0x8137U;
             constexpr size_t kEthernetHeaderBytes = 14U;
@@ -241,29 +240,24 @@ namespace simpleath
             // exchange's supplicant replies have an explicit exception.
             // A parsed reply must occupy the entire supplied Ethernet
             // payload; any trailing bytes would be sent unauthenticated.
-            KeyFrame key {};
             const size_t eapolBytes = ethernetBytes - kEthernetHeaderBytes;
-            if (parseEapolKey(byteAt(ethernet, kEthernetHeaderBytes),
-                              eapolBytes, key) != EapolResult::Ok ||
-                key.eapolLength != eapolBytes ||
-                (protectedWpa2
-                     ? (key.message != KeyMessage::Group2 ||
-                        key.keyInformation != kGroup2KeyInformation ||
-                        key.keyLength != 0U || key.keyDataLength != 0U)
-                     : (key.message != KeyMessage::Pairwise2 &&
-                        key.message != KeyMessage::Pairwise4)))
+            const auto mode = classifyStationEapolTx(
+                byteAt(ethernet, kEthernetHeaderBytes), eapolBytes);
+            if (mode == StationEapolTxMode::Reject ||
+                (protectedWpa2 ? mode != StationEapolTxMode::ProtectedGroup2
+                               : mode == StationEapolTxMode::ProtectedGroup2))
             {
                 return DataPathResult::InvalidEthernetFrame;
             }
             // M2 is only valid while awaiting key installation. M4 is
             // the final cleartext 4-way response AFTER MIC-checked M3
             // has installed pairwise and group keycache state.
-            if (key.message == KeyMessage::Pairwise2 &&
+            if (mode == StationEapolTxMode::ClearPairwise2 &&
                 link.pairwiseAndGroupKeysInstalled)
             {
                 return DataPathResult::NeedsCcmpEncryption;
             }
-            if (key.message == KeyMessage::Pairwise4 &&
+            if (mode == StationEapolTxMode::ClearPairwise4 &&
                 !link.pairwiseAndGroupKeysInstalled)
             {
                 return DataPathResult::MissingKeys;

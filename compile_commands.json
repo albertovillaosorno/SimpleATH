@@ -1417,6 +1417,20 @@
   },
   {
     "directory": ".",
+    "file": "tests/test_native_eapol_tx.cpp",
+    "arguments": [
+      "clang++",
+      "-std=c++17",
+      "-I",
+      "src",
+      "-x",
+      "c++",
+      "-fsyntax-only",
+      "tests/test_native_eapol_tx.cpp"
+    ]
+  },
+  {
+    "directory": ".",
     "file": "tests/test_native_port_security.cpp",
     "arguments": [
       "clang++",

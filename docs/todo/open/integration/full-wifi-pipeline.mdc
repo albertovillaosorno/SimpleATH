@@ -518,3 +518,16 @@ admission if it cannot independently verify the received MIC/PN. This device
 format/crypto-ownership interlock, atomic Group1/Group2 handling, real RF
 activation, country/channel/TPC authority, and exact Tahoe runtime remain
 P0 blockers. Source syntax/host fixtures cannot prove physical connectivity.
+
+### OS EAPOL-Key transmission policy (source-only, 2026-11-11)
+
+The native OS-owned EAPOL transmit entry now classifies complete RSN
+EAPOL-Key replies before any serializer: exact M2 and M4 use the 802.11
+cleartext exception, while Group2 must enter the installed pairwise CCMP
+transmit session. A malformed, padded, AP-originated or unknown Key message
+cannot borrow this exception or fall back from a failed cleartext request to
+protected transmission. An M2 arriving after pairwise key installation is
+also rejected. The shared portable DataPath serializer validates the same
+policy, independent of native call-site ordering. This removes an implicit
+try-clear-then-encrypt fallback; it does not establish MIC authenticity,
+native TX completion, radio readiness, or physical Wi-Fi success.

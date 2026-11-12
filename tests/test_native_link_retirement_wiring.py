@@ -557,5 +557,31 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         ) < POLICY.index("out.hardwareKeysErased =")
 
 
+class NativeEapolTransmitWiring(unittest.TestCase):
+    """Prove native OS EAPOL routing explicitly selects the security mode."""
+
+    @staticmethod
+    def test_native_eapol_classification_precedes_frame_serialization() -> None:
+        transmit = body(
+            OWNER,
+            "static IOReturn ownerTransmitEthernetAction(",
+            "static IOReturn ownerTransmitEthernet(",
+        )
+        assert transmit.index("classifyStationEapolTx(") < transmit.index(
+            "const bool clearEapol ="
+        )
+        assert (
+            transmit.index("if (isEapol && clearEapol)")
+            < transmit.index("protectedWpa2 && !clearEapol")
+            < transmit.index("self->submitPreparedTransmit(")
+        )
+        assert (
+            "eapolMode == simpleath::ieee80211::StationEapolTxMode::"
+            in transmit
+        )
+        assert "self->nativePairwiseTx_.installed()" in transmit
+        assert "verifyNativeAssociationLease(" in transmit
+
+
 if __name__ == "__main__":
     _ = unittest.main()

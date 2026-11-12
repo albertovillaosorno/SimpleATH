@@ -2940,6 +2940,22 @@
       "kind": "code"
     },
     {
+      "path": "tests/test_native_eapol_tx.cpp",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "code"
+    },
+    {
+      "path": "tests/test_native_eapol_tx.sources",
+      "license": "MIT",
+      "license_file": "LICENSE-MIT",
+      "copyright": "Copyright © 2026 Alberto Villa Osorno",
+      "provenance": "SimpleATH original; independently developed or locally authored",
+      "kind": "data-or-document"
+    },
+    {
       "path": "tests/test_native_port_security.cpp",
       "license": "MIT",
       "license_file": "LICENSE-MIT",

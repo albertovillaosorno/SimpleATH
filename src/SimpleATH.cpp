@@ -2021,6 +2021,28 @@ class SimpleATH final : public IOService
                 self->engine_.osSupplicantOwnsWpa2() &&
                 self->engine_.stationState() ==
                     simpleath::ieee80211::StationState::WaitingForWpa2Keys;
+            simpleath::ieee80211::StationEapolTxMode eapolMode =
+                simpleath::ieee80211::StationEapolTxMode::Reject;
+            if (isEapol)
+            {
+                // The complete fixed Ethernet header was copied above.
+                // NOLINTNEXTLINE(*bounds-pointer-arithmetic)
+                const auto *payload = packet.bytes + sizeof(ethernetHeader);
+                eapolMode = simpleath::ieee80211::classifyStationEapolTx(
+                    payload, packet.length - sizeof(ethernetHeader));
+            }
+            // A stale/replayed M2 after PTK installation is not a new
+            // plaintext handshake. Group2 never selects a clear TX path.
+            if (isEapol &&
+                (!nativeHandshake ||
+                 eapolMode ==
+                     simpleath::ieee80211::StationEapolTxMode::Reject ||
+                 (eapolMode == simpleath::ieee80211::StationEapolTxMode::
+                                   ClearPairwise2 &&
+                  self->nativePairwiseTx_.installed())))
+            {
+                return kIOReturnUnsupported;
+            }
             if (!self->powered_ || self->stopping_ ||
                 link.state != simpleath::ieee80211::LinkState::Associated ||
                 self->nativePairwiseKeyRevoked_ ||
@@ -2066,13 +2088,20 @@ class SimpleATH final : public IOService
             simpleath::ieee80211::EngineResult prepared =
                 simpleath::ieee80211::EngineResult::CryptoUnavailable;
             bool softwareProtected = false;
-            if (isEapol && nativeHandshake)
+            const bool clearEapol =
+                eapolMode ==
+                    simpleath::ieee80211::StationEapolTxMode::ClearPairwise2 ||
+                eapolMode ==
+                    simpleath::ieee80211::StationEapolTxMode::ClearPairwise4;
+            if (isEapol && clearEapol)
             {
                 prepared = self->prepareNativeClearHandshake(packet, connection,
                                                              action);
             }
+            // Never retry an invalid M2/M4 as CCMP. Only an explicit Group2
+            // or admitted non-EAPOL data frame can enter encryption.
             if (prepared != simpleath::ieee80211::EngineResult::Ok &&
-                protectedWpa2)
+                protectedWpa2 && !clearEapol)
             {
                 prepared = self->prepareNativeEncryptedEthernet(
                     packet, connection, action);

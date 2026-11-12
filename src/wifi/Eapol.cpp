@@ -411,6 +411,39 @@ namespace simpleath
             return EapolResult::Ok;
         }
 
+        StationEapolTxMode classifyStationEapolTx(const uint8_t *eapol,
+                                                  size_t bytes)
+        {
+            KeyFrame key {};
+            if (parseEapolKey(eapol, bytes, key) != EapolResult::Ok ||
+                key.eapolLength != bytes)
+            {
+                return StationEapolTxMode::Reject;
+            }
+            // Exact RSN Key Information flags prevent unrelated requests
+            // from borrowing the native four-way plaintext exception.
+            switch (key.message)
+            {
+                case KeyMessage::Pairwise2:
+                    return key.keyInformation == 0x010aU
+                               ? StationEapolTxMode::ClearPairwise2
+                               : StationEapolTxMode::Reject;
+                case KeyMessage::Pairwise4:
+                    return key.keyInformation == 0x030aU &&
+                                   key.keyDataLength == 0U
+                               ? StationEapolTxMode::ClearPairwise4
+                               : StationEapolTxMode::Reject;
+                case KeyMessage::Group2:
+                    return key.keyInformation == 0x0302U &&
+                                   key.keyLength == 0U &&
+                                   key.keyDataLength == 0U
+                               ? StationEapolTxMode::ProtectedGroup2
+                               : StationEapolTxMode::Reject;
+                default:
+                    return StationEapolTxMode::Reject;
+            }
+        }
+
         ReplayGuard::ReplayGuard() = default;
 
         void ReplayGuard::reset()
