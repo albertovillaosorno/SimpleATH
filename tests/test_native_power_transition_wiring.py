@@ -73,6 +73,29 @@ class NativePowerTransitionWiring(unittest.TestCase):
         assert "if (released != kIOReturnSuccess)" in stop
 
     @staticmethod
+    def test_abort_before_keycache_scrub_still_quiesces_mapped_mac() -> None:
+        owner = OWNER.split(
+            "void stopHardware(simpleath::ProviderAccess access)", 1
+        )[1].split("static IOReturn prepareFreshStartAction(", 1)[0]
+        quiesce = owner.split("const bool hardwareQuiesced =", 1)[1].split(
+            "// Portable supplicant key removal", 1
+        )[0]
+        assert "session_.hardwareStatus().mapped" in quiesce
+        assert (
+            "queues_.phase() != simpleath::NativeQueuePhase::Quarantined"
+            in (quiesce)
+        )
+        assert "quiesceEngines();" in quiesce
+        assert "keyCache_.initialized" not in quiesce
+        assert (
+            owner.index("const bool hardwareQuiesced =")
+            < owner.index("engine_.radioStopped(")
+            < owner.index("session_.stop(access);")
+        )
+        assert "if (keyCache_.initialized)" in owner
+        assert "hardwareQuiesced && !keyCache_.requiresReset" in owner
+
+    @staticmethod
     def test_transport_retains_mailbox_if_provider_rejects_power_off() -> None:
         power = TRANSPORT.split(
             "IOReturn TahoeWirelessTransport::setPower(bool on)", 1

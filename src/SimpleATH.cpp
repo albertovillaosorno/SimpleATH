@@ -5038,9 +5038,13 @@ class SimpleATH final : public IOService
             notifiedScanGeneration_ = 0;
             awdlNeighbors_.clear();
             completedScanTicket_ = {};
+            // RTC or EEPROM startup can fail before the key RAM has ever
+            // been initialized. A live mapped PCI epoch still needs a MAC
+            // quiesce attempt before BAR release; keycache readiness only
+            // determines whether a later physical key erasure is possible.
             const bool hardwareQuiesced =
-                keyCache_.initialized &&
                 access == simpleath::ProviderAccess::Available &&
+                session_.hardwareStatus().mapped &&
                 queues_.phase() != simpleath::NativeQueuePhase::Quarantined &&
                 quiesceEngines();
             // Portable supplicant key removal now runs only after the native

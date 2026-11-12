@@ -182,3 +182,16 @@ These APIs do not eliminate the need to integrate AR9565 with a functional
 **No binary builds, new GitHub build tags, workflow runs, USB changes or
 OpenCore EFI edits until expressly approved.** Ordinary source commits
 to main do not trigger the tag-only CI workflow.
+
+## Mapped-PCI shutdown after partial radio startup (2026-11-12)
+
+The native controller now attempts to quiesce the AR9565 MAC before releasing
+an available, mapped PCI session even when its keycache was never initialized.
+Previously the keycache-initialized flag also skipped the physical MAC stop
+on failures during RTC reset, NVM acquisition or station address setup.
+Quiescence is attempted only while the provider is available and a queue is
+not quarantined; a failed quiesce remains unverified. Physical key erasure
+still separately requires initialized key RAM, proven quiescence and a clean
+keycache reset obligation. An absent BAR or lost provider is never replaced
+with an assumed hardware shutdown. The accompanying source regression cannot
+establish actual physical engine silence or USB/OS runtime safety.
