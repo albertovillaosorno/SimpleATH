@@ -197,8 +197,8 @@ class NativeLocalLeaveWiring(unittest.TestCase):
         assert "self.pendingLocalLeaveToken_ != 0" in receive
 
 
-class NativeLinkRetirementWiring(unittest.TestCase):
-    """Prevent software-only teardown from returning to terminal TX paths."""
+class NativeReceiveDeadlineWiring(unittest.TestCase):
+    """Trace native RX clock admission before packet and key routing."""
 
     @staticmethod
     def test_rx_deadlines_before_protected_or_aggregate_delivery() -> None:
@@ -220,6 +220,10 @@ class NativeLinkRetirementWiring(unittest.TestCase):
         assert "simpleath::ieee80211::ActionKind::LinkLost" in receive
         assert "self.retireNativeLink(kIOReturnTimeout);" in receive
         assert "self.retireNativeLink(kIOReturnNotReady);" in receive
+
+
+class NativeLinkRetirementWiring(unittest.TestCase):
+    """Prevent software-only teardown from returning to terminal TX paths."""
 
     @staticmethod
     def test_protected_completion_failure_retires_hardware() -> None:
