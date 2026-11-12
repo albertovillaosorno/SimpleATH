@@ -667,3 +667,10 @@ power-on while already on does not invalidate an active scan. Fresh OS key
 installations are also rejected during the logical-off interval, although
 removal attempts remain eligible to clean up a failed physical shutdown.
 These are source-side transport decisions, not RF isolation evidence.
+
+A failed Skywalk queue factory can return a non-null object without the
+required IOEventSource type. Native packet-path partial-start teardown now
+disables only the prefix actually type-checked and attached to the workloop,
+rather than invoking IOEventSource virtual calls on every non-null factory
+result. All allocated OSObjects are still released. This controls an error
+path in source; it does not verify the private Tahoe packet-queue ABI.

@@ -61,9 +61,9 @@ class NativePacketRevocationWiring(unittest.TestCase):
         assert disable.index("enabled_ = false;") < disable.index(
             "flushCompletions();"
         )
-        assert disable.index("prefix<IOEventSource>(queue)->disable();") < (
-            disable.index("flushCompletions();")
-        )
+        assert disable.index(
+            "prefix<IOEventSource>(queues_[index])->disable();"
+        ) < (disable.index("flushCompletions();"))
         drain = PACKET_PATH.split(
             "void TahoePacketPath::flushCompletions()", 1
         )[1].split("OSObject *TahoePacketPath::txSubmission()", 1)[0]
@@ -83,6 +83,29 @@ class NativePacketRevocationWiring(unittest.TestCase):
                 "IOReturn TahoePacketPath::enable()", 1
             )[0]
         )
+
+    @staticmethod
+    def test_failed_queue_factory_unwinds_only_validated_event_sources() -> (
+        None
+    ):
+        startup = PACKET_PATH.split("IOReturn TahoePacketPath::start(", 1)[
+            1
+        ].split("void TahoePacketPath::stop()", 1)[0]
+        validation = startup.index('queue->metaCast("IOEventSource")')
+        attachment = startup.index("loop_->addEventSource(")
+        attached = startup.index("++addedSources_;")
+        assert validation < attachment < attached
+        disable = PACKET_PATH.split("void TahoePacketPath::disable()", 1)[
+            1
+        ].split("void TahoePacketPath::poll()", 1)[0]
+        assert "index < addedSources_" in disable
+        assert "prefix<IOEventSource>(queues_[index])->disable();" in disable
+        assert "if (queue != nullptr)" not in disable
+        stop = PACKET_PATH.split("void TahoePacketPath::stop()", 1)[1].split(
+            "IOReturn TahoePacketPath::enable()", 1
+        )[0]
+        assert stop.index("disable();") < stop.index("releaseObject(queue);")
+        assert "while (addedSources_ != 0)" in stop
 
     @staticmethod
     def test_explicit_leave_revokes_data_request_before_provider_call() -> None:

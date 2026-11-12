@@ -289,12 +289,12 @@ namespace simpleath
         void TahoePacketPath::disable()
         {
             enabled_ = false;
-            for (auto *queue : queues_)
+            // A factory can return a non-event-source object during partial
+            // startup. Only the validated, successfully attached prefix may
+            // be cast and disabled; stop() still releases every OSObject.
+            for (unsigned int index = 0; index < addedSources_; ++index)
             {
-                if (queue != nullptr)
-                {
-                    prefix<IOEventSource>(queue)->disable();
-                }
+                prefix<IOEventSource>(queues_[index])->disable();
             }
             // A normal association loss disables poll(), not just final
             // stop(). Accepted TX bytes are already copied to the physical
