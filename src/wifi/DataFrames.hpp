@@ -92,6 +92,44 @@ namespace simpleath
                                bool containsFcs, bool verifiedDecryptionAndMic,
                                AmsduPayload &out);
 
+        // Source-only 3-address QoS A-MSDU MPDU builder for an OPEN
+        // station-to-AP link. The caller must independently prove the
+        // association, AP A-MSDU negotiation/size limit, controlled-port,
+        // regulatory/radio authorization and a unique MAC sequence/TID.
+        // No FCS, CCMP, key state or hardware transmission is generated.
+        // WPA2 aggregates require separately authenticated SPP A-MSDU and
+        // CCMP contracts; this serializer deliberately cannot produce them.
+        struct AmsduTxSubframe
+        {
+                Mac destination {};
+                Mac source {};
+                uint16_t etherType {};
+                const uint8_t *payload {};
+                size_t payloadLength {};
+        };
+
+        struct OpenStationAmsduTx
+        {
+                Mac station {};
+                Mac bssid {};
+                uint16_t macSequence {};
+                uint8_t tid {};
+                const AmsduTxSubframe *subframes {};
+                size_t count {};
+        };
+
+        // Exactly 2..16 subframes, each with its own Ethernet DA/SA,
+        // two-byte big-endian MSDU length, approved LLC/SNAP OUI/EtherType
+        // and zero alignment padding except after the last subframe.
+        // Only same-station source MACs and valid Ethernet-II types are
+        // eligible; EAPOL is never aggregated. Entire FCS-free MPDU fits
+        // the AR9565 2342-byte limit. Ordinary errors clear 'written' while
+        // leaving the output untouched. Overlapping inputs/output/count
+        // return OverlappingBuffers without mutating any caller storage.
+        Result makeOpenStationAmsdu(const OpenStationAmsduTx &request,
+                                    uint8_t *output, size_t capacity,
+                                    size_t &written);
+
         // Ethernet-II packet handoff into a native OS-owned receive pool.
         // Caller must first prove DMA/FCS, station association, destination,
         // duplicate suppression and, for protected frames, CCMP MIC/replay.

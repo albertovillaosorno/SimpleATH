@@ -96,6 +96,7 @@ namespace
     constexpr size_t kQosControlOffset = 24U;
     constexpr uint8_t kQosDataSubtype = 0x88U;
     constexpr uint8_t kQosAmsduPresent = 0x80U;
+    constexpr uint8_t kSentinelByte = 0x5aU;
     constexpr uint8_t kFcsFirst = 0xdeU;
     constexpr uint8_t kFcsSecond = 0xadU;
     constexpr uint8_t kFcsThird = 0xbeU;
@@ -268,6 +269,183 @@ namespace
         }
         return 0;
     }
+    // The builder is intentionally offline: an already negotiated OPEN AP,
+    // authorized radio/TID and available DMA mapping are external owners.
+    int openAmsduTxRoundtrip()
+    {
+        const Mac station {{2U, 3U, 4U, 5U, 6U, 7U}};
+        const Mac ap {{2U, 0U, 1U, 2U, 3U, 4U}};
+        const Mac remote {{0U, 10U, 11U, 12U, 13U, 14U}};
+        const uint8_t first[] {0x45U};
+        const uint8_t second[] {0xabU, 0xcdU};
+        AmsduTxSubframe subframes[2] {};
+        subframes[0] = {remote, station, kEtherTypeIpv4, first, sizeof(first)};
+        subframes[1] = {ap, station, kEtherTypeAarp, second, sizeof(second)};
+        OpenStationAmsduTx request {};
+        request.station = station;
+        request.bssid = ap;
+        request.macSequence = 0xabcU;
+        request.tid = 5U;
+        request.subframes = subframes;
+        request.count = 2U;
+        std::array<uint8_t, kMaxNoFcs + 1U> output {};
+        output.fill(kSentinelByte);
+        size_t written = 99U;
+        constexpr size_t kFirstSubframeBytes = 14U + 8U + 1U;
+        constexpr size_t kSecondSubframeOffset =
+            kQosHeaderBytes + kFirstSubframeBytes + 1U;
+        constexpr size_t kExpectedBytes = kSecondSubframeOffset + 14U + 8U + 2U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::Ok ||
+            written != kExpectedBytes || output.at(0U) != kQosDataSubtype ||
+            output.at(1U) != 0x01U || output.at(22U) != 0xc0U ||
+            output.at(23U) != 0xabU || output.at(kQosControlOffset) != 0x85U ||
+            output.at(kQosHeaderBytes + 12U) != 0U ||
+            output.at(kQosHeaderBytes + 13U) != 9U ||
+            output.at(kQosHeaderBytes + kFirstSubframeBytes) != 0U ||
+            output.at(kSecondSubframeOffset + 12U) != 0U ||
+            output.at(kSecondSubframeOffset + 13U) != 10U ||
+            output.at(kSecondSubframeOffset + 14U + 5U) != kBridgeTunnelOui ||
+            output.at(kExpectedBytes) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        simpleath::ieee80211::Frame header {};
+        AmsduPayload accepted {};
+        if (parseFrame(output.data(), written, header) != Result::Ok ||
+            !header.toDs || header.fromDs || !sameMac(header.source, station) ||
+            !sameMac(header.bssid, ap) ||
+            decodeAmsduData(output.data(), written, false, false, accepted) !=
+                Result::Ok ||
+            accepted.count != 2U ||
+            !sameMac(accepted.subframes[0].destination, remote) ||
+            !sameMac(accepted.subframes[1].source, station) ||
+            accepted.subframes[0].etherType != kEtherTypeIpv4 ||
+            accepted.subframes[1].etherType != kEtherTypeAarp ||
+            accepted.subframes[0].payloadLength != sizeof(first) ||
+            accepted.subframes[1].payloadLength != sizeof(second) ||
+            accepted.subframes[0].payload[0] != first[0] ||
+            accepted.subframes[1].payload[1] != second[1] ||
+            !accepted.subframes[0].qosFrame ||
+            accepted.subframes[1].protectedFrame)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        // The serializer validates all subframes before exposing a partial
+        // buffer: wrong capacity, security or address leaves every byte.
+        const auto original = output;
+        written = 91U;
+        if (makeOpenStationAmsdu(request, output.data(), kExpectedBytes - 1U,
+                                 written) != Result::BufferTooSmall ||
+            written != 0U || output != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        subframes[1].etherType = 0x888eU;
+        written = 91U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidSecurity ||
+            written != 0U || output != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        subframes[1].etherType = kEtherTypeAarp;
+        subframes[1].source = remote;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidAddress ||
+            written != 0U || output != original)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
+
+    int openAmsduTxBounds()
+    {
+        const Mac station {{2U, 3U, 4U, 5U, 6U, 7U}};
+        const Mac ap {{2U, 0U, 1U, 2U, 3U, 4U}};
+        const Mac remote {{0U, 10U, 11U, 12U, 13U, 14U}};
+        const uint8_t first[] {0x45U, 0x00U};
+        std::array<uint8_t, 2270U> second {};
+        second.fill(0x5aU);
+        AmsduTxSubframe subframes[2] {};
+        subframes[0] = {remote, station, kEtherTypeIpv4, first, sizeof(first)};
+        subframes[1] = {ap, station, kEtherTypeIpv4, second.data(),
+                        second.size()};
+        OpenStationAmsduTx request {station, ap, 0xfffU, 7U, subframes, 2U};
+        std::array<uint8_t, kMaxNoFcs + 1U> output {};
+        output.fill(kSentinelByte);
+        size_t written = 0U;
+        if (makeOpenStationAmsdu(request, output.data(), kMaxNoFcs, written) !=
+                Result::Ok ||
+            written != kMaxNoFcs || output.at(kMaxNoFcs) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        AmsduPayload accepted {};
+        if (decodeAmsduData(output.data(), written, false, false, accepted) !=
+                Result::Ok ||
+            accepted.count != 2U ||
+            accepted.subframes[1].payloadLength != second.size())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        second.fill(0x5aU);
+        subframes[1].payloadLength += 1U;
+        output.fill(kSentinelByte);
+        written = 97U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidFrame ||
+            written != 0U || output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        subframes[1].payloadLength -= 1U;
+        request.tid = 8U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidFrame ||
+            output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        request.tid = 7U;
+        request.macSequence = 0x1000U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidFrame ||
+            output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        request.macSequence = 0xfffU;
+        request.count = kMaximumAmsduSubframes + 1U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::InvalidFrame ||
+            output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        request.count = 2U;
+        written = 123U;
+        subframes[1].payload = output.data();
+        subframes[1].payloadLength = 1U;
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::OverlappingBuffers ||
+            written != 123U || output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        subframes[1].payload = second.data();
+        subframes[1].payloadLength = second.size();
+        request.subframes =
+            reinterpret_cast<const AmsduTxSubframe *>(output.data());
+        if (makeOpenStationAmsdu(request, output.data(), output.size(),
+                                 written) != Result::OverlappingBuffers ||
+            written != 123U || output.at(0U) != kSentinelByte)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        return 0;
+    }
 } // namespace
 
 int main()
@@ -287,5 +465,13 @@ int main()
     {
         return result;
     }
-    return qosAndFcs(frame);
+    if (const int result = qosAndFcs(frame))
+    {
+        return result;
+    }
+    if (const int result = openAmsduTxRoundtrip())
+    {
+        return result;
+    }
+    return openAmsduTxBounds();
 }

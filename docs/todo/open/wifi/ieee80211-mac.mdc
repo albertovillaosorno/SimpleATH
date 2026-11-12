@@ -250,3 +250,23 @@ and passes under C++14/C++17 ASan+UBSan on the updated implementation.
 Actual 802.11w/PMF authenticated management admission is not implemented
 by this reassembler; hardware FCS, native RX ownership and radio behavior
 remain unverified. The wider MAC task remains open.
+
+## Source-only outbound QoS A-MSDU MPDU composition (2026-11-12)
+
+`DataFrames::makeOpenStationAmsdu` now serializes an unprotected, three-address,
+ToDS QoS Data MPDU containing 2–16 Ethernet-II MSDUs. It emits canonical
+per-subframe big-endian lengths, RFC 1042 or AARP/IPX bridge-tunnel LLC/SNAP,
+zero inter-subframe alignment, and no trailing pad or FCS. Every input and
+aggregate bound (including the 2342-byte FCS-free AR9565 MPDU maximum),
+station-source identity, TID/sequence and forbidden EAPOL case is checked
+before publishing any output bytes. Borrowed input/output/count overlap is
+rejected without mutation. The existing RX A-MSDU decoder independently
+round-trips the serializer's output in the host regression fixture, including
+exact-maximum length, truncation, security rejection and alias cases.
+
+**Not enabled in the native TX path.** The owner still needs to negotiate the
+selected AP's A-MSDU capability and maximum length; prove channel/RF/TPC and
+MAC aggregation lifecycle/sequence ownership; and explicitly gate OPEN
+aggregation against the controlled port. WPA2 requires independently verified
+SPP A-MSDU and authenticated encryption with correct QoS/A-MSDU AAD. No source
+helper or synthetic success authorizes radio TX or claims live Wi-Fi.

@@ -68,6 +68,19 @@ namespace simpleath
         static constexpr size_t kAmsduSubframeHeaderBytes = 14U;
         static constexpr size_t kAmsduSubframeLengthOffset = 12U;
         static constexpr size_t kAmsduAlignment = 4U;
+        static constexpr size_t kQosHeaderBytes =
+            kBaseHeaderBytes + kQosControlBytes;
+        static constexpr size_t kMaxFcsFreeBytes =
+            kMaximumMpduBytesIncludingFcs - kFcsBytes;
+        static constexpr uint8_t kQosDataFrameControl = 0x88U;
+        static constexpr uint8_t kStationToApFrameControl = 0x01U;
+        static constexpr size_t kFirstAddressOffset = 4U;
+        static constexpr size_t kSecondAddressOffset = 10U;
+        static constexpr size_t kThirdAddressOffset = 16U;
+        static constexpr size_t kSequenceControlOffset = 22U;
+        static constexpr size_t kSnapOuiLastOffset = 5U;
+        static constexpr size_t kSnapEtherTypeHighOffset = 6U;
+        static constexpr size_t kSnapEtherTypeLowOffset = 7U;
 
         static bool overlaps(const void *const firstBuffer, size_t firstBytes,
                              const void *const secondBuffer, size_t secondBytes)
@@ -89,7 +102,8 @@ namespace simpleath
                                    : first - second < secondBytes;
         }
 
-        static const uint8_t *pointerAt(const uint8_t *base, size_t offset)
+        template <typename Byte>
+        static Byte *pointerAt(Byte *base, size_t offset)
         {
             static_assert(sizeof(uintptr_t) == sizeof(base),
                           "host pointer must fit a uintptr_t");
@@ -97,7 +111,7 @@ namespace simpleath
             __builtin_memcpy(static_cast<void *>(&address),
                              static_cast<const void *>(&base), sizeof(base));
             address += offset;
-            const uint8_t *result = nullptr;
+            Byte *result = nullptr;
             __builtin_memcpy(static_cast<void *>(&result),
                              static_cast<const void *>(&address),
                              sizeof(result));
@@ -410,6 +424,209 @@ namespace simpleath
                 return Result::Truncated;
             }
             out = accepted;
+            return Result::Ok;
+        }
+
+        static const AmsduTxSubframe &
+        checkedAmsduSubframe(const OpenStationAmsduTx &request, size_t index)
+        {
+            if (index >= request.count || index >= kMaximumAmsduSubframes)
+            {
+                __builtin_trap(); // Input count is bounded by the owner.
+            }
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+            return request.subframes[index];
+        }
+
+        static Result
+        validateOpenAmsduGeometry(const OpenStationAmsduTx &request,
+                                  size_t &needed)
+        {
+            // Complete payload geometry and security classification are
+            // evaluated before writing ANY byte of the caller's output.
+            needed = kQosHeaderBytes;
+            for (size_t i = 0U; i < request.count; ++i)
+            {
+                const auto &item = checkedAmsduSubframe(request, i);
+                uint8_t anyDestination = 0U;
+                for (const uint8_t octet : item.destination.bytes)
+                {
+                    anyDestination |= octet;
+                }
+                if (!sameMac(item.source, request.station) ||
+                    anyDestination == 0U)
+                {
+                    return Result::InvalidAddress;
+                }
+                if (item.payload == nullptr || item.payloadLength == 0U ||
+                    item.payloadLength > kMaxFcsFreeBytes - kQosHeaderBytes -
+                                             kAmsduSubframeHeaderBytes -
+                                             kLlcSnapBytes)
+                {
+                    return Result::InvalidFrame;
+                }
+                if (item.etherType < kEthernetIiMin ||
+                    item.etherType == kEtherTypeEapol)
+                {
+                    return Result::InvalidSecurity;
+                }
+                const size_t subframeBytes = kAmsduSubframeHeaderBytes +
+                                             kLlcSnapBytes + item.payloadLength;
+                const size_t pad = i + 1U == request.count
+                                       ? 0U
+                                       : (kAmsduAlignment -
+                                          (subframeBytes % kAmsduAlignment)) %
+                                             kAmsduAlignment;
+                if (subframeBytes + pad > kMaxFcsFreeBytes - needed)
+                {
+                    return Result::InvalidFrame;
+                }
+                needed += subframeBytes + pad;
+            }
+            return Result::Ok;
+        }
+
+        static void writeOpenAmsdu(const OpenStationAmsduTx &request,
+                                   uint8_t *output)
+        {
+            // Unprotected 802.11 QoS Data, ToDS=1, A-MSDU Present=1.
+            // RA and BSSID are the AP; TA is the station. Each subframe
+            // supplies its own Ethernet destination and same-station source.
+            __builtin_memset(output, 0, kQosHeaderBytes);
+            *pointerAt(output, 0U) = kQosDataFrameControl;
+            *pointerAt(output, 1U) = kStationToApFrameControl;
+            __builtin_memcpy(pointerAt(output, kFirstAddressOffset),
+                             &request.bssid.bytes[0], kMacAddressBytes);
+            __builtin_memcpy(pointerAt(output, kSecondAddressOffset),
+                             &request.station.bytes[0], kMacAddressBytes);
+            __builtin_memcpy(pointerAt(output, kThirdAddressOffset),
+                             &request.bssid.bytes[0], kMacAddressBytes);
+            const auto sequenceControl =
+                static_cast<uint16_t>(request.macSequence << 4U);
+            *pointerAt(output, kSequenceControlOffset) =
+                static_cast<uint8_t>(sequenceControl);
+            *pointerAt(output, kSequenceControlOffset + 1U) =
+                static_cast<uint8_t>(sequenceControl >> kBitsPerByte);
+            *pointerAt(output, kBaseHeaderBytes) =
+                static_cast<uint8_t>(request.tid | kAmsduPresent);
+            size_t offset = kQosHeaderBytes;
+            for (size_t i = 0U; i < request.count; ++i)
+            {
+                const auto &item = checkedAmsduSubframe(request, i);
+                const size_t msduBytes = kLlcSnapBytes + item.payloadLength;
+                const size_t subframeBytes =
+                    kAmsduSubframeHeaderBytes + msduBytes;
+                uint8_t *const subframe = pointerAt(output, offset);
+                __builtin_memcpy(subframe, &item.destination.bytes[0],
+                                 kMacAddressBytes);
+                __builtin_memcpy(pointerAt(subframe, kMacAddressBytes),
+                                 &item.source.bytes[0], kMacAddressBytes);
+                *pointerAt(subframe, kAmsduSubframeLengthOffset) =
+                    static_cast<uint8_t>(msduBytes >> kBitsPerByte);
+                *pointerAt(subframe, kAmsduSubframeLengthOffset + 1U) =
+                    static_cast<uint8_t>(msduBytes);
+                uint8_t *const llc =
+                    pointerAt(subframe, kAmsduSubframeHeaderBytes);
+                __builtin_memset(llc, 0, kLlcSnapBytes);
+                *pointerAt(llc, 0U) = kSnapSap;
+                *pointerAt(llc, 1U) = kSnapSap;
+                *pointerAt(llc, kSnapControlOffset) = kSnapControl;
+                if (item.etherType == kEtherTypeAarp ||
+                    item.etherType == kEtherTypeIpx)
+                {
+                    *pointerAt(llc, kSnapOuiLastOffset) = kBridgeTunnelOuiLast;
+                }
+                *pointerAt(llc, kSnapEtherTypeHighOffset) =
+                    static_cast<uint8_t>(item.etherType >> kBitsPerByte);
+                *pointerAt(llc, kSnapEtherTypeLowOffset) =
+                    static_cast<uint8_t>(item.etherType);
+                __builtin_memcpy(pointerAt(llc, kLlcSnapBytes), item.payload,
+                                 item.payloadLength);
+                offset += subframeBytes;
+                if (i + 1U != request.count)
+                {
+                    const size_t pad =
+                        (kAmsduAlignment - (subframeBytes % kAmsduAlignment)) %
+                        kAmsduAlignment;
+                    __builtin_memset(pointerAt(output, offset), 0, pad);
+                    offset += pad;
+                }
+            }
+        }
+
+        Result makeOpenStationAmsdu(const OpenStationAmsduTx &request,
+                                    uint8_t *output, size_t capacity,
+                                    size_t &written)
+        {
+            if (overlaps(&request, sizeof(request), &written,
+                         sizeof(written)) ||
+                overlaps(output, capacity, &request, sizeof(request)) ||
+                overlaps(output, capacity, &written, sizeof(written)))
+            {
+                return Result::OverlappingBuffers;
+            }
+            if (request.count > kMaximumAmsduSubframes)
+            {
+                written = 0U;
+                return Result::InvalidFrame;
+            }
+            const size_t entriesBytes = request.count * sizeof(AmsduTxSubframe);
+            if (overlaps(output, capacity, request.subframes, entriesBytes) ||
+                overlaps(&written, sizeof(written), request.subframes,
+                         entriesBytes) ||
+                overlaps(&request, sizeof(request), request.subframes,
+                         entriesBytes))
+            {
+                return Result::OverlappingBuffers;
+            }
+            // Validate every borrowed span before clearing the caller count:
+            // an alias must not corrupt a later subframe's input bytes.
+            if (request.subframes != nullptr)
+            {
+                for (size_t i = 0U; i < request.count; ++i)
+                {
+                    const auto &item = checkedAmsduSubframe(request, i);
+                    if (overlaps(output, capacity, item.payload,
+                                 item.payloadLength) ||
+                        overlaps(&written, sizeof(written), item.payload,
+                                 item.payloadLength) ||
+                        overlaps(&request, sizeof(request), item.payload,
+                                 item.payloadLength) ||
+                        overlaps(request.subframes, entriesBytes, item.payload,
+                                 item.payloadLength))
+                    {
+                        return Result::OverlappingBuffers;
+                    }
+                }
+            }
+            written = 0U;
+            if (output == nullptr || request.subframes == nullptr)
+            {
+                return Result::NullBuffer;
+            }
+            constexpr uint16_t kMacSequenceMax = 0x0fffU;
+            constexpr uint8_t kMaxDataTid = 7U;
+            if (request.count < 2U || request.macSequence > kMacSequenceMax ||
+                request.tid > kMaxDataTid ||
+                !validStationMac(request.station) ||
+                !validStationMac(request.bssid) ||
+                sameMac(request.station, request.bssid))
+            {
+                return Result::InvalidFrame;
+            }
+            size_t needed = 0U;
+            const Result validation =
+                validateOpenAmsduGeometry(request, needed);
+            if (validation != Result::Ok)
+            {
+                return validation;
+            }
+            if (capacity < needed)
+            {
+                return Result::BufferTooSmall;
+            }
+            writeOpenAmsdu(request, output);
+            written = needed;
             return Result::Ok;
         }
 
