@@ -775,6 +775,22 @@ class SimpleATH final : public IOService
             self.requestedStationMacValid_ =
                 memcmp(requested, &board->summary.mac[0],
                        sizeof(self.requestedStationMac_)) != 0;
+            if (self.requestedStationMacValid_)
+            {
+                // Only this physical board may reuse its privacy identity
+                // after suspend or a new owner epoch. The PCI device ID alone
+                // cannot distinguish two cards with different NVM identities.
+                memcpy(&self.requestedStationBoardMac_[0],
+                       &board->summary.mac[0],
+                       sizeof(self.requestedStationBoardMac_));
+            }
+            else
+            {
+                memset(&self.requestedStationMac_[0], 0,
+                       sizeof(self.requestedStationMac_));
+                memset(&self.requestedStationBoardMac_[0], 0,
+                       sizeof(self.requestedStationBoardMac_));
+            }
             self.notifyWirelessChange(false);
             return kIOReturnSuccess;
         }
@@ -4863,8 +4879,18 @@ class SimpleATH final : public IOService
                 mapped.barLengthBytes,
             };
             // Preserve a user-approved locally administered address across
-            // suspend/fresh PCI reset. A different physical board identity
-            // never silently inherits an old card's permanent MAC.
+            // suspend/fresh PCI reset, but only for its original NVM board.
+            // A different board cannot inherit the last card's privacy MAC.
+            if (requestedStationMacValid_ &&
+                memcmp(&requestedStationBoardMac_[0], &board->summary.mac[0],
+                       sizeof(requestedStationBoardMac_)) != 0)
+            {
+                requestedStationMacValid_ = false;
+                memset(&requestedStationMac_[0], 0,
+                       sizeof(requestedStationMac_));
+                memset(&requestedStationBoardMac_[0], 0,
+                       sizeof(requestedStationBoardMac_));
+            }
             const uint8_t *selected = requestedStationMacValid_
                                           ? &requestedStationMac_[0]
                                           : &board->summary.mac[0];
@@ -5388,6 +5414,8 @@ class SimpleATH final : public IOService
         // because a caller requested a locally administered MAC.
         uint8_t stationMac_[simpleath::kPermanentMacBytes] {};
         uint8_t requestedStationMac_[simpleath::kPermanentMacBytes] {};
+        // NVM permanent address which owned the retained station MAC override.
+        uint8_t requestedStationBoardMac_[simpleath::kPermanentMacBytes] {};
         bool requestedStationMacValid_ {false};
         bool radioOperational_ {false};
         bool channelAuthorized_ {false};

@@ -195,3 +195,16 @@ still separately requires initialized key RAM, proven quiescence and a clean
 keycache reset obligation. An absent BAR or lost provider is never replaced
 with an assumed hardware shutdown. The accompanying source regression cannot
 establish actual physical engine silence or USB/OS runtime safety.
+
+## Board-bound private station address (2026-11-12)
+
+An OS-requested locally administered station MAC is retained across a sleep
+or PCI owner reset **only for the same physical NVM permanent MAC**. The
+native owner binds the accepted override to the currently verified EEPROM
+identity after successful PCU readback. A later NVM acquisition with a
+different permanent MAC clears both the saved override and its board identity
+before selecting the station address to program; an explicit restore to the
+permanent MAC also clears them. This prevents a swapped or reprogrammed card
+from inheriting another board's private address solely because its PCI ID
+matches. The source-only wiring regression checks both orderings and clearing.
+No hardware or user-facing MAC randomization was tested.

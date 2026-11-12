@@ -157,6 +157,16 @@ class NativeStationMacWiring(unittest.TestCase):
         start = method("IOReturn startHardware()", "void stopHardware(")
         assert "requestedStationMacValid_" in start
         assert "&requestedStationMac_[0]" in start
+        assert "&requestedStationBoardMac_[0]" in start
+        assert start.index("memcmp(&requestedStationBoardMac_[0]") < (
+            start.index("const uint8_t *selected")
+        )
+        invalidated = start.split("memcmp(&requestedStationBoardMac_[0]", 1)[
+            1
+        ].split("const uint8_t *selected", 1)[0]
+        assert "requestedStationMacValid_ = false;" in invalidated
+        assert "memset(&requestedStationMac_[0], 0" in invalidated
+        assert "memset(&requestedStationBoardMac_[0], 0" in invalidated
         assert "programAr9565StationMac(" in start
         assert (
             start.index("programAr9565StationMac(")
@@ -169,6 +179,23 @@ class NativeStationMacWiring(unittest.TestCase):
         assert "memset(&stationMac_[0], 0, sizeof(stationMac_));" in stop
         assert "requestedStationMacValid_ = false" not in stop
         assert "memset(&requestedStationMac_" not in stop
+        assert "memset(&requestedStationBoardMac_" not in stop
+
+    @staticmethod
+    def test_mac_override_bound_to_its_physical_board() -> None:
+        change = method(
+            "static IOReturn ownerSetMacAction(",
+            "static IOReturn\n        ownerSetMac(",
+        )
+        # The effective identity and board binding precede the native event.
+        publication = change.split("memcpy(&self.stationMac_[0], requested", 1)[
+            1
+        ].split("self.notifyWirelessChange(false);", 1)[0]
+        assert "self.requestedStationMacValid_" in publication
+        assert "&self.requestedStationBoardMac_[0]" in publication
+        assert "&board->summary.mac[0]" in publication
+        assert "memset(&self.requestedStationBoardMac_[0], 0" in publication
+        assert "memset(&self.requestedStationMac_[0], 0" in publication
 
 
 if __name__ == "__main__":
