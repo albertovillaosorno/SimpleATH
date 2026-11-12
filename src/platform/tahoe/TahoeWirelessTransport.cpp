@@ -361,6 +361,17 @@ namespace simpleath
             const IOReturn result = owner_.snapshot(owner_.context, &current);
             if (result != kIOReturnSuccess || (current.epoch == 0U))
             {
+                // A provider error cannot leave the last successful
+                // association's RX/EAPOL admission cached in this mailbox.
+                // Do not erase scan completion intents or event handoffs:
+                // those need independent, identity-scoped retirement.
+                IOLockLock(mailboxLock_);
+                receiveAuthorized_ = false;
+                eapolReceiveAuthorized_ = false;
+                associationGeneration_ = 0;
+                receiveHead_ = receiveCount_ = 0;
+                memset(&frames_[0], 0, sizeof(frames_));
+                IOLockUnlock(mailboxLock_);
                 return result == kIOReturnSuccess ? kIOReturnNotReady : result;
             }
             IOLockLock(mailboxLock_);

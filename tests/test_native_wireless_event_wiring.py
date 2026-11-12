@@ -52,6 +52,39 @@ EPOCH = (ROOT / "src/platform/tahoe/NativeWirelessEpoch.hpp").read_text(
 )
 
 
+class NativeSnapshotFailureWiring(unittest.TestCase):
+    @staticmethod
+    def test_failed_provider_snapshot_revokes_cached_receive_admission() -> (
+        None
+    ):
+        sample = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::snapshot(WirelessSnapshot &out)",
+            1,
+        )[1].split("IOReturn TahoeWirelessTransport::setPower(bool on)", 1)[0]
+        failed = sample.split(
+            "if (result != kIOReturnSuccess || (current.epoch == 0U))", 1
+        )[1].split("const uint64_t currentAssociation", 1)[0]
+        for required in (
+            "IOLockLock(mailboxLock_);",
+            "receiveAuthorized_ = false;",
+            "eapolReceiveAuthorized_ = false;",
+            "associationGeneration_ = 0;",
+            "receiveHead_ = receiveCount_ = 0;",
+            "memset(&frames_[0], 0, sizeof(frames_));",
+            "IOLockUnlock(mailboxLock_);",
+        ):
+            assert required in failed, required
+        assert failed.index("receiveAuthorized_ = false;") < failed.index(
+            "IOLockUnlock(mailboxLock_);"
+        )
+        assert failed.index("memset(&frames_[0]") < failed.index(
+            "return result == kIOReturnSuccess"
+        )
+        # A transient lost snapshot must not throw away outstanding scan
+        # completions or mailbox event notifications.
+        assert "invalidateMailboxes();" not in failed
+
+
 class NativeWirelessEventWiring(unittest.TestCase):
     @staticmethod
     def test_event_abi_remains_shared_and_ordered() -> None:

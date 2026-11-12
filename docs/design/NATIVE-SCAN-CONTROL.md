@@ -180,3 +180,15 @@ produce association, supplicant, beacon or connection success notices from
 that inconsistent observation; a previously connected join emits its one
 disconnection intent instead. Portable tests exercise failed status before
 association and after an established join, with no real Tahoe callbacks.
+
+## Native transport RX revocation on failed snapshots (2026-11-12)
+
+If a serialized physical-provider snapshot fails or reports a zero PCI
+epoch, the Tahoe transport now clears its cached ordinary-data and EAPOL
+receive leases, association-generation identity and all queued received
+Ethernet bytes while holding the mailbox lock. It cannot deliver packets
+from the prior associated AP merely because no radio-change event arrived.
+Pending scan results, OS event intents and provider completion tickets are
+left alone for their separate identity-scoped acknowledgement or retirement.
+Only a later successful live provider snapshot can reauthorize reception.
+This is source-wiring regression evidence, not tested macOS packet delivery.
