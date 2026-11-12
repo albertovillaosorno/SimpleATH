@@ -145,6 +145,11 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
         uint64_t joinDeadline_ {0};
         uint64_t scanGeneration_ {0};
         uint64_t scanEpoch_ {0};
+        // A locally aborted WCL request may precede the physical worker's
+        // terminal callback. Keep its identity for post-dispatch reconciliation
+        // without ever acknowledging a successor scan.
+        uint64_t abortedScanEpoch_ {0};
+        uint64_t abortedScanGeneration_ {0};
         uint64_t lastEpoch_ {0};
         bool parentStarted_ {false};
         bool gateAdded_ {false};

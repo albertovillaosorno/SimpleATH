@@ -901,6 +901,8 @@ IOReturn SimpleATHInfraProtocol::beginScan(void *data)
         return result;
     }
     scan_ = filter;
+    abortedScanEpoch_ = 0;
+    abortedScanGeneration_ = 0;
     scanEpoch_ = state.epoch;
     scanGeneration_ = generation;
     return kIOReturnSuccess;
@@ -956,10 +958,24 @@ void SimpleATHInfraProtocol::finishScan(bool canceled)
             emit(kScanResultEvent, message, length);
         }
     }
+    const uint64_t completedGeneration = scanGeneration_;
+    const uint64_t completedEpoch = scanEpoch_;
     scanGeneration_ = 0;
     scanEpoch_ = 0;
     scan_ = {};
     emit(kScanDoneEvent, &status, sizeof(status));
+    // This cross-gate call runs only after the OS event dispatch invocation.
+    // Stale/retired epochs cannot acknowledge a successor's scan intent.
+    const IOReturn acknowledged = controller_->acknowledgeScanCompletion(
+        completedEpoch, completedGeneration);
+    if (canceled && !stopping_ && acknowledged != kIOReturnSuccess)
+    {
+        // A physical scan can finish after an OS-local abort, including a
+        // transient failed snapshot. The already-dispatched aborted WCL event
+        // can retire only its own future bridge completion, never a successor.
+        abortedScanEpoch_ = completedEpoch;
+        abortedScanGeneration_ = completedGeneration;
+    }
 }
 
 void SimpleATHInfraProtocol::tick(OSObject *owner, IOTimerEventSource *)
@@ -978,11 +994,30 @@ void SimpleATHInfraProtocol::poll()
     const bool live = result == kIOReturnSuccess;
     const bool available =
         live && state.radioAvailable && state.powered && !state.rfKillBlocked;
+    if (abortedScanGeneration_ != 0U)
+    {
+        if ((live && state.epoch != abortedScanEpoch_) ||
+            controller_->acknowledgeScanCompletion(
+                abortedScanEpoch_, abortedScanGeneration_) == kIOReturnSuccess)
+        {
+            // An unavailable or replaced provider retires the old epoch;
+            // it cannot be granted an acknowledgement in a newer one.
+            abortedScanEpoch_ = 0;
+            abortedScanGeneration_ = 0;
+        }
+    }
     if (!live || state.epoch != lastEpoch_)
     {
         packets_.disable();
         if (scanGeneration_ != 0 && (!live || scanEpoch_ != state.epoch))
         {
+            // A snapshot may be invalidated by an intervening mailbox
+            // callback without a physical epoch loss. Request cancellation
+            // before notifying WCL, then retain exact identity on failure.
+            if (scanEpoch_ == lastEpoch_)
+            {
+                (void)controller_->scanCancel(scanGeneration_);
+            }
             finishScan(true);
         }
         lastEpoch_ = live ? state.epoch : 0;
@@ -1011,6 +1046,14 @@ void SimpleATHInfraProtocol::poll()
         linked_ = link;
         (void)setLinkState(static_cast<IO80211LinkState>(link ? 2 : 1), 0,
                            false, 0, 0);
+    }
+    // Retry a rejected mailbox handoff at most once per poll. Provider gate
+    // callbacks only enqueue under the independent mailbox lock; no inverse
+    // native work-loop callback is permitted.
+    if (live && scanGeneration_ != 0U && scanEpoch_ == state.epoch &&
+        !state.scanning)
+    {
+        (void)controller_->retryScanCompletion();
     }
     for (size_t i = 0;
          i < simpleath::tahoe::TahoeWirelessTransport::kEventCapacity; ++i)

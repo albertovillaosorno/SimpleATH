@@ -165,11 +165,17 @@ namespace
             simpleath::ieee80211::NativeBssSnapshot *result;
     };
 
+    struct NativeScanCompletionRequest
+    {
+            uint64_t epoch;
+            uint64_t generation;
+    };
+
     struct NativeSubscribeRequest
     {
             void *observer;
-            void (*notify)(void *, simpleath::tahoe::WirelessEvent, uint64_t,
-                           uint64_t);
+            IOReturn (*notify)(void *, simpleath::tahoe::WirelessEvent,
+                               uint64_t, uint64_t);
             void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
                             size_t);
     };
@@ -408,7 +414,7 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnBadArgument;
             }
-            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV5 *>(p1);
+            auto *out = static_cast<simpleath::tahoe::WirelessOwnerV6 *>(p1);
             if (out->abiVersion != simpleath::tahoe::kWirelessOwnerAbi ||
                 out->structureBytes != sizeof(*out))
             {
@@ -443,10 +449,10 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
-            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV5 *>(arg);
-            const simpleath::tahoe::WirelessOwnerV5 callbacks {
+            auto &out = *static_cast<simpleath::tahoe::WirelessOwnerV6 *>(arg);
+            const simpleath::tahoe::WirelessOwnerV6 callbacks {
                 simpleath::tahoe::kWirelessOwnerAbi,
-                sizeof(simpleath::tahoe::WirelessOwnerV5),
+                sizeof(simpleath::tahoe::WirelessOwnerV6),
                 &self,
                 ownerSnapshot,
                 ownerSetPower,
@@ -461,6 +467,8 @@ class SimpleATH final : public IOService
                 ownerTransmitEthernet,
                 ownerSubscribe,
                 ownerUnsubscribe,
+                ownerRetryScanCompletion,
+                ownerAcknowledgeScanCompletion,
             };
             out = callbacks;
             return kIOReturnSuccess;
@@ -1104,6 +1112,7 @@ class SimpleATH final : public IOService
                     self.notifyWirelessScanFinished();
                 }
                 self.scanBridge_.clear();
+                self.notifiedScanGeneration_ = 0;
                 self.completedScanTicket_ = {};
                 return;
             }
@@ -1153,7 +1162,7 @@ class SimpleATH final : public IOService
             self.notifyWirelessScanFinished();
         }
 
-        void notifyWirelessScanFinished()
+        IOReturn notifyWirelessScanFinished()
         {
             simpleath::ieee80211::ScanBridgeCompletion done {};
             if (observerLock_ == nullptr ||
@@ -1161,20 +1170,103 @@ class SimpleATH final : public IOService
                     simpleath::ieee80211::ScanBridgeResult::Ok ||
                 done.ticket.generation == 0U)
             {
-                return;
+                return kIOReturnNotReady;
+            }
+            // Retries must not enqueue a second completion after a successful
+            // handoff; the native consumer still owns acknowledgement.
+            if (notifiedScanGeneration_ == done.ticket.generation)
+            {
+                return kIOReturnSuccess;
             }
             IOLockLock(observerLock_);
+            IOReturn result = kIOReturnNotReady;
             if (wirelessObserver_ != nullptr && wirelessNotify_ != nullptr)
             {
-                wirelessNotify_(wirelessObserver_,
-                                simpleath::tahoe::WirelessEvent::ScanFinished,
-                                epoch_, done.ticket.generation);
+                result = wirelessNotify_(
+                    wirelessObserver_,
+                    simpleath::tahoe::WirelessEvent::ScanFinished, epoch_,
+                    done.ticket.generation);
             }
             IOLockUnlock(observerLock_);
-            // The callback contract enqueues its own event before returning;
-            // the bridge's pending ticket can now admit a new scan. A child
-            // that failed to receive it must request a fresh scan.
-            scanBridge_.acknowledgeCompletion(done.ticket);
+            if (result == kIOReturnSuccess)
+            {
+                notifiedScanGeneration_ = done.ticket.generation;
+            }
+            // Only the matching native OS consumer may acknowledge this
+            // ticket. A rejected mailbox handoff stays pending for a later
+            // consumer-driven retry, never a fabricated SCAN_DONE.
+            return result;
+        }
+
+        static IOReturn ownerRetryScanCompletionAction(OSObject *object, void *,
+                                                       void *, void *, void *)
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            if (!self.started_ || self.stopping_ || !self.powered_ ||
+                self.epoch_ == 0U)
+            {
+                return kIOReturnNotReady;
+            }
+            return self.notifyWirelessScanFinished();
+        }
+
+        static IOReturn ownerRetryScanCompletion(void *context)
+        {
+            if (context == nullptr)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            return self.gate_ == nullptr
+                       ? kIOReturnNotReady
+                       : self.gate_->runAction(ownerRetryScanCompletionAction);
+        }
+
+        static IOReturn ownerAcknowledgeScanCompletionAction(OSObject *object,
+                                                             void *argument,
+                                                             void *, void *,
+                                                             void *)
+        {
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-static-cast-downcast)
+            auto &self = *static_cast<SimpleATH *>(object);
+            const auto &identity =
+                *static_cast<const NativeScanCompletionRequest *>(argument);
+            simpleath::ieee80211::ScanBridgeCompletion done {};
+            if (self.stopping_ || identity.epoch == 0U ||
+                identity.epoch != self.epoch_ || identity.generation == 0U ||
+                self.scanBridge_.completion(done) !=
+                    simpleath::ieee80211::ScanBridgeResult::Ok ||
+                done.ticket.generation != identity.generation)
+            {
+                return kIOReturnNotReady;
+            }
+            const auto result =
+                self.scanBridge_.acknowledgeCompletion(done.ticket);
+            if (result != simpleath::ieee80211::ScanBridgeResult::Ok)
+            {
+                return kIOReturnNotReady;
+            }
+            self.notifiedScanGeneration_ = 0;
+            return kIOReturnSuccess;
+        }
+
+        static IOReturn ownerAcknowledgeScanCompletion(void *context,
+                                                       uint64_t epoch,
+                                                       uint64_t generation)
+        {
+            if (context == nullptr || epoch == 0U || generation == 0U)
+            {
+                return kIOReturnBadArgument;
+            }
+            const auto &self = *static_cast<SimpleATH *>(context);
+            if (self.gate_ == nullptr)
+            {
+                return kIOReturnNotReady;
+            }
+            NativeScanCompletionRequest identity {epoch, generation};
+            return self.gate_->runAction(ownerAcknowledgeScanCompletionAction,
+                                         &identity);
         }
 
         // A DMA/PCI failure or sleep can interrupt an on-channel scan
@@ -2400,12 +2492,12 @@ class SimpleATH final : public IOService
             return registered;
         }
 
-        static IOReturn
-        ownerSubscribe(void *context, void *observer,
-                       void (*notify)(void *, simpleath::tahoe::WirelessEvent,
-                                      uint64_t, uint64_t),
-                       void (*receive)(void *, uint64_t, uint64_t,
-                                       const uint8_t *, size_t))
+        static IOReturn ownerSubscribe(
+            void *context, void *observer,
+            IOReturn (*notify)(void *, simpleath::tahoe::WirelessEvent,
+                               uint64_t, uint64_t),
+            void (*receive)(void *, uint64_t, uint64_t, const uint8_t *,
+                            size_t))
         {
             if (context == nullptr || observer == nullptr ||
                 notify == nullptr || receive == nullptr)
@@ -3421,6 +3513,7 @@ class SimpleATH final : public IOService
                 notifyWirelessScanFinished();
             }
             scanBridge_.clear();
+            notifiedScanGeneration_ = 0;
             completedScanTicket_ = {};
             memset(&protectedRxScratch_[0], 0, sizeof(protectedRxScratch_));
             engine_.radioStopped(nowMicros(nullptr) / kMicrosPerMillisecond,
@@ -4898,6 +4991,7 @@ class SimpleATH final : public IOService
                 notifyWirelessScanFinished();
             }
             scanBridge_.clear();
+            notifiedScanGeneration_ = 0;
             awdlNeighbors_.clear();
             completedScanTicket_ = {};
             const bool hardwareQuiesced =
@@ -5143,8 +5237,8 @@ class SimpleATH final : public IOService
         // after stop() removes its work loop.
         IOLock *observerLock_ {nullptr};
         void *wirelessObserver_ {nullptr};
-        void (*wirelessNotify_)(void *, simpleath::tahoe::WirelessEvent,
-                                uint64_t, uint64_t) {nullptr};
+        IOReturn (*wirelessNotify_)(void *, simpleath::tahoe::WirelessEvent,
+                                    uint64_t, uint64_t) {nullptr};
         void (*wirelessReceive_)(void *, uint64_t, uint64_t, const uint8_t *,
                                  size_t) {nullptr};
         bool controlledPortAuthorized_ {false};
@@ -5179,6 +5273,7 @@ class SimpleATH final : public IOService
         simpleath::ieee80211::AwdlNeighbors awdlNeighbors_;
         simpleath::ieee80211::ScanBridgeTicket scanTicket_ {};
         simpleath::ieee80211::ScanBridgeTicket completedScanTicket_ {};
+        uint64_t notifiedScanGeneration_ {0};
         IOTimerEventSource *scanTimer_ {nullptr};
         IOTimerEventSource *linkTimer_ {nullptr};
         // Workloop-only join/association identity; canceled on failed joins,

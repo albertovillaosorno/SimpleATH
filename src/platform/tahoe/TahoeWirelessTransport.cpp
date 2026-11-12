@@ -111,10 +111,10 @@ namespace simpleath
                 return aggregate != 0;
             }
 
-            bool validContract(const WirelessOwnerV5 &owner)
+            bool validContract(const WirelessOwnerV6 &owner)
             {
                 return owner.abiVersion == kWirelessOwnerAbi &&
-                       owner.structureBytes >= sizeof(WirelessOwnerV5) &&
+                       owner.structureBytes >= sizeof(WirelessOwnerV6) &&
                        (owner.context != nullptr) &&
                        (owner.snapshot != nullptr) &&
                        (owner.setPower != nullptr) &&
@@ -128,7 +128,9 @@ namespace simpleath
                        (owner.authorizePort != nullptr) &&
                        (owner.transmitEthernet != nullptr) &&
                        (owner.subscribe != nullptr) &&
-                       (owner.unsubscribe != nullptr);
+                       (owner.unsubscribe != nullptr) &&
+                       (owner.retryScanCompletion != nullptr) &&
+                       (owner.acknowledgeScanCompletion != nullptr);
             }
 
             // Disallow callers writing into the transport's own mailbox or
@@ -239,7 +241,7 @@ namespace simpleath
             {
                 return kIOReturnNoMemory;
             }
-            WirelessOwnerV5 candidate {};
+            WirelessOwnerV6 candidate {};
             candidate.abiVersion = kWirelessOwnerAbi;
             candidate.structureBytes = sizeof(candidate);
             const IOReturn lookup = provider->callPlatformFunction(
@@ -509,6 +511,33 @@ namespace simpleath
             return result;
         }
 
+        IOReturn TahoeWirelessTransport::retryScanCompletion()
+        {
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            // This provider call enters only the PCI owner's gate. Its notify
+            // callback takes the mailbox lock, never the native work loop.
+            return owner_.retryScanCompletion(owner_.context);
+        }
+
+        IOReturn
+        TahoeWirelessTransport::acknowledgeScanCompletion(uint64_t epoch,
+                                                          uint64_t generation)
+        {
+            if (!bound() || epoch == 0U || generation == 0U)
+            {
+                return kIOReturnNotReady;
+            }
+            IOLockLock(mailboxLock_);
+            const bool current = epoch == epoch_ && !providerStopped_;
+            IOLockUnlock(mailboxLock_);
+            return current ? owner_.acknowledgeScanCompletion(owner_.context,
+                                                              epoch, generation)
+                           : kIOReturnNotReady;
+        }
+
         IOReturn
         TahoeWirelessTransport::nextBss(uint64_t generation,
                                         ieee80211::NativeBssSnapshot &out)
@@ -702,18 +731,20 @@ namespace simpleath
             return owner_.transmitEthernet(owner_.context, bytes, length);
         }
 
-        void TahoeWirelessTransport::notify(void *observer, WirelessEvent event,
-                                            uint64_t epoch, uint64_t generation)
+        IOReturn TahoeWirelessTransport::notify(void *observer,
+                                                WirelessEvent event,
+                                                uint64_t epoch,
+                                                uint64_t generation)
         {
             if (observer == nullptr)
             {
-                return;
+                return kIOReturnNotReady;
             }
             auto &self = *static_cast<TahoeWirelessTransport *>(observer);
             IOLock *lock = self.mailboxLock_;
             if (lock == nullptr)
             {
-                return;
+                return kIOReturnNotReady;
             }
             IOLockLock(lock);
             if ((epoch == 0U) || epoch < self.epoch_ || self.providerStopped_ ||
@@ -721,7 +752,7 @@ namespace simpleath
                 ((event == WirelessEvent::ScanFinished) != (generation != 0U)))
             {
                 IOLockUnlock(lock);
-                return;
+                return kIOReturnNotReady;
             }
             if (self.callbackRevision_ == UINT64_MAX)
             {
@@ -729,7 +760,7 @@ namespace simpleath
                 self.providerStopped_ = true;
                 self.invalidateMailboxes();
                 IOLockUnlock(lock);
-                return;
+                return kIOReturnNotReady;
             }
             ++self.callbackRevision_;
             if (epoch != self.epoch_)
@@ -776,6 +807,8 @@ namespace simpleath
             if (self.eventCount_ == kEventCapacity)
             {
                 ++self.eventDrops_;
+                IOLockUnlock(lock);
+                return kIOReturnNoResources;
             }
             else
             {
@@ -788,6 +821,8 @@ namespace simpleath
                     // unchecked entry after corrupted mailbox bookkeeping.
                     self.invalidateMailboxes();
                     ++self.eventDrops_;
+                    IOLockUnlock(lock);
+                    return kIOReturnNotReady;
                 }
                 else
                 {
@@ -796,6 +831,7 @@ namespace simpleath
                 }
             }
             IOLockUnlock(lock);
+            return kIOReturnSuccess;
         }
 
         void TahoeWirelessTransport::receive(void *observer, uint64_t epoch,

@@ -79,6 +79,9 @@ namespace simpleath
                 IOReturn setMac(const uint8_t address[kWirelessMacBytes]);
                 IOReturn startScan(uint64_t &generation);
                 IOReturn cancelScan(uint64_t generation);
+                IOReturn retryScanCompletion();
+                IOReturn acknowledgeScanCompletion(uint64_t epoch,
+                                                   uint64_t generation);
                 IOReturn nextBss(uint64_t generation,
                                  ieee80211::NativeBssSnapshot &out);
                 IOReturn connect(const NativeConnectRequest &request);
@@ -113,8 +116,8 @@ namespace simpleath
                         uint8_t bytes[kMaxEthernetFrame];
                 };
 
-                static void notify(void *observer, WirelessEvent event,
-                                   uint64_t epoch, uint64_t generation);
+                static IOReturn notify(void *observer, WirelessEvent event,
+                                       uint64_t epoch, uint64_t generation);
                 static void receive(void *observer, uint64_t epoch,
                                     uint64_t associationGeneration,
                                     const uint8_t *bytes, size_t length);
@@ -127,7 +130,7 @@ namespace simpleath
 
                 // Lifecycle methods run only on the controller's own gate;
                 // the mailbox lock is never held across provider callbacks.
-                WirelessOwnerV5 owner_ {};
+                WirelessOwnerV6 owner_ {};
                 IOService *provider_ {nullptr};
                 IOLock *mailboxLock_ {nullptr};
                 uint64_t epoch_ {0};

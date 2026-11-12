@@ -75,7 +75,9 @@ class NativeWirelessEventWiring(unittest.TestCase):
 
     @staticmethod
     def test_terminal_event_clears_saturated_mailbox() -> None:
-        notify = TRANSPORT.split("void TahoeWirelessTransport::notify(", 1)[1]
+        notify = TRANSPORT.split("IOReturn TahoeWirelessTransport::notify(", 1)[
+            1
+        ]
         notify = notify.split("void TahoeWirelessTransport::receive(", 1)[0]
         terminal = notify.split(
             "if (event == WirelessEvent::ProviderStopped)", 1
@@ -93,7 +95,9 @@ class NativeWirelessEventWiring(unittest.TestCase):
 
     @staticmethod
     def test_scan_completion_preempts_noise_not_other_completions() -> None:
-        notify = TRANSPORT.split("void TahoeWirelessTransport::notify(", 1)[1]
+        notify = TRANSPORT.split("IOReturn TahoeWirelessTransport::notify(", 1)[
+            1
+        ]
         notify = notify.split("void TahoeWirelessTransport::receive(", 1)[0]
         assert (
             "evictWirelessNoncriticalEvent(self.events_, self.eventHead_,"
@@ -107,7 +111,9 @@ class NativeWirelessEventWiring(unittest.TestCase):
 
     @staticmethod
     def test_saturated_terminal_events_retire_only_older_generation() -> None:
-        notify = TRANSPORT.split("void TahoeWirelessTransport::notify(", 1)[1]
+        notify = TRANSPORT.split("IOReturn TahoeWirelessTransport::notify(", 1)[
+            1
+        ]
         notify = notify.split("void TahoeWirelessTransport::receive(", 1)[0]
         assert "evictWirelessSupersededScanEvent(" in notify
         assert "self.eventCount_, epoch," in notify
@@ -141,20 +147,83 @@ class NativeWirelessEventWiring(unittest.TestCase):
         controller = (
             ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
         ).read_text(encoding="utf-8")
-        assert '"SimpleATHWirelessOwnerV5"' in OWNER
-        assert "kWirelessOwnerAbi = 5;" in OWNER
-        assert "WirelessOwnerV5 callbacks" in native
+        assert '"SimpleATHWirelessOwnerV6"' in OWNER
+        assert "kWirelessOwnerAbi = 6;" in OWNER
+        assert "WirelessOwnerV6 callbacks" in native
         assert (
             "done.ticket.generation"
-            in native.split("void notifyWirelessScanFinished()", 1)[1].split(
-                "bool abortActiveNativeScan()", 1
-            )[0]
+            in native.split("IOReturn notifyWirelessScanFinished()", 1)[
+                1
+            ].split("bool abortActiveNativeScan()", 1)[0]
         )
         assert "*slot = {event, epoch, generation};" in TRANSPORT
         assert "generation = record.generation;" in TRANSPORT
         assert "uint64_t generation;" in transport_header
         assert "takeEvent(event, epoch, generation)" in controller
         assert "(generation != 0U)" in TRANSPORT
+
+    @staticmethod
+    def test_rejected_mailbox_notice_remains_retryable() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        body = provider.split("IOReturn notifyWirelessScanFinished()", 1)[1]
+        body = body.split("static IOReturn ownerRetryScanCompletionAction", 1)[
+            0
+        ]
+        native = TRANSPORT.split("IOReturn TahoeWirelessTransport::notify(", 1)[
+            1
+        ]
+        native = native.split("void TahoeWirelessTransport::receive(", 1)[0]
+        assert "IOReturn (*notify)(void *, WirelessEvent," in OWNER
+        assert "IOReturn (*retryScanCompletion)(void *);" in OWNER
+        assert (
+            "IOReturn (*acknowledgeScanCompletion)(void *, uint64_t epoch,"
+            in OWNER
+        )
+        assert "return kIOReturnNoResources;" in native
+        assert "return kIOReturnSuccess;" in native
+        assert "result = wirelessNotify_(" in body
+        assert "if (result == kIOReturnSuccess)" in body
+        assert "notifiedScanGeneration_ = done.ticket.generation;" in body
+        assert "acknowledgeCompletion" not in body
+        assert "if (notifiedScanGeneration_ == done.ticket.generation)" in body
+        assert "return self.notifyWirelessScanFinished();" in provider
+        assert "retryScanCompletion(owner_.context)" in TRANSPORT
+        assert "self.scanBridge_.acknowledgeCompletion(done.ticket)" in provider
+        assert "done.ticket.generation != identity.generation" in provider
+        assert "identity.epoch != self.epoch_" in provider
+
+    @staticmethod
+    def test_consumer_acks_only_after_os_completion_dispatch() -> None:
+        provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
+        controller = (
+            ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
+        ).read_text(encoding="utf-8")
+        finish = INFRA.split("void SimpleATHInfraProtocol::finishScan(", 1)[1]
+        finish = finish.split("void SimpleATHInfraProtocol::tick(", 1)[0]
+        poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        assert "const uint64_t completedGeneration = scanGeneration_;" in finish
+        assert "const uint64_t completedEpoch = scanEpoch_;" in finish
+        assert finish.index(
+            "emit(kScanDoneEvent, &status, sizeof(status));"
+        ) < (finish.index("controller_->acknowledgeScanCompletion("))
+        assert "controller_->retryScanCompletion();" in poll
+        assert "scanEpoch_ == state.epoch" in poll
+        assert "!state.scanning" in poll
+        assert (
+            "return transport_.acknowledgeScanCompletion(epoch, generation);"
+            in controller
+        )
+        assert "return transport_.retryScanCompletion();" in controller
+        assert "ownerAcknowledgeScanCompletion" in provider
+        assert "ownerRetryScanCompletion" in provider
+        assert "owner.unsubscribe != nullptr" in TRANSPORT
+        assert "owner.retryScanCompletion != nullptr" in TRANSPORT
+        assert "owner.acknowledgeScanCompletion != nullptr" in TRANSPORT
+        assert "abortedScanEpoch_ = completedEpoch;" in finish
+        assert "abortedScanGeneration_ = completedGeneration;" in finish
+        assert "controller_->scanCancel(scanGeneration_);" in poll
+        assert "abortedScanEpoch_, abortedScanGeneration_" in poll
+        assert "(live && state.epoch != abortedScanEpoch_)" in poll
 
 
 if __name__ == "__main__":

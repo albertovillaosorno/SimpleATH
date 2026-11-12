@@ -515,6 +515,18 @@ IOReturn SimpleATHTahoeController::scanCancel(uint64_t generation)
     return transport_.cancelScan(generation);
 }
 
+IOReturn SimpleATHTahoeController::retryScanCompletion()
+{
+    return transport_.retryScanCompletion();
+}
+
+IOReturn
+SimpleATHTahoeController::acknowledgeScanCompletion(uint64_t epoch,
+                                                    uint64_t generation)
+{
+    return transport_.acknowledgeScanCompletion(epoch, generation);
+}
+
 IOReturn
 SimpleATHTahoeController::scanNext(uint64_t generation,
                                    simpleath::ieee80211::NativeBssSnapshot &out)

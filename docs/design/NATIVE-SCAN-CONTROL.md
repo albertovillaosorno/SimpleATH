@@ -70,22 +70,31 @@ snapshot while new scan runs. Such tests are synthetic contracts, never a
 native callback, radio readiness, physical RF or IP connectivity result.
 
 
-## Implementation gap versus this contract — 2026-11-12
+## Native acknowledgement wiring and remaining gap — 2026-11-12
 
-The production `SimpleATH` to Tahoe interface implements scan generation
-identity and bounded event retention, but **not** the ideal acknowledgement
-boundary in step 5. `notifyWirelessScanFinished` sees a pending bridge ticket,
-calls a `void` V5 transport notification when an observer exists, and then
-acknowledges the ticket even if no observer was registered or a saturated
-mailbox dropped the notification. The native InfraProtocol publishes the
-WCL `SCAN_DONE` event only later during its poll. This is a known delivery
-gap, not evidence that WCL received a completion. Portable tests confirm
-identity and ring policy only.
+The internal `SimpleATHWirelessOwnerV6` callback now returns an `IOReturn`
+from the bounded mailbox, instead of treating a `void` callback as delivery.
+The PCI owner holds the bridge completion intent until the matching native
+InfraProtocol calls `acknowledgeScanCompletion(epoch, generation)` **after**
+calling the OS `SCAN_DONE` event API. Retry is initiated by the native poll,
+no more than once per poll while the original scan is finished and still
+owned by the same PCI epoch. A full mailbox returns `NoResources`; the
+bridge remains pending, preventing a successor scan from reusing the event.
+A successful handoff is remembered by generation so retries cannot enqueue a
+duplicate. Stop/reset retires the intent and the subscription, and both the
+provider and transport reject stale acknowledgements. If WCL cancels after
+a temporarily unreadable radio snapshot, the native owner attempts physical
+cancellation before posting the abort. If the bridge completion has not yet
+arrived, the consumer remembers the aborted epoch/generation and reconciles
+it after the worker finishes; no newer generation can be acknowledged.
+The callback takes only an observer lock and the transport mailbox lock;
+no provider callback enters the child's work-loop gate. The child drops its
+mailbox lock before calling the provider acknowledgement gate.
 
-Future source work must preserve the exact epoch/generation through an
-acknowledged, failure-reporting mailbox handoff and OS completion delivery.
-Retries require a bounded lifetime, explicit stop/epoch cancellation and a
-single-direction locking model; the native mailbox callback cannot reenter
-the physical provider gate. Native OS publication failure must remain
-observable without replaying a stale scan as a successor completion. That
-work remains open pending a testable native callback/OS event contract.
+**This is not evidence that macOS consumed the notification.** The native
+`wirelessPost` OS event wrapper currently returns `void`, so the source can
+only prove that its invocation precedes acknowledgement; it cannot observe
+a delivery failure downstream of that call. Further exact-Tahoe ABI
+verification, a result-bearing OS publication contract where available, and
+runtime inspection remain open. Synthetic source-wiring and portable
+ring-policy checks are not a macOS callback or physical RF test.

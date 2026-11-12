@@ -52,8 +52,8 @@ namespace simpleath
         // Queried through IOService::callPlatformFunction. The callback table
         // is copied into the native controller; its provider is retained until
         // unsubscribe() completes. Never expose a borrowed DMA/engine pointer.
-        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV5";
-        constexpr uint32_t kWirelessOwnerAbi = 5;
+        constexpr char kWirelessOwnerFunction[] = "SimpleATHWirelessOwnerV6";
+        constexpr uint32_t kWirelessOwnerAbi = 6;
         constexpr size_t kWirelessMacBytes = 6;
         constexpr size_t kWirelessSsidBytes = 32;
         constexpr size_t kWirelessCcmpKeyBytes = 16;
@@ -130,7 +130,7 @@ namespace simpleath
                 bool open;
         };
 
-        struct WirelessOwnerV5
+        struct WirelessOwnerV6
         {
                 uint32_t abiVersion;
                 uint32_t structureBytes;
@@ -155,17 +155,26 @@ namespace simpleath
                 // notify() and receive() must copy/queue work without entering
                 // the native controller's gate while the provider gate is held.
                 // ScanFinished carries the completed bridge generation;
-                // all other notifications carry generation zero.
+                // all other notifications carry generation zero. notify reports
+                // whether the bounded mailbox accepted the event, not whether
+                // the OS consumed it. Never acknowledge a rejected event.
                 // A failed subscribe must leave no live callbacks behind;
                 // successful unsubscribe joins all in-flight callbacks.
                 IOReturn (*subscribe)(void *, void *observer,
-                                      void (*notify)(void *, WirelessEvent,
-                                                     uint64_t epoch,
-                                                     uint64_t generation),
+                                      IOReturn (*notify)(void *, WirelessEvent,
+                                                         uint64_t epoch,
+                                                         uint64_t generation),
                                       void (*receive)(void *, uint64_t epoch,
                                                       uint64_t association,
                                                       const uint8_t *, size_t));
                 void (*unsubscribe)(void *, void *observer);
+                // Called only from the native consumer gate, and never while
+                // holding the mailbox lock. Retry a pending completion until
+                // the mailbox accepts it, then acknowledge the exact epoch /
+                // bridge generation after invoking the OS completion event.
+                IOReturn (*retryScanCompletion)(void *);
+                IOReturn (*acknowledgeScanCompletion)(void *, uint64_t epoch,
+                                                      uint64_t generation);
         };
     } // namespace tahoe
 } // namespace simpleath

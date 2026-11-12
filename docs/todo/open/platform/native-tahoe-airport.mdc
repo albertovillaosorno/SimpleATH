@@ -101,6 +101,14 @@ operations, connect genuine RF/channel activation, and complete packet/CCMP
 ownership across EDMA, MAC and security. Keep UI state tied to actual
 association generations, including stop and resume cancellation.
 
+The internal V6 scan completion handoff now reports mailbox acceptance,
+retains unacknowledged bridge intents, retries from the native poll and
+acknowledges matching epoch/generation after invoking WCL `SCAN_DONE`. The
+Apple event wrapper still returns `void`, so OS consumption cannot yet be
+confirmed. Verify exact-build notification delivery and error semantics
+before claiming reliable AirPort scan completion.
+
+
 Apple documents
 [NetworkingDriverKit](https://developer.apple.com)
 as Ethernet-only; its interface cannot satisfy native AirPort. Public

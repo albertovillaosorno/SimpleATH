@@ -570,22 +570,28 @@ not prove a viable native Tahoe event consumer or guarantee delivery under
 indefinite callback starvation.
 
 
-A full mailbox first evicts a noncritical notification. If all slots are
-terminal, a newer `ScanFinished` may instead evict a *different* older scan
-generation, whose native WCL request is already superseded. It cannot evict
-`ProviderStopped`, a duplicate, or a newer generation. Portable tests
-check wraparound, preserved ordering and invalid eviction inputs; this does
-not prove a viable native Tahoe event consumer or guarantee delivery under
-indefinite callback starvation.
+## Native scan mailbox handoff and OS acknowledgement — 2026-11-12
 
+Internal `WirelessOwnerV6` (`SimpleATHWirelessOwnerV6`, ABI 6) replaces the
+V5 `void notify` callback with an `IOReturn` result. The bounded mailbox now
+returns an explicit failure when full, while keeping the existing event
+retention and generation policy. The PCI owner does **not** acknowledge the
+bridge on enqueue; it retains the pending intent, deduplicates a successful
+handoff by generation, and accepts an acknowledgement only for the same PCI
+epoch and bridge generation. The native poll retries undelivered intents
+once per poll after the real radio scan ends and then drains the event ring.
+`SimpleATHInfraProtocol::finishScan` invokes the OS `SCAN_DONE` event first,
+then calls the provider's acknowledgement through a distinct gate. Stop and
+PCI epoch retirement invalidate the intent; stale acknowledgements cannot
+release a successor scan. A WCL-local abort also attempts physical cancellation
+before notifying the OS, and retains its retired epoch/generation if the
+physical completion was not yet available for acknowledgement. Polling
+reconciles only the identical retired ticket; a new successful scan clears it.
+No mailbox lock is held during any provider call, and the provider's callback
+never enters the native controller's gate.
 
-The provider's `notifyWirelessScanFinished` currently acknowledges a bridge
-ticket after attempting the `void` V5 callback, without knowing whether the
-transport enqueued it. `TahoeWirelessTransport::notify` may reject a full
-event ring, and `SimpleATHInfraProtocol::finishScan` publishes the OS event
-only on a subsequent poll. The portable bridge's stronger requirement of
-acknowledgement after OS completion dispatch is therefore not met by this
-source integration. An explicit result-bearing callback, bounded retry and
-cross-workloop acknowledgement need a deadlock-free contract and proof of
-identity before this path can be considered reliable. See the open native
-Tahoe AirPort task; no physical/OS outcome is implied here.
+The WCL event wrapper `wirelessPost` returns `void`, and the exact 25G332 OS
+consumer contract remains unverified. Thus even the new post-invocation
+acknowledgement cannot prove macOS accepted or processed the event. This
+source-only change is not evidence of physical Wi-Fi scanning, Tahoe runtime
+compatibility or successful AirPort publication.
