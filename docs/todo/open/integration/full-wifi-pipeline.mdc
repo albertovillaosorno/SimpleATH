@@ -164,10 +164,12 @@ kernel interrupt or hardware arrival-time test has been performed.
 ### Native OS transmit and port-open liveness (source-only, 2026-11-11)
 
 The same command-gated physical association lease check now runs before the
-native Ethernet/EAPOL serialization, successful controlled-port authorization
-and deferred driver-owned M4/Group2 EDMA submission, as well as before RX
-routing. A delayed beacon watchdog cannot let these outgoing paths transmit
-or open a controlled port after its monotonic beacon deadline has elapsed.
+native Ethernet/EAPOL serialization, local disassociation submission,
+OS-owned CCMP key installation, successful controlled-port authorization and
+deferred driver-owned M4/Group2 EDMA submission, as well as before RX routing.
+Explicit OS key removal remains available for cleanup without a live lease.
+A delayed beacon watchdog cannot let these outgoing paths transmit or mutate
+keys or open a controlled port after its monotonic deadline has elapsed.
 The independent initial closed-port limit is enforced during those operations
 too; a regressed monotonic clock denies continued ownership and triggers the
 same terminal hardware quarantine as expired receive traffic. This check

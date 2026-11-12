@@ -1374,6 +1374,15 @@ class SimpleATH final : public IOService
             {
                 return kIOReturnNotReady;
             }
+            // A leave cannot send another on-air management frame under an
+            // already expired AP lease while its watchdog callback is late.
+            // The shared check retires stale hardware instead.
+            const IOReturn lease = self.verifyNativeAssociationLease(
+                nowMicros(nullptr) / kMicrosPerMillisecond);
+            if (lease != kIOReturnSuccess)
+            {
+                return lease;
+            }
             if (!self.queues_.hasTransmitSpace())
             {
                 return kIOReturnNoResources;
@@ -1524,6 +1533,15 @@ class SimpleATH final : public IOService
             if (key.remove)
             {
                 return self.removeNativeOsKey(key, link.bssid);
+            }
+            // The OS's key callback can outrun a delayed beacon/initial-port
+            // timer. Never install or reset a CCMP PN under an expired link.
+            // Explicit key removal remains independent of this live lease.
+            const IOReturn lease = self.verifyNativeAssociationLease(
+                nowMicros(nullptr) / kMicrosPerMillisecond);
+            if (lease != kIOReturnSuccess)
+            {
+                return lease;
             }
             if (key.receivePacketNumber >
                     simpleath::ieee80211::crypto::kCcmpMaximumPacketNumber ||

@@ -279,6 +279,39 @@ class NativeAssociatedDeadlineWiring(unittest.TestCase):
         )
         assert "if (stillOwned && lease != kIOReturnSuccess)" in deferred
 
+    @staticmethod
+    def test_os_key_mutation_requires_live_beacon_and_port_lease() -> None:
+        install = body(
+            OWNER,
+            "static IOReturn ownerInstallKeyAction(",
+            "ownerInstallKey(void *context,",
+        )
+        assert (
+            install.index("if (key.remove)")
+            < install.index("self.verifyNativeAssociationLease(")
+            < install.index("key.receivePacketNumber >")
+            < install.index("self.nativePairwiseTx_.install(")
+        )
+        # Removing a key remains possible without renewing any link lease.
+        assert "return self.removeNativeOsKey(key, link.bssid);" in install
+
+    @staticmethod
+    def test_local_leave_checks_link_lease_before_disassociation_tx() -> None:
+        leave = body(
+            OWNER,
+            "static IOReturn ownerDisconnectAction(",
+            "static IOReturn ownerDisconnect(",
+        )
+        assert (
+            leave.index("self.verifyNativeAssociationLease(")
+            < leave.index(
+                "if (!self.queues_.hasTransmitSpace())",
+                leave.index("self.verifyNativeAssociationLease("),
+            )
+            < leave.index("makeDisassociationRequest(")
+            < leave.index("self.submitPreparedTransmit(")
+        )
+
 
 class NativeLinkRetirementWiring(unittest.TestCase):
     """Prevent software-only teardown from returning to terminal TX paths."""
