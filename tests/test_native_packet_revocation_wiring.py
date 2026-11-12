@@ -138,12 +138,26 @@ class NativePacketRevocationWiring(unittest.TestCase):
         assert (
             poll.index("pollJoin(state, live);")
             < poll.index(
-                "const bool link = available && join_.active() && !join_.pending()"
+                "const bool link = available && join_.connectedTo(observedJoin(state))"
             )
             < poll.index("linked_ = link;")
         )
-        assert "state.associated && state.controlledPortOpen" in poll
-        assert "state.associatedBeaconObserved" in poll
+        observation = SOURCE.split("observedJoin(", 1)[1].split(
+            "template <typename T> T *prefix", 1
+        )[0]
+        assert "progress.associated = state.associated;" in observation
+        assert (
+            "progress.controlledPortOpen = state.controlledPortOpen;"
+            in observation
+        )
+        assert (
+            "progress.beaconObserved = state.associatedBeaconObserved;"
+            in observation
+        )
+        assert (
+            "progress.associationGeneration = state.associationGeneration;"
+            in observation
+        )
         # Failed or explicitly aborted joins cannot report link-up from an
         # otherwise positive, delayed physical provider state.
         failure = SOURCE.split("void SimpleATHInfraProtocol::pollJoin(", 1)[1]
@@ -151,9 +165,9 @@ class NativePacketRevocationWiring(unittest.TestCase):
             "IOReturn SimpleATHInfraProtocol::beginScan(", 1
         )[0]
         assert "join_.reset();" in failure
-        assert failure.index("join_.observe(progress);") < failure.index(
-            "join_.reset();"
-        )
+        assert failure.index(
+            "join_.observe(observedJoin(state));"
+        ) < failure.index("join_.reset();")
 
     @staticmethod
     def test_new_join_preserves_preassociation_packet_demand() -> None:

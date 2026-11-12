@@ -290,3 +290,16 @@ accepted cancellation. A missing generation still returns `NotFound`; a
 failed provider cancel is returned without inventing an OS completion. A
 source-order regression covers this boundary; Tahoe event delivery remains
 unverified without kernel execution.
+
+## WCL status is bound to an accepted join identity — 2026-11-12
+
+A physical owner's positive association snapshot does not establish that the
+local WCL join token is still accepted. In particular, an explicit leave,
+join failure or stale same-epoch AP observation can outlive its AirPort
+session. `getAssocState`, `linkState` and the periodic link-up notification
+now require the accepted local join to be connected to exactly the observed
+PCI epoch, join request, association generation, BSSID, port and beacon. The
+OS getters enter the InfraProtocol's command gate before inspecting its
+mutable join token; failed gate or provider reads remain down. The pure
+C++14/17 join fixture rejects every stale identity independently. These
+source contracts do not prove Tahoe work-loop reentrancy or kernel behavior.

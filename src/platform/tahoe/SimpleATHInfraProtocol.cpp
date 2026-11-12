@@ -85,6 +85,22 @@ namespace
         return simpleath::tahoe::mayEnableNativeDataPath(evidence);
     }
 
+    simpleath::tahoe::JoinObservation
+    observedJoin(const simpleath::tahoe::WirelessSnapshot &state)
+    {
+        simpleath::tahoe::JoinObservation progress {};
+        progress.epoch = state.epoch;
+        progress.requestId = state.joinRequestId;
+        progress.associationGeneration = state.associationGeneration;
+        memcpy(progress.bssid, state.bssid, sizeof(progress.bssid));
+        progress.phase = state.joinPhase;
+        progress.status = static_cast<int32_t>(state.joinStatus);
+        progress.associated = state.associated;
+        progress.controlledPortOpen = state.controlledPortOpen;
+        progress.beaconObserved = state.associatedBeaconObserved;
+        return progress;
+    }
+
     template <typename T> T *prefix(OSObject *object)
     {
         T *result = nullptr;
@@ -472,24 +488,53 @@ bool SimpleATHInfraProtocol::isCommandProhibited(int command)
            controller_->isCommandProhibited(command);
 }
 
+IOReturn SimpleATHInfraProtocol::queryConnectedJoinAction(OSObject *owner,
+                                                          void *result, void *,
+                                                          void *, void *)
+{
+    auto *interface = OSDynamicCast(SimpleATHInfraProtocol, owner);
+    if (interface == nullptr || result == nullptr || interface->stopping_ ||
+        interface->controller_ == nullptr)
+    {
+        return kIOReturnNotReady;
+    }
+    auto *connected = static_cast<bool *>(result);
+    *connected = false;
+    simpleath::tahoe::WirelessSnapshot state {};
+    const IOReturn status = interface->controller_->radioSnapshot(state);
+    if (status != kIOReturnSuccess)
+    {
+        return status;
+    }
+    // The local WCL join token, unlike a physical snapshot, is retired on
+    // leave, timeout or failed join. Consult it on the same serialized gate
+    // as its observer; do not read a mutable session from an OS getter thread.
+    *connected = state.radioAvailable && state.powered &&
+                 !state.rfKillBlocked &&
+                 interface->join_.connectedTo(observedJoin(state));
+    return kIOReturnSuccess;
+}
+
 int SimpleATHInfraProtocol::getAssocState()
 {
-    simpleath::tahoe::WirelessSnapshot state {};
-    return !stopping_ && controller_ != nullptr &&
-                   controller_->radioSnapshot(state) == kIOReturnSuccess &&
-                   state.associated
+    bool connected = false;
+    return gateAdded_ && gate_ != nullptr &&
+                   gate_->runAction(
+                       &SimpleATHInfraProtocol::queryConnectedJoinAction,
+                       &connected) == kIOReturnSuccess &&
+                   connected
                ? simpleath::tahoe::kApple80211StateRun
                : simpleath::tahoe::kApple80211StateInit;
 }
 
 IO80211LinkState SimpleATHInfraProtocol::linkState()
 {
-    simpleath::tahoe::WirelessSnapshot state {};
-    const bool up = !stopping_ && controller_ != nullptr &&
-                    controller_->radioSnapshot(state) == kIOReturnSuccess &&
-                    state.radioAvailable && state.powered &&
-                    !state.rfKillBlocked && state.associated &&
-                    state.controlledPortOpen && state.associatedBeaconObserved;
+    bool connected = false;
+    const bool up =
+        gateAdded_ && gate_ != nullptr &&
+        gate_->runAction(&SimpleATHInfraProtocol::queryConnectedJoinAction,
+                         &connected) == kIOReturnSuccess &&
+        connected;
     return static_cast<IO80211LinkState>(up ? 2 : 1);
 }
 
@@ -873,17 +918,7 @@ void SimpleATHInfraProtocol::pollJoin(
         retireJoin(kIOReturnTimeout, 0);
         return;
     }
-    JoinObservation progress {};
-    progress.epoch = state.epoch;
-    progress.requestId = state.joinRequestId;
-    progress.associationGeneration = state.associationGeneration;
-    memcpy(progress.bssid, state.bssid, sizeof(progress.bssid));
-    progress.phase = state.joinPhase;
-    progress.status = static_cast<int32_t>(state.joinStatus);
-    progress.associated = state.associated;
-    progress.controlledPortOpen = state.controlledPortOpen;
-    progress.beaconObserved = state.associatedBeaconObserved;
-    const uint32_t notices = join_.observe(progress);
+    const uint32_t notices = join_.observe(observedJoin(state));
     if ((notices & AssociationNotice) != 0)
     {
         emitJoin(kWclAssociationEvent, kIOReturnSuccess, 0, false);
@@ -1132,9 +1167,7 @@ void SimpleATHInfraProtocol::poll()
     // Only an accepted WCL join may announce a live AirPort link. A failed
     // join-status observation can retire the session while the physical
     // snapshot still describes the previous AP as associated/port-open.
-    const bool link = available && join_.active() && !join_.pending() &&
-                      state.associated && state.controlledPortOpen &&
-                      state.associatedBeaconObserved;
+    const bool link = available && join_.connectedTo(observedJoin(state));
     if (link != linked_)
     {
         linked_ = link;

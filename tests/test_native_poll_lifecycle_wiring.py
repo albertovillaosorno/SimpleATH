@@ -131,11 +131,24 @@ class NativePollLifecycleWiring(unittest.TestCase):
         # Physical radio shutdown can fail. The native interface is still
         # terminal and cannot report Run, link-up or AirPort-ready from an
         # unrelated, still-positive provider snapshot.
+        readiness = section(
+            "bool SimpleATHInfraProtocol::isChipInterfaceReady()",
+            "bool SimpleATHInfraProtocol::isCommandProhibited(",
+        )
+        assert "!stopping_ && controller_ != nullptr" in readiness
+        assert readiness.index("!stopping_") < readiness.index(
+            "controller_->radioSnapshot(state)"
+        )
+        action = section(
+            "IOReturn SimpleATHInfraProtocol::queryConnectedJoinAction(",
+            "int SimpleATHInfraProtocol::getAssocState()",
+        )
+        assert "interface->stopping_" in action
+        assert action.index("interface->stopping_") < action.index(
+            "interface->controller_->radioSnapshot(state)"
+        )
+        assert "join_.connectedTo(observedJoin(state))" in action
         getters = (
-            (
-                "bool SimpleATHInfraProtocol::isChipInterfaceReady()",
-                "bool SimpleATHInfraProtocol::isCommandProhibited(",
-            ),
             (
                 "int SimpleATHInfraProtocol::getAssocState()",
                 "IO80211LinkState SimpleATHInfraProtocol::linkState()",
@@ -148,10 +161,10 @@ class NativePollLifecycleWiring(unittest.TestCase):
         for start, end in getters:
             with self.subTest(getter=start):
                 body = section(start, end)
-                assert "!stopping_ && controller_ != nullptr" in body
-                assert body.index("!stopping_") < body.index(
-                    "controller_->radioSnapshot(state)"
-                )
+                assert "gateAdded_ && gate_ != nullptr" in body
+                assert "queryConnectedJoinAction" in body
+                assert "connected" in body
+                assert "controller_->radioSnapshot(state)" not in body
 
 
 if __name__ == "__main__":

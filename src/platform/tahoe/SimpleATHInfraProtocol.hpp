@@ -119,6 +119,8 @@ class SimpleATHInfraProtocol final : public IO80211InfraProtocol
     private:
         static IOReturn requestAction(OSObject *, void *, void *, void *,
                                       void *);
+        static IOReturn queryConnectedJoinAction(OSObject *, void *, void *,
+                                                 void *, void *);
         static IOReturn stopAction(OSObject *, void *, void *, void *, void *);
         static void tick(OSObject *, IOTimerEventSource *);
         IOReturn request(unsigned int operation, void *data);

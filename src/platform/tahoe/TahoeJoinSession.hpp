@@ -201,6 +201,23 @@ namespace simpleath
                     return active_ && !connected_;
                 }
 
+                // OS link getters must not accept an unrelated or retired
+                // physical association merely because its port is open.
+                // Read only while the owning InfraProtocol gate is held.
+                bool connectedTo(const JoinObservation &value) const
+                {
+                    return active_ && connected_ && generation_ != 0 &&
+                           value.epoch == epoch_ &&
+                           value.requestId == requestId_ &&
+                           value.associationGeneration == generation_ &&
+                           memcmp(&bssid_[0], &value.bssid[0],
+                                  sizeof(bssid_)) == 0 &&
+                           value.status == 0 &&
+                           value.phase == NativeJoinPhase::Ready &&
+                           value.associated && value.controlledPortOpen &&
+                           value.beaconObserved;
+                }
+
                 bool beaconObserved() const
                 {
                     return beaconSeen_;

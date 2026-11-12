@@ -181,6 +181,78 @@ namespace
                !connected.active() && connected.observe(state) == NoJoinNotice;
     }
 
+    bool connectedSnapshotIdentity()
+    {
+        JoinSession join;
+        auto state = associated();
+        state.phase = NativeJoinPhase::Ready;
+        state.controlledPortOpen = true;
+        state.beaconObserved = true;
+        if (!join.begin(kObservedEpoch, kFirstRequestId, kAp.data(), true) ||
+            join.connectedTo(state) ||
+            join.observe(state) != (AssociationNotice | BeaconNotice |
+                                    SupplicantNotice | ConnectionNotice) ||
+            !join.connectedTo(state))
+        {
+            return false;
+        }
+        auto changed = state;
+        changed.epoch = kWrongEpoch;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.requestId = kSecondRequestId;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        ++changed.associationGeneration;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.bssid[kWclMacAddressBytes - 1U] = kCorruptedBssidOctet;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.status = -7;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.phase = NativeJoinPhase::Handshaking;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.associated = false;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.controlledPortOpen = false;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        changed = state;
+        changed.beaconObserved = false;
+        if (join.connectedTo(changed))
+        {
+            return false;
+        }
+        return join.lose() == DisconnectionNotice && !join.connectedTo(state);
+    }
+
     bool openAndFailure()
     {
         JoinSession join;
@@ -307,6 +379,10 @@ int main()
     if (!failedStatusCannotAdvance())
     {
         return 5;
+    }
+    if (!connectedSnapshotIdentity())
+    {
+        return 6;
     }
     return 0;
 }
