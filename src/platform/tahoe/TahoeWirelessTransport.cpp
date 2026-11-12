@@ -412,6 +412,41 @@ namespace simpleath
             return kIOReturnSuccess;
         }
 
+        IOReturn TahoeWirelessTransport::radioPowerState(bool &on)
+        {
+            on = false;
+            if (!bound())
+            {
+                return kIOReturnNotReady;
+            }
+            // A native power-off request revokes snapshot admission even if
+            // physical quiescence failed. GET_POWER still needs to report
+            // the logical OS-visible radio as off so WCL can request ON.
+            // It must never use a potentially stale positive owner sample.
+            IOLockLock(mailboxLock_);
+            const bool offRequested = powerOffRequested_;
+            IOLockUnlock(mailboxLock_);
+            if (offRequested)
+            {
+                return kIOReturnSuccess;
+            }
+            WirelessSnapshot state {};
+            const IOReturn result = snapshot(state);
+            IOLockLock(mailboxLock_);
+            const bool offWhileSampling = powerOffRequested_;
+            IOLockUnlock(mailboxLock_);
+            if (offWhileSampling)
+            {
+                return kIOReturnSuccess;
+            }
+            if (result != kIOReturnSuccess)
+            {
+                return result;
+            }
+            on = state.radioAvailable && state.powered && !state.rfKillBlocked;
+            return kIOReturnSuccess;
+        }
+
         IOReturn TahoeWirelessTransport::setPower(bool on)
         {
             if (!bound())

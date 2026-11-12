@@ -143,6 +143,40 @@ class NativePowerOffAdmissionWiring(unittest.TestCase):
         assert "powerOffRequested_ = false;" in bind
 
 
+class NativePowerStatusWiring(unittest.TestCase):
+    @staticmethod
+    def test_off_request_remains_visible_to_wcl_without_snapshot() -> None:
+        status = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::radioPowerState(bool &on)", 1
+        )[1].split("IOReturn TahoeWirelessTransport::setPower(bool on)", 1)[0]
+        assert "on = false;" in status
+        assert status.index("if (!bound())") < status.index("if (offRequested)")
+        assert status.index("if (offRequested)") < status.index(
+            "const IOReturn result = snapshot(state);"
+        )
+        assert status.index("if (offWhileSampling)") > status.index(
+            "const IOReturn result = snapshot(state);"
+        )
+        assert status.index("if (offWhileSampling)") < status.index(
+            "if (result != kIOReturnSuccess)"
+        )
+        assert status.count("powerOffRequested_") == 2
+        assert "on = state.radioAvailable && state.powered &&" in status
+        assert "!state.rfKillBlocked;" in status
+        controller = (
+            ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
+        ).read_text(encoding="utf-8")
+        getter = controller.split("SimpleATHTahoeController::getPOWER(", 1)[
+            1
+        ].split("SimpleATHTahoeController::setPOWER(", 1)[0]
+        assert "transport_.radioPowerState(on)" in getter
+        assert "transport_.snapshot(state)" not in getter
+        assert "out->powerState[0] = on ?" in getter
+        assert getter.index("if (result != kIOReturnSuccess)") < (
+            getter.index("out->numRadios = 1;")
+        )
+
+
 class NativePollEventSequencingWiring(unittest.TestCase):
     @staticmethod
     def test_state_changes_refresh_before_wcl_notices_or_skywalk() -> None:

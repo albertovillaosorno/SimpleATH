@@ -632,3 +632,23 @@ checks the returned pair against its mailbox epoch, rejecting an intervening
 callback retirement. This closes the stale-snapshot start race without
 creating an orphan scan; later resets still require normal lifecycle cleanup.
 This is a source race fix, not runtime or RF scan confirmation.
+
+
+## WCL power-off readback after logical revocation (2026-11-12)
+
+A WCL `setPOWER(Off)` request invalidates the transport's RX/EAPOL lease and
+prevents subsequent physical owner snapshots from authorizing data, even if
+physical shutdown returned an error. The native controller previously used
+that same revoked snapshot to implement `getPOWER`, so a legitimate AirPort
+power-off query returned `NotReady` rather than the requested logical Off
+state. The transport now exposes a separate read-only power-status operation:
+while the owner is still bound, a latched off request is reported as Off
+without sampling the owner; otherwise a fresh accepted snapshot determines
+On/Off. It also rechecks the off latch after sampling to avoid projecting a
+raced stale On state. A terminated owner still returns an error, not a
+fabricated healthy radio. Only a successful owner power-on clears the latch.
+
+This reports the OS-visible **logical** radio state, not verified PCI/RF
+power isolation, macOS UI reception or a successful on-device power cycle.
+The physical owner error continues to be returned from the setting callback.
+The host regression checks the native source ordering without invoking Tahoe.

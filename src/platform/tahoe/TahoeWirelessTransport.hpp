@@ -75,6 +75,10 @@ namespace simpleath
                 // reference can be reclaimed.
                 void unbind();
                 IOReturn snapshot(WirelessSnapshot &out);
+                // WCL can read logical radio-off state even after its
+                // own power-off request revoked physical snapshots.
+                // This does not attest to physical power isolation.
+                IOReturn radioPowerState(bool &on);
                 IOReturn setPower(bool on);
                 IOReturn setMac(const uint8_t address[kWirelessMacBytes]);
                 // Return both values from the same validated PCI owner epoch;

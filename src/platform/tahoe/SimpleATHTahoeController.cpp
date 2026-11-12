@@ -392,8 +392,8 @@ SimpleATHTahoeController::getPOWER(IO80211SkywalkInterface * /*unused*/,
     {
         return kIOReturnUnsupported;
     }
-    simpleath::tahoe::WirelessSnapshot state {};
-    const IOReturn result = transport_.snapshot(state);
+    bool on = false;
+    const IOReturn result = transport_.radioPowerState(on);
     if (result != kIOReturnSuccess)
     {
         return result;
@@ -403,10 +403,8 @@ SimpleATHTahoeController::getPOWER(IO80211SkywalkInterface * /*unused*/,
     {
         radio = simpleath::tahoe::kApple80211PowerOff;
     }
-    out->powerState[0] =
-        state.radioAvailable && state.powered && !state.rfKillBlocked
-            ? simpleath::tahoe::kApple80211PowerOn
-            : simpleath::tahoe::kApple80211PowerOff;
+    out->powerState[0] = on ? simpleath::tahoe::kApple80211PowerOn
+                            : simpleath::tahoe::kApple80211PowerOff;
     return kIOReturnSuccess;
 }
 
