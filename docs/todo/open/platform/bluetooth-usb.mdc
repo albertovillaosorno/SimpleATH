@@ -576,3 +576,20 @@ replacement during begin, controller step advancement and disable.
 These C++14/C++17 ASan+UBSan tests and scoped strict Clang-Tidy/format
 checks provide source-only evidence, not live Bluetooth advertising,
 AirDrop pairing or Tahoe HCI ABI verification.
+
+## Source progress — LE discovery USB session identity
+
+The portable LE scan producer now binds each HCI scan procedure to the USB
+transport's monotonic attach generation, not just the native owner epoch.
+Passive and active start verify that the original controller survives host
+permission/privacy callbacks before sending LE scan parameters. Later HCI
+command completions, stop/disable and advertising-report delivery reject a
+same-epoch detach/reattach rather than acting on the replacement controller.
+A new explicit revoke followed by a fresh authorized scan remains possible.
+
+The offline `test_bluetooth_le.cpp` fixture reproduces the previously
+accepted same-epoch preflight rebind and checks active authorization,
+pending parameter completion, scanning reports, disable and USB command
+callback replacement. This is host-side state-machine evidence only: it
+neither opens the physical USB endpoint nor verifies Tahoe Bluetooth host,
+coexistence, LE scanning or AirDrop behavior.

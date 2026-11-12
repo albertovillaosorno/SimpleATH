@@ -142,6 +142,9 @@ namespace simpleath
             // Local session identity survives revoke and same-epoch restart.
             // Exhaustion denies fresh scans rather than aliasing old work.
             uint64_t generation {};
+            // USB-HCI attach identity is independent of the owner epoch.
+            // An old scan must not address a same-epoch replacement device.
+            uint64_t transportGeneration {};
             LeScanPhase phase {LeScanPhase::Idle};
             bool stopRequested {};
             // Only an explicitly authorized active scan may deliver

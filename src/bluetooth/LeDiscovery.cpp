@@ -218,6 +218,8 @@ namespace simpleath
                 owner.onAdvertisement == nullptr || owner.epoch != epoch ||
                 host.ownerEpoch != epoch || !transport.attached ||
                 transport.epoch != epoch || transport.faulted ||
+                state.transportGeneration == 0U ||
+                state.transportGeneration != generation ||
                 !owner.permit(owner.context, epoch))
             {
                 return false;
@@ -609,6 +611,7 @@ namespace simpleath
                 return LeDiscoveryResult::Faulted;
             }
             const uint64_t priorGeneration = state.generation;
+            const uint64_t originalTransportGeneration = transport.generation;
             if (!transport.attached || transport.faulted ||
                 transport.epoch != host.ownerEpoch ||
                 host.ownerEpoch != owner.epoch ||
@@ -621,7 +624,8 @@ namespace simpleath
             // A revoked physical transport cannot be used for HCI commands.
             if (!transport.attached || transport.faulted ||
                 transport.epoch != host.ownerEpoch ||
-                host.ownerEpoch != owner.epoch)
+                host.ownerEpoch != owner.epoch ||
+                transport.generation != originalTransportGeneration)
             {
                 return LeDiscoveryResult::OwnershipLost;
             }
@@ -654,6 +658,7 @@ namespace simpleath
             state.epoch = owner.epoch;
             state.active = active;
             state.phase = LeScanPhase::AwaitParameters;
+            state.transportGeneration = originalTransportGeneration;
             const uint64_t sessionGeneration = transport.generation;
             const UsbHciStatus sent = sendUsbHciCommand(
                 transport, host, &command[0U], kScanParamsBytes);
@@ -783,6 +788,7 @@ namespace simpleath
             return LeDiscoveryResult::InvalidArgument;
         }
         const uint64_t priorGeneration = state.generation;
+        const uint64_t originalTransportGeneration = transport.generation;
         if (!transport.attached || transport.faulted ||
             transport.epoch != host.ownerEpoch ||
             host.ownerEpoch != owner.epoch ||
@@ -793,7 +799,8 @@ namespace simpleath
         // A revoked USB owner cannot authorize active controller RF work.
         if (!transport.attached || transport.faulted ||
             transport.epoch != host.ownerEpoch ||
-            host.ownerEpoch != owner.epoch)
+            host.ownerEpoch != owner.epoch ||
+            transport.generation != originalTransportGeneration)
         {
             return LeDiscoveryResult::OwnershipLost;
         }
@@ -811,6 +818,12 @@ namespace simpleath
         if (!authorize(owner.context, owner.epoch, interval, window))
         {
             return LeDiscoveryResult::Unauthorized;
+        }
+        if (!transport.attached || transport.faulted ||
+            transport.epoch != owner.epoch ||
+            transport.generation != originalTransportGeneration)
+        {
+            return LeDiscoveryResult::OwnershipLost;
         }
         // A policy callback can revoke USB ownership or reset the scan
         // state. Recheck both before sending an active RF command.

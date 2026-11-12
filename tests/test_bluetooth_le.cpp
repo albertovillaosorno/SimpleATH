@@ -118,6 +118,8 @@ namespace
             bool reboundEpoch {};
             bool allowActiveScan {true};
             bool revokeOnActiveAuthorization {};
+            void *activeContext {};
+            bool (*onActiveAuthorization)(void *) {};
             bool expectAirDrop {};
             bool rejectAirDropHint {};
             bool revokeOnAirDropHint {};
@@ -139,6 +141,12 @@ namespace
     {
         auto &fake = *static_cast<Fake *>(context);
         ++fake.activeAuthorizations;
+        if (fake.onActiveAuthorization != nullptr)
+        {
+            const auto callback = fake.onActiveAuthorization;
+            fake.onActiveAuthorization = nullptr;
+            (void)callback(fake.activeContext);
+        }
         if (fake.revokeOnActiveAuthorization)
         {
             fake.valid = false;
@@ -424,6 +432,37 @@ namespace
             {
                 fake_.permitContext = this;
                 fake_.onNextPermit = rebindDuringReport;
+            }
+
+            static bool sameEpochRebind(void *context)
+            {
+                auto &fixture = *static_cast<Fixture *>(context);
+                detachUsbHci(fixture.transport_);
+                return fixture.attach();
+            }
+
+            bool replaceSameEpoch()
+            {
+                return sameEpochRebind(this);
+            }
+
+            void replaceSameEpochFromPermit()
+            {
+                fake_.permitContext = this;
+                fake_.onNextPermit = sameEpochRebind;
+            }
+
+            void replaceSameEpochFromAuthorization()
+            {
+                fake_.activeContext = this;
+                fake_.onActiveAuthorization = sameEpochRebind;
+            }
+
+            void replaceSameEpochDuringCommand(uint8_t opcode)
+            {
+                fake_.commandContext = this;
+                fake_.onNextCommand = sameEpochRebind;
+                fake_.triggerOpcode = opcode;
             }
 
             void revokeDuringCommand(uint8_t opcode)
@@ -869,6 +908,81 @@ namespace
             return (__LINE__ % kDiagnosticModulo) + 1;
         }
         return 0;
+    }
+
+    int sameEpochUsbRebindIsolation()
+    {
+        // Rebinding to a different USB controller with the same native owner
+        // epoch must never authorize the successor through an old scan lease.
+        Fixture passive {};
+        if (!passive.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        passive.replaceSameEpochFromPermit();
+        if (passive.begin() != LeDiscoveryResult::OwnershipLost ||
+            passive.phase() != LeScanPhase::Idle ||
+            passive.fake().commandCount != 0U)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture active {};
+        if (!active.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        active.replaceSameEpochFromAuthorization();
+        if (active.beginActive() != LeDiscoveryResult::OwnershipLost ||
+            active.fake().activeAuthorizations != 1U ||
+            active.fake().commandCount != 0U ||
+            active.phase() != LeScanPhase::Idle)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture pending {};
+        if (!pending.attach() || pending.begin() != LeDiscoveryResult::Ok ||
+            !pending.replaceSameEpoch() ||
+            pending.completeParameters() != LeDiscoveryResult::OwnershipLost ||
+            pending.fake().commandCount != 1U ||
+            pending.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        pending.revoke();
+        if (pending.begin() != LeDiscoveryResult::Ok ||
+            pending.completeParameters() != LeDiscoveryResult::Ok ||
+            pending.completeEnable() != LeDiscoveryResult::Ok ||
+            pending.phase() != LeScanPhase::Scanning)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture stopping {};
+        if (!stopping.start() || !stopping.replaceSameEpoch() ||
+            stopping.stop() != LeDiscoveryResult::OwnershipLost ||
+            stopping.fake().commandCount != 2U ||
+            stopping.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture reporting {};
+        if (!reporting.start() || !reporting.replaceSameEpoch() ||
+            reporting.accept(kAdvertisement.data(), kAdvertisement.size()) !=
+                LeDiscoveryResult::OwnershipLost ||
+            reporting.fake().reports != 0U ||
+            reporting.phase() != LeScanPhase::Faulted)
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        Fixture sending {};
+        if (!sending.attach())
+        {
+            return (__LINE__ % kDiagnosticModulo) + 1;
+        }
+        sending.replaceSameEpochDuringCommand(kParamsOpcode);
+        return sending.begin() == LeDiscoveryResult::OwnershipLost &&
+                       sending.fake().commandCount == 1U
+                   ? 0
+                   : (__LINE__ % kDiagnosticModulo) + 1;
     }
 
     int normalLifecycle()
@@ -1763,6 +1877,10 @@ int main()
     if (const int permitRevocation = synchronousPermitRevocation())
     {
         return permitRevocation;
+    }
+    if (const int rebound = sameEpochUsbRebindIsolation())
+    {
+        return rebound;
     }
     if (const int normal = normalLifecycle())
     {
