@@ -77,7 +77,9 @@ namespace simpleath
                 IOReturn snapshot(WirelessSnapshot &out);
                 IOReturn setPower(bool on);
                 IOReturn setMac(const uint8_t address[kWirelessMacBytes]);
-                IOReturn startScan(uint64_t &generation);
+                // Return both values from the same validated PCI owner epoch;
+                // a caller must not pair a scan ticket with an older snapshot.
+                IOReturn startScan(uint64_t &generation, uint64_t &epoch);
                 IOReturn cancelScan(uint64_t generation);
                 IOReturn retryScanCompletion();
                 IOReturn acknowledgeScanCompletion(uint64_t epoch,

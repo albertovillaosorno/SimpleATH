@@ -193,6 +193,37 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "identity.epoch != self.epoch_" in provider
 
     @staticmethod
+    def test_scan_start_pairs_epoch_with_accepted_generation() -> None:
+        controller = (
+            ROOT / "src/platform/tahoe/SimpleATHTahoeController.cpp"
+        ).read_text(encoding="utf-8")
+        transport_header = (
+            ROOT / "src/platform/tahoe/TahoeWirelessTransport.hpp"
+        ).read_text(encoding="utf-8")
+        start = TRANSPORT.split(
+            "IOReturn TahoeWirelessTransport::startScan(", 1
+        )[1]
+        start = start.split("IOReturn TahoeWirelessTransport::cancelScan(", 1)[
+            0
+        ]
+        infra_start = INFRA.split("SimpleATHInfraProtocol::beginScan(", 1)[1]
+        infra_start = infra_start.split("SimpleATHInfraProtocol::emit(", 1)[0]
+        assert "generation = 0;" in start
+        assert "epoch = 0;" in start
+        assert start.index("epoch_ == state.epoch && !providerStopped_") < (
+            start.index("generation = ticket;")
+        )
+        assert "epoch = state.epoch;" in start
+        assert (
+            "startScan(uint64_t &generation, uint64_t &epoch)"
+            in transport_header
+        )
+        assert "return transport_.startScan(generation, epoch);" in controller
+        assert "controller_->scanStart(generation, epoch);" in infra_start
+        assert "scanEpoch_ = epoch;" in infra_start
+        assert "scanEpoch_ = state.epoch;" not in infra_start
+
+    @staticmethod
     def test_consumer_acks_only_after_os_completion_dispatch() -> None:
         provider = (ROOT / "src/SimpleATH.cpp").read_text(encoding="utf-8")
         controller = (

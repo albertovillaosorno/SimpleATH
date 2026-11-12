@@ -127,7 +127,7 @@ class SimpleATHTahoeController final : public IO80211Controller
         IOReturn radioPower(bool on);
         IOReturn radioMac(const uint8_t address[6]);
         IOReturn radioSnapshot(simpleath::tahoe::WirelessSnapshot &out);
-        IOReturn scanStart(uint64_t &generation);
+        IOReturn scanStart(uint64_t &generation, uint64_t &epoch);
         IOReturn scanCancel(uint64_t generation);
         IOReturn retryScanCompletion();
         IOReturn acknowledgeScanCompletion(uint64_t epoch, uint64_t generation);

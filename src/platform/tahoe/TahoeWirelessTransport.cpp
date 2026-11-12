@@ -439,9 +439,11 @@ namespace simpleath
             return owner_.setMac(owner_.context, address);
         }
 
-        IOReturn TahoeWirelessTransport::startScan(uint64_t &generation)
+        IOReturn TahoeWirelessTransport::startScan(uint64_t &generation,
+                                                   uint64_t &epoch)
         {
             generation = 0;
+            epoch = 0;
             WirelessSnapshot state {};
             const IOReturn status = snapshot(state);
             if (status != kIOReturnSuccess)
@@ -478,6 +480,7 @@ namespace simpleath
                 return kIOReturnNotReady;
             }
             generation = ticket;
+            epoch = state.epoch;
             return kIOReturnSuccess;
         }
 

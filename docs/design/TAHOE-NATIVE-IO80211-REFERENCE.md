@@ -595,3 +595,13 @@ consumer contract remains unverified. Thus even the new post-invocation
 acknowledgement cannot prove macOS accepted or processed the event. This
 source-only change is not evidence of physical Wi-Fi scanning, Tahoe runtime
 compatibility or successful AirPort publication.
+
+## Scan-start epoch pairing — 2026-11-12
+
+The native transport now returns the PCI epoch together with its accepted
+bridge scan generation, after validating the second owner snapshot and the
+mailbox epoch. The InfraProtocol consumes that exact pair rather than
+combining an earlier independent snapshot with a later scan-start ticket.
+An intervening PCI reset is rejected by the transport; it cannot silently
+produce a WCL request tied to the wrong physical epoch. This is a source
+race fix, not a runtime or RF scan confirmation.

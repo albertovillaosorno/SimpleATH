@@ -888,14 +888,11 @@ IOReturn SimpleATHInfraProtocol::beginScan(void *data)
     {
         return kIOReturnBadArgument;
     }
-    simpleath::tahoe::WirelessSnapshot state {};
-    const auto status = controller_->radioSnapshot(state);
-    if (status != kIOReturnSuccess)
-    {
-        return status;
-    }
+    // A preliminary snapshot can belong to an earlier PCI epoch. Capture
+    // the epoch and generation together at the transport's accepted start.
     uint64_t generation = 0;
-    const auto result = controller_->scanStart(generation);
+    uint64_t epoch = 0;
+    const auto result = controller_->scanStart(generation, epoch);
     if (result != kIOReturnSuccess)
     {
         return result;
@@ -903,7 +900,7 @@ IOReturn SimpleATHInfraProtocol::beginScan(void *data)
     scan_ = filter;
     abortedScanEpoch_ = 0;
     abortedScanGeneration_ = 0;
-    scanEpoch_ = state.epoch;
+    scanEpoch_ = epoch;
     scanGeneration_ = generation;
     return kIOReturnSuccess;
 }

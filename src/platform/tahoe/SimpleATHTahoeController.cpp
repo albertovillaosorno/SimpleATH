@@ -505,9 +505,10 @@ SimpleATHTahoeController::radioSnapshot(simpleath::tahoe::WirelessSnapshot &out)
     return transport_.snapshot(out);
 }
 
-IOReturn SimpleATHTahoeController::scanStart(uint64_t &generation)
+IOReturn SimpleATHTahoeController::scanStart(uint64_t &generation,
+                                             uint64_t &epoch)
 {
-    return transport_.startScan(generation);
+    return transport_.startScan(generation, epoch);
 }
 
 IOReturn SimpleATHTahoeController::scanCancel(uint64_t generation)
