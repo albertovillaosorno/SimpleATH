@@ -122,7 +122,9 @@ namespace simpleath
                 LinkMonitorResult started(const Mac &station, const Mac &bssid,
                                           const LinkStartConfig &config);
                 // A liveness refresh requires infrastructure beacon/probe
-                // metadata matching the associated beacon interval.
+                // metadata matching the associated beacon interval. Late AP
+                // management beyond the missed-beacon deadline also retires
+                // the link, even before its independent timer callback.
                 LinkMonitorResult
                 observeManagement(const uint8_t *frame, size_t frameLength,
                                   uint64_t nowMs, bool fcsVerified,

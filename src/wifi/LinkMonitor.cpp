@@ -333,6 +333,14 @@ namespace simpleath
             {
                 return LinkMonitorResult::ForeignAccessPoint;
             }
+            // A late AP beacon may arrive ahead of a delayed timer callback.
+            // Enforce the existing missed-beacon deadline before allowing
+            // ANY AP management frame to renew or supersede that link lease.
+            // The caller observes the same terminal transition as a timeout.
+            if (observeTimeout(nowMs) == LinkMonitorResult::Ok)
+            {
+                return LinkMonitorResult::Ok;
+            }
 
             if (header.subtype == kBeaconSubtype ||
                 header.subtype == kProbeResponseSubtype)

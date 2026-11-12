@@ -29,7 +29,11 @@ The new WifiEngine interface wires together existing portable modules:
   reinitialization and a new actual association may restore link monitoring.
   The monitor rejects identical STA/BSSID identities and does not refresh AP
   liveness from an IBSS, zero-interval or changed-interval advertisement;
-  a changed beacon cadence requires renewed association instead.
+  a changed beacon cadence requires renewed association instead. An AP
+  management callback arriving beyond the missed-beacon deadline now performs
+  the same link-loss transition as the timer, before a late beacon can renew
+  the expired lease. This is source-only timer-ordering protection, not native
+  workloop or over-the-air validation.
 
 The caller passes a separate receive-trust report from a real device
 backend. Such a backend is NOT implemented: the flags must never be

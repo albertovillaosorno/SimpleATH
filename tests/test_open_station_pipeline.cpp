@@ -1872,6 +1872,61 @@ namespace
         return true;
     }
 
+    bool rejectExpiredBeaconRefresh()
+    {
+        // A delayed watchdog callback cannot let a beacon arriving AFTER
+        // ten missed beacon intervals renew an already expired link lease.
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        uint8_t advertisement[49] {};
+        beacon(advertisement);
+        const LinkStartConfig session {100, 1000, false, false};
+        LinkMonitor boundary;
+        if (boundary.started(station, ap, session) != LinkMonitorResult::Ok ||
+            boundary.observeManagement(advertisement, sizeof(advertisement),
+                                       2200, true,
+                                       false) != LinkMonitorResult::Ok ||
+            boundary.status().state != LinkState::Associated ||
+            boundary.status().lastBeaconMs != 2200 ||
+            boundary.status().acceptedBeacons != 1)
+        {
+            return false;
+        }
+        LinkMonitor expired;
+        if (expired.started(station, ap, session) != LinkMonitorResult::Ok ||
+            expired.observeManagement(advertisement, sizeof(advertisement),
+                                      2201, true,
+                                      false) != LinkMonitorResult::Ok ||
+            expired.status().state != LinkState::ReconnectPending ||
+            expired.status().reason != LinkLoss::BeaconTimeout ||
+            expired.status().lastBeaconMs != 1000 ||
+            expired.status().acceptedBeacons != 0 ||
+            expired.reconnectDue(2700) || !expired.reconnectDue(2701) ||
+            expired.observeManagement(advertisement, sizeof(advertisement),
+                                      2202, true, false) !=
+                LinkMonitorResult::NotAssociated)
+        {
+            return false;
+        }
+        // A foreign AP cannot force expiry by offering spoofed liveness.
+        LinkMonitor foreign;
+        if (foreign.started(station, ap, session) != LinkMonitorResult::Ok)
+        {
+            return false;
+        }
+        advertisement[10] ^= 0x02U;
+        const auto rejected = foreign.observeManagement(
+            advertisement, sizeof(advertisement), 2201, true, false);
+        advertisement[10] ^= 0x02U;
+        return rejected == LinkMonitorResult::ForeignAccessPoint &&
+               foreign.status().state == LinkState::Associated &&
+               foreign.status().lastBeaconMs == 1000 &&
+               foreign.observeManagement(advertisement, sizeof(advertisement),
+                                         2201, true,
+                                         false) == LinkMonitorResult::Ok &&
+               foreign.status().state == LinkState::ReconnectPending;
+    }
+
     bool rejectNullLinkManagementRx()
     {
         const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
@@ -2102,6 +2157,10 @@ int main()
     if (!rejectMalformedLinkLossIes())
     {
         return 51;
+    }
+    if (!rejectExpiredBeaconRefresh())
+    {
+        return 71;
     }
     if (!rejectNullLinkManagementRx())
     {
