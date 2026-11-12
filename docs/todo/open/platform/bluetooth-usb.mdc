@@ -697,3 +697,29 @@ modified rejection. The previous source fails this synthetic case, while
 C++14/C++17 sanitizer tests pass after the fix. This consumer-side snapshot
 does not ensure native USB event lifetime, provide a Bluetooth host stack,
 prove physical advertising, or authorize AirDrop/AWDL.
+
+## Next native owner handoff — receive staging and host dispatch
+
+The three portable LE/USB producers have bounded snapshots at their own
+callback boundaries, but the native HCI receive path still needs a stable
+transfer lease all the way through packet reassembly. `pump` in
+`src/platform/bluetooth/NativeAth3kIo.cpp` uses one 512-byte USB read buffer
+and checks the physical USB session before dispatch. Inside
+`src/bluetooth/UsbHci.cpp`, receive authorization can invoke the external
+owner before and between reads from that buffer. The native integration must
+serialize owner callbacks and buffer reuse for the full receive invocation,
+or copy the entire admitted transfer into separately owned, bounded staging
+before allowing any callback to mutate its source. Do not solve this with an
+unreviewed 4 KiB copy on a kernel stack: ACL reassembly permits larger
+multi-transfer frames and already owns independent packet storage. Preserve
+coalesced/split packet support and the monotonic USB generation check.
+
+Before claiming functional LE discovery or advertising, implement an actual
+native Bluetooth host dispatch and procedure arbiter: source inspection finds
+no production caller of `beginLePassiveScan`, `beginLeActiveScan`,
+`acceptLeHciEvent`, `beginLeAdvertising`, or `acceptLeAdvertisingEvent` outside
+the portable producer files. Add synthetic regressions for permission-time
+USB receive source mutation and same-epoch detach/rebind on the chosen native
+staging design, then separately validate real host/USB identity, firmware,
+coexistence, reset and power semantics. The current offline source validation
+is not physical Bluetooth, pairing or AirDrop acceptance.
