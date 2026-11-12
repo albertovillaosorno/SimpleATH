@@ -85,8 +85,11 @@ duplicate. Stop/reset retires the intent and the subscription, and both the
 provider and transport reject stale acknowledgements. If WCL cancels after
 a temporarily unreadable radio snapshot, the native owner attempts physical
 cancellation before posting the abort. If the bridge completion has not yet
-arrived, the consumer remembers the aborted epoch/generation and reconciles
-it after the worker finishes; no newer generation can be acknowledged.
+arrived, the consumer remembers the exact epoch/generation and reconciles
+it after the worker finishes. The same identity retry applies when a normal
+`SCAN_DONE` is posted but its provider acknowledgement fails; otherwise the
+bridge can remain `EventPending` and block later scans. Only the matching
+bridge intent may be retired, never a successor generation.
 The callback takes only an observer lock and the transport mailbox lock;
 no provider callback enters the child's work-loop gate. The child drops its
 mailbox lock before calling the provider acknowledgement gate.

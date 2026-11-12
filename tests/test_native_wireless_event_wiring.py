@@ -279,11 +279,31 @@ class NativeWirelessEventWiring(unittest.TestCase):
         assert "owner.unsubscribe != nullptr" in TRANSPORT
         assert "owner.retryScanCompletion != nullptr" in TRANSPORT
         assert "owner.acknowledgeScanCompletion != nullptr" in TRANSPORT
-        assert "abortedScanEpoch_ = completedEpoch;" in finish
-        assert "abortedScanGeneration_ = completedGeneration;" in finish
+        assert "if (!stopping_ && acknowledged != kIOReturnSuccess)" in finish
+        assert "pendingScanAckEpoch_ = completedEpoch;" in finish
+        assert "pendingScanAckGeneration_ = completedGeneration;" in finish
         assert "controller_->scanCancel(scanGeneration_);" in poll
-        assert "abortedScanEpoch_, abortedScanGeneration_" in poll
-        assert "(live && state.epoch != abortedScanEpoch_)" in poll
+        assert "pendingScanAckEpoch_," in poll
+        assert "pendingScanAckGeneration_)" in poll
+        assert "(live && state.epoch != pendingScanAckEpoch_)" in poll
+
+    @staticmethod
+    def test_normal_scan_handoff_retries_rejected_provider_ack() -> None:
+        finish = INFRA.split("void SimpleATHInfraProtocol::finishScan(", 1)[1]
+        finish = finish.split("void SimpleATHInfraProtocol::tick(", 1)[0]
+        poll = INFRA.split("void SimpleATHInfraProtocol::poll()", 1)[1]
+        normal = finish.split("if (!canceled)", 1)[1]
+        assert "emit(kScanDoneEvent, &status, sizeof(status));" in normal
+        assert "controller_->acknowledgeScanCompletion(" in normal
+        assert "if (!stopping_ && acknowledged != kIOReturnSuccess)" in normal
+        assert "if (canceled &&" not in normal
+        assert "pendingScanAckEpoch_ = completedEpoch;" in normal
+        assert "pendingScanAckGeneration_ = completedGeneration;" in normal
+        assert "if (pendingScanAckGeneration_ != 0U)" in poll
+        assert "controller_->acknowledgeScanCompletion(" in poll
+        assert "pendingScanAckEpoch_," in poll
+        assert "pendingScanAckGeneration_)" in poll
+        assert "pendingScanAckGeneration_ = 0;" in poll
 
 
 if __name__ == "__main__":

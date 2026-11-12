@@ -109,6 +109,9 @@ confirmed. Verify exact-build notification delivery and error semantics
 before claiming reliable AirPort scan completion. Its begin-scan callback
 also rejects stale PCI epochs under the physical owner gate and returns the
 accepted epoch with the bridge ticket; this does not verify OS event receipt.
+Normal as well as canceled `SCAN_DONE` paths retain failed provider
+acknowledgements by exact epoch/generation for poll retry, so an ordinary
+transient failure does not strand the scan bridge in `EventPending`.
 
 
 Apple documents

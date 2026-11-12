@@ -898,8 +898,8 @@ IOReturn SimpleATHInfraProtocol::beginScan(void *data)
         return result;
     }
     scan_ = filter;
-    abortedScanEpoch_ = 0;
-    abortedScanGeneration_ = 0;
+    pendingScanAckEpoch_ = 0;
+    pendingScanAckGeneration_ = 0;
     scanEpoch_ = epoch;
     scanGeneration_ = generation;
     return kIOReturnSuccess;
@@ -965,13 +965,14 @@ void SimpleATHInfraProtocol::finishScan(bool canceled)
     // Stale/retired epochs cannot acknowledge a successor's scan intent.
     const IOReturn acknowledged = controller_->acknowledgeScanCompletion(
         completedEpoch, completedGeneration);
-    if (canceled && !stopping_ && acknowledged != kIOReturnSuccess)
+    if (!stopping_ && acknowledged != kIOReturnSuccess)
     {
-        // A physical scan can finish after an OS-local abort, including a
-        // transient failed snapshot. The already-dispatched aborted WCL event
-        // can retire only its own future bridge completion, never a successor.
-        abortedScanEpoch_ = completedEpoch;
-        abortedScanGeneration_ = completedGeneration;
+        // A provider completion can arrive late after an OS-local abort,
+        // or its acknowledgement can fail after an ordinary SCAN_DONE.
+        // Preserve either identity until its exact bridge intent is retired;
+        // otherwise a new SCAN_REQ can remain blocked by EventPending.
+        pendingScanAckEpoch_ = completedEpoch;
+        pendingScanAckGeneration_ = completedGeneration;
     }
 }
 
@@ -991,16 +992,17 @@ void SimpleATHInfraProtocol::poll()
     const bool live = result == kIOReturnSuccess;
     const bool available =
         live && state.radioAvailable && state.powered && !state.rfKillBlocked;
-    if (abortedScanGeneration_ != 0U)
+    if (pendingScanAckGeneration_ != 0U)
     {
-        if ((live && state.epoch != abortedScanEpoch_) ||
-            controller_->acknowledgeScanCompletion(
-                abortedScanEpoch_, abortedScanGeneration_) == kIOReturnSuccess)
+        if ((live && state.epoch != pendingScanAckEpoch_) ||
+            controller_->acknowledgeScanCompletion(pendingScanAckEpoch_,
+                                                   pendingScanAckGeneration_) ==
+                kIOReturnSuccess)
         {
-            // An unavailable or replaced provider retires the old epoch;
-            // it cannot be granted an acknowledgement in a newer one.
-            abortedScanEpoch_ = 0;
-            abortedScanGeneration_ = 0;
+            // A replaced provider retires the old pending acknowledgement;
+            // an old generation cannot drain a successor's bridge intent.
+            pendingScanAckEpoch_ = 0;
+            pendingScanAckGeneration_ = 0;
         }
     }
     if (!live || state.epoch != lastEpoch_)

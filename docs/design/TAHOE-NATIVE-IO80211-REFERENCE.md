@@ -586,8 +586,12 @@ then calls the provider's acknowledgement through a distinct gate. Stop and
 PCI epoch retirement invalidate the intent; stale acknowledgements cannot
 release a successor scan. A WCL-local abort also attempts physical cancellation
 before notifying the OS, and retains its retired epoch/generation if the
-physical completion was not yet available for acknowledgement. Polling
-reconciles only the identical retired ticket; a new successful scan clears it.
+physical completion was not yet available for acknowledgement. A normal
+scan completion also retains its exact epoch/generation when a provider
+acknowledgement fails after `SCAN_DONE`; otherwise `EventPending` would strand
+a future scan request. Polling retries only that matching identity and clears
+it on success or PCI replacement. A newly accepted scan supersedes it only
+after the physical owner has accepted the successor generation.
 No mailbox lock is held during any provider call, and the provider's callback
 never enters the native controller's gate.
 
