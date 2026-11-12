@@ -337,6 +337,95 @@ namespace
                provider.revocations == 0;
     }
 
+    bool rejectAssociatedBeaconPolicyDrift()
+    {
+        // A fully associated WPA2 BSSID cannot refresh its beacon deadline
+        // using changed RF/security policy. The same-BSSID hidden-name case
+        // remains valid because the underlying selected SSID is retained.
+        const std::array<uint8_t, 32> pmk {{1}};
+        std::array<uint8_t, 32> anonce {{7}};
+        std::array<uint8_t, 32> snonce {};
+        for (size_t index = 0; index < snonce.size(); ++index)
+        {
+            snonce.at(index) = static_cast<uint8_t>(index + 1U);
+        }
+        const Mac station {{0x02, 0x66, 0x77, 0x88, 0x99, 0xaa}};
+        const Mac ap {{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}};
+        std::array<uint8_t, 48> ptk {};
+        if (crypto::derivePtk(pmk.data(), ap, station, anonce.data(),
+                              snonce.data(), ptk.data()) != crypto::Error::Ok)
+        {
+            return false;
+        }
+        Provider provider {};
+        WifiEngine engine;
+        if (!joinAndInstall(engine, provider, ptk.data()) ||
+            engine.linkStatus().state != LinkState::Associated ||
+            engine.linkStatus().acceptedBeacons != 0U)
+        {
+            return false;
+        }
+        const uint64_t initialBeaconMs = engine.linkStatus().lastBeaconMs;
+        std::array<uint8_t, 512> tx {};
+        EngineAction action {};
+        auto reject =
+            [&](const std::array<uint8_t, 71> &advertisement, uint64_t nowMs)
+        {
+            action.kind = ActionKind::TransmitData;
+            return engine.acceptRx(advertisement.data(), advertisement.size(),
+                                   kTrust, {-40, nowMs}, tx.data(), tx.size(),
+                                   action) ==
+                       EngineResult::InvalidReceivedFrame &&
+                   action.kind == ActionKind::None &&
+                   engine.linkStatus().state == LinkState::Associated &&
+                   engine.linkStatus().lastBeaconMs == initialBeaconMs &&
+                   engine.linkStatus().acceptedBeacons == 0U;
+        };
+        auto advertisement = wpa2Beacon();
+        advertisement.at(48) = 11U; // Same BSSID, different primary channel.
+        if (!reject(advertisement, 1050U))
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        advertisement.at(34) &= static_cast<uint8_t>(~0x10U); // Open downgrade.
+        if (!reject(advertisement, 1051U))
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        advertisement.at(69) = 0x80U; // WPA2 + newly advertised PMF ability.
+        if (!reject(advertisement, 1052U))
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        advertisement.at(38) = 'X'; // Same BSSID, different visible SSID.
+        if (!reject(advertisement, 1053U))
+        {
+            return false;
+        }
+        advertisement = wpa2Beacon();
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 1054U}, tx.data(), tx.size(),
+                            action) != EngineResult::NoAction ||
+            engine.linkStatus().acceptedBeacons != 1U ||
+            engine.linkStatus().lastBeaconMs != 1054U)
+        {
+            return false;
+        }
+        std::memset(&advertisement.at(38), 0, kSsid.size());
+        if (engine.acceptRx(advertisement.data(), advertisement.size(), kTrust,
+                            {-40, 1055U}, tx.data(), tx.size(),
+                            action) != EngineResult::NoAction ||
+            engine.linkStatus().acceptedBeacons != 2U ||
+            engine.linkStatus().lastBeaconMs != 1055U)
+        {
+            return false;
+        }
+        return true;
+    }
+
     // One coherent fixture checks the M1-M4 epoch and its replay/rollback.
     // NOLINTNEXTLINE(readability-function-cognitive-complexity)
     int protectedGroupExchange()
@@ -1308,6 +1397,10 @@ namespace
 
 int main()
 {
+    if (!rejectAssociatedBeaconPolicyDrift())
+    {
+        return 78;
+    }
     const int baseline = protectedGroupExchange();
     if (baseline != 0)
     {

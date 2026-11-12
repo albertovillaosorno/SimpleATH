@@ -649,3 +649,18 @@ reuse the protected path. Deferred Group2 explicitly supplies the protected
 call-site flag while clear M4 does not. The source-level regression follows
 the post-gate data and deferred-management paths. This is source admission,
 not physical transmit proof, calibrated RF readiness, or WPA2 certification.
+
+## Associated-BSS advertisement policy consistency (2026-11-12)
+
+The portable `WifiEngine` now compares same-BSSID beacon/probe-response
+channel, privacy, complete RSNE and visible SSID against the BSS retained at
+association **before** allowing `LinkMonitor` to refresh AP liveness. A later
+hidden SSID is permitted if the RF/security identity remains unchanged. A
+mismatched advertisement is ignored as malformed association evidence; it
+cannot extend the beacon watchdog or trigger the native post-association
+beacon/controlled-port event. The normal beacon deadline remains responsible
+for loss/cleanup if no matching advertisement arrives. Synthetic WPA2 join
+regressions cover changed 2.4-GHz channel, downgrade, PMF RSN capability,
+SSID and unchanged/hidden beacons. This is only FCS-trusted source behavior;
+802.11 beacons are not cryptographically authenticated, and RF/TPC/EDMA still
+cannot be declared ready.

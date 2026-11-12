@@ -195,6 +195,33 @@ namespace simpleath
                 __builtin_memmove(dest, src, count);
             }
 
+            // A same-BSSID beacon may renew an *existing* link only when it
+            // still advertises the security and primary channel selected at
+            // association. A changed RSNE (including PMF capabilities) is
+            // NOT evidence that the old PTK/GTK or controlled port is valid.
+            // Hidden SSIDs are allowed because an AP may omit its name from
+            // later beacons without changing its actual BSS identity.
+            bool sameAssociatedBeaconPolicy(const Beacon &selected,
+                                            const Beacon &advertised)
+            {
+                constexpr uint16_t kPrivacyCapability = 0x0010U;
+                if (!advertised.infrastructure ||
+                    advertised.channel != selected.channel ||
+                    ((advertised.capabilities ^ selected.capabilities) &
+                     kPrivacyCapability) != 0U ||
+                    advertised.rsn.security != selected.rsn.security ||
+                    advertised.rsnIeLength != selected.rsnIeLength ||
+                    __builtin_memcmp(&advertised.rsnIe[0], &selected.rsnIe[0],
+                                     selected.rsnIeLength) != 0)
+                {
+                    return false;
+                }
+                return advertised.hiddenSsid ||
+                       (advertised.ssidLength == selected.ssidLength &&
+                        __builtin_memcmp(&advertised.ssid[0], &selected.ssid[0],
+                                         selected.ssidLength) == 0);
+            }
+
             EngineResult mapPrepared(Result value)
             {
                 if (value == Result::BufferTooSmall)
@@ -1019,6 +1046,25 @@ namespace simpleath
             }
             if (link_.status().state == LinkState::Associated)
             {
+                // The liveness monitor validates syntax, BSSID and beacon
+                // cadence, not the originally negotiated association policy.
+                // Reject a matching AP's changed channel, SSID, privacy or
+                // RSNE *before* it can refresh lastBeaconMs or open a native
+                // controlled port. The existing watchdog will expire the old
+                // link if no matching advertisement arrives.
+                if ((header.subtype == kBeaconSubtype ||
+                     header.subtype == kProbeResponseSubtype) &&
+                    sameMac(header.source, station_.candidate().beacon.bssid) &&
+                    sameMac(header.bssid, station_.candidate().beacon.bssid))
+                {
+                    Beacon advertised {};
+                    if (parseBeacon(frame, length, advertised) != Result::Ok ||
+                        !sameAssociatedBeaconPolicy(station_.candidate().beacon,
+                                                    advertised))
+                    {
+                        return EngineResult::InvalidReceivedFrame;
+                    }
+                }
                 const LinkMonitorResult updated =
                     link_.observeManagement(frame, length, nowMs, true, false);
                 if (updated == LinkMonitorResult::Ok &&
