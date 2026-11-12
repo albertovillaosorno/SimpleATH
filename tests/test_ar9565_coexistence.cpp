@@ -1854,6 +1854,53 @@ namespace
                 return false;
             }
         }
+        // Exhaust every circular consumer/head pair with mixed recycled and
+        // normal entries. A 16-slot ring must deliver 0..15 messages in
+        // strict order without crossing the physical producer snapshot.
+        for (uint16_t initial = 0U; initial < kAr9565MciGpmEntries; ++initial)
+        {
+            for (uint16_t head = 0U; head < kAr9565MciGpmEntries; ++head)
+            {
+                std::array<uint8_t, kAr9565MciGpmBytes> data {};
+                data.fill(0xfeU);
+                for (uint16_t index = 0U; index < kAr9565MciGpmEntries; ++index)
+                {
+                    data.at(index * kEntryBytes + kTypeField) =
+                        index % 3U == 0U ? 0xfeU : kAgent;
+                    data.at(index * kEntryBytes + kOpcodeField) =
+                        static_cast<uint8_t>(index);
+                }
+                MciGpmCursor cursorAtHead {kEpoch, initial, true};
+                MciGpmBatch result {};
+                result.count = 4U;
+                const auto status = collectAr9565MciGpmBatch(
+                    notification, kEpoch, reg(head), data.data(), data.size(),
+                    cursorAtHead, result);
+                size_t expectedCount = 0U;
+                for (uint16_t index = initial; index != head;
+                     index = static_cast<uint16_t>((index + 1U) %
+                                                   kAr9565MciGpmEntries))
+                {
+                    if (index % 3U == 0U)
+                    {
+                        continue;
+                    }
+                    if (result.messages[expectedCount].type != kAgent ||
+                        result.messages[expectedCount].opcode != index)
+                    {
+                        return false;
+                    }
+                    ++expectedCount;
+                }
+                if (result.count != expectedCount ||
+                    cursorAtHead.nextIndex != head ||
+                    status != (expectedCount == 0U ? MciGpmResult::Empty
+                                                   : MciGpmResult::Message))
+                {
+                    return false;
+                }
+            }
+        }
         return true;
     }
 
