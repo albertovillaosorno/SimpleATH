@@ -253,3 +253,15 @@ The owner receives a best-effort physical cancel first, then the local scan
 emits an aborted completion rather than treating an old completion event as
 successful for a radio that is no longer available. Failed scan completion
 acknowledgement retains its existing identity-scoped retry.
+
+## Failed native WCL leave retirement (2026-11-12)
+
+An explicit WCL leave or abort request now retires the local join identity
+and Skywalk demand even when the physical station-leave callback rejects the
+operation. A failed physical disassociation still returns its original error
+and does not claim the RF or DMA was stopped. Previously, the locally active
+join survived a failed owner leave: a later still-associated, port-open
+provider snapshot could reannounce the OS link despite the user requesting
+leave. Terminal connection and link-down notices now follow `retireJoin`'s
+one-shot session lifecycle; a failed abort does not synthesize a successful
+abort event. This is an offline source-order regression, not a Tahoe WCL test.

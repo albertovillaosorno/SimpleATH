@@ -96,7 +96,20 @@ class NativePacketRevocationWiring(unittest.TestCase):
             < leave.index("controller_->stationLeave(3);")
         )
         assert "if (result != kIOReturnSuccess)" in leave
+        failure = leave.split("if (result != kIOReturnSuccess)", 1)[1].split(
+            "// An explicit WCL abort", 1
+        )[0]
+        assert failure.index("retireJoin(result, 3);") < failure.index(
+            "return result;"
+        )
         assert "return result;" in leave
+        retirement = section(
+            "void SimpleATHInfraProtocol::retireJoin(",
+            "IOReturn SimpleATHInfraProtocol::leaveJoin(",
+        )
+        assert "join_.reset();" in retirement
+        assert "dataRequested_ = false;" in retirement
+        assert "packets_.disable();" in retirement
 
     @staticmethod
     def test_terminal_join_state_revokes_old_packet_intent() -> None:

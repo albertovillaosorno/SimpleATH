@@ -820,6 +820,11 @@ IOReturn SimpleATHInfraProtocol::leaveJoin(bool abort)
     const IOReturn result = controller_->stationLeave(3);
     if (result != kIOReturnSuccess)
     {
+        // Physical disassociation may fail with a busy TX descriptor or an
+        // uncertain PCI epoch. Keep the hardware owner's error, but the OS
+        // has explicitly revoked this WCL join: do not project a stale
+        // associated/port-open snapshot as a fresh local connection.
+        retireJoin(result, 3);
         return result;
     }
     // An explicit WCL abort has its own completion, rather than announcing
